@@ -1,0 +1,108 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeHostLevel — Level Hosting Health Check"
+        ShowInTaskbar="False"
+        MinHeight="820" MinWidth="1200" Height="880" Width="1300"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10">
+            <Run Text="Scan reads every Model-category element's Level across the whole project. Report lists everything by Level with CSV export. Color &amp; View auto-assigns a distinct color per Level (click a swatch to change it) and (re)generates a 3D view named 'DeeHostLevel' with every element tinted by its Level's color. Rehost either consolidates every element onto one Level you pick, or maps each Level to its own target Level - both can keep elements in their current physical position by compensating their offset, or leave the offset alone (element visually shifts by the elevation difference)."/>
+        </TextBlock>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+            <Button x:Name="scan_b" Content="Scan / Re-scan Model" Click="scan_click" Width="180" Height="28"/>
+            <TextBlock x:Name="summary_tb" Text="Not scanned yet." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
+        </StackPanel>
+
+        <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
+                Width="100" Height="26" HorizontalAlignment="Right" Margin="0,10,0,0"/>
+
+        <TabControl x:Name="main_tabs">
+            <TabItem Header="1. Report">
+                <DockPanel Margin="8">
+                    <Button DockPanel.Dock="Top" x:Name="export_csv_b" Content="Export to CSV"
+                            Click="export_csv_click" Width="140" Height="26" HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.1*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="2*"/>
+                        </Grid.ColumnDefinitions>
+                        <DataGrid x:Name="levels_grid" Grid.Column="0" AutoGenerateColumns="False"
+                                  IsReadOnly="True" CanUserAddRows="False" SelectionMode="Extended">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Level" Binding="{Binding name}" Width="*"/>
+                                <DataGridTextColumn Header="Elevation" Binding="{Binding elevation_text}" Width="110"/>
+                                <DataGridTextColumn Header="Elements" Binding="{Binding element_count_text}" Width="80"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <DataGrid x:Name="elements_grid" Grid.Column="2" AutoGenerateColumns="False"
+                                  IsReadOnly="True" CanUserAddRows="False">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Id" Binding="{Binding id_text}" Width="90"/>
+                                <DataGridTextColumn Header="Category" Binding="{Binding category_name}" Width="160"/>
+                                <DataGridTextColumn Header="Family" Binding="{Binding family_name}" Width="*"/>
+                                <DataGridTextColumn Header="Type" Binding="{Binding type_name}" Width="*"/>
+                                <DataGridTextColumn Header="Level" Binding="{Binding level_name}" Width="130"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="2. Color &amp; 3D View">
+                <DockPanel Margin="8">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="autocolor_b" Content="Auto-Assign Colors" Click="autocolor_click" Width="150" Height="26"/>
+                        <Button x:Name="generate_view_b" Content="Generate / Update 'DeeHostLevel' View"
+                                Click="generate_view_click" Width="240" Height="26" Margin="10,0,0,0"/>
+                    </StackPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="color_list_panel"/>
+                    </ScrollViewer>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="3. Rehost">
+                <DockPanel Margin="8">
+                    <StackPanel DockPanel.Dock="Top">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <RadioButton x:Name="mode_consolidate_rb" Content="Consolidate all elements into one Level"
+                                         GroupName="rehost_mode" Checked="rehost_mode_changed" VerticalAlignment="Center" IsChecked="True"/>
+                            <RadioButton x:Name="mode_mapping_rb" Content="Map each Level to its own target Level"
+                                         GroupName="rehost_mode" Checked="rehost_mode_changed" VerticalAlignment="Center" Margin="30,0,0,0"/>
+                        </StackPanel>
+
+                        <StackPanel x:Name="consolidate_panel" Orientation="Horizontal" Margin="0,0,0,10">
+                            <TextBlock Text="Send everything to:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <ComboBox x:Name="consolidate_target_cb" Width="220" Height="24"/>
+                        </StackPanel>
+
+                        <StackPanel x:Name="mapping_panel" Margin="0,0,0,10" Visibility="Collapsed">
+                            <DataGrid x:Name="mapping_grid" AutoGenerateColumns="False" Height="220"
+                                      IsReadOnly="True" CanUserAddRows="False" SelectionMode="Extended">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Source Level" Binding="{Binding name}" Width="*"/>
+                                    <DataGridTextColumn Header="Elements" Binding="{Binding element_count_text}" Width="80"/>
+                                    <DataGridTextColumn Header="Target Level" Binding="{Binding target_name}" Width="*"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <TextBlock Text="Set target for selected row(s):" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="mapping_target_cb" Width="220" Height="24"/>
+                                <Button x:Name="set_mapping_target_b" Content="Apply to Selected"
+                                        Click="set_mapping_target_click" Width="130" Height="24" Margin="10,0,0,0"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <CheckBox x:Name="keep_in_place_cb" Content="Keep elements in their current physical position (recommended)"
+                                  IsChecked="True" Margin="0,0,0,10"/>
+                        <Button x:Name="apply_rehost_b" Content="Apply Rehost" Click="apply_rehost_click"
+                                Width="160" Height="28" HorizontalAlignment="Left"/>
+                        <TextBlock TextWrapping="Wrap" FontStyle="Italic" Margin="0,10,0,0" Text="Walls/Floors/Roofs/Ceilings use a Base-Constraint-style Level, other categories typically use a Level+Offset pair - this tool detects which applies per element. A wall whose Top is constrained to 'Up to Level' may change height as a side effect of moving its Base to a different Level; this is expected. Elements where no writable Level parameter can be found are skipped and listed in the results."/>
+                    </StackPanel>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>
