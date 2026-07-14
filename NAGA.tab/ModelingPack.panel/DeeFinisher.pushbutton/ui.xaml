@@ -1,0 +1,140 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeFinisher — Room-Based Floor / Wall / Ceiling Finishes"
+        ShowInTaskbar="False"
+        MinHeight="760" MinWidth="1200" Height="840" Width="1300"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <!-- Bottom nav -->
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+            <Button x:Name="back_b" Content="&lt; Back" Click="back_click" Width="80" Height="28"/>
+            <Button x:Name="next_b" Content="Next &gt;" Click="next_click" Width="80" Height="28" Margin="6,0,0,0"/>
+            <Button x:Name="close_b" Content="Close" Click="close_click" Width="80" Height="28" Margin="20,0,0,0"/>
+        </StackPanel>
+
+        <TabControl x:Name="wizard_tabs">
+            <!-- STEP 1: Rooms -->
+            <TabItem Header="1. Rooms">
+                <DockPanel Margin="8">
+                    <GroupBox DockPanel.Dock="Top" Header="Room Source" Margin="0,0,0,8">
+                        <StackPanel Orientation="Horizontal" Margin="6">
+                            <RadioButton x:Name="scan_active_rb" GroupName="RoomSource" Content="Scan Rooms in Active View" IsChecked="True" Margin="0,0,16,0"/>
+                            <RadioButton x:Name="scan_project_rb" GroupName="RoomSource" Content="Scan All Rooms in the Project" Margin="0,0,24,0"/>
+                            <Button x:Name="scan_b" Content="Scan" Click="scan_click" Width="90" Height="24"/>
+                            <Button x:Name="refresh_scan_b" Content="Refresh" Click="refresh_scan_click" Width="80" Height="24" Margin="6,0,0,0"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,6,0" DockPanel.Dock="Left"/>
+                        <TextBox x:Name="search_tb" Width="200" Height="24" TextChanged="search_changed" DockPanel.Dock="Left" Margin="0,0,16,0"/>
+                        <TextBlock Text="Filter by Level:" VerticalAlignment="Center" Margin="0,0,6,0" DockPanel.Dock="Left"/>
+                        <ComboBox x:Name="level_filter_cb" Width="160" Height="24" SelectionChanged="level_filter_changed" DockPanel.Dock="Left" Margin="0,0,16,0"/>
+                        <TextBlock Text="Group By:" VerticalAlignment="Center" Margin="0,0,6,0" DockPanel.Dock="Left"/>
+                        <ComboBox x:Name="group_by_cb" Width="160" Height="24" SelectionChanged="group_by_changed" DockPanel.Dock="Left"/>
+                    </DockPanel>
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="select_all_b" Content="Select All" Click="select_all_click" Width="90" Height="24"/>
+                        <Button x:Name="deselect_all_b" Content="Deselect All" Click="deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <TextBlock x:Name="room_count_tb" Text="0 rooms scanned" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+
+                    <DataGrid x:Name="rooms_grid" AutoGenerateColumns="False"
+                              CanUserAddRows="False" CanUserDeleteRows="False" CanUserSortColumns="True"
+                              SelectionMode="Extended" SelectionUnit="FullRow"
+                              RowEditEnding="rooms_row_edit_ending">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="50"/>
+                            <DataGridTextColumn Header="Room Number" Binding="{Binding number}" IsReadOnly="True" Width="90"/>
+                            <DataGridTextColumn Header="Room Name" Binding="{Binding name}" IsReadOnly="True" Width="150"/>
+                            <DataGridTextColumn Header="Level" Binding="{Binding level_name}" IsReadOnly="True" Width="110"/>
+                            <DataGridTextColumn Header="Area" Binding="{Binding area_text}" IsReadOnly="True" Width="80"/>
+                            <DataGridComboBoxColumn x:Name="floor_type_col" Header="Floor Finish" SelectedItemBinding="{Binding floor_type_name, Mode=TwoWay}" Width="140"/>
+                            <DataGridComboBoxColumn x:Name="wall_type_col" Header="Wall Finish" SelectedItemBinding="{Binding wall_type_name, Mode=TwoWay}" Width="140"/>
+                            <DataGridComboBoxColumn x:Name="ceiling_type_col" Header="Ceiling Finish" SelectedItemBinding="{Binding ceiling_type_name, Mode=TwoWay}" Width="140"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status_text}" IsReadOnly="True" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- STEP 2: Assignment & Options -->
+            <TabItem Header="2. Assignment &amp; Options">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="8">
+                        <GroupBox Header="Global Assignment Panel (applies to Selected rows in Step 1)" Margin="0,0,0,8">
+                            <StackPanel Margin="6">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <TextBlock Text="Floor Finish:" Width="90" VerticalAlignment="Center"/>
+                                    <ComboBox x:Name="global_floor_cb" Width="180" Height="24"/>
+                                    <Button x:Name="apply_floor_selected_b" Content="Apply to Selected" Click="apply_floor_selected_click" Width="120" Height="24" Margin="10,0,0,0"/>
+                                    <Button x:Name="apply_floor_all_b" Content="Apply to All" Click="apply_floor_all_click" Width="100" Height="24" Margin="6,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <TextBlock Text="Wall Finish:" Width="90" VerticalAlignment="Center"/>
+                                    <ComboBox x:Name="global_wall_cb" Width="180" Height="24"/>
+                                    <Button x:Name="apply_wall_selected_b" Content="Apply to Selected" Click="apply_wall_selected_click" Width="120" Height="24" Margin="10,0,0,0"/>
+                                    <Button x:Name="apply_wall_all_b" Content="Apply to All" Click="apply_wall_all_click" Width="100" Height="24" Margin="6,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <TextBlock Text="Ceiling Finish:" Width="90" VerticalAlignment="Center"/>
+                                    <ComboBox x:Name="global_ceiling_cb" Width="180" Height="24"/>
+                                    <Button x:Name="apply_ceiling_selected_b" Content="Apply to Selected" Click="apply_ceiling_selected_click" Width="120" Height="24" Margin="10,0,0,0"/>
+                                    <Button x:Name="apply_ceiling_all_b" Content="Apply to All" Click="apply_ceiling_all_click" Width="100" Height="24" Margin="6,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <Button x:Name="clear_selected_b" Content="Clear Selected Rows' Assignments" Click="clear_selected_click" Width="190" Height="24"/>
+                                    <TextBlock Text="Copy assignment from room:" VerticalAlignment="Center" Margin="24,0,6,0"/>
+                                    <ComboBox x:Name="copy_from_cb" Width="160" Height="24"/>
+                                    <Button x:Name="copy_to_selected_b" Content="Copy to Selected" Click="copy_to_selected_click" Width="120" Height="24" Margin="10,0,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Wall Finish Options (Full geometry mode: inside-face offset, mitered corners, auto-join)" Margin="0,0,0,8">
+                            <StackPanel Margin="6">
+                                <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" FontStyle="Italic"
+                                           Text="Finish walls are generated per straight boundary edge that is bounded by a real Wall element (room-separation-line boundaries are skipped). Corners are mitered by intersecting adjacent offset edges, and adjacent segments are joined via JoinGeometry after creation. This is the most geometry-sensitive part of DeeFinisher - review results after Generate and re-run if a corner needs manual cleanup."/>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Height Mode:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <RadioButton x:Name="height_fixed_rb" GroupName="WallHeight" Content="Fixed Height" IsChecked="True" Margin="0,0,16,0" Checked="wall_height_mode_changed"/>
+                                    <RadioButton x:Name="height_room_rb" GroupName="WallHeight" Content="Match Room Height" Margin="0,0,16,0" Checked="wall_height_mode_changed"/>
+                                    <RadioButton x:Name="height_level_above_rb" GroupName="WallHeight" Content="Attach to Level Above" Checked="wall_height_mode_changed"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                    <TextBlock x:Name="fixed_height_label_tb" Text="Fixed Height:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBox x:Name="fixed_height_tb" Width="80" Height="22" Text="3000"/>
+                                    <TextBlock x:Name="fixed_height_unit_tb" Text="mm" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Duplicate Detection">
+                            <StackPanel Orientation="Horizontal" Margin="6">
+                                <TextBlock Text="If a finish was already created by DeeFinisher for a room:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <ComboBox x:Name="duplicate_mode_cb" Width="160" Height="24"/>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- STEP 3: Preview & Generate -->
+            <TabItem Header="3. Preview &amp; Generate">
+                <DockPanel Margin="8">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="refresh_preview_b" Content="Refresh Preview" Click="refresh_preview_click" Width="120" Height="26"/>
+                        <Button x:Name="export_csv_b" Content="Export Room List to Excel (CSV)" Click="export_csv_click" Width="200" Height="26" Margin="8,0,0,0"/>
+                        <Button x:Name="generate_b" Content="Generate Finishes" Click="generate_click" Width="140" Height="26" Margin="20,0,0,0"/>
+                    </StackPanel>
+                    <TextBox x:Name="summary_tb" DockPanel.Dock="Top" Height="150" Margin="0,0,0,8"
+                             IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
+                             FontFamily="Consolas"/>
+                    <TextBlock DockPanel.Dock="Top" Text="Warnings (rooms that cannot generate one or more finish elements):" FontWeight="Bold" Margin="0,0,0,4"/>
+                    <ListBox x:Name="warnings_lb"/>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>

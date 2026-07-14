@@ -1,0 +1,95 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeGrid — Detect &amp; Manage Grids"
+        ShowInTaskbar="False"
+        MinHeight="760" MinWidth="1200" Height="840" Width="1300"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10">
+            <Run Text="Detected Grids are read from the current model and split by orientation: Vertical grids (running mostly north-south, positioned by X) and Horizontal grids (running mostly east-west, positioned by Y) - the same way numbered/lettered grids usually work."/><LineBreak/>
+            <Run Text="Edit Grid Name, Position, or Spacing directly in a table - editing either Position or Spacing recomputes the other, and each table re-sorts/recalculates independently in position order. Drag a line in the previewer (left/right for Vertical, up/down for Horizontal) to move that grid live - the tables update once the drag is released."/><LineBreak/>
+            <Run Text="Add Grid appends a new row to edit. Delete marks an existing grid for deletion (click again to undo) or removes an unsaved new row outright. Nothing changes in the model until you click Apply Changes."/><LineBreak/>
+            <Run Text="A dimension label sits between each adjacent pair of grid lines in the previewer - click one to type a new spacing directly. Pick a naming pattern and rename all of one direction's grids in position order in one click."/>
+        </TextBlock>
+        <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Rename Pattern:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <ComboBox x:Name="rename_pattern_cb" Width="200" Height="24"/>
+                <Button x:Name="rename_v_b" Content="Rename Vertical Grids" Click="rename_vertical_click"
+                        Width="150" Height="24" Margin="14,0,0,0"/>
+                <Button x:Name="rename_h_b" Content="Rename Horizontal Grids" Click="rename_horizontal_click"
+                        Width="160" Height="24" Margin="6,0,0,0"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <Button x:Name="refresh_b" Content="Refresh (Re-scan Model)"
+                        Click="refresh_click" Width="160" Height="26"/>
+                <Button x:Name="export_csv_b" Content="Export to Excel (CSV)" Click="export_csv_click"
+                        Width="160" Height="26" Margin="10,0,0,0"/>
+                <Button x:Name="apply_b" Content="Apply Changes to Model" Click="apply_click"
+                        Width="180" Height="26" Margin="20,0,0,0"/>
+                <Button x:Name="close_b" Content="Close" Click="close_click"
+                        Width="90" Height="26" Margin="10,0,0,0"/>
+            </StackPanel>
+        </StackPanel>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*"/>
+                <ColumnDefinition Width="10"/>
+                <ColumnDefinition Width="380"/>
+            </Grid.ColumnDefinitions>
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="10"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <DockPanel Grid.Row="0">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBlock Text="Vertical Grids" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,14,0"/>
+                        <Button x:Name="add_v_b" Content="Add Vertical Grid" Click="add_vertical_click" Width="130" Height="22"/>
+                        <Button x:Name="delete_v_b" Content="Delete / Undo Delete" Click="delete_vertical_click" Width="140" Height="22" Margin="6,0,0,0"/>
+                    </StackPanel>
+                    <DataGrid x:Name="v_grid" AutoGenerateColumns="False"
+                              CanUserAddRows="False" CanUserDeleteRows="False" CanUserSortColumns="False"
+                              SelectionMode="Single" SelectionUnit="FullRow"
+                              RowEditEnding="v_row_edit_ending"
+                              SelectionChanged="v_selection_changed">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="#" Binding="{Binding sequence_text}" IsReadOnly="True" Width="35"/>
+                            <DataGridTextColumn Header="Grid Name" Binding="{Binding name, Mode=TwoWay}" Width="*"/>
+                            <DataGridTextColumn Header="Position" Binding="{Binding position_text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="100"/>
+                            <DataGridTextColumn Header="Spacing" Binding="{Binding spacing_text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="100"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status_text}" IsReadOnly="True" Width="110"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+
+                <DockPanel Grid.Row="2">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBlock Text="Horizontal Grids" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,14,0"/>
+                        <Button x:Name="add_h_b" Content="Add Horizontal Grid" Click="add_horizontal_click" Width="140" Height="22"/>
+                        <Button x:Name="delete_h_b" Content="Delete / Undo Delete" Click="delete_horizontal_click" Width="140" Height="22" Margin="6,0,0,0"/>
+                    </StackPanel>
+                    <DataGrid x:Name="h_grid" AutoGenerateColumns="False"
+                              CanUserAddRows="False" CanUserDeleteRows="False" CanUserSortColumns="False"
+                              SelectionMode="Single" SelectionUnit="FullRow"
+                              RowEditEnding="h_row_edit_ending"
+                              SelectionChanged="h_selection_changed">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="#" Binding="{Binding sequence_text}" IsReadOnly="True" Width="35"/>
+                            <DataGridTextColumn Header="Grid Name" Binding="{Binding name, Mode=TwoWay}" Width="*"/>
+                            <DataGridTextColumn Header="Position" Binding="{Binding position_text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="100"/>
+                            <DataGridTextColumn Header="Spacing" Binding="{Binding spacing_text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="100"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status_text}" IsReadOnly="True" Width="110"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </Grid>
+            <Border Grid.Column="2" BorderBrush="#FFAAAAAA" BorderThickness="1" Background="#FFF7F7F7">
+                <Canvas x:Name="preview_canvas" ClipToBounds="True"
+                        SizeChanged="preview_canvas_size_changed"/>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>

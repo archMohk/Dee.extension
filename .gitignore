@@ -1,0 +1,12 @@
+# Real credentials - NEVER commit. Distribute this file to trusted
+# users through a separate, non-public channel instead.
+acc_config.json
+
+# Per-machine caches / runtime state - not source, and re-generated
+# automatically on first use of the relevant tool.
+.acc_token_cache.json
+.acc_file_cache.json
+dlgval.json
+Project_Dlg_Data/
+__pycache__/
+*.pyc

@@ -1,0 +1,81 @@
+{
+  "Ceiling Light Layout": {
+    "pattern": "Centered Grid",
+    "x_spacing_mm": 3000,
+    "y_spacing_mm": 3000,
+    "boundary_offset_mm": 300,
+    "alignment": "Center",
+    "rotation_mode": "Keep Family Orientation",
+    "fixed_rotation_degrees": 0,
+    "collision_mode": "Skip",
+    "lock_mode": "Spacing-Locked",
+    "lock_target_count": 0,
+    "pattern_kwargs": {}
+  },
+  "Sprinkler Layout": {
+    "pattern": "Grid",
+    "x_spacing_mm": 3600,
+    "y_spacing_mm": 3600,
+    "boundary_offset_mm": 600,
+    "alignment": "Center",
+    "rotation_mode": "Keep Family Orientation",
+    "fixed_rotation_degrees": 0,
+    "collision_mode": "Notify User",
+    "lock_mode": "Spacing-Locked",
+    "lock_target_count": 0,
+    "pattern_kwargs": {},
+    "_note": "NFPA-style spacing shown here (3.6 m / 12 ft) is a reasonable common default, user-adjustable per spec - not a substitute for an actual NFPA 13 hazard-classification calculation."
+  },
+  "Air Diffusers": {
+    "pattern": "Grid",
+    "x_spacing_mm": 2400,
+    "y_spacing_mm": 2400,
+    "boundary_offset_mm": 300,
+    "alignment": "Center",
+    "rotation_mode": "Keep Family Orientation",
+    "fixed_rotation_degrees": 0,
+    "collision_mode": "Skip",
+    "lock_mode": "Spacing-Locked",
+    "lock_target_count": 0,
+    "pattern_kwargs": {}
+  },
+  "Smoke Detectors": {
+    "pattern": "Grid",
+    "x_spacing_mm": 9000,
+    "y_spacing_mm": 9000,
+    "boundary_offset_mm": 500,
+    "alignment": "Center",
+    "rotation_mode": "Keep Family Orientation",
+    "fixed_rotation_degrees": 0,
+    "collision_mode": "Skip",
+    "lock_mode": "Spacing-Locked",
+    "lock_target_count": 0,
+    "pattern_kwargs": {}
+  },
+  "Furniture Layout": {
+    "pattern": "Grid",
+    "x_spacing_mm": 1800,
+    "y_spacing_mm": 1800,
+    "boundary_offset_mm": 600,
+    "alignment": "Center",
+    "rotation_mode": "Rotate to Room Direction",
+    "fixed_rotation_degrees": 0,
+    "collision_mode": "Move to Nearest Available Location",
+    "lock_mode": "Spacing-Locked",
+    "lock_target_count": 0,
+    "pattern_kwargs": {}
+  },
+  "Ceiling Tiles": {
+    "pattern": "Boundary Offset Grid",
+    "x_spacing_mm": 600,
+    "y_spacing_mm": 600,
+    "boundary_offset_mm": 0,
+    "alignment": "Center",
+    "rotation_mode": "Keep Family Orientation",
+    "fixed_rotation_degrees": 0,
+    "collision_mode": "Skip",
+    "lock_mode": "Spacing-Locked",
+    "lock_target_count": 0,
+    "pattern_kwargs": {}
+  }
+}

@@ -1,0 +1,186 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeLevels — Detect &amp; Manage Levels"
+        ShowInTaskbar="False"
+        MinHeight="960" MinWidth="1480" Height="1040" Width="1560"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10">
+            <Run Text="Detected levels are read from the current model. Edit Level Name, Elevation, or Height Diff directly in the grid - editing either Elevation or Height Diff recomputes the other, and the list re-sorts/recalculates automatically, so inserting a level between two others just means giving it an elevation in between."/><LineBreak/>
+            <Run Text="Click a row (or a line in the previewer) to select and highlight it in both places - Ctrl/Shift-click to select several. Drag a line up/down in the previewer to move that level. Add Level appends a new row to edit. Delete marks an existing level for deletion (click again to undo) or removes an unsaved new row outright."/><LineBreak/>
+            <Run Text="The table is split into three bands by raw elevation: Upground Levels (above 0) on top, Zero Level in the middle, and Underground Levels (below 0) at the bottom - a level moves between bands automatically as soon as its elevation crosses 0."/><LineBreak/>
+            <Run Text="Pick a Scope Box and apply it to the selected level or to all levels. Datum and Survey Point columns show each level's elevation relative to the Project Base Point and Survey Point (read-only) - Fixed maps directly to Revit's own Clipped property on those points. Nothing changes in the model until you click Apply Changes."/>
+        </TextBlock>
+        <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="refresh_b" Grid.Column="0" Content="Refresh (Re-scan Model)"
+                        Click="refresh_click" Margin="0,0,3,0" Height="26"/>
+                <Button x:Name="add_b" Grid.Column="1" Content="Add Level"
+                        Click="add_level_click" Margin="3,0,3,0" Height="26"/>
+                <Button x:Name="delete_b" Grid.Column="2" Content="Delete / Undo Delete"
+                        Click="delete_level_click" Margin="3,0,0,0" Height="26"/>
+            </Grid>
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <TextBlock Text="Scope Box:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <ComboBox x:Name="scope_box_cb" Width="160" Height="24"/>
+                <Button x:Name="apply_scope_selected_b" Content="Apply to Selected"
+                        Click="apply_scope_selected_click" Width="120" Height="24" Margin="10,0,0,0"/>
+                <Button x:Name="apply_scope_all_b" Content="Apply to All Levels"
+                        Click="apply_scope_all_click" Width="130" Height="24" Margin="6,0,0,0"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <TextBlock Text="Datum:" VerticalAlignment="Center" Margin="0,0,10,0" FontWeight="Bold"/>
+                <CheckBox x:Name="base_point_fixed_cb" Content="Base Point Fixed (Clipped)" VerticalAlignment="Center" Margin="0,0,20,0"/>
+                <CheckBox x:Name="survey_point_fixed_cb" Content="Survey Point Fixed (Clipped)" VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <GroupBox Header="Level Naming (Main + Structural)" Margin="0,10,0,0">
+                <StackPanel Margin="6">
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" FontStyle="Italic"
+                               Text="Rebuilds the name from Prefix + [base name] + Datum/Dimension + Suffix. Re-applying is safe - it always rebuilds from the name last typed directly into a Level Name cell, never stacks onto an already-decorated name. Works on any selected row, main or structural."/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBlock Text="Prefix:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBox x:Name="naming_prefix_tb" Width="90" Height="22" Margin="0,0,20,0"/>
+                        <TextBlock Text="Suffix:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBox x:Name="naming_suffix_tb" Width="90" Height="22"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <CheckBox x:Name="naming_datum_cb" Content="Include Datum in Name" Margin="0,0,20,0"/>
+                        <CheckBox x:Name="naming_dimension_cb" Content="Include Dimension to Zero in Name"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="apply_naming_selected_b" Content="Apply Naming to Selected"
+                                Click="apply_naming_selected_click" Width="170" Height="24"/>
+                        <Button x:Name="apply_naming_all_b" Content="Apply Naming to All Levels"
+                                Click="apply_naming_all_click" Width="170" Height="24" Margin="8,0,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Structural Levels" Margin="0,10,0,0">
+                <StackPanel Margin="6">
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" FontStyle="Italic"
+                               Text="Select one or more main-level rows above, then Generate. Editing a structural row's Elevation/Height Diff/Offset directly marks it Overridden (pinned); unchecking Override snaps it back to the Global Offset. Changing the Global Offset live-updates every non-overridden structural level."/>
+                    <CheckBox x:Name="create_struct_cb" Content="Create Structural Levels" Margin="0,0,0,6"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBlock Text="Global Offset:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBox x:Name="struct_offset_tb" Width="80" Height="22" TextChanged="struct_offset_changed"/>
+                        <TextBlock x:Name="struct_offset_unit_tb" Text="mm" VerticalAlignment="Center" Margin="4,0,20,0"/>
+                        <TextBlock Text="Naming Format:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBox x:Name="struct_naming_tb" Width="160" Height="22" Text="{}{level} - STR"/>
+                        <TextBlock Text="(use {level} as the main level's name placeholder)" VerticalAlignment="Center" Margin="6,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="generate_struct_b" Content="Generate Structural Levels for Selected"
+                                Click="generate_structural_click" Width="240" Height="24"/>
+                        <Button x:Name="rename_struct_b" Content="Re-apply Naming to All Structural"
+                                Click="rename_structural_click" Width="210" Height="24" Margin="8,0,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+            </GroupBox>
+
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <Button x:Name="export_csv_b" Content="Export to Excel (CSV)" Click="export_csv_click"
+                        Width="160" Height="30"/>
+                <Button x:Name="apply_b" Content="Apply Changes to Model" Click="apply_click"
+                        Width="200" Height="30" Margin="10,0,0,0"/>
+                <Button x:Name="close_b" Content="Close" Click="close_click"
+                        Width="90" Height="30" Margin="10,0,0,0"/>
+            </StackPanel>
+        </StackPanel>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*"/>
+                <ColumnDefinition Width="10"/>
+                <ColumnDefinition Width="260"/>
+            </Grid.ColumnDefinitions>
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="8"/>
+                    <RowDefinition Height="130"/>
+                    <RowDefinition Height="8"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <DockPanel Grid.Row="0">
+                    <TextBlock DockPanel.Dock="Top" Text="Upground Levels" FontWeight="Bold" Margin="0,0,0,4"/>
+                    <DataGrid x:Name="above_grid" AutoGenerateColumns="False"
+                              CanUserAddRows="False" CanUserDeleteRows="False"
+                              CanUserSortColumns="False" SelectionMode="Extended" SelectionUnit="FullRow"
+                              RowEditEnding="levels_row_edit_ending"
+                              SelectionChanged="levels_grid_selection_changed">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="#" Binding="{Binding sequence_text}" IsReadOnly="True" Width="35"/>
+                            <DataGridTextColumn Header="Level Name" Binding="{Binding name, Mode=TwoWay}" Width="*"/>
+                            <DataGridTextColumn Header="Elevation" Binding="{Binding elevation_text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="105"/>
+                            <DataGridTextColumn Header="Height Diff" Binding="{Binding height_diff_text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="105"/>
+                            <DataGridTextColumn Header="Datum" Binding="{Binding datum_text}" IsReadOnly="True" Width="95"/>
+                            <DataGridTextColumn Header="Survey Point" Binding="{Binding survey_text}" IsReadOnly="True" Width="105"/>
+                            <DataGridTextColumn Header="Scope Box" Binding="{Binding scope_box_name_text}" IsReadOnly="True" Width="110"/>
+                            <DataGridTextColumn Header="Structural Of" Binding="{Binding structural_of_text}" IsReadOnly="True" Width="110"/>
+                            <DataGridTextColumn Header="Offset" Binding="{Binding offset_text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="85"/>
+                            <DataGridCheckBoxColumn Header="Override" Binding="{Binding structural_override, Mode=TwoWay}" Width="65"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status_text}" IsReadOnly="True" Width="140"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+
+                <DockPanel Grid.Row="2">
+                    <TextBlock DockPanel.Dock="Top" Text="Zero Level" FontWeight="Bold" Margin="0,0,0,4"/>
+                    <DataGrid x:Name="zero_grid" AutoGenerateColumns="False"
+                              CanUserAddRows="False" CanUserDeleteRows="False"
+                              CanUserSortColumns="False" SelectionMode="Extended" SelectionUnit="FullRow"
+                              RowEditEnding="levels_row_edit_ending"
+                              SelectionChanged="levels_grid_selection_changed">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="#" Binding="{Binding sequence_text}" IsReadOnly="True" Width="35"/>
+                            <DataGridTextColumn Header="Level Name" Binding="{Binding name, Mode=TwoWay}" Width="*"/>
+                            <DataGridTextColumn Header="Elevation" Binding="{Binding elevation_text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="105"/>
+                            <DataGridTextColumn Header="Height Diff" Binding="{Binding height_diff_text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="105"/>
+                            <DataGridTextColumn Header="Datum" Binding="{Binding datum_text}" IsReadOnly="True" Width="95"/>
+                            <DataGridTextColumn Header="Survey Point" Binding="{Binding survey_text}" IsReadOnly="True" Width="105"/>
+                            <DataGridTextColumn Header="Scope Box" Binding="{Binding scope_box_name_text}" IsReadOnly="True" Width="110"/>
+                            <DataGridTextColumn Header="Structural Of" Binding="{Binding structural_of_text}" IsReadOnly="True" Width="110"/>
+                            <DataGridTextColumn Header="Offset" Binding="{Binding offset_text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="85"/>
+                            <DataGridCheckBoxColumn Header="Override" Binding="{Binding structural_override, Mode=TwoWay}" Width="65"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status_text}" IsReadOnly="True" Width="140"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+
+                <DockPanel Grid.Row="4">
+                    <TextBlock DockPanel.Dock="Top" Text="Underground Levels" FontWeight="Bold" Margin="0,0,0,4"/>
+                    <DataGrid x:Name="below_grid" AutoGenerateColumns="False"
+                              CanUserAddRows="False" CanUserDeleteRows="False"
+                              CanUserSortColumns="False" SelectionMode="Extended" SelectionUnit="FullRow"
+                              RowEditEnding="levels_row_edit_ending"
+                              SelectionChanged="levels_grid_selection_changed">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="#" Binding="{Binding sequence_text}" IsReadOnly="True" Width="35"/>
+                            <DataGridTextColumn Header="Level Name" Binding="{Binding name, Mode=TwoWay}" Width="*"/>
+                            <DataGridTextColumn Header="Elevation" Binding="{Binding elevation_text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="105"/>
+                            <DataGridTextColumn Header="Height Diff" Binding="{Binding height_diff_text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="105"/>
+                            <DataGridTextColumn Header="Datum" Binding="{Binding datum_text}" IsReadOnly="True" Width="95"/>
+                            <DataGridTextColumn Header="Survey Point" Binding="{Binding survey_text}" IsReadOnly="True" Width="105"/>
+                            <DataGridTextColumn Header="Scope Box" Binding="{Binding scope_box_name_text}" IsReadOnly="True" Width="110"/>
+                            <DataGridTextColumn Header="Structural Of" Binding="{Binding structural_of_text}" IsReadOnly="True" Width="110"/>
+                            <DataGridTextColumn Header="Offset" Binding="{Binding offset_text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="85"/>
+                            <DataGridCheckBoxColumn Header="Override" Binding="{Binding structural_override, Mode=TwoWay}" Width="65"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status_text}" IsReadOnly="True" Width="140"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </Grid>
+            <Border Grid.Column="2" BorderBrush="#FFAAAAAA" BorderThickness="1" Background="#FFF7F7F7">
+                <Canvas x:Name="preview_canvas" ClipToBounds="True"
+                        SizeChanged="preview_canvas_size_changed"/>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>

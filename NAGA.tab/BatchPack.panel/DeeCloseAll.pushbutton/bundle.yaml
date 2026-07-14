@@ -1,0 +1,3 @@
+title: DeeCloseAll
+tooltip: Close currently open Revit documents - choose Synchronize & Close, Relinquish & Close, or Close without Relinquish
+context: zero-doc

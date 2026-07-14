@@ -1,0 +1,2 @@
+title: DeeGUID
+tooltip: Diagnostic only - prints the active cloud document's real project/model GUIDs so they can be compared against what Batch Opener computes from the ACC API.

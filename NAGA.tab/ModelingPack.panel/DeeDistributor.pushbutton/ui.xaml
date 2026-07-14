@@ -1,0 +1,321 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeDistributor — Family Instance Distribution"
+        ShowInTaskbar="False"
+        MinHeight="780" MinWidth="1280" Height="860" Width="1400"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <!-- Bottom nav -->
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+            <Button x:Name="back_b" Content="&lt; Back" Click="back_click" Width="80" Height="28"/>
+            <Button x:Name="next_b" Content="Next &gt;" Click="next_click" Width="80" Height="28" Margin="6,0,0,0"/>
+            <Button x:Name="close_b" Content="Close" Click="close_click" Width="80" Height="28" Margin="20,0,0,0"/>
+        </StackPanel>
+
+        <TabControl x:Name="wizard_tabs">
+            <!-- STEP 1: Rooms / Spaces -->
+            <TabItem Header="1. Rooms / Spaces">
+                <DockPanel Margin="8">
+                    <GroupBox DockPanel.Dock="Top" Header="Source" Margin="0,0,0,8">
+                        <StackPanel Margin="6">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="src_selected_rooms_rb" GroupName="SourceMode" Content="Selected Room(s)" Margin="0,0,16,0"/>
+                                <RadioButton x:Name="src_selected_spaces_rb" GroupName="SourceMode" Content="Selected Space(s)" Margin="0,0,16,0"/>
+                                <RadioButton x:Name="src_active_view_rb" GroupName="SourceMode" Content="Active View" IsChecked="True" Margin="0,0,16,0"/>
+                                <RadioButton x:Name="src_entire_project_rb" GroupName="SourceMode" Content="Entire Project" Margin="0,0,16,0"/>
+                                <Button x:Name="scan_b" Content="Scan" Click="scan_click" Width="90" Height="24" Margin="20,0,0,0"/>
+                            </StackPanel>
+                            <TextBlock Margin="0,6,0,0" FontStyle="Italic" TextWrapping="Wrap"
+                                       Text="For 'Selected Room(s)/Space(s)', select elements in Revit before clicking Scan."/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="select_all_b" Content="Select All" Click="select_all_click" Width="90" Height="24"/>
+                        <Button x:Name="deselect_all_b" Content="Deselect All" Click="deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <TextBlock x:Name="src_count_tb" Text="0 room(s)/space(s) scanned" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+
+                    <DataGrid x:Name="rooms_grid" AutoGenerateColumns="False"
+                              CanUserAddRows="False" CanUserDeleteRows="False" CanUserSortColumns="True"
+                              SelectionMode="Extended" SelectionUnit="FullRow">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="50"/>
+                            <DataGridTextColumn Header="Kind" Binding="{Binding kind}" IsReadOnly="True" Width="70"/>
+                            <DataGridTextColumn Header="Number" Binding="{Binding number}" IsReadOnly="True" Width="90"/>
+                            <DataGridTextColumn Header="Name" Binding="{Binding name}" IsReadOnly="True" Width="150"/>
+                            <DataGridTextColumn Header="Level" Binding="{Binding level_name}" IsReadOnly="True" Width="110"/>
+                            <DataGridTextColumn Header="Area" Binding="{Binding area_text}" IsReadOnly="True" Width="80"/>
+                            <DataGridTextColumn Header="Planned Instances" Binding="{Binding instances_planned}" IsReadOnly="True" Width="120"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status_text}" IsReadOnly="True" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- STEP 2: Family Selection -->
+            <TabItem Header="2. Family Selection">
+                <DockPanel Margin="8">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="add_family_b" Content="Add Family Row" Click="add_family_click" Width="130" Height="24"/>
+                        <Button x:Name="remove_family_b" Content="Remove Selected Row" Click="remove_family_click" Width="140" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="refresh_families_b" Content="Refresh Families" Click="refresh_families_click" Width="120" Height="24" Margin="20,0,0,0"/>
+                    </StackPanel>
+
+                    <GroupBox DockPanel.Dock="Bottom" Header="Category / Family / Type for Selected Row" Margin="0,8,0,0">
+                        <StackPanel Margin="6">
+                            <TextBlock x:Name="fam_editing_row_tb" Text="No family row selected - click a row above, or Add Family Row first." TextWrapping="Wrap" FontStyle="Italic" Margin="0,0,0,6"/>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Category:" Width="60" VerticalAlignment="Center"/>
+                                <ComboBox x:Name="fam_category_cb" Width="200" Height="24" SelectionChanged="category_cb_changed"/>
+                                <TextBlock Text="Family:" Width="60" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                                <ComboBox x:Name="fam_family_cb" Width="220" Height="24" SelectionChanged="family_cb_changed"/>
+                                <TextBlock Text="Type:" Width="50" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                                <ComboBox x:Name="fam_type_cb" Width="220" Height="24" SelectionChanged="type_cb_changed"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <DataGrid x:Name="families_grid" AutoGenerateColumns="False"
+                              CanUserAddRows="False" CanUserDeleteRows="False" CanUserSortColumns="False"
+                              SelectionMode="Single" SelectionUnit="FullRow"
+                              SelectionChanged="families_grid_selection_changed">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Category" Binding="{Binding category_name}" IsReadOnly="True" Width="160"/>
+                            <DataGridTextColumn Header="Family" Binding="{Binding family_name}" IsReadOnly="True" Width="180"/>
+                            <DataGridTextColumn Header="Type" Binding="{Binding type_name}" IsReadOnly="True" Width="180"/>
+                            <DataGridCheckBoxColumn Header="Include" Binding="{Binding enabled, Mode=TwoWay}" Width="60"/>
+                            <DataGridTextColumn Header="Placement Kind" Binding="{Binding placement_kind_text}" IsReadOnly="True" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- STEP 3: Distribution Settings -->
+            <TabItem Header="3. Distribution Settings">
+                <TabControl x:Name="distribution_subtabs" SelectionChanged="distribution_subtabs_selection_changed">
+                    <!-- SUB-TAB: Normal Distribution -->
+                    <TabItem Header="Normal Distribution">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="normal_distribution_panel" Margin="8">
+                        <TextBlock x:Name="dist_editing_family_tb" Text="No family selected — go back to Step 2" FontWeight="Bold" Margin="0,0,0,8"/>
+
+                        <GroupBox Header="Pattern" Margin="0,0,0,8">
+                            <StackPanel Margin="6">
+                                <ComboBox x:Name="dist_pattern_cb" Width="220" Height="24" HorizontalAlignment="Left" SelectionChanged="pattern_changed"/>
+                                <TextBlock x:Name="dist_pattern_note_tb" FontStyle="Italic" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <TextBlock x:Name="dist_diagonal_angle_label_tb" Text="Diagonal Angle (deg):" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBox x:Name="dist_diagonal_angle_tb" Width="70" Height="22" Text="45" TextChanged="pattern_kwarg_changed"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <TextBlock x:Name="dist_radial_ring_spacing_label_tb" Text="Radial Ring Spacing (blank = Y Spacing):" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBox x:Name="dist_radial_ring_spacing_tb" Width="70" Height="22" TextChanged="pattern_kwarg_changed"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <TextBlock x:Name="dist_random_count_label_tb" Text="Random Target Count:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBox x:Name="dist_random_count_tb" Width="70" Height="22" Text="50" TextChanged="pattern_kwarg_changed"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Spacing &amp; Offset" Margin="0,0,0,8">
+                            <StackPanel Margin="6">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <TextBlock Text="X Spacing (Horizontal):" Width="170" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="dist_xspacing_tb" Width="80" Height="22" TextChanged="settings_field_changed"/>
+                                    <TextBlock x:Name="dist_xspacing_unit_tb" Text="mm" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <TextBlock Text="Y Spacing (Vertical, row spacing):" Width="170" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="dist_yspacing_tb" Width="80" Height="22" TextChanged="settings_field_changed"/>
+                                    <TextBlock x:Name="dist_yspacing_unit_tb" Text="mm" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Boundary Offset:" Width="170" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="dist_boundary_offset_tb" Width="80" Height="22" TextChanged="settings_field_changed"/>
+                                    <TextBlock x:Name="dist_boundary_offset_unit_tb" Text="mm" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Lock Mode" Margin="0,0,0,8">
+                            <StackPanel Margin="6">
+                                <RadioButton x:Name="dist_lock_spacing_rb" GroupName="LockMode" Content="Lock Spacing (calculate instance count)" IsChecked="True" Checked="lock_mode_changed"/>
+                                <RadioButton x:Name="dist_lock_count_rb" GroupName="LockMode" Content="Lock Instance Count (calculate spacing)" Margin="0,6,0,0" Checked="lock_mode_changed"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <TextBlock Text="Target Count:" Width="170" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="dist_lock_count_tb" Width="80" Height="22" IsEnabled="False" TextChanged="settings_field_changed"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Alignment" Margin="0,0,0,8">
+                            <StackPanel Margin="6">
+                                <ComboBox x:Name="dist_alignment_cb" Width="220" Height="24" HorizontalAlignment="Left" SelectionChanged="settings_field_changed"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Rotation" Margin="0,0,0,8">
+                            <StackPanel Margin="6">
+                                <ComboBox x:Name="dist_rotation_cb" Width="220" Height="24" HorizontalAlignment="Left" SelectionChanged="rotation_mode_changed"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <TextBlock Text="Fixed / Custom Angle (deg):" Width="170" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="dist_fixed_angle_tb" Width="80" Height="22" IsEnabled="False" Text="0" TextChanged="settings_field_changed"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Collision Detection" Margin="0,0,0,8">
+                            <StackPanel Margin="6">
+                                <ComboBox x:Name="dist_collision_cb" Width="260" Height="24" HorizontalAlignment="Left" SelectionChanged="settings_field_changed"/>
+                                <TextBlock FontStyle="Italic" Margin="0,6,0,0" TextWrapping="Wrap"
+                                           Text="Skip: leave a gap where a collision is found. Move to Nearest Available Location: try a few nearby offsets before giving up (falls back to Skip). Replace Existing Instance: only replaces DeeDistributor's own previously-created instances, never arbitrary model content (falls back to Skip otherwise). Notify User: does not block the run - collisions are listed prominently in the end-of-run report instead."/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Reference Plane Fallback (WorkPlaneBased families only)" Margin="0,0,0,8">
+                            <StackPanel Margin="6">
+                                <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" FontStyle="Italic"
+                                           Text="When a ceiling/floor/work-plane-hosted family (lights, sprinklers, diffusers, detectors) has no real ceiling to host to, enabling this creates (or reuses) a Reference Plane at the fixed height below and hosts to that instead. Leave off to skip placement entirely when no ceiling is found."/>
+                                <CheckBox x:Name="dist_ceiling_fallback_cb" Content="Active - host to a Reference Plane if no hosting ceiling found" Checked="settings_field_changed" Unchecked="settings_field_changed"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <TextBlock Text="Fallback Height:" Width="170" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="dist_fallback_height_tb" Width="80" Height="22" Text="3000" TextChanged="settings_field_changed"/>
+                                    <TextBlock x:Name="dist_fallback_height_unit_tb" Text="mm" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Column / Two-Level Families (Base + Top Level)" Margin="0,0,0,8">
+                            <StackPanel Margin="6">
+                                <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" FontStyle="Italic"
+                                           Text="Only applies to families whose Placement Kind (Step 2) is 'Two-Level (Column-like)' - e.g. structural or architectural columns, which span from a Base Level to a Top Level rather than sitting at one point."/>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Top Level:" Width="170" VerticalAlignment="Center"/>
+                                    <RadioButton x:Name="dist_column_level_above_rb" GroupName="ColumnHeight" Content="Attach to Level Above" IsChecked="True" Margin="0,0,16,0" Checked="settings_field_changed"/>
+                                    <RadioButton x:Name="dist_column_fixed_height_rb" GroupName="ColumnHeight" Content="Fixed Height" Checked="settings_field_changed"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <TextBlock Text="Column Height (if Fixed):" Width="170" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="dist_column_height_tb" Width="80" Height="22" Text="3000" TextChanged="settings_field_changed"/>
+                                    <TextBlock x:Name="dist_column_height_unit_tb" Text="mm" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <TextBlock Text="Base Offset:" Width="170" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="dist_base_offset_tb" Width="80" Height="22" Text="0" TextChanged="settings_field_changed"/>
+                                    <TextBlock x:Name="dist_base_offset_unit_tb" Text="mm" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Duplicate Handling" Margin="0,0,0,8">
+                            <StackPanel Orientation="Horizontal" Margin="6">
+                                <TextBlock Text="If instances were already created by DeeDistributor for this Room+Family:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <ComboBox x:Name="dist_duplicate_mode_cb" Width="160" Height="24" SelectionChanged="settings_field_changed"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <Button x:Name="apply_settings_to_all_b" Content="Apply These Settings to All Family Rows" Click="apply_settings_to_all_click" Width="260" Height="26" HorizontalAlignment="Left"/>
+                    </StackPanel>
+                </ScrollViewer>
+                    </TabItem>
+
+                    <!-- SUB-TAB: Lighting Distribution -->
+                    <TabItem Header="Lighting Distribution">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="lighting_distribution_panel" Margin="8">
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" FontStyle="Italic"
+                                   Text="A focused mode for lighting-style layouts (works for any selected family, not just lighting fixtures). Only one of the Normal Distribution / Lighting Distribution sub-tabs is active at a time for a given family row - whichever sub-tab is selected here is the one used for that row. Both patterns below guarantee: fixtures are equally spaced, the layout is symmetrical, and the margin to the room boundary on every side is always exactly half of the ACTUAL (cell-adjusted) spacing - never approximate, never flush against a wall. Uses the X Spacing / Y Spacing from the Normal Distribution sub-tab as the target spacing - or, to have X/Y spacing calculated directly from this room's own area and shape instead of typed by hand, switch Lock Mode to 'Lock Instance Count' there and set a Target Count. Boundary Offset does NOT apply here - the margin is derived from spacing, not independently configurable."/>
+                        <TextBlock x:Name="light_editing_family_tb" Text="No family row selected - go back to Step 2." FontWeight="Bold" Margin="0,0,0,8"/>
+
+                        <GroupBox Header="Pattern" Margin="0,0,0,8">
+                            <StackPanel Margin="6">
+                                <RadioButton x:Name="light_pattern_uniform_rb" GroupName="LightingPattern" Content="Uniform Grid Distribution" IsChecked="True" Margin="0,0,0,4" Checked="light_pattern_changed"/>
+                                <TextBlock TextWrapping="Wrap" FontStyle="Italic" Margin="20,0,0,8"
+                                           Text="Divides the room into equal cells in X and Y and places one fixture at each cell's center. Left/right margins both equal exactly half the actual horizontal spacing; top/bottom margins both equal exactly half the actual vertical spacing."/>
+                                <RadioButton x:Name="light_pattern_row_rb" GroupName="LightingPattern" Content="Single Row Distribution" Margin="0,0,0,4" Checked="light_pattern_changed"/>
+                                <TextBlock TextWrapping="Wrap" FontStyle="Italic" Margin="20,0,0,0"
+                                           Text="Fixtures on a single row along X only, with the same equal-spacing / half-margin guarantee horizontally. Vertical position is set below."/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Single Row - Vertical Position" Margin="0,0,0,8">
+                            <StackPanel Margin="6">
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton x:Name="light_row_centered_rb" GroupName="LightRowPosition" Content="Centered in Room" IsChecked="True" Margin="0,0,16,0" Checked="light_row_position_changed"/>
+                                    <RadioButton x:Name="light_row_custom_rb" GroupName="LightRowPosition" Content="Custom Offset from Bottom" Checked="light_row_position_changed"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <TextBlock Text="Vertical Offset:" Width="170" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="light_row_offset_tb" Width="80" Height="22" Text="0" TextChanged="light_row_position_changed"/>
+                                    <TextBlock x:Name="light_row_offset_unit_tb" Text="mm" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+                </ScrollViewer>
+                    </TabItem>
+                </TabControl>
+            </TabItem>
+
+            <!-- STEP 4: Presets -->
+            <TabItem Header="4. Presets">
+                <StackPanel Margin="8">
+                    <GroupBox Header="Presets" Margin="0,0,0,8">
+                        <StackPanel Margin="6">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Preset:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <ComboBox x:Name="preset_cb" Width="220" Height="24" SelectionChanged="preset_selected_changed"/>
+                                <Button x:Name="preset_apply_b" Content="Apply to Current Family Row" Click="preset_apply_click" Width="180" Height="24" Margin="10,0,0,0"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button x:Name="preset_save_b" Content="Save Preset..." Click="preset_save_click" Width="110" Height="24"/>
+                                <Button x:Name="preset_rename_b" Content="Rename Preset" Click="preset_rename_click" Width="110" Height="24" Margin="6,0,0,0"/>
+                                <Button x:Name="preset_delete_b" Content="Delete Preset" Click="preset_delete_click" Width="110" Height="24" Margin="6,0,0,0"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button x:Name="preset_export_b" Content="Export Preset(s)..." Click="preset_export_click" Width="140" Height="24"/>
+                                <Button x:Name="preset_import_b" Content="Import Preset(s)..." Click="preset_import_click" Width="140" Height="24" Margin="6,0,0,0"/>
+                            </StackPanel>
+                            <CheckBox x:Name="preset_set_default_cb" Content="Set as default preset for future runs" Margin="0,10,0,0" Checked="preset_set_default_changed" Unchecked="preset_set_default_changed"/>
+                        </StackPanel>
+                    </GroupBox>
+                </StackPanel>
+            </TabItem>
+
+            <!-- STEP 5: Preview & Generate -->
+            <TabItem Header="5. Preview &amp; Generate">
+                <DockPanel Margin="8">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="preview_b" Content="Preview" Click="preview_click" Width="90" Height="26"/>
+                        <Button x:Name="refresh_preview_b" Content="Refresh Preview" Click="refresh_preview_click" Width="120" Height="26" Margin="6,0,0,0"/>
+                        <Button x:Name="zoom_fit_b" Content="Zoom to Fit" Click="zoom_fit_click" Width="90" Height="26" Margin="20,0,0,0"/>
+                        <Button x:Name="zoom_in_b" Content="+" Click="zoom_in_click" Width="30" Height="26" Margin="6,0,0,0"/>
+                        <Button x:Name="zoom_out_b" Content="-" Click="zoom_out_click" Width="30" Height="26" Margin="6,0,0,0"/>
+                        <Button x:Name="generate_b" Content="Generate" Click="generate_click" Width="100" Height="26" Margin="20,0,0,0"/>
+                        <Button x:Name="cancel_preview_b" Content="Cancel" Click="cancel_preview_click" Width="90" Height="26" Margin="6,0,0,0"/>
+                    </StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="420"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <DockPanel Grid.Column="0">
+                            <TextBox x:Name="prev_summary_tb" DockPanel.Dock="Top" Height="180" Margin="0,0,0,8"
+                                     IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
+                                     FontFamily="Consolas"/>
+                            <TextBlock DockPanel.Dock="Top" Text="Warnings / Collisions:" FontWeight="Bold" Margin="0,0,0,4"/>
+                            <ListBox x:Name="prev_warnings_lb"/>
+                        </DockPanel>
+                        <Border Grid.Column="2" BorderBrush="#FFAAAAAA" BorderThickness="1" Background="#FFF7F7F7">
+                            <Canvas x:Name="preview_canvas" ClipToBounds="True"
+                                    SizeChanged="preview_canvas_size_changed"/>
+                        </Border>
+                    </Grid>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>
