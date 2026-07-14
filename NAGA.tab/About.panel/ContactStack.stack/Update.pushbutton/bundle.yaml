@@ -1,3 +1,3 @@
 title: "."
-tooltip: Reload pyRevit to pick up any tool updates already synced to this PC (does not force OneDrive to sync faster, and a ribbon tab NAME change still needs a full Revit restart)
+tooltip: Pull the latest version from GitHub and reload pyRevit to pick it up (a ribbon tab NAME change still needs a full Revit restart)
 context: zero-doc
