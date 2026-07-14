@@ -470,6 +470,64 @@ class DeeHostLevelWindow(forms.WPFWindow):
         self._rebuild_color_list()
 
     # -- generate/update the color-coded 3D view --------------------------
+    def _color_view_elements(self, view, show_progress=True):
+        """Applies each element's current Level color as a graphic
+        override on `view`. Must be called inside an already-started
+        Transaction. Shared by the manual Generate/Update button and by
+        the automatic post-Rehost refresh (so an already-created
+        'DeeHostLevel' view never goes stale after elements move to a
+        different Level)."""
+        solid_fill_id = _get_solid_fill_pattern_id(self.doc)
+        total = len(self._elements)
+
+        def _apply(pb):
+            done = 0
+            for lvl in self._levels:
+                r, g, b = lvl.color
+                revit_color = RevitColor(r, g, b)
+                ogs = OverrideGraphicSettings()
+                if solid_fill_id != ElementId.InvalidElementId:
+                    ogs.SetSurfaceForegroundPatternColor(revit_color)
+                    ogs.SetSurfaceForegroundPatternId(solid_fill_id)
+                    ogs.SetSurfaceForegroundPatternVisible(True)
+                    ogs.SetCutForegroundPatternColor(revit_color)
+                    ogs.SetCutForegroundPatternId(solid_fill_id)
+                    ogs.SetCutForegroundPatternVisible(True)
+                ogs.SetProjectionLineColor(revit_color)
+                for row in self._elements_by_level.get(lvl.id, []):
+                    if pb is not None and pb.cancelled:
+                        return
+                    done += 1
+                    if pb is not None and (done % 200 == 0 or done == total):
+                        pb.update_progress(done, total)
+                    try:
+                        view.SetElementOverrides(row.id, ogs)
+                    except Exception:
+                        continue
+
+        if show_progress:
+            with forms.ProgressBar(title="DeeHostLevel — coloring elements...", cancellable=True) as pb:
+                _apply(pb)
+        else:
+            _apply(None)
+
+    def _refresh_existing_view_colors(self):
+        """Silently re-colors the 'DeeHostLevel' view if it already
+        exists - called after Rehost so a previously-generated view
+        never shows stale (pre-rehost) colors. Does nothing if the view
+        was never generated - Generate/Update stays the only action that
+        creates it."""
+        view = _find_3d_view(self.doc, _VIEW_NAME)
+        if view is None:
+            return
+        t = Transaction(self.doc, "DeeHostLevel - Refresh Color View")
+        t.Start()
+        try:
+            self._color_view_elements(view, show_progress=False)
+            t.Commit()
+        except Exception:
+            t.RollBack()
+
     def generate_view_click(self, sender, args):
         if not self._levels:
             forms.alert("Scan the model first.")
@@ -479,34 +537,7 @@ class DeeHostLevelWindow(forms.WPFWindow):
         t.Start()
         try:
             view = _ensure_view(doc, _VIEW_NAME)
-            solid_fill_id = _get_solid_fill_pattern_id(doc)
-            total = len(self._elements)
-            with forms.ProgressBar(title="DeeHostLevel — coloring elements...", cancellable=True) as pb:
-                done = 0
-                for lvl in self._levels:
-                    r, g, b = lvl.color
-                    revit_color = RevitColor(r, g, b)
-                    ogs = OverrideGraphicSettings()
-                    if solid_fill_id != ElementId.InvalidElementId:
-                        ogs.SetSurfaceForegroundPatternColor(revit_color)
-                        ogs.SetSurfaceForegroundPatternId(solid_fill_id)
-                        ogs.SetSurfaceForegroundPatternVisible(True)
-                        ogs.SetCutForegroundPatternColor(revit_color)
-                        ogs.SetCutForegroundPatternId(solid_fill_id)
-                        ogs.SetCutForegroundPatternVisible(True)
-                    ogs.SetProjectionLineColor(revit_color)
-                    for row in self._elements_by_level.get(lvl.id, []):
-                        if pb.cancelled:
-                            break
-                        done += 1
-                        if done % 200 == 0 or done == total:
-                            pb.update_progress(done, total)
-                        try:
-                            view.SetElementOverrides(row.id, ogs)
-                        except Exception:
-                            continue
-                    if pb.cancelled:
-                        break
+            self._color_view_elements(view)
             t.Commit()
         except Exception as e:
             t.RollBack()
@@ -632,6 +663,7 @@ class DeeHostLevelWindow(forms.WPFWindow):
         output.print_html(html)
 
         self._scan()
+        self._refresh_existing_view_colors()
 
     # -- report / export ----------------------------------------------------
     def scan_click(self, sender, args):
