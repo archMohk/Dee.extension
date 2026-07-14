@@ -95,11 +95,11 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <CheckBox x:Name="keep_in_place_cb" Content="Keep elements in their current physical position (recommended)"
+                        <CheckBox x:Name="keep_in_place_cb" Content="Parameter only - keep elements in their current physical position (unchecked = move physically to follow the new Level)"
                                   IsChecked="True" Margin="0,0,0,10"/>
                         <Button x:Name="apply_rehost_b" Content="Apply Rehost" Click="apply_rehost_click"
                                 Width="160" Height="28" HorizontalAlignment="Left"/>
-                        <TextBlock TextWrapping="Wrap" FontStyle="Italic" Margin="0,10,0,0" Text="Walls/Floors/Roofs/Ceilings use a Base-Constraint-style Level, other categories typically use a Level+Offset pair - this tool detects which applies per element. A wall whose Top is constrained to 'Up to Level' may change height as a side effect of moving its Base to a different Level; this is expected. Elements where no writable Level parameter can be found are skipped and listed in the results."/>
+                        <TextBlock TextWrapping="Wrap" FontStyle="Italic" Margin="0,10,0,0" Text="Walls/Floors/Roofs/Ceilings use a Base-Constraint-style Level, other categories typically use a Level+Offset pair - this tool detects which applies per element. For elements with a separate Top Level (e.g. a Wall's Top Constraint), the Top is shifted by the same number of Levels the Base moved (Base L1-&gt;L2, Top was one Level above Base so it becomes L3) - if no Level exists at that shifted position, Top instead switches to Unconnected Height, set to the element's original total height, so its shape is preserved either way. Elements where no writable Level parameter can be found are skipped and listed in the results."/>
                     </StackPanel>
                 </DockPanel>
             </TabItem>

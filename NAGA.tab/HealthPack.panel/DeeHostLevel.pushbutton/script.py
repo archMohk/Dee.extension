@@ -92,6 +92,21 @@ _OFFSET_PARAM_CANDIDATES = [
 _LEVEL_PARAM_NAME_FALLBACK = ("Level", "Base Constraint", "Reference Level", "Schedule Level")
 _OFFSET_PARAM_NAME_FALLBACK = ("Elevation from Level", "Offset", "Base Offset", "Height Offset From Level")
 
+# Elements with a separate Top Level (Walls' Top Constraint, and similarly
+# for other Base+Top constrained categories) - only found on elements that
+# actually have this second constraint; everything else falls through to
+# the single Level+Offset handling above.
+_TOP_LEVEL_PARAM_CANDIDATES = [
+    "WALL_HEIGHT_TYPE", "FAMILY_TOP_LEVEL_PARAM", "SCHEDULE_TOP_LEVEL_PARAM",
+]
+_TOP_OFFSET_PARAM_CANDIDATES = [
+    "WALL_TOP_OFFSET", "FAMILY_TOP_LEVEL_OFFSET_PARAM",
+]
+_UNCONNECTED_HEIGHT_PARAM_CANDIDATES = ["WALL_USER_HEIGHT_PARAM"]
+_TOP_LEVEL_PARAM_NAME_FALLBACK = ("Top Constraint", "Top Level")
+_TOP_OFFSET_PARAM_NAME_FALLBACK = ("Top Offset",)
+_UNCONNECTED_HEIGHT_PARAM_NAME_FALLBACK = ("Unconnected Height",)
+
 
 # -- defensive reads (same patterns already proven elsewhere in this extension) --
 def _read_name(element):
@@ -204,6 +219,140 @@ def find_offset_parameter(el):
     if p is not None:
         return p
     return _find_param_by_display_name(el, _OFFSET_PARAM_NAME_FALLBACK, StorageType.Double)
+
+
+def find_top_level_parameter(el):
+    """Only elements with a genuine second (Top) level constraint - e.g. a
+    Wall's Top Constraint - resolve here. Everything else returns None,
+    which is exactly how the caller decides "single-level" vs "Base+Top"
+    handling."""
+    p = _find_param_by_candidates(el, _TOP_LEVEL_PARAM_CANDIDATES, StorageType.ElementId)
+    if p is not None:
+        return p
+    return _find_param_by_display_name(el, _TOP_LEVEL_PARAM_NAME_FALLBACK, StorageType.ElementId)
+
+
+def find_top_offset_parameter(el):
+    p = _find_param_by_candidates(el, _TOP_OFFSET_PARAM_CANDIDATES, StorageType.Double)
+    if p is not None:
+        return p
+    return _find_param_by_display_name(el, _TOP_OFFSET_PARAM_NAME_FALLBACK, StorageType.Double)
+
+
+def find_unconnected_height_parameter(el):
+    p = _find_param_by_candidates(el, _UNCONNECTED_HEIGHT_PARAM_CANDIDATES, StorageType.Double)
+    if p is not None:
+        return p
+    return _find_param_by_display_name(el, _UNCONNECTED_HEIGHT_PARAM_NAME_FALLBACK, StorageType.Double)
+
+
+def _rehost_element(el, old_level_info, target_level_info, keep_in_place,
+                     level_by_id, level_index, levels_sorted):
+    """Rehosts one element from old_level_info to target_level_info and
+    returns a human-readable result string (raises on failure - the caller
+    wraps this per-element in try/except, same as every other batch
+    operation in this extension).
+
+    Single-level elements (most furniture/equipment/fixtures): sets the
+    Level parameter, then compensates the offset/elevation parameter
+    per compute_rehosted_offset (keep_in_place True/False).
+
+    Base+Top elements (Walls, and anything similarly built with two level
+    constraints): the Top Level is shifted by the same number of Levels
+    (by sorted-elevation index) that the Base moved, preserving the
+    original "spans N levels" relationship - e.g. Base L1->L2, Top was
+    L2 (one level above Base) -> Top becomes L3 (still one level above
+    the new Base). If no Level exists at that shifted index (or it would
+    collide with the new Base), falls back to setting Top to Unconnected
+    Height, with the height value set to the element's ORIGINAL total
+    height (Top absolute elevation minus Base absolute elevation) - so
+    the element's shape/height is preserved either way, and keep_in_place
+    still controls whether it also stays in the exact same physical spot
+    or moves to sit on the new Base."""
+    level_param = find_level_parameter(el)
+    if level_param is None:
+        raise Exception("No writable Level parameter found - skipped")
+
+    offset_param = find_offset_parameter(el)
+    old_offset = offset_param.AsDouble() if offset_param is not None else 0.0
+    top_param = find_top_level_parameter(el)
+
+    if top_param is None:
+        # -- single-level element ------------------------------------
+        level_param.Set(target_level_info.id)
+        if offset_param is not None:
+            new_offset = compute_rehosted_offset(
+                old_level_info.elevation_internal, target_level_info.elevation_internal,
+                old_offset, keep_in_place)
+            offset_param.Set(new_offset)
+            return "Rehosted to '{0}'".format(target_level_info.name)
+        if keep_in_place:
+            return ("Rehosted to '{0}' - no offset parameter found, could not "
+                    "compensate position".format(target_level_info.name))
+        return "Rehosted to '{0}'".format(target_level_info.name)
+
+    # -- Base+Top element (e.g. a Wall) -------------------------------
+    top_offset_param = find_top_offset_parameter(el)
+    unconnected_height_param = find_unconnected_height_parameter(el)
+    old_top_offset = top_offset_param.AsDouble() if top_offset_param is not None else 0.0
+
+    try:
+        old_top_id = top_param.AsElementId()
+    except Exception:
+        old_top_id = None
+    if old_top_id is not None and old_top_id != ElementId.InvalidElementId:
+        old_top_level_info = level_by_id.get(old_top_id)
+    else:
+        old_top_level_info = None
+
+    target_top_level_info = None
+    if old_top_level_info is not None:
+        old_base_idx = level_index.get(old_level_info.id)
+        old_top_idx = level_index.get(old_top_level_info.id)
+        new_base_idx = level_index.get(target_level_info.id)
+        if old_base_idx is not None and old_top_idx is not None and new_base_idx is not None:
+            target_idx = new_base_idx + (old_top_idx - old_base_idx)
+            if 0 <= target_idx < len(levels_sorted):
+                candidate = levels_sorted[target_idx]
+                if candidate.id != target_level_info.id:
+                    target_top_level_info = candidate
+
+    # Base always gets set the same way a single-level element would.
+    level_param.Set(target_level_info.id)
+    if offset_param is not None:
+        new_base_offset = compute_rehosted_offset(
+            old_level_info.elevation_internal, target_level_info.elevation_internal,
+            old_offset, keep_in_place)
+        offset_param.Set(new_base_offset)
+
+    if target_top_level_info is not None:
+        top_param.Set(target_top_level_info.id)
+        if top_offset_param is not None:
+            new_top_offset = compute_rehosted_offset(
+                old_top_level_info.elevation_internal, target_top_level_info.elevation_internal,
+                old_top_offset, keep_in_place)
+            top_offset_param.Set(new_top_offset)
+        return "Rehosted Base -> '{0}', Top shifted to '{1}'".format(
+            target_level_info.name, target_top_level_info.name)
+
+    # Fallback: no valid shifted Top Level - preserve the original total
+    # height via Unconnected Height instead.
+    if old_top_level_info is not None:
+        old_top_abs = old_top_level_info.elevation_internal + old_top_offset
+        old_base_abs = old_level_info.elevation_internal + old_offset
+        original_height = old_top_abs - old_base_abs
+    elif unconnected_height_param is not None:
+        original_height = unconnected_height_param.AsDouble()
+    else:
+        original_height = 0.0
+
+    if unconnected_height_param is not None:
+        top_param.Set(ElementId.InvalidElementId)
+        unconnected_height_param.Set(original_height)
+        return ("Rehosted Base -> '{0}', Top set to Unconnected Height ({1:.3f})"
+                .format(target_level_info.name, original_height))
+    return ("Rehosted Base -> '{0}' - could not preserve Top (no Unconnected "
+            "Height parameter found)".format(target_level_info.name))
 
 
 # -- units (same pattern as DeeLevels) --
@@ -605,13 +754,16 @@ class DeeHostLevelWindow(forms.WPFWindow):
                 title="DeeHostLevel - Confirm Rehost", yes=True, no=True):
             return
 
+        level_by_id = {lvl.id: lvl for lvl in self._levels}
+        level_index = {lvl.id: i for i, lvl in enumerate(self._levels)}
+
         results = []
         t = Transaction(self.doc, "DeeHostLevel - Rehost Elements")
         t.Start()
         with forms.ProgressBar(title="DeeHostLevel — rehosting...", cancellable=True) as pb:
             done = 0
             for src_id, target_lvl in mapping.items():
-                src_lvl = next((l for l in self._levels if l.id == src_id), None)
+                src_lvl = level_by_id.get(src_id)
                 if src_lvl is None:
                     continue
                 rows = self._elements_by_level.get(src_id, [])
@@ -623,28 +775,10 @@ class DeeHostLevelWindow(forms.WPFWindow):
                         pb.update_progress(done, total_affected)
                     el = row.element
                     try:
-                        level_param = find_level_parameter(el)
-                        if level_param is None:
-                            results.append((False, row.id_text,
-                                            "No writable Level parameter found - skipped"))
-                            continue
-                        offset_param = find_offset_parameter(el)
-                        old_offset = offset_param.AsDouble() if offset_param is not None else 0.0
-                        level_param.Set(target_lvl.id)
-                        if offset_param is not None:
-                            new_offset = compute_rehosted_offset(
-                                src_lvl.elevation_internal, target_lvl.elevation_internal,
-                                old_offset, keep_in_place)
-                            offset_param.Set(new_offset)
-                            results.append((True, row.id_text,
-                                            "Rehosted to '{0}'".format(target_lvl.name)))
-                        elif keep_in_place:
-                            results.append((True, row.id_text,
-                                            "Rehosted to '{0}' - no offset parameter found, "
-                                            "could not compensate position".format(target_lvl.name)))
-                        else:
-                            results.append((True, row.id_text,
-                                            "Rehosted to '{0}'".format(target_lvl.name)))
+                        detail = _rehost_element(
+                            el, src_lvl, target_lvl, keep_in_place,
+                            level_by_id, level_index, self._levels)
+                        results.append((True, row.id_text, detail))
                     except Exception as e:
                         results.append((False, row.id_text, "FAILED: {0}".format(e)))
         t.Commit()
