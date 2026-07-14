@@ -28,6 +28,12 @@ TOKEN_CACHE_PATH = os.path.join(_THIS_DIR, ".acc_token_cache.json")
 
 
 def _load_config():
+    if not os.path.exists(CONFIG_PATH):
+        raise Exception(
+            "acc_config.json not found. This tool needs an Autodesk "
+            "Platform Services config file at:\n{0}\n\n"
+            "Ask your administrator for this file - it is not part of "
+            "the public tool download.".format(CONFIG_PATH))
     with open(CONFIG_PATH, "r") as f:
         return json.load(f)
 
