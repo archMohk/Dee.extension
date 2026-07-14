@@ -51,6 +51,9 @@ import csv
 import clr
 clr.AddReference("System.Windows.Forms")
 clr.AddReference("System.Drawing")
+clr.AddReference("WindowsBase")
+clr.AddReference("PresentationCore")
+clr.AddReference("PresentationFramework")
 from System.Windows.Forms import SaveFileDialog, DialogResult, MessageBox, ColorDialog
 from System.Drawing import Color as DrawingColor
 from System.Windows import Thickness, Visibility, VerticalAlignment
