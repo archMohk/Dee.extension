@@ -43,8 +43,6 @@ clr.AddReference("PresentationFramework")
 clr.AddReference("System.Data")
 from System.Windows.Forms import SaveFileDialog, OpenFileDialog, DialogResult, MessageBox
 from System.Windows import Clipboard
-from System.Windows.Controls import DataGridTextColumn
-from System.Windows.Data import Binding
 from System.Windows.Input import Key, Keyboard, ModifierKeys
 from System.Data import DataTable
 
@@ -420,6 +418,7 @@ class DeeScheduleXLWindow(forms.WPFWindow):
         self._editor_table = None
         self._editor_fields = None
         self._editor_field_headers = None
+        self._editor_locked_headers = set()
         self._scan_schedules()
 
     # -- export tab ---------------------------------------------------------
@@ -650,23 +649,25 @@ class DeeScheduleXLWindow(forms.WPFWindow):
         self._editor_table = dt
         self._editor_fields = fields
         self._editor_field_headers = field_headers
+        self._editor_locked_headers = set(field_headers[i] for i in locked_indices)
 
-        self.editor_grid.Columns.Clear()
         self.editor_grid.ItemsSource = None
         self.editor_grid.ItemsSource = dt.DefaultView
-
-        for fi, header in enumerate(field_headers):
-            col = DataGridTextColumn()
-            col.Header = header
-            col.Binding = Binding("[{0}]".format(header))
-            col.IsReadOnly = fi in locked_indices
-            self.editor_grid.Columns.Add(col)
 
         if diag:
             output.print_html(
                 '<h3 style="color:#ddd;">DeeScheduleXL Live Editor diagnostic (first element)</h3>'
                 '<pre style="color:#ddd;background:#222;padding:10px;border-radius:4px;'
                 'white-space:pre-wrap;">{0}</pre>'.format(diag.replace("<", "&lt;").replace(">", "&gt;")))
+
+    def editor_grid_auto_generating_column(self, sender, args):
+        header = str(args.PropertyName)
+        if header == "ElementId":
+            args.Cancel = True
+            return
+        args.Column.Header = header
+        if header in self._editor_locked_headers:
+            args.Column.IsReadOnly = True
 
     def _paste_into_editor_grid(self):
         dt = self._editor_table
