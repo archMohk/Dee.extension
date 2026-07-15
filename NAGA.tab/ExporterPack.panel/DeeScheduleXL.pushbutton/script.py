@@ -149,19 +149,33 @@ def _roundtrip_headers(definition):
 
 
 # -- per-element/field parameter resolution -----------------------------
-def _element_param_by_id_map(element):
-    result = {}
+# field.ParameterId is tried first, but is not trusted alone - matching an
+# element's own parameters by DISPLAY NAME against the field's column
+# header is the robust fallback (and in practice the one that reliably
+# works), since a schedule column is essentially always named after the
+# real parameter it displays.
+def _element_param_maps(element):
+    """Returns (by_id, by_name) dicts for one element's parameters."""
+    by_id = {}
+    by_name = {}
     if element is None:
-        return result
+        return by_id, by_name
     try:
-        for p in element.Parameters:
-            try:
-                result[p.Id] = p
-            except Exception:
-                continue
+        params = list(element.Parameters)
     except Exception:
-        pass
-    return result
+        params = []
+    for p in params:
+        try:
+            by_id[p.Id] = p
+        except Exception:
+            pass
+        try:
+            nm = p.Definition.Name
+            if nm and nm not in by_name:
+                by_name[nm] = p
+        except Exception:
+            pass
+    return by_id, by_name
 
 
 def _element_type_or_none(doc, element):
@@ -172,6 +186,20 @@ def _element_type_or_none(doc, element):
     if type_id is None or type_id == ElementId.InvalidElementId:
         return None
     return doc.GetElement(type_id)
+
+
+def _resolve_field_parameter(field, field_name, elem_maps, type_maps):
+    elem_by_id, elem_by_name = elem_maps
+    type_by_id, type_by_name = type_maps
+    try:
+        param_id = field.ParameterId
+    except Exception:
+        param_id = None
+    if param_id is not None and param_id != ElementId.InvalidElementId:
+        p = elem_by_id.get(param_id) or type_by_id.get(param_id)
+        if p is not None:
+            return p
+    return elem_by_name.get(field_name) or type_by_name.get(field_name)
 
 
 def _read_param_display_value(param):
@@ -295,22 +323,17 @@ def _build_sheet_spec(doc, row, bidirectional):
         locked_cols = set()
         id_offset = 0
 
+    field_names = headers_full[1:]
     elements = list(FilteredElementCollector(doc, schedule.Id).WhereElementIsNotElementType())
     rows_out = []
     for el in elements:
         try:
-            elem_map = _element_param_by_id_map(el)
-            type_map = _element_param_by_id_map(_element_type_or_none(doc, el))
+            elem_maps = _element_param_maps(el)
+            type_maps = _element_param_maps(_element_type_or_none(doc, el))
 
             row_values = [str(_element_id_value(el.Id))] if can_roundtrip else []
             for ci, f in enumerate(fields):
-                try:
-                    param_id = f.ParameterId
-                except Exception:
-                    param_id = None
-                param = None
-                if param_id is not None and param_id != ElementId.InvalidElementId:
-                    param = elem_map.get(param_id) or type_map.get(param_id)
+                param = _resolve_field_parameter(f, field_names[ci], elem_maps, type_maps)
                 text, locked = _read_param_display_value(param)
                 row_values.append(text)
                 if can_roundtrip and locked:
@@ -351,21 +374,16 @@ def _build_editor_table(doc, schedule_row):
         field_headers.append(header)
         dt.Columns.Add(header, str)
 
+    real_field_names = [_read_field_name(f) for f in fields]
     elements = list(FilteredElementCollector(doc, schedule.Id).WhereElementIsNotElementType())
     locked_indices = set()
     for el in elements:
         try:
-            elem_map = _element_param_by_id_map(el)
-            type_map = _element_param_by_id_map(_element_type_or_none(doc, el))
+            elem_maps = _element_param_maps(el)
+            type_maps = _element_param_maps(_element_type_or_none(doc, el))
             row_values = [str(_element_id_value(el.Id))]
             for fi, f in enumerate(fields):
-                try:
-                    param_id = f.ParameterId
-                except Exception:
-                    param_id = None
-                param = None
-                if param_id is not None and param_id != ElementId.InvalidElementId:
-                    param = elem_map.get(param_id) or type_map.get(param_id)
+                param = _resolve_field_parameter(f, real_field_names[fi], elem_maps, type_maps)
                 text, locked = _read_param_display_value(param)
                 row_values.append(text)
                 if locked:
@@ -535,6 +553,7 @@ class DeeScheduleXLWindow(forms.WPFWindow):
             for sheet_row in selected:
                 schedule = sheet_row.schedule
                 _, fields = _roundtrip_headers(schedule.Definition)
+                field_names = [_read_field_name(f) for f in fields]
                 grid = sheet_row.grid
                 for r in range(2, len(grid)):
                     if pb.cancelled:
@@ -558,20 +577,14 @@ class DeeScheduleXLWindow(forms.WPFWindow):
 
                     field_failures = []
                     updated_count = 0
-                    elem_map = _element_param_by_id_map(element)
-                    type_map = _element_param_by_id_map(_element_type_or_none(self.doc, element))
+                    elem_maps = _element_param_maps(element)
+                    type_maps = _element_param_maps(_element_type_or_none(self.doc, element))
                     for ci, f in enumerate(fields):
                         col = ci + 1
                         if col >= len(data_row):
                             continue
                         text = data_row[col]
-                        try:
-                            param_id = f.ParameterId
-                        except Exception:
-                            param_id = None
-                        param = None
-                        if param_id is not None and param_id != ElementId.InvalidElementId:
-                            param = elem_map.get(param_id) or type_map.get(param_id)
+                        param = _resolve_field_parameter(f, field_names[ci], elem_maps, type_maps)
                         if param is None or param.IsReadOnly:
                             continue
                         try:
@@ -715,8 +728,8 @@ class DeeScheduleXLWindow(forms.WPFWindow):
                     results.append((False, id_text, "Element no longer exists"))
                     continue
 
-                elem_map = _element_param_by_id_map(element)
-                type_map = _element_param_by_id_map(_element_type_or_none(self.doc, element))
+                elem_maps = _element_param_maps(element)
+                type_maps = _element_param_maps(_element_type_or_none(self.doc, element))
                 field_failures = []
                 updated_count = 0
                 for f, header in zip(fields, field_headers):
@@ -724,13 +737,7 @@ class DeeScheduleXLWindow(forms.WPFWindow):
                         text = str(data_row[header])
                     except Exception:
                         continue
-                    try:
-                        param_id = f.ParameterId
-                    except Exception:
-                        param_id = None
-                    param = None
-                    if param_id is not None and param_id != ElementId.InvalidElementId:
-                        param = elem_map.get(param_id) or type_map.get(param_id)
+                    param = _resolve_field_parameter(f, _read_field_name(f), elem_maps, type_maps)
                     if param is None or param.IsReadOnly:
                         continue
                     try:
