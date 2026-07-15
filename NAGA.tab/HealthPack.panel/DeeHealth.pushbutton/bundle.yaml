@@ -1,0 +1,3 @@
+title: DeeHealth
+tooltip: Import an Excel QC rubric (section/test weights + thresholds), run ~40 model health checks, and compute a weighted overall health score
+context: zero-doc
