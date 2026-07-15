@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-DeeHostLevel (HealthPack)
+DeeRehoster (HealthPack)
 Scans every Model-category element in the project by which Level it is
 associated with (Element.LevelId), then:
   - Report tab: a Level-by-Level summary grid (name/elevation/element
@@ -9,7 +9,7 @@ associated with (Element.LevelId), then:
   - Color & 3D View tab: auto-assigns a distinct color per Level
     (click a swatch's "Change Color..." to override it with the
     system color picker), then Generate/Update builds (or reuses) a 3D
-    view named exactly "DeeHostLevel" with every scanned element
+    view named exactly "DeeRehoster" with every scanned element
     tinted by its Level's color via per-element graphic overrides (a
     solid fill pattern + that color).
   - Rehost tab: either consolidates every scanned element onto ONE
@@ -42,7 +42,7 @@ Unconnected Height) may change height as a side effect of moving its
 Base Constraint to a different Level - this tool does not attempt to
 compensate for that; it is expected, documented behavior.
 
-Nothing touches the model until "Generate / Update 'DeeHostLevel' View"
+Nothing touches the model until "Generate / Update 'DeeRehoster' View"
 or "Apply Rehost" is clicked.
 """
 import os
@@ -76,7 +76,7 @@ output = script.get_output()
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 
-_VIEW_NAME = "DeeHostLevel"
+_VIEW_NAME = "DeeRehoster"
 
 _LEVEL_PARAM_CANDIDATES = [
     "SCHEDULE_LEVEL_PARAM", "FAMILY_LEVEL_PARAM", "LEVEL_PARAM",
@@ -458,7 +458,7 @@ class ElementRow(object):
         self.level_name = level_name or ""
 
 
-class DeeHostLevelWindow(forms.WPFWindow):
+class DeeRehosterWindow(forms.WPFWindow):
     def __init__(self, xaml_file, doc):
         forms.WPFWindow.__init__(self, xaml_file)
         self.doc = doc
@@ -486,7 +486,7 @@ class DeeHostLevelWindow(forms.WPFWindow):
         elements_by_level = {}
         collector = list(FilteredElementCollector(doc).WhereElementIsNotElementType())
         total = len(collector)
-        with forms.ProgressBar(title="DeeHostLevel — scanning model...", cancellable=True) as pb:
+        with forms.ProgressBar(title="DeeRehoster — scanning model...", cancellable=True) as pb:
             for i, el in enumerate(collector):
                 if pb.cancelled:
                     break
@@ -551,6 +551,12 @@ class DeeHostLevelWindow(forms.WPFWindow):
         self.mapping_target_cb.ItemsSource = None
         self.mapping_target_cb.ItemsSource = ["(No Change)"] + names
         self.mapping_target_cb.SelectedIndex = 0
+
+        categories = sorted(set(row.category_name for row in self._elements if row.category_name))
+        self.category_filter_cb.ItemsSource = None
+        self.category_filter_cb.ItemsSource = categories
+        if categories:
+            self.category_filter_cb.SelectedIndex = 0
 
     def _refresh_mapping_grid(self):
         selected = list(self.mapping_grid.SelectedItems)
@@ -624,7 +630,7 @@ class DeeHostLevelWindow(forms.WPFWindow):
         override on `view`. Must be called inside an already-started
         Transaction. Shared by the manual Generate/Update button and by
         the automatic post-Rehost refresh (so an already-created
-        'DeeHostLevel' view never goes stale after elements move to a
+        'DeeRehoster' view never goes stale after elements move to a
         different Level)."""
         solid_fill_id = _get_solid_fill_pattern_id(self.doc)
         total = len(self._elements)
@@ -655,13 +661,13 @@ class DeeHostLevelWindow(forms.WPFWindow):
                         continue
 
         if show_progress:
-            with forms.ProgressBar(title="DeeHostLevel — coloring elements...", cancellable=True) as pb:
+            with forms.ProgressBar(title="DeeRehoster — coloring elements...", cancellable=True) as pb:
                 _apply(pb)
         else:
             _apply(None)
 
     def _refresh_existing_view_colors(self):
-        """Silently re-colors the 'DeeHostLevel' view if it already
+        """Silently re-colors the 'DeeRehoster' view if it already
         exists - called after Rehost so a previously-generated view
         never shows stale (pre-rehost) colors. Does nothing if the view
         was never generated - Generate/Update stays the only action that
@@ -669,7 +675,7 @@ class DeeHostLevelWindow(forms.WPFWindow):
         view = _find_3d_view(self.doc, _VIEW_NAME)
         if view is None:
             return
-        t = Transaction(self.doc, "DeeHostLevel - Refresh Color View")
+        t = Transaction(self.doc, "DeeRehoster - Refresh Color View")
         t.Start()
         try:
             self._color_view_elements(view, show_progress=False)
@@ -682,7 +688,7 @@ class DeeHostLevelWindow(forms.WPFWindow):
             forms.alert("Scan the model first.")
             return
         doc = self.doc
-        t = Transaction(doc, "DeeHostLevel - Generate Color View")
+        t = Transaction(doc, "DeeRehoster - Generate Color View")
         t.Start()
         try:
             view = _ensure_view(doc, _VIEW_NAME)
@@ -692,7 +698,7 @@ class DeeHostLevelWindow(forms.WPFWindow):
             t.RollBack()
             forms.alert("Could not generate view: {0}".format(e))
             return
-        forms.alert("View '{0}' generated/updated.".format(_VIEW_NAME), title="DeeHostLevel")
+        forms.alert("View '{0}' generated/updated.".format(_VIEW_NAME), title="DeeRehoster")
 
     # -- rehost ------------------------------------------------------------
     def rehost_mode_changed(self, sender, args):
@@ -718,6 +724,39 @@ class DeeHostLevelWindow(forms.WPFWindow):
             row.target_level = target
         self._refresh_mapping_grid()
 
+    def use_current_selection_click(self, sender, args):
+        try:
+            sel_ids = set(__revit__.ActiveUIDocument.Selection.GetElementIds())
+        except Exception:
+            forms.alert("Could not read the current Revit selection.")
+            return
+        if not sel_ids:
+            forms.alert("Nothing is currently selected in Revit.")
+            return
+        matched_rows = [row for row in self._elements if row.id in sel_ids]
+        if not matched_rows:
+            forms.alert("None of the currently selected Revit elements are in the "
+                        "scanned list (Model categories with a Level).")
+            return
+        self.scope_selected_rb.IsChecked = True
+        self.elements_grid.SelectedItems.Clear()
+        for row in matched_rows:
+            self.elements_grid.SelectedItems.Add(row)
+        self.main_tabs.SelectedIndex = 0
+        forms.alert("{0} element(s) selected for rehosting.".format(len(matched_rows)),
+                    title="DeeRehoster")
+
+    def _scope_filter(self):
+        """Returns a function(row) -> bool narrowing which scanned elements
+        Apply Rehost actually touches, per the Scope radio choice."""
+        if self.scope_category_rb.IsChecked:
+            chosen_cat = self.category_filter_cb.SelectedItem
+            return lambda row: row.category_name == chosen_cat
+        if self.scope_selected_rb.IsChecked:
+            selected_ids = set(row.id for row in self.elements_grid.SelectedItems)
+            return lambda row: row.id in selected_ids
+        return lambda row: True
+
     def apply_rehost_click(self, sender, args):
         if not self._levels or not self._elements:
             forms.alert("Scan the model first.")
@@ -725,6 +764,7 @@ class DeeHostLevelWindow(forms.WPFWindow):
 
         keep_in_place = bool(self.keep_in_place_cb.IsChecked)
         name_to_info = self._name_to_level_info()
+        scope_filter = self._scope_filter()
 
         if self.mode_consolidate_rb.IsChecked:
             target_name = self.consolidate_target_cb.SelectedItem
@@ -744,29 +784,32 @@ class DeeHostLevelWindow(forms.WPFWindow):
                 return
             mode_desc = "Level-to-Level mapping"
 
-        total_affected = sum(len(self._elements_by_level.get(src_id, [])) for src_id in mapping)
+        scoped_rows_by_level = {
+            src_id: [row for row in self._elements_by_level.get(src_id, []) if scope_filter(row)]
+            for src_id in mapping}
+        total_affected = sum(len(rows) for rows in scoped_rows_by_level.values())
         if total_affected == 0:
-            forms.alert("No elements to rehost with the current settings.")
+            forms.alert("No elements to rehost with the current Mode/Scope settings.")
             return
         if not forms.alert(
                 "{0}\n\n{1} element(s) will be rehosted.\nKeep in current physical position: {2}\n\n"
                 "Continue?".format(mode_desc, total_affected, "Yes" if keep_in_place else "No"),
-                title="DeeHostLevel - Confirm Rehost", yes=True, no=True):
+                title="DeeRehoster - Confirm Rehost", yes=True, no=True):
             return
 
         level_by_id = {lvl.id: lvl for lvl in self._levels}
         level_index = {lvl.id: i for i, lvl in enumerate(self._levels)}
 
         results = []
-        t = Transaction(self.doc, "DeeHostLevel - Rehost Elements")
+        t = Transaction(self.doc, "DeeRehoster - Rehost Elements")
         t.Start()
-        with forms.ProgressBar(title="DeeHostLevel — rehosting...", cancellable=True) as pb:
+        with forms.ProgressBar(title="DeeRehoster — rehosting...", cancellable=True) as pb:
             done = 0
             for src_id, target_lvl in mapping.items():
                 src_lvl = level_by_id.get(src_id)
                 if src_lvl is None:
                     continue
-                rows = self._elements_by_level.get(src_id, [])
+                rows = scoped_rows_by_level.get(src_id, [])
                 for row in rows:
                     if pb.cancelled:
                         break
@@ -785,7 +828,7 @@ class DeeHostLevelWindow(forms.WPFWindow):
 
         ok_count = sum(1 for ok, _, _ in results if ok)
         fail_count = len(results) - ok_count
-        html = '<h2 style="font-family:sans-serif;color:#ddd;">DeeHostLevel Rehost Results</h2>'
+        html = '<h2 style="font-family:sans-serif;color:#ddd;">DeeRehoster Rehost Results</h2>'
         html += '<p style="color:#ddd;">{0} succeeded, {1} failed/skipped.</p>'.format(ok_count, fail_count)
         for ok, id_text, detail in results:
             bg = "#2e7d32" if ok else "#c62828"
@@ -809,7 +852,7 @@ class DeeHostLevelWindow(forms.WPFWindow):
             return
         dlg = SaveFileDialog()
         dlg.Filter = "CSV files (*.csv)|*.csv"
-        dlg.FileName = "DeeHostLevel_Export.csv"
+        dlg.FileName = "DeeRehoster_Export.csv"
         if dlg.ShowDialog() != DialogResult.OK:
             return
         try:
@@ -823,7 +866,7 @@ class DeeHostLevelWindow(forms.WPFWindow):
             forms.alert("Could not export: {0}".format(e))
             return
         MessageBox.Show("Exported {0} element(s) to:\n{1}".format(len(self._elements), dlg.FileName),
-                         "DeeHostLevel")
+                         "DeeRehoster")
 
     def close_click(self, sender, args):
         self.Close()
@@ -831,7 +874,7 @@ class DeeHostLevelWindow(forms.WPFWindow):
 
 def main():
     doc = __revit__.ActiveUIDocument.Document
-    window = DeeHostLevelWindow(_XAML_FILE, doc)
+    window = DeeRehosterWindow(_XAML_FILE, doc)
     window.ShowDialog()
 
 

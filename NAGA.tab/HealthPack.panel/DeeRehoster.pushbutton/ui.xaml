@@ -1,12 +1,12 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="DeeHostLevel — Level Hosting Health Check"
+        Title="DeeRehoster — Level Hosting Health Check"
         ShowInTaskbar="False"
         MinHeight="820" MinWidth="1200" Height="880" Width="1300"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10">
-            <Run Text="Scan reads every Model-category element's Level across the whole project. Report lists everything by Level with CSV export. Color &amp; View auto-assigns a distinct color per Level (click a swatch to change it) and (re)generates a 3D view named 'DeeHostLevel' with every element tinted by its Level's color. Rehost either consolidates every element onto one Level you pick, or maps each Level to its own target Level - both can keep elements in their current physical position by compensating their offset, or leave the offset alone (element visually shifts by the elevation difference)."/>
+            <Run Text="Scan reads every Model-category element's Level across the whole project. Report lists everything by Level with CSV export. Color &amp; View auto-assigns a distinct color per Level (click a swatch to change it) and (re)generates a 3D view named 'DeeRehoster' with every element tinted by its Level's color. Rehost either consolidates every element onto one Level you pick, or maps each Level to its own target Level - both can keep elements in their current physical position by compensating their offset, or leave the offset alone (element visually shifts by the elevation difference)."/>
         </TextBlock>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
@@ -37,7 +37,7 @@
                             </DataGrid.Columns>
                         </DataGrid>
                         <DataGrid x:Name="elements_grid" Grid.Column="2" AutoGenerateColumns="False"
-                                  IsReadOnly="True" CanUserAddRows="False">
+                                  IsReadOnly="True" CanUserAddRows="False" SelectionMode="Extended">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Id" Binding="{Binding id_text}" Width="90"/>
                                 <DataGridTextColumn Header="Category" Binding="{Binding category_name}" Width="160"/>
@@ -54,7 +54,7 @@
                 <DockPanel Margin="8">
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                         <Button x:Name="autocolor_b" Content="Auto-Assign Colors" Click="autocolor_click" Width="150" Height="26"/>
-                        <Button x:Name="generate_view_b" Content="Generate / Update 'DeeHostLevel' View"
+                        <Button x:Name="generate_view_b" Content="Generate / Update 'DeeRehoster' View"
                                 Click="generate_view_click" Width="240" Height="26" Margin="10,0,0,0"/>
                     </StackPanel>
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -77,6 +77,26 @@
                             <TextBlock Text="Send everything to:" VerticalAlignment="Center" Margin="0,0,8,0"/>
                             <ComboBox x:Name="consolidate_target_cb" Width="220" Height="24"/>
                         </StackPanel>
+
+                        <GroupBox Header="Scope - which elements to rehost" Margin="0,0,0,10">
+                            <StackPanel Margin="6">
+                                <RadioButton x:Name="scope_all_rb" Content="All scanned elements"
+                                             GroupName="rehost_scope" IsChecked="True" Margin="0,0,0,6"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <RadioButton x:Name="scope_category_rb" Content="Only this Category:"
+                                                 GroupName="rehost_scope" VerticalAlignment="Center"/>
+                                    <ComboBox x:Name="category_filter_cb" Width="200" Height="24" Margin="8,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton x:Name="scope_selected_rb" Content="Only selected elements"
+                                                 GroupName="rehost_scope" VerticalAlignment="Center"/>
+                                    <Button x:Name="use_current_selection_b" Content="Use Current Revit Selection"
+                                            Click="use_current_selection_click" Width="190" Height="24" Margin="8,0,0,0"/>
+                                    <TextBlock Text="(or multi-select rows in the Report tab's element list)"
+                                               VerticalAlignment="Center" Margin="8,0,0,0" FontStyle="Italic"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
 
                         <StackPanel x:Name="mapping_panel" Margin="0,0,0,10" Visibility="Collapsed">
                             <DataGrid x:Name="mapping_grid" AutoGenerateColumns="False" Height="220"
