@@ -319,3 +319,177 @@ def write_multisheet_xlsx(path, sheets):
         z.writestr("xl/styles.xml", _MS_STYLES_TEMPLATE)
         for part_name, xml in files.items():
             z.writestr(part_name, xml)
+
+
+# ---------------------------------------------------------------------------
+# Health report writer (DeeHealth): a 2-sheet workbook - "Summary" (overall
+# score + one row per section) and "Detailed" (every test, color-coded by
+# status) - same Arial/border/status-tint visual language as
+# write_themed_xlsx, extended to a 4-tier status (green/amber/red/gray)
+# since DeeHealth scores are graded, not just pass/fail.
+# ---------------------------------------------------------------------------
+_HR_STYLES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="4">
+<font><sz val="11"/><name val="Arial"/></font>
+<font><b/><sz val="18"/><name val="Arial"/></font>
+<font><b/><sz val="11"/><name val="Arial"/></font>
+<font><b/><sz val="28"/><name val="Arial"/></font>
+</fonts>
+<fills count="7">
+<fill><patternFill patternType="none"/></fill>
+<fill><patternFill patternType="gray125"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFD9D9D9"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFC6E0B4"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFFFE699"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFF4C7C3"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFE7E6E6"/><bgColor indexed="64"/></patternFill></fill>
+</fills>
+<borders count="2">
+<border><left/><right/><top/><bottom/><diagonal/></border>
+<border><left style="thin"><color indexed="64"/></left><right style="thin"><color indexed="64"/></right><top style="thin"><color indexed="64"/></top><bottom style="thin"><color indexed="64"/></bottom><diagonal/></border>
+</borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="9">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="0" fillId="5" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="0" fillId="6" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>"""
+
+_HR_STYLE_TITLE = 1
+_HR_STYLE_HEADER = 2
+_HR_STATUS_STYLE = {None: 3, "ok": 4, "warn": 5, "fail": 6, "skip": 7}
+_HR_STYLE_BIG_SCORE = 8
+
+
+def _hr_status_for_score(score):
+    if score is None:
+        return "skip"
+    if score >= 0.8:
+        return "ok"
+    if score >= 0.4:
+        return "warn"
+    return "fail"
+
+
+def _hr_row_xml(row_num, cells_with_styles):
+    cells = []
+    for i, (value, style) in enumerate(cells_with_styles):
+        col = _col_letter(i + 1)
+        cells.append(
+            '<c r="{0}{1}" s="{2}" t="inlineStr"><is><t xml:space="preserve">{3}</t></is></c>'.format(
+                col, row_num, style, _escape(str(value))))
+    return '<row r="{0}">'.format(row_num) + "".join(cells) + "</row>"
+
+
+def _hr_sheet_xml(ncols, col_widths, rows_xml, merges=None):
+    last_col = _col_letter(ncols)
+    cols_xml = "".join(
+        '<col min="{0}" max="{0}" width="{1}" customWidth="1"/>'.format(i + 1, w)
+        for i, w in enumerate(col_widths))
+    merge_xml = ""
+    if merges:
+        merge_xml = '<mergeCells count="{0}">{1}</mergeCells>'.format(
+            len(merges), "".join('<mergeCell ref="{0}"/>'.format(m) for m in merges))
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<cols>{0}</cols><sheetData>{1}</sheetData>{2}</worksheet>'
+    ).format(cols_xml, "".join(rows_xml), merge_xml)
+
+
+def write_health_report_xlsx(path, overall_score, section_rows, detail_rows):
+    """path: output file path.
+    overall_score: 0.0-1.0 float, or None if nothing was scorable.
+    section_rows: list of (section_name, weight_text, weighted_score_pct_text, status)
+                  - status is None/"ok"/"warn"/"fail"/"skip".
+    detail_rows: list of (values, status) - values is
+                 [Section, Test, Implemented, Weight, Value, Score, E, F, G, Description],
+                 status is None/"ok"/"warn"/"fail"/"skip".
+    """
+    # -- Summary sheet --
+    summary_rows = [
+        '<row r="1" ht="26" customHeight="1">' +
+        '<c r="A1" s="{0}" t="inlineStr"><is><t xml:space="preserve">{1}</t></is></c></row>'.format(
+            _HR_STYLE_TITLE, _escape("DeeHealth - Model Health Report")),
+    ]
+    score_text = "N/A" if overall_score is None else "{0:.0f}%".format(overall_score * 100)
+    score_status = _hr_status_for_score(overall_score) if overall_score is not None else "skip"
+    summary_rows.append(
+        '<row r="3">'
+        '<c r="A3" s="{0}" t="inlineStr"><is><t xml:space="preserve">Overall Score</t></is></c>'
+        '<c r="B3" s="{1}" t="inlineStr"><is><t xml:space="preserve">{2}</t></is></c></row>'.format(
+            _HR_STYLE_TITLE, _HR_STYLE_BIG_SCORE, score_text))
+
+    header_cells = [("Section", _HR_STYLE_HEADER), ("Weight", _HR_STYLE_HEADER),
+                    ("Weighted Score", _HR_STYLE_HEADER), ("Status", _HR_STYLE_HEADER)]
+    summary_rows.append(_hr_row_xml(5, header_cells))
+    r = 6
+    for name, weight_text, score_pct_text, status in section_rows:
+        style = _HR_STATUS_STYLE.get(status, 3)
+        status_label = {"ok": "Good", "warn": "Warning", "fail": "Fail", "skip": "N/A", None: "N/A"}.get(status, "N/A")
+        summary_rows.append(_hr_row_xml(r, [
+            (name, style), (weight_text, style), (score_pct_text, style), (status_label, style)]))
+        r += 1
+    summary_xml = _hr_sheet_xml(4, [40, 14, 16, 12], summary_rows, merges=["A1:D1"])
+
+    # -- Detailed sheet --
+    detail_headers = ["Section", "Test", "Implemented", "Weight", "Value", "Score",
+                       "E (Good)", "F (Warn)", "G (Fail)", "Description"]
+    detail_xml_rows = [
+        '<row r="1" ht="24" customHeight="1">' +
+        '<c r="A1" s="{0}" t="inlineStr"><is><t xml:space="preserve">{1}</t></is></c></row>'.format(
+            _HR_STYLE_TITLE, _escape("Detailed Test Results")),
+        _hr_row_xml(2, [(h, _HR_STYLE_HEADER) for h in detail_headers]),
+    ]
+    r = 3
+    for values, status in detail_rows:
+        style = _HR_STATUS_STYLE.get(status, 3)
+        detail_xml_rows.append(_hr_row_xml(r, [(v, style) for v in values]))
+        r += 1
+    detail_col_widths = [22, 26, 12, 10, 12, 10, 10, 10, 10, 60]
+    detail_xml = _hr_sheet_xml(len(detail_headers), detail_col_widths, detail_xml_rows,
+                                merges=["A1:{0}1".format(_col_letter(len(detail_headers)))])
+
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        '</Types>')
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets>'
+        '<sheet name="Summary" sheetId="1" r:id="rId1"/>'
+        '<sheet name="Detailed" sheetId="2" r:id="rId2"/>'
+        '</sheets></workbook>')
+    workbook_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>'
+        '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+        '</Relationships>')
+
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", content_types)
+        z.writestr("_rels/.rels", _ROOT_RELS)
+        z.writestr("xl/workbook.xml", workbook_xml)
+        z.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
+        z.writestr("xl/styles.xml", _HR_STYLES)
+        z.writestr("xl/worksheets/sheet1.xml", summary_xml)
+        z.writestr("xl/worksheets/sheet2.xml", detail_xml)
