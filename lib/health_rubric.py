@@ -99,8 +99,40 @@ class HealthTest(object):
         return self.weight is not None and self.weight > 0
 
     @property
+    def implemented_text(self):
+        return "Yes" if self.implemented else "No"
+
+    @property
     def weight_text(self):
         return "" if self.weight is None else "{0:.4f}".format(self.weight)
+
+    @weight_text.setter
+    def weight_text(self, value):
+        self.weight = _parse_weight(value)
+
+    @property
+    def e_text(self):
+        return "" if self.e_raw is None else str(self.e_raw)
+
+    @e_text.setter
+    def e_text(self, value):
+        self.e_raw = value
+
+    @property
+    def f_text(self):
+        return "" if self.f_raw is None else str(self.f_raw)
+
+    @f_text.setter
+    def f_text(self, value):
+        self.f_raw = value
+
+    @property
+    def g_text(self):
+        return "" if self.g_raw is None else str(self.g_raw)
+
+    @g_text.setter
+    def g_text(self, value):
+        self.g_raw = value
 
     @property
     def result_value_text(self):
