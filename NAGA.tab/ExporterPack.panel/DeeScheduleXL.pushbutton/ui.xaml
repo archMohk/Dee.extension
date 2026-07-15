@@ -86,6 +86,23 @@
                     </Grid>
                 </DockPanel>
             </TabItem>
+
+            <TabItem Header="Live Editor">
+                <DockPanel Margin="8">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Schedule:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="editor_schedule_cb" Width="300" Height="24"/>
+                        <Button x:Name="load_editor_b" Content="Load into Editor" Click="load_editor_click"
+                                Width="140" Height="24" Margin="8,0,0,0"/>
+                        <Button x:Name="apply_editor_b" Content="Apply Changes to Model" Click="apply_editor_click"
+                                Width="180" Height="24" Margin="8,0,0,0"/>
+                    </StackPanel>
+                    <TextBlock DockPanel.Dock="Top" FontStyle="Italic" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Only itemized Schedules can be loaded (one row per element). Select cells and use Ctrl+C / Ctrl+V - works both within this grid and to/from a real Excel window. Gray (read-only) columns are calculated fields and can't be edited or pasted into. Nothing changes in the model until 'Apply Changes to Model' is clicked."/>
+                    <DataGrid x:Name="editor_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                              ClipboardCopyMode="ExcludeHeader" PreviewKeyDown="editor_grid_preview_key_down"/>
+                </DockPanel>
+            </TabItem>
         </TabControl>
     </DockPanel>
 </Window>

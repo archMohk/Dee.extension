@@ -40,7 +40,13 @@ clr.AddReference("System.Windows.Forms")
 clr.AddReference("WindowsBase")
 clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
+clr.AddReference("System.Data")
 from System.Windows.Forms import SaveFileDialog, OpenFileDialog, DialogResult, MessageBox
+from System.Windows import Clipboard
+from System.Windows.Controls import DataGridTextColumn
+from System.Windows.Data import Binding
+from System.Windows.Input import Key, Keyboard, ModifierKeys
+from System.Data import DataTable
 
 from pyrevit import forms, script
 from Autodesk.Revit.DB import (
@@ -326,6 +332,51 @@ def _build_sheet_spec(doc, row, bidirectional):
     }, warn
 
 
+# -- live editor build (System.Data.DataTable backs the dynamic-column grid,
+# since each Schedule has a different field set - .NET's DataRowView is what
+# WPF's DataGrid can bind dynamic "[ColumnName]" indexer paths against; a
+# plain IronPython object's __getitem__ is not guaranteed to be recognized
+# the same way by the binding engine) --------------------------------------
+def _build_editor_table(doc, schedule_row):
+    schedule = schedule_row.schedule
+    fields = _schedule_fields(schedule.Definition)
+
+    dt = DataTable()
+    dt.Columns.Add("ElementId", str)
+    field_headers = []
+    for f in fields:
+        header = _read_field_name(f)
+        if dt.Columns.Contains(header):
+            header = "{0} ({1})".format(header, len(field_headers))
+        field_headers.append(header)
+        dt.Columns.Add(header, str)
+
+    elements = list(FilteredElementCollector(doc, schedule.Id).WhereElementIsNotElementType())
+    locked_indices = set()
+    for el in elements:
+        try:
+            elem_map = _element_param_by_id_map(el)
+            type_map = _element_param_by_id_map(_element_type_or_none(doc, el))
+            row_values = [str(_element_id_value(el.Id))]
+            for fi, f in enumerate(fields):
+                try:
+                    param_id = f.ParameterId
+                except Exception:
+                    param_id = None
+                param = None
+                if param_id is not None and param_id != ElementId.InvalidElementId:
+                    param = elem_map.get(param_id) or type_map.get(param_id)
+                text, locked = _read_param_display_value(param)
+                row_values.append(text)
+                if locked:
+                    locked_indices.add(fi)
+            dt.Rows.Add(row_values)
+        except Exception:
+            continue
+
+    return dt, fields, field_headers, locked_indices
+
+
 class DeeScheduleXLWindow(forms.WPFWindow):
     def __init__(self, xaml_file, doc):
         forms.WPFWindow.__init__(self, xaml_file)
@@ -333,6 +384,9 @@ class DeeScheduleXLWindow(forms.WPFWindow):
         self._schedule_rows = []
         self._import_compatible = []
         self._import_incompatible = []
+        self._editor_table = None
+        self._editor_fields = None
+        self._editor_field_headers = None
         self._scan_schedules()
 
     # -- export tab ---------------------------------------------------------
@@ -357,6 +411,9 @@ class DeeScheduleXLWindow(forms.WPFWindow):
         self.schedules_grid.ItemsSource = None
         self.schedules_grid.ItemsSource = rows
         self.export_summary_tb.Text = "{0} schedule(s) found.".format(len(rows))
+
+        self.editor_schedule_cb.ItemsSource = None
+        self.editor_schedule_cb.ItemsSource = [r.name for r in rows if r.is_itemized]
 
     def scan_schedules_click(self, sender, args):
         self._scan_schedules()
@@ -545,6 +602,161 @@ class DeeScheduleXLWindow(forms.WPFWindow):
                 '<div style="padding:4px 10px;margin:2px 0;background:{0};color:#fff;'
                 'border-radius:4px;font-family:monospace;font-size:12px;">'
                 '{1}&nbsp; <b>[{2}] {3}</b> &mdash; {4}</div>'.format(bg, icon, sheet_name, id_text, detail))
+        output.print_html(html)
+
+    # -- live editor tab ------------------------------------------------------
+    def load_editor_click(self, sender, args):
+        chosen_name = self.editor_schedule_cb.SelectedItem
+        row = next((r for r in self._schedule_rows if r.name == chosen_name), None)
+        if row is None:
+            forms.alert("Pick a Schedule first.")
+            return
+        if not row.is_itemized:
+            forms.alert("Only itemized Schedules can be loaded into the Live Editor "
+                        "(one row per element is required).")
+            return
+
+        with forms.ProgressBar(title="DeeScheduleXL — loading editor...", cancellable=True):
+            dt, fields, field_headers, locked_indices = _build_editor_table(self.doc, row)
+
+        self._editor_table = dt
+        self._editor_fields = fields
+        self._editor_field_headers = field_headers
+
+        self.editor_grid.Columns.Clear()
+        self.editor_grid.ItemsSource = None
+        self.editor_grid.ItemsSource = dt.DefaultView
+
+        for fi, header in enumerate(field_headers):
+            col = DataGridTextColumn()
+            col.Header = header
+            col.Binding = Binding("[{0}]".format(header))
+            col.IsReadOnly = fi in locked_indices
+            self.editor_grid.Columns.Add(col)
+
+    def _paste_into_editor_grid(self):
+        dt = self._editor_table
+        if dt is None or not Clipboard.ContainsText():
+            return
+        text = Clipboard.GetText()
+        if not text:
+            return
+        lines = text.replace("\r\n", "\n").rstrip("\n").split("\n")
+        paste_rows = [line.split("\t") for line in lines]
+
+        current_cell = self.editor_grid.CurrentCell
+        if current_cell is None or current_cell.Column is None:
+            forms.alert("Click a starting cell first.")
+            return
+        start_col_index = self.editor_grid.Columns.IndexOf(current_cell.Column)
+        try:
+            start_row_index = self.editor_grid.Items.IndexOf(current_cell.Item)
+        except Exception:
+            start_row_index = -1
+        if start_col_index < 0 or start_row_index < 0:
+            return
+
+        view = dt.DefaultView
+        for r, row_values in enumerate(paste_rows):
+            target_row_index = start_row_index + r
+            if target_row_index >= view.Count:
+                break
+            row_view = view[target_row_index]
+            for c, val in enumerate(row_values):
+                col_index = start_col_index + c
+                if col_index >= self.editor_grid.Columns.Count:
+                    break
+                col = self.editor_grid.Columns[col_index]
+                if col.IsReadOnly:
+                    continue
+                header = col.Header
+                try:
+                    row_view[header] = val
+                except Exception:
+                    continue
+        self.editor_grid.Items.Refresh()
+
+    def editor_grid_preview_key_down(self, sender, args):
+        if args.Key == Key.V and (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control:
+            self._paste_into_editor_grid()
+            args.Handled = True
+
+    def apply_editor_click(self, sender, args):
+        dt = self._editor_table
+        fields = self._editor_fields
+        field_headers = self._editor_field_headers
+        if dt is None or fields is None:
+            forms.alert("Load a Schedule into the editor first.")
+            return
+        if not forms.alert(
+                "Write the current Live Editor values back onto the model now?\n\nContinue?",
+                title="DeeScheduleXL - Confirm", yes=True, no=True):
+            return
+
+        results = []
+        t = Transaction(self.doc, "DeeScheduleXL - Apply Live Editor Changes")
+        t.Start()
+        total = dt.Rows.Count
+        with forms.ProgressBar(title="DeeScheduleXL — applying...", cancellable=True) as pb:
+            for i in range(total):
+                if pb.cancelled:
+                    break
+                if i % 50 == 0 or i == total - 1:
+                    pb.update_progress(i, total)
+                data_row = dt.Rows[i]
+                id_text = str(data_row["ElementId"])
+                try:
+                    eid_int = int(id_text)
+                except (ValueError, TypeError):
+                    results.append((False, id_text, "Invalid Element Id"))
+                    continue
+                element = self.doc.GetElement(ElementId(eid_int))
+                if element is None:
+                    results.append((False, id_text, "Element no longer exists"))
+                    continue
+
+                elem_map = _element_param_by_id_map(element)
+                type_map = _element_param_by_id_map(_element_type_or_none(self.doc, element))
+                field_failures = []
+                updated_count = 0
+                for f, header in zip(fields, field_headers):
+                    try:
+                        text = str(data_row[header])
+                    except Exception:
+                        continue
+                    try:
+                        param_id = f.ParameterId
+                    except Exception:
+                        param_id = None
+                    param = None
+                    if param_id is not None and param_id != ElementId.InvalidElementId:
+                        param = elem_map.get(param_id) or type_map.get(param_id)
+                    if param is None or param.IsReadOnly:
+                        continue
+                    try:
+                        _write_param_from_text(self.doc, param, text)
+                        updated_count += 1
+                    except Exception as e:
+                        field_failures.append("{0}: {1}".format(header, e))
+
+                if field_failures:
+                    results.append((False, id_text, "{0} updated, {1} failed - {2}".format(
+                        updated_count, len(field_failures), "; ".join(field_failures))))
+                else:
+                    results.append((True, id_text, "{0} field(s) updated".format(updated_count)))
+        t.Commit()
+
+        ok_count = sum(1 for ok, _, _ in results if ok)
+        fail_count = len(results) - ok_count
+        html = '<h2 style="font-family:sans-serif;color:#ddd;">DeeScheduleXL Live Editor Results</h2>'
+        html += '<p style="color:#ddd;">{0} succeeded, {1} failed.</p>'.format(ok_count, fail_count)
+        for ok, id_text, detail in results:
+            bg = "#2e7d32" if ok else "#c62828"
+            icon = "&#10003;" if ok else "&#10007;"
+            html += (
+                '<div style="padding:4px 10px;margin:2px 0;background:{0};color:#fff;'
+                'border-radius:4px;font-family:monospace;font-size:12px;">'
+                '{1}&nbsp; <b>{2}</b> &mdash; {3}</div>'.format(bg, icon, id_text, detail))
         output.print_html(html)
 
     def close_click(self, sender, args):
