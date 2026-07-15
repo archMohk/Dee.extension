@@ -253,3 +253,95 @@ def compute_overall_score(tests):
     if total_weight <= 0:
         return None
     return total_weighted / total_weight
+
+
+# Embedded copy of the user's own "Internal REVIT QC Tests.xlsx" (all 45
+# rows) so DeeHealth has a working rubric the moment it opens, with no
+# Excel file required - Import Rubric from Excel still overrides this
+# with a different/updated workbook whenever wanted. Row shape matches
+# exactly what xlsx_reader would hand parse_rubric_grid: [Section,
+# SectionWeight, TestName, TestWeight, E, F, G, Description], first row
+# a header row that parse_rubric_grid skips.
+DEFAULT_RUBRIC_GRID = [
+    ["SectionName", "SCORE", "TestName", "SCORE", 1, 2, 3, "Description"],
+    ["Families Naming Convention", 0.15, "family", 0.07, 0.7, "70>Y>50", 0.5, ""],
+    ["", "", "worksets", 0.03, 0.7, "70>Y>51", 0.5, ""],
+    ["", "", "line Style", 0.05, 0.7, "70>Y>52", 0.5, "COUNT and LIST of all line style"],
+    ["Model Performance", 0.5, "Warnings", 0.13, 10, 50, ">50",
+     "COUNT of all warnings in the model. Too many unresolved warnings can cause "
+     "performance issues in a Revit model."],
+    ["", "", "File Size", 0.02, 250, 350, ">350",
+     "RESULT of the file sizes for all reported Revit models in MB (megabytes)."],
+    ["", "", "Purgeable Elements", 0.05, 700, 1000, ">1000",
+     "COUNT of all elements that can be purged from a Revit model. A large number "
+     "of unneeded elements can increase the model size with no benefit"],
+    ["", "", "Duplicate Modeled Elements", 0.1, 0, 5, ">5",
+     "identical elements at the same location and base level)"],
+    ["", "", "Total Elements", "", "", "", "", "Count of placed elements in the model"],
+    ["", "", "Model Groups", "", "", "", "", "COUNT of all model group elements in the model"],
+    ["", "", "Detail Groups", 0.01, 10, 20, ">20", "COUNT of all detail group elements in the model"],
+    ["", "", "model lines", 0.01, 5, 50, ">50", "COUNT all model lines"],
+    ["", "", "Generic Models", 0.08, 0, 2, ">2",
+     "COUNT and LIST of all generic model elements in the model."],
+    ["", "", "Masses", "", "", "", "", "COUNT and LIST of all masses"],
+    ["", "", "largest family", "", "", "", "",
+     "Will report the families in the project ordered by file size."],
+    ["", "", "project organization", "", "", "", "",
+     "Will list all browser organization types in the model."],
+    ["", "", "model in place", 0.08, 0, 2, ">0", "COUNT of all in-place family elements in the model"],
+    ["External Files", 0.15, "Imported SKP files", 0.01, 0, 0, ">0", ""],
+    ["", "", "Imported CAD files", 0.05, 0, 0, ">0", "Fail if any Imported CAD files are found."],
+    ["", "", "Linked CAD Files", 0.01, 20, 40, ">20", "COUNT of all linked CAD files in the model."],
+    ["", "", "Linked CAD File Visible in All Views", 0.01, 0, 0, ">0",
+     "COUNT and LIST of all linked CAD files not set to Current View Only."],
+    ["", "", "Linked Revit Files and Their Link Method", "", "", "", "",
+     "COUNT and LIST of the link method (overlay vs. attach) for each Revit link in the model."],
+    ["", "", "Linked Revit Files Not Pinned in Place", 0.01, 0, 0, ">0",
+     "check to determine if any linked Revit files are not pinned in place"],
+    ["", "", "Linked CAD Not Pinned in Place", 0.01, 0, 0, ">0",
+     "check to determine if any linked CAD are not pinned in place"],
+    ["", "", "RASTER IMAGE", 0.01, 5, 10, ">10", "count all raster image"],
+    ["Project Settings", "0%\n(PBI Check)", "Project Information", "", "", "", "",
+     "COUNT and LIST of all parameters and values attached to Project Information"],
+    ["", "", "Design Options", "", "", "", "",
+     "COUNT and LIST of all elements created in each design option of the model."],
+    ["", "", "Project Coordinates", "", "", "", "",
+     "COUNT and LIST of the coordinate values of the survey and project base points, "
+     "elevation, and true north."],
+    ["", "", "WORKSET", "", "", "", "", ""],
+    ["", "", "Phase Elements", "", "", "", "",
+     "Will list the number of elements created on each phase of the project."],
+    ["Views", 0.13, "Views", "", "", "", "",
+     "COUNT of all Views in the model. Views typically do not impact model size, but "
+     "too many unmanaged views can impact user efficiency."],
+    ["", "", "Sheets", "", "", "", "",
+     "COUNT of all sheets in the model. Sheets typically do not impact model size, but "
+     "too many unmanaged views can impact user efficiency."],
+    ["", "", "View With Hidden Element", 0.03, 0, 0, ">0", ""],
+    ["", "", "Views Not On Sheets", 0.03, 5, 10, ">10",
+     "COUNT and LIST of all views that are not placed on a sheet in the model."],
+    ["", "", "Views On Sheets With No View Template", 0.05, 0, 5, ">5",
+     "COUNT of all views on sheets that have no view templates assigned to them in the model."],
+    ["Datum Elements", 0.1, "Levels", "", "", "", "", "COUNT of all level elements in the model."],
+    ["", "", "Grids", "", "", "", "", "COUNT of all grid elements in the model."],
+    ["", "", "Unplaced Rooms", 0.02, 0, 0, ">0", "check to determine if any rooms are unplaced"],
+    ["", "", "Unclosed Rooms", "", "", "", "",
+     "check to determine if any rooms are in the same location as another room"],
+    ["", "", "Unique Room Number", "", "", "", "",
+     "check to determine if there are rooms with the same number"],
+    ["", "", "Unplaced Spaces", 0.02, 0, 0, ">0", "check to determine if any Spaces are unplaced"],
+    ["", "", "Unenclosed Spaces", "", "", "", "",
+     "check to determine if any Spaces are in the same location as another room"],
+    ["", "", "Unique Spaces Number", "", "", "", "",
+     "check to determine if there are Spaces with the same number"],
+    ["", "", "Areas", 0.01, 0, 0, ">0", "Areas Not Placed"],
+    ["", "", "Host dependent Elements hosted ?", 0.05, "", "", "", ""],
+    ["", "", "Elements on the correct host level", 0.05, "", "", "", ""],
+]
+
+
+def get_default_tests():
+    """Returns a fresh list of HealthTest objects built from the embedded
+    default rubric - fresh each call, so editing the grid in one DeeHealth
+    session never mutates what the next session starts from."""
+    return parse_rubric_grid(DEFAULT_RUBRIC_GRID)

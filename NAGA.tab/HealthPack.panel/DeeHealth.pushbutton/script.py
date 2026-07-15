@@ -74,6 +74,21 @@ class DeeHealthWindow(forms.WPFWindow):
         self._tests = []
         self._last_overall = None
         self.naming_pattern_tb.Text = _DEFAULT_NAMING_PATTERN
+        self._apply_tests(health_rubric.get_default_tests(), "the built-in default rubric")
+
+    def _apply_tests(self, tests, source_label):
+        for t in tests:
+            t.implemented = t.check_id in health_checks.CHECKS
+
+        self._tests = tests
+        self._last_overall = None
+        self.rubric_grid.ItemsSource = None
+        self.rubric_grid.ItemsSource = tests
+
+        mapped = sum(1 for t in tests if t.implemented)
+        self.rubric_summary_tb.Text = "{0} test(s) loaded from {1} ({2} implemented, {3} not implemented).".format(
+            len(tests), source_label, mapped, len(tests) - mapped)
+        self.overall_score_tb.Text = "Overall Score: --"
 
     def import_rubric_click(self, sender, args):
         dlg = OpenFileDialog()
@@ -99,17 +114,7 @@ class DeeHealthWindow(forms.WPFWindow):
                         "SectionName/SCORE/TestName/SCORE/E/F/G/Description layout.")
             return
 
-        for t in tests:
-            t.implemented = t.check_id in health_checks.CHECKS
-
-        self._tests = tests
-        self.rubric_grid.ItemsSource = None
-        self.rubric_grid.ItemsSource = tests
-
-        mapped = sum(1 for t in tests if t.implemented)
-        self.rubric_summary_tb.Text = "{0} test(s) loaded from '{1}' ({2} implemented, {3} not implemented).".format(
-            len(tests), os.path.basename(dlg.FileName), mapped, len(tests) - mapped)
-        self.overall_score_tb.Text = "Overall Score: --"
+        self._apply_tests(tests, "'{0}'".format(os.path.basename(dlg.FileName)))
 
     def run_health_click(self, sender, args):
         if not self._tests:
