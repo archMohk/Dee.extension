@@ -40,11 +40,11 @@ clr.AddReference("System.Windows.Forms")
 clr.AddReference("WindowsBase")
 clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
-clr.AddReference("System.Data")
 from System.Windows.Forms import SaveFileDialog, OpenFileDialog, DialogResult, MessageBox
 from System.Windows import Clipboard
+from System.Windows.Controls import DataGridTextColumn
+from System.Windows.Data import Binding
 from System.Windows.Input import Key, Keyboard, ModifierKeys
-from System.Data import DataTable
 
 from pyrevit import forms, script
 from Autodesk.Revit.DB import (
@@ -299,6 +299,19 @@ class ImportSheetRow(object):
         return str(self.row_count)
 
 
+class EditorRow(object):
+    """One Live Editor grid row - plain named field_0..field_N attributes
+    (not a dict/indexer) so WPF's normal, proven-working property-path
+    binding (Binding="field_3") applies, the same as every other grid in
+    this extension. field_0..field_N line up 1:1 with the schedule's field
+    order; element_id is kept separately, off to the side, and never
+    becomes a visible grid column."""
+    def __init__(self, element_id, values):
+        self.element_id = element_id
+        for i, v in enumerate(values):
+            setattr(self, "field_{0}".format(i), v)
+
+
 # -- export build -----------------------------------------------------------
 def _build_sheet_spec(doc, row, bidirectional):
     schedule = row.schedule
@@ -353,29 +366,18 @@ def _build_sheet_spec(doc, row, bidirectional):
     }, warn
 
 
-# -- live editor build (System.Data.DataTable backs the dynamic-column grid,
-# since each Schedule has a different field set - .NET's DataRowView is what
-# WPF's DataGrid can bind dynamic "[ColumnName]" indexer paths against; a
-# plain IronPython object's __getitem__ is not guaranteed to be recognized
-# the same way by the binding engine) --------------------------------------
-def _build_editor_table(doc, schedule_row):
+# -- live editor build (plain EditorRow objects + normal property-path
+# bindings - see EditorRow's docstring for why System.Data.DataTable was
+# dropped in favor of this) -------------------------------------------------
+def _build_editor_rows(doc, schedule_row):
     schedule = schedule_row.schedule
     fields = _schedule_fields(schedule.Definition)
+    field_headers = [_read_field_name(f) for f in fields]
 
-    dt = DataTable()
-    dt.Columns.Add("ElementId", str)
-    field_headers = []
-    for f in fields:
-        header = _read_field_name(f)
-        if dt.Columns.Contains(header):
-            header = "{0} ({1})".format(header, len(field_headers))
-        field_headers.append(header)
-        dt.Columns.Add(header, str)
-
-    real_field_names = [_read_field_name(f) for f in fields]
     elements = list(FilteredElementCollector(doc, schedule.Id).WhereElementIsNotElementType())
     locked_indices = set()
     diag_lines = []
+    rows = []
     for ei, el in enumerate(elements):
         try:
             elem_maps = _element_param_maps(el)
@@ -384,28 +386,28 @@ def _build_editor_table(doc, schedule_row):
                 diag_lines.append("Element Id: {0}".format(_element_id_value(el.Id)))
                 diag_lines.append("Parameters found on element: {0}".format(len(elem_maps[1])))
                 diag_lines.append("Parameters found on type: {0}".format(len(type_maps[1])))
-            row_values = [str(_element_id_value(el.Id))]
+            values = []
             for fi, f in enumerate(fields):
                 try:
                     field_pid = f.ParameterId
                 except Exception as e:
                     field_pid = "EXC: {0}".format(e)
-                param = _resolve_field_parameter(f, real_field_names[fi], elem_maps, type_maps)
+                param = _resolve_field_parameter(f, field_headers[fi], elem_maps, type_maps)
                 text, locked = _read_param_display_value(param)
-                row_values.append(text)
+                values.append(text)
                 if locked:
                     locked_indices.add(fi)
                 if ei == 0:
                     diag_lines.append(
                         "  Field '{0}': ParameterId={1}, resolved={2}, value='{3}', locked={4}".format(
-                            real_field_names[fi], field_pid, param is not None, text, locked))
-            dt.Rows.Add(row_values)
+                            field_headers[fi], field_pid, param is not None, text, locked))
+            rows.append(EditorRow(str(_element_id_value(el.Id)), values))
         except Exception as e:
             if ei == 0:
                 diag_lines.append("FIRST ELEMENT FAILED: {0}".format(e))
             continue
 
-    return dt, fields, field_headers, locked_indices, "\n".join(diag_lines)
+    return rows, fields, field_headers, locked_indices, "\n".join(diag_lines)
 
 
 class DeeScheduleXLWindow(forms.WPFWindow):
@@ -415,10 +417,9 @@ class DeeScheduleXLWindow(forms.WPFWindow):
         self._schedule_rows = []
         self._import_compatible = []
         self._import_incompatible = []
-        self._editor_table = None
+        self._editor_rows = []
         self._editor_fields = None
         self._editor_field_headers = None
-        self._editor_locked_headers = set()
         self._scan_schedules()
 
     # -- export tab ---------------------------------------------------------
@@ -644,15 +645,22 @@ class DeeScheduleXLWindow(forms.WPFWindow):
             return
 
         with forms.ProgressBar(title="DeeScheduleXL — loading editor...", cancellable=True):
-            dt, fields, field_headers, locked_indices, diag = _build_editor_table(self.doc, row)
+            rows, fields, field_headers, locked_indices, diag = _build_editor_rows(self.doc, row)
 
-        self._editor_table = dt
+        self._editor_rows = rows
         self._editor_fields = fields
         self._editor_field_headers = field_headers
-        self._editor_locked_headers = set(field_headers[i] for i in locked_indices)
 
+        self.editor_grid.Columns.Clear()
         self.editor_grid.ItemsSource = None
-        self.editor_grid.ItemsSource = dt.DefaultView
+        self.editor_grid.ItemsSource = rows
+
+        for fi, header in enumerate(field_headers):
+            col = DataGridTextColumn()
+            col.Header = header
+            col.Binding = Binding("field_{0}".format(fi))
+            col.IsReadOnly = fi in locked_indices
+            self.editor_grid.Columns.Add(col)
 
         if diag:
             output.print_html(
@@ -660,18 +668,9 @@ class DeeScheduleXLWindow(forms.WPFWindow):
                 '<pre style="color:#ddd;background:#222;padding:10px;border-radius:4px;'
                 'white-space:pre-wrap;">{0}</pre>'.format(diag.replace("<", "&lt;").replace(">", "&gt;")))
 
-    def editor_grid_auto_generating_column(self, sender, args):
-        header = str(args.PropertyName)
-        if header == "ElementId":
-            args.Cancel = True
-            return
-        args.Column.Header = header
-        if header in self._editor_locked_headers:
-            args.Column.IsReadOnly = True
-
     def _paste_into_editor_grid(self):
-        dt = self._editor_table
-        if dt is None or not Clipboard.ContainsText():
+        rows = self._editor_rows
+        if not rows or not Clipboard.ContainsText():
             return
         text = Clipboard.GetText()
         if not text:
@@ -691,12 +690,11 @@ class DeeScheduleXLWindow(forms.WPFWindow):
         if start_col_index < 0 or start_row_index < 0:
             return
 
-        view = dt.DefaultView
         for r, row_values in enumerate(paste_rows):
             target_row_index = start_row_index + r
-            if target_row_index >= view.Count:
+            if target_row_index >= len(rows):
                 break
-            row_view = view[target_row_index]
+            row_obj = rows[target_row_index]
             for c, val in enumerate(row_values):
                 col_index = start_col_index + c
                 if col_index >= self.editor_grid.Columns.Count:
@@ -704,11 +702,7 @@ class DeeScheduleXLWindow(forms.WPFWindow):
                 col = self.editor_grid.Columns[col_index]
                 if col.IsReadOnly:
                     continue
-                header = col.Header
-                try:
-                    row_view[header] = val
-                except Exception:
-                    continue
+                setattr(row_obj, "field_{0}".format(col_index), val)
         self.editor_grid.Items.Refresh()
 
     def editor_grid_preview_key_down(self, sender, args):
@@ -717,10 +711,10 @@ class DeeScheduleXLWindow(forms.WPFWindow):
             args.Handled = True
 
     def apply_editor_click(self, sender, args):
-        dt = self._editor_table
+        rows = self._editor_rows
         fields = self._editor_fields
         field_headers = self._editor_field_headers
-        if dt is None or fields is None:
+        if not rows or fields is None:
             forms.alert("Load a Schedule into the editor first.")
             return
         if not forms.alert(
@@ -731,15 +725,14 @@ class DeeScheduleXLWindow(forms.WPFWindow):
         results = []
         t = Transaction(self.doc, "DeeScheduleXL - Apply Live Editor Changes")
         t.Start()
-        total = dt.Rows.Count
+        total = len(rows)
         with forms.ProgressBar(title="DeeScheduleXL — applying...", cancellable=True) as pb:
-            for i in range(total):
+            for i, row_obj in enumerate(rows):
                 if pb.cancelled:
                     break
                 if i % 50 == 0 or i == total - 1:
                     pb.update_progress(i, total)
-                data_row = dt.Rows[i]
-                id_text = str(data_row["ElementId"])
+                id_text = row_obj.element_id
                 try:
                     eid_int = int(id_text)
                 except (ValueError, TypeError):
@@ -754,12 +747,9 @@ class DeeScheduleXLWindow(forms.WPFWindow):
                 type_maps = _element_param_maps(_element_type_or_none(self.doc, element))
                 field_failures = []
                 updated_count = 0
-                for f, header in zip(fields, field_headers):
-                    try:
-                        text = str(data_row[header])
-                    except Exception:
-                        continue
-                    param = _resolve_field_parameter(f, _read_field_name(f), elem_maps, type_maps)
+                for fi, (f, header) in enumerate(zip(fields, field_headers)):
+                    text = getattr(row_obj, "field_{0}".format(fi), "")
+                    param = _resolve_field_parameter(f, header, elem_maps, type_maps)
                     if param is None or param.IsReadOnly:
                         continue
                     try:
