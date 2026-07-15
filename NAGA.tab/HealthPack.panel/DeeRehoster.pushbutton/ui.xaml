@@ -66,6 +66,14 @@
             <TabItem Header="3. Rehost">
                 <DockPanel Margin="8">
                     <StackPanel DockPanel.Dock="Top">
+                        <GroupBox Header="Auto-Fix to Actual Physical Location" Margin="0,0,0,14">
+                            <StackPanel Margin="6">
+                                <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" Text="Checks every scanned element's REAL elevation (its current Level's elevation plus its Offset) against where that elevation actually falls among this project's Levels. Any element whose assigned Level doesn't match gets corrected - Level only, nothing physically moves. Builds/updates a 3D view named 'DeeRehoster - Corrected Elements' showing just the elements that were corrected; anything already correctly hosted is left alone and does not appear there."/>
+                                <Button x:Name="fix_mishosted_b" Content="Fix Mis-Hosted Elements" Click="fix_mishosted_click"
+                                        Width="220" Height="28" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                        </GroupBox>
+
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                             <RadioButton x:Name="mode_consolidate_rb" Content="Consolidate all elements into one Level"
                                          GroupName="rehost_mode" Checked="rehost_mode_changed" VerticalAlignment="Center" IsChecked="True"/>

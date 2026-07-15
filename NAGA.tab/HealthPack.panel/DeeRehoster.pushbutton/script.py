@@ -61,6 +61,8 @@ from System.Windows.Controls import StackPanel, TextBlock, Button, Orientation
 from System.Windows.Shapes import Rectangle
 from System.Windows.Media import SolidColorBrush, Color as MediaColor, Brushes
 
+from System.Collections.Generic import List
+
 from pyrevit import forms, script
 from Autodesk.Revit.DB import (
     FilteredElementCollector, Level, Transaction, BuiltInParameter, CategoryType,
@@ -77,6 +79,7 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 
 _VIEW_NAME = "DeeRehoster"
+_CORRECTED_VIEW_NAME = "DeeRehoster - Corrected Elements"
 
 _LEVEL_PARAM_CANDIDATES = [
     "SCHEDULE_LEVEL_PARAM", "FAMILY_LEVEL_PARAM", "LEVEL_PARAM",
@@ -244,6 +247,24 @@ def find_unconnected_height_parameter(el):
     if p is not None:
         return p
     return _find_param_by_display_name(el, _UNCONNECTED_HEIGHT_PARAM_NAME_FALLBACK, StorageType.Double)
+
+
+def _find_correct_level(levels_sorted, absolute_elevation):
+    """Which Level (from levels_sorted, already sorted ascending by
+    elevation) an element actually belongs to given its real absolute
+    elevation - the highest Level at or below that elevation, matching
+    the ordinary "what floor is this actually on" convention. Clamps to
+    the lowest Level if below everything, and to the highest Level if
+    above everything."""
+    if not levels_sorted:
+        return None
+    correct = levels_sorted[0]
+    for lvl in levels_sorted:
+        if lvl.elevation_internal <= absolute_elevation:
+            correct = lvl
+        else:
+            break
+    return correct
 
 
 def _rehost_element(el, old_level_info, target_level_info, keep_in_place,
@@ -745,6 +766,101 @@ class DeeRehosterWindow(forms.WPFWindow):
         self.main_tabs.SelectedIndex = 0
         forms.alert("{0} element(s) selected for rehosting.".format(len(matched_rows)),
                     title="DeeRehoster")
+
+    def fix_mishosted_click(self, sender, args):
+        if not self._levels or not self._elements:
+            forms.alert("Scan the model first.")
+            return
+
+        level_by_id = {lvl.id: lvl for lvl in self._levels}
+        level_index = {lvl.id: i for i, lvl in enumerate(self._levels)}
+        levels_sorted = self._levels
+
+        mismatches = []
+        with forms.ProgressBar(title="DeeRehoster — checking physical location...", cancellable=True) as pb:
+            total = len(self._elements)
+            for i, row in enumerate(self._elements):
+                if pb.cancelled:
+                    break
+                if i % 200 == 0 or i == total - 1:
+                    pb.update_progress(i, total)
+                try:
+                    current_level = level_by_id.get(row.level_id)
+                    if current_level is None:
+                        continue
+                    el = row.element
+                    level_param = find_level_parameter(el)
+                    if level_param is None:
+                        continue
+                    offset_param = find_offset_parameter(el)
+                    offset = offset_param.AsDouble() if offset_param is not None else 0.0
+                    absolute_elevation = current_level.elevation_internal + offset
+                    correct_level = _find_correct_level(levels_sorted, absolute_elevation)
+                    if correct_level is not None and correct_level.id != current_level.id:
+                        mismatches.append((row, current_level, correct_level))
+                except Exception:
+                    continue
+
+        if not mismatches:
+            forms.alert(
+                "No mis-hosted elements found - every element's Level already matches "
+                "its actual physical position.", title="DeeRehoster")
+            return
+
+        if not forms.alert(
+                "Found {0} element(s) whose Level doesn't match their actual physical position.\n\n"
+                "Correct them now (Level only - nothing will physically move) and build/update the "
+                "'{1}' view showing just what gets corrected?".format(len(mismatches), _CORRECTED_VIEW_NAME),
+                title="DeeRehoster - Confirm", yes=True, no=True):
+            return
+
+        results = []
+        corrected_ids = set()
+        t = Transaction(self.doc, "DeeRehoster - Fix Mis-Hosted Elements")
+        t.Start()
+        with forms.ProgressBar(title="DeeRehoster — correcting...", cancellable=True) as pb:
+            total = len(mismatches)
+            for i, (row, current_level, correct_level) in enumerate(mismatches):
+                if pb.cancelled:
+                    break
+                if i % 100 == 0 or i == total - 1:
+                    pb.update_progress(i, total)
+                try:
+                    detail = _rehost_element(
+                        row.element, current_level, correct_level, True,
+                        level_by_id, level_index, levels_sorted)
+                    results.append((True, row.id_text, "{0} (was on '{1}')".format(detail, current_level.name)))
+                    corrected_ids.add(row.id)
+                except Exception as e:
+                    results.append((False, row.id_text, "FAILED: {0}".format(e)))
+
+        try:
+            view = _ensure_view(self.doc, _CORRECTED_VIEW_NAME)
+            known_ids = set(r.id for r in self._elements)
+            for eid in known_ids - corrected_ids:
+                try:
+                    view.HideElements(List[ElementId]([eid]))
+                except Exception:
+                    continue
+        except Exception as e:
+            results.append((False, "-", "Could not build '{0}' view: {1}".format(_CORRECTED_VIEW_NAME, e)))
+        t.Commit()
+
+        ok_count = sum(1 for ok, _, _ in results if ok)
+        fail_count = len(results) - ok_count
+        html = '<h2 style="font-family:sans-serif;color:#ddd;">DeeRehoster - Fix Mis-Hosted Elements Results</h2>'
+        html += '<p style="color:#ddd;">{0} corrected, {1} failed/skipped.</p>'.format(ok_count, fail_count)
+        for ok, id_text, detail in results:
+            bg = "#2e7d32" if ok else "#c62828"
+            icon = "&#10003;" if ok else "&#10007;"
+            html += (
+                '<div style="padding:4px 10px;margin:2px 0;background:{0};color:#fff;'
+                'border-radius:4px;font-family:monospace;font-size:12px;">'
+                '{1}&nbsp; <b>{2}</b> &mdash; {3}</div>'.format(bg, icon, id_text, detail))
+        output.print_html(html)
+
+        self._scan()
+        self._refresh_existing_view_colors()
 
     def _scope_filter(self):
         """Returns a function(row) -> bool narrowing which scanned elements
