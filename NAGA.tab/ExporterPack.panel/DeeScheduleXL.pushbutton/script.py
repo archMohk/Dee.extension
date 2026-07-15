@@ -96,6 +96,11 @@ def _element_id_value(eid):
         return str(eid)
 
 
+def _sanitize_filename(name):
+    cleaned = "".join(c for c in name if c not in '\\/:*?"<>|').strip()
+    return cleaned or "DeeScheduleXL_Export"
+
+
 def _make_element_id(int_value):
     """ElementId(int) is ambiguous to IronPython in modern Revit API
     versions - it has to choose between ElementId(BuiltInParameter),
@@ -468,9 +473,14 @@ class DeeScheduleXLWindow(forms.WPFWindow):
             return
         bidirectional = bool(self.mode_bidirectional_rb.IsChecked)
 
+        if len(selected) == 1:
+            default_name = _sanitize_filename(selected[0].name) + ".xlsx"
+        else:
+            default_name = "DeeScheduleXL_Export.xlsx"
+
         dlg = SaveFileDialog()
         dlg.Filter = "Excel files (*.xlsx)|*.xlsx"
-        dlg.FileName = "DeeScheduleXL_Export.xlsx"
+        dlg.FileName = default_name
         if dlg.ShowDialog() != DialogResult.OK:
             return
 
