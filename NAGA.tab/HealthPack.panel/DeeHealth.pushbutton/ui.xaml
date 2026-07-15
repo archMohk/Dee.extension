@@ -22,6 +22,7 @@
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
             <Button x:Name="run_health_b" Content="Run Health Check" Click="run_health_click" Width="160" Height="30"/>
             <Button x:Name="export_csv_b" Content="Export Results to CSV" Click="export_csv_click" Width="160" Height="30" Margin="10,0,0,0"/>
+            <Button x:Name="export_report_b" Content="Export Health Report (Excel)" Click="export_report_click" Width="200" Height="30" Margin="10,0,0,0"/>
             <TextBlock x:Name="overall_score_tb" Text="Overall Score: --" VerticalAlignment="Center" Margin="24,0,0,0" FontSize="18" FontWeight="Bold"/>
             <Button x:Name="close_b" Content="Close" Click="close_click" Width="100" Height="26" HorizontalAlignment="Right" Margin="40,0,0,0"/>
         </StackPanel>

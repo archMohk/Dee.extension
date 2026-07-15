@@ -43,6 +43,7 @@ from System.Windows.Forms import SaveFileDialog, OpenFileDialog, DialogResult, M
 from pyrevit import forms, script
 
 import xlsx_reader
+import xlsx_writer
 import health_rubric
 import health_checks
 
@@ -54,11 +55,24 @@ _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 _DEFAULT_NAMING_PATTERN = r"^[A-Za-z0-9_\-\.\s]+$"
 
 
+def _status_for_score(score):
+    """Shared 3-tier grading used by both the on-screen report and the
+    Excel export, so the two always agree on what counts as good/warn/fail."""
+    if score is None:
+        return None
+    if score >= 0.8:
+        return "ok"
+    if score >= 0.4:
+        return "warn"
+    return "fail"
+
+
 class DeeHealthWindow(forms.WPFWindow):
     def __init__(self, xaml_file, doc):
         forms.WPFWindow.__init__(self, xaml_file)
         self.doc = doc
         self._tests = []
+        self._last_overall = None
         self.naming_pattern_tb.Text = _DEFAULT_NAMING_PATTERN
 
     def import_rubric_click(self, sender, args):
@@ -133,11 +147,13 @@ class DeeHealthWindow(forms.WPFWindow):
         self.rubric_grid.Items.Refresh()
 
         overall = health_rubric.compute_overall_score(self._tests)
+        self._last_overall = overall
         if overall is None:
             self.overall_score_tb.Text = "Overall Score: -- (nothing scorable)"
         else:
             self.overall_score_tb.Text = "Overall Score: {0:.0f}%".format(overall * 100)
 
+        _BG_BY_STATUS = {"ok": "#2e7d32", "warn": "#f9a825", "fail": "#c62828"}
         html = ['<h2 style="font-family:sans-serif;color:#ddd;">DeeHealth Results</h2>']
         if overall is not None:
             html.append('<p style="color:#ddd;font-size:16px;"><b>Overall weighted score: {0:.1f}%</b></p>'
@@ -147,8 +163,9 @@ class DeeHealthWindow(forms.WPFWindow):
             if t.section != current_section:
                 current_section = t.section
                 html.append('<h3 style="color:#ccc;margin-top:14px;">{0}</h3>'.format(current_section))
-            if t.result_score is not None:
-                bg = "#2e7d32" if t.result_score >= 0.8 else ("#f9a825" if t.result_score >= 0.4 else "#c62828")
+            status = _status_for_score(t.result_score)
+            if status is not None:
+                bg = _BG_BY_STATUS[status]
             elif t.implemented:
                 bg = "#455a64"
             else:
@@ -186,6 +203,57 @@ class DeeHealthWindow(forms.WPFWindow):
             return
         MessageBox.Show("Exported {0} test result(s) to:\n{1}".format(len(self._tests), dlg.FileName),
                         "DeeHealth")
+
+    def export_report_click(self, sender, args):
+        if not self._tests:
+            forms.alert("Nothing to export - import a rubric and run the health check first.")
+            return
+
+        dlg = SaveFileDialog()
+        dlg.Filter = "Excel files (*.xlsx)|*.xlsx"
+        dlg.FileName = "DeeHealth_Report.xlsx"
+        if dlg.ShowDialog() != DialogResult.OK:
+            return
+
+        sections = []
+        seen_sections = set()
+        for t in self._tests:
+            if t.section not in seen_sections:
+                seen_sections.add(t.section)
+                sections.append(t.section)
+
+        section_rows = []
+        for section in sections:
+            section_tests = [t for t in self._tests if t.section == section and t.is_scored
+                              and t.result_score is not None]
+            total_weight = sum(t.weight for t in section_tests)
+            if total_weight > 0:
+                section_score = sum(t.weight * t.result_score for t in section_tests) / total_weight
+                status = _status_for_score(section_score)
+                score_text = "{0:.0f}%".format(section_score * 100)
+            else:
+                status = None
+                score_text = "N/A"
+            any_weight = sum(t.weight for t in self._tests if t.section == section and t.weight is not None)
+            section_rows.append((section, "{0:.4f}".format(any_weight), score_text, status))
+
+        detail_rows = []
+        for t in self._tests:
+            status = _status_for_score(t.result_score)
+            if status is None:
+                status = "skip" if not t.implemented else None
+            detail_rows.append(([
+                t.section, t.name, t.implemented_text, t.weight_text,
+                t.result_value_text, t.result_score_text,
+                t.e_text, t.f_text, t.g_text, t.description,
+            ], status))
+
+        try:
+            xlsx_writer.write_health_report_xlsx(dlg.FileName, self._last_overall, section_rows, detail_rows)
+        except Exception as e:
+            forms.alert("Could not export report: {0}".format(e))
+            return
+        MessageBox.Show("Exported health report to:\n{0}".format(dlg.FileName), "DeeHealth")
 
     def close_click(self, sender, args):
         self.Close()
