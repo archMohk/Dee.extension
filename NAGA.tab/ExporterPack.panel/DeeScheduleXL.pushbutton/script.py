@@ -377,22 +377,37 @@ def _build_editor_table(doc, schedule_row):
     real_field_names = [_read_field_name(f) for f in fields]
     elements = list(FilteredElementCollector(doc, schedule.Id).WhereElementIsNotElementType())
     locked_indices = set()
-    for el in elements:
+    diag_lines = []
+    for ei, el in enumerate(elements):
         try:
             elem_maps = _element_param_maps(el)
             type_maps = _element_param_maps(_element_type_or_none(doc, el))
+            if ei == 0:
+                diag_lines.append("Element Id: {0}".format(_element_id_value(el.Id)))
+                diag_lines.append("Parameters found on element: {0}".format(len(elem_maps[1])))
+                diag_lines.append("Parameters found on type: {0}".format(len(type_maps[1])))
             row_values = [str(_element_id_value(el.Id))]
             for fi, f in enumerate(fields):
+                try:
+                    field_pid = f.ParameterId
+                except Exception as e:
+                    field_pid = "EXC: {0}".format(e)
                 param = _resolve_field_parameter(f, real_field_names[fi], elem_maps, type_maps)
                 text, locked = _read_param_display_value(param)
                 row_values.append(text)
                 if locked:
                     locked_indices.add(fi)
+                if ei == 0:
+                    diag_lines.append(
+                        "  Field '{0}': ParameterId={1}, resolved={2}, value='{3}', locked={4}".format(
+                            real_field_names[fi], field_pid, param is not None, text, locked))
             dt.Rows.Add(row_values)
-        except Exception:
+        except Exception as e:
+            if ei == 0:
+                diag_lines.append("FIRST ELEMENT FAILED: {0}".format(e))
             continue
 
-    return dt, fields, field_headers, locked_indices
+    return dt, fields, field_headers, locked_indices, "\n".join(diag_lines)
 
 
 class DeeScheduleXLWindow(forms.WPFWindow):
@@ -630,7 +645,7 @@ class DeeScheduleXLWindow(forms.WPFWindow):
             return
 
         with forms.ProgressBar(title="DeeScheduleXL — loading editor...", cancellable=True):
-            dt, fields, field_headers, locked_indices = _build_editor_table(self.doc, row)
+            dt, fields, field_headers, locked_indices, diag = _build_editor_table(self.doc, row)
 
         self._editor_table = dt
         self._editor_fields = fields
@@ -646,6 +661,12 @@ class DeeScheduleXLWindow(forms.WPFWindow):
             col.Binding = Binding("[{0}]".format(header))
             col.IsReadOnly = fi in locked_indices
             self.editor_grid.Columns.Add(col)
+
+        if diag:
+            output.print_html(
+                '<h3 style="color:#ddd;">DeeScheduleXL Live Editor diagnostic (first element)</h3>'
+                '<pre style="color:#ddd;background:#222;padding:10px;border-radius:4px;'
+                'white-space:pre-wrap;">{0}</pre>'.format(diag.replace("<", "&lt;").replace(">", "&gt;")))
 
     def _paste_into_editor_grid(self):
         dt = self._editor_table
