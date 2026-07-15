@@ -34,6 +34,7 @@ referenced element's name but are not writable via Import in this
 version.
 """
 import os
+import System
 
 import clr
 clr.AddReference("System.Windows.Forms")
@@ -93,6 +94,15 @@ def _element_id_value(eid):
         return eid.IntegerValue
     except Exception:
         return str(eid)
+
+
+def _make_element_id(int_value):
+    """ElementId(int) is ambiguous to IronPython in modern Revit API
+    versions - it has to choose between ElementId(BuiltInParameter),
+    ElementId(BuiltInCategory), and ElementId(Int64) overloads, and a
+    plain Python int does not disambiguate which one is meant. Casting
+    to System.Int64 first forces the right overload."""
+    return ElementId(System.Int64(int_value))
 
 
 def _schedule_category_name(doc, schedule):
@@ -585,7 +595,7 @@ class DeeScheduleXLWindow(forms.WPFWindow):
                     except (ValueError, TypeError):
                         results.append((False, sheet_row.sheet_name, id_text, "Invalid Element Id"))
                         continue
-                    element = self.doc.GetElement(ElementId(eid_int))
+                    element = self.doc.GetElement(_make_element_id(eid_int))
                     if element is None:
                         results.append((False, sheet_row.sheet_name, id_text, "Element no longer exists"))
                         continue
@@ -738,7 +748,7 @@ class DeeScheduleXLWindow(forms.WPFWindow):
                 except (ValueError, TypeError):
                     results.append((False, id_text, "Invalid Element Id"))
                     continue
-                element = self.doc.GetElement(ElementId(eid_int))
+                element = self.doc.GetElement(_make_element_id(eid_int))
                 if element is None:
                     results.append((False, id_text, "Element no longer exists"))
                     continue
