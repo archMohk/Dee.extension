@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeAligner — Align Views &amp; Images on Sheets"
         ShowInTaskbar="False"
-        MinHeight="700" MinWidth="1000" Height="780" Width="1080"
+        MinHeight="700" MinWidth="1250" Height="800" Width="1320"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
@@ -55,6 +55,17 @@
                                 <Button x:Name="views_distribute_v_b" Content="Distribute Vertically" Click="views_distribute_v_click" Width="160" Height="26" Margin="0,0,6,6"/>
                             </WrapPanel>
                         </GroupBox>
+                        <GroupBox Header="Center Checked Views in Sheet (each in its own sheet's white space)" Margin="0,8,0,0">
+                            <WrapPanel Margin="6">
+                                <TextBlock Text="Offset X:" VerticalAlignment="Center" Margin="0,0,4,6"/>
+                                <TextBox x:Name="views_offset_x_tb" Text="0" Width="60" Height="24" Margin="0,0,4,6" VerticalContentAlignment="Center"/>
+                                <TextBlock x:Name="views_offset_x_unit_tb" Text="mm" VerticalAlignment="Center" Margin="0,0,14,6"/>
+                                <TextBlock Text="Offset Y:" VerticalAlignment="Center" Margin="0,0,4,6"/>
+                                <TextBox x:Name="views_offset_y_tb" Text="0" Width="60" Height="24" Margin="0,0,4,6" VerticalContentAlignment="Center"/>
+                                <TextBlock x:Name="views_offset_y_unit_tb" Text="mm" VerticalAlignment="Center" Margin="0,0,14,6"/>
+                                <Button x:Name="views_center_in_sheet_b" Content="Center Checked in Sheet" Click="views_center_in_sheet_click" Width="170" Height="26" Margin="0,0,6,6"/>
+                            </WrapPanel>
+                        </GroupBox>
                     </StackPanel>
 
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
@@ -65,17 +76,32 @@
                         <Button x:Name="views_deselect_highlighted_b" Content="Deselect Highlighted" Click="views_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
                     </StackPanel>
 
-                    <DataGrid x:Name="views_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
-                        <DataGrid.Columns>
-                            <DataGridCheckBoxColumn Header="Include" Binding="{Binding is_selected, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
-                            <DataGridTextColumn Header="Sheet" Binding="{Binding sheet_text}" Width="160" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="View Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Center X" Binding="{Binding center_x_text}" Width="90" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Center Y" Binding="{Binding center_y_text}" Width="90" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Width" Binding="{Binding width_text}" Width="80" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Height" Binding="{Binding height_text}" Width="80" IsReadOnly="True"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="300"/>
+                        </Grid.ColumnDefinitions>
+                        <DataGrid x:Name="views_grid" Grid.Column="0" AutoGenerateColumns="False" CanUserAddRows="False"
+                                  SelectionMode="Extended" SelectionUnit="FullRow" SelectionChanged="views_grid_selection_changed">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="Include" Binding="{Binding is_selected, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
+                                <DataGridTextColumn Header="Sheet" Binding="{Binding sheet_text}" Width="160" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="View Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Center X" Binding="{Binding center_x_text}" Width="90" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Center Y" Binding="{Binding center_y_text}" Width="90" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Width" Binding="{Binding width_text}" Width="80" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Height" Binding="{Binding height_text}" Width="80" IsReadOnly="True"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <DockPanel Grid.Column="2">
+                            <TextBlock DockPanel.Dock="Top" Text="Preview (highlight a row to preview its sheet)" FontWeight="Bold" Margin="0,0,0,4" TextWrapping="Wrap"/>
+                            <TextBlock DockPanel.Dock="Bottom" x:Name="views_preview_status_tb" Text="Nothing to preview yet." FontStyle="Italic" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                            <Border BorderBrush="#888" BorderThickness="1">
+                                <Canvas x:Name="views_preview_canvas" Background="#1a1a1a"/>
+                            </Border>
+                        </DockPanel>
+                    </Grid>
                 </DockPanel>
             </TabItem>
 
@@ -121,10 +147,21 @@
                                 <Button x:Name="check_overlaps_b" Content="Check for Overlaps" Click="check_overlaps_click" Width="160" Height="26"/>
                             </StackPanel>
                         </GroupBox>
-                        <GroupBox Header="Auto-Arrange Images">
+                        <GroupBox Header="Auto-Arrange Images" Margin="0,0,0,8">
                             <StackPanel Orientation="Horizontal" Margin="6">
                                 <Button x:Name="auto_arrange_b" Content="Auto-Arrange Checked Images into Grid (avoids overlaps)" Click="auto_arrange_click" Width="320" Height="28"/>
                             </StackPanel>
+                        </GroupBox>
+                        <GroupBox Header="Center Checked Images in Sheet (the loaded sheet's white space)">
+                            <WrapPanel Margin="6">
+                                <TextBlock Text="Offset X:" VerticalAlignment="Center" Margin="0,0,4,6"/>
+                                <TextBox x:Name="images_offset_x_tb" Text="0" Width="60" Height="24" Margin="0,0,4,6" VerticalContentAlignment="Center"/>
+                                <TextBlock x:Name="images_offset_x_unit_tb" Text="mm" VerticalAlignment="Center" Margin="0,0,14,6"/>
+                                <TextBlock Text="Offset Y:" VerticalAlignment="Center" Margin="0,0,4,6"/>
+                                <TextBox x:Name="images_offset_y_tb" Text="0" Width="60" Height="24" Margin="0,0,4,6" VerticalContentAlignment="Center"/>
+                                <TextBlock x:Name="images_offset_y_unit_tb" Text="mm" VerticalAlignment="Center" Margin="0,0,14,6"/>
+                                <Button x:Name="images_center_in_sheet_b" Content="Center Checked in Sheet" Click="images_center_in_sheet_click" Width="170" Height="26" Margin="0,0,6,6"/>
+                            </WrapPanel>
                         </GroupBox>
                     </StackPanel>
 
@@ -136,16 +173,30 @@
                         <Button x:Name="images_deselect_highlighted_b" Content="Deselect Highlighted" Click="images_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
                     </StackPanel>
 
-                    <DataGrid x:Name="images_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
-                        <DataGrid.Columns>
-                            <DataGridCheckBoxColumn Header="Include" Binding="{Binding is_selected, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
-                            <DataGridTextColumn Header="Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Center X" Binding="{Binding center_x_text}" Width="90" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Center Y" Binding="{Binding center_y_text}" Width="90" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Width" Binding="{Binding width_text}" Width="80" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Height" Binding="{Binding height_text}" Width="80" IsReadOnly="True"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="300"/>
+                        </Grid.ColumnDefinitions>
+                        <DataGrid x:Name="images_grid" Grid.Column="0" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="Include" Binding="{Binding is_selected, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
+                                <DataGridTextColumn Header="Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Center X" Binding="{Binding center_x_text}" Width="90" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Center Y" Binding="{Binding center_y_text}" Width="90" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Width" Binding="{Binding width_text}" Width="80" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Height" Binding="{Binding height_text}" Width="80" IsReadOnly="True"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <DockPanel Grid.Column="2">
+                            <TextBlock DockPanel.Dock="Top" Text="Preview (blue = Viewport, green = Image, orange border = checked)" FontWeight="Bold" Margin="0,0,0,4" TextWrapping="Wrap"/>
+                            <TextBlock DockPanel.Dock="Bottom" x:Name="images_preview_status_tb" Text="Nothing to preview yet." FontStyle="Italic" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                            <Border BorderBrush="#888" BorderThickness="1">
+                                <Canvas x:Name="images_preview_canvas" Background="#1a1a1a"/>
+                            </Border>
+                        </DockPanel>
+                    </Grid>
                 </DockPanel>
             </TabItem>
         </TabControl>

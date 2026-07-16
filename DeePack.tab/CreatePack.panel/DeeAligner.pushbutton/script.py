@@ -19,6 +19,19 @@ Two separate tabs, one per content type:
   obstacles to avoid (for Overlap Check and Auto-Arrange) even though
   Viewports aren't listed as rows here anymore.
 
+Both tabs also have Center in Sheet, which moves each checked item so
+its own center matches the center of its sheet's title block bounds
+(the same bounds Auto-Arrange uses as a stand-in for the sheet's usable
+"white space", since there's no generic way to detect the actual empty
+area inside a title block's info strip) - Offset X/Y fields (in the
+project's display unit) let you nudge the result away from one if
+needed. A simple preview Canvas next to each grid draws the sheet
+outline plus a rectangle per Viewport/Image (checked ones highlighted
+in orange), refreshed after every scan, selection change, or alignment
+operation - on the Views tab it previews whichever sheet the currently
+highlighted row belongs to (or the first loaded sheet if none is
+highlighted).
+
 Load a sheet/sheets, or use Use Current Selection on either tab, to
 populate that tab's grid. The Include checkbox controls which rows an
 alignment button acts on (align needs at least 2 checked, distribute
@@ -67,7 +80,11 @@ from pyrevit import forms, script
 from Autodesk.Revit.DB import (
     FilteredElementCollector, ViewSheet, Viewport, ImageInstance, Transaction,
     ElementTransformUtils, BuiltInCategory, BuiltInParameter, XYZ,
+    UnitUtils, UnitTypeId, SpecTypeId,
 )
+from System.Windows.Controls import Canvas
+from System.Windows.Shapes import Rectangle
+from System.Windows.Media import SolidColorBrush, Color, Brushes
 
 import align_tools
 
@@ -171,6 +188,78 @@ def _get_sheet_bounds(doc, sheet):
     return None
 
 
+def _length_unit_type_id(doc):
+    try:
+        return doc.GetUnits().GetFormatOptions(SpecTypeId.Length).GetUnitTypeId()
+    except Exception:
+        return UnitTypeId.Millimeters
+
+
+def _internal_to_display(doc, value_internal):
+    uid = _length_unit_type_id(doc)
+    try:
+        return UnitUtils.ConvertFromInternalUnits(value_internal, uid)
+    except Exception:
+        return UnitUtils.ConvertFromInternalUnits(value_internal, UnitTypeId.Millimeters)
+
+
+def _display_to_internal(doc, value_display):
+    uid = _length_unit_type_id(doc)
+    try:
+        return UnitUtils.ConvertToInternalUnits(value_display, uid)
+    except Exception:
+        return UnitUtils.ConvertToInternalUnits(value_display, UnitTypeId.Millimeters)
+
+
+_UNIT_ABBR = [
+    (UnitTypeId.Millimeters, "mm"),
+    (UnitTypeId.Centimeters, "cm"),
+    (UnitTypeId.Meters, "m"),
+    (UnitTypeId.Feet, "ft"),
+    (UnitTypeId.FeetFractionalInches, "ft"),
+    (UnitTypeId.FractionalInches, "in"),
+    (UnitTypeId.Inches, "in"),
+]
+
+
+def _unit_abbreviation(doc):
+    uid = _length_unit_type_id(doc)
+    for u, abbr in _UNIT_ABBR:
+        if u == uid:
+            return abbr
+    return "mm"
+
+
+# -- simple sheet previewer (WPF Canvas, sheet-space feet -> pixels) --------
+_PREVIEW_MARGIN = 10.0
+_SHEET_STROKE = SolidColorBrush(Color.FromRgb(140, 140, 140))
+_VIEWPORT_FILL = SolidColorBrush(Color.FromArgb(70, 33, 150, 243))
+_VIEWPORT_STROKE = SolidColorBrush(Color.FromRgb(33, 150, 243))
+_IMAGE_FILL = SolidColorBrush(Color.FromArgb(70, 76, 175, 80))
+_CHECKED_STROKE = SolidColorBrush(Color.FromRgb(255, 152, 0))
+_UNCHECKED_STROKE = SolidColorBrush(Color.FromRgb(120, 120, 120))
+
+
+def _fit_scale(bounds, canvas_w, canvas_h, margin=_PREVIEW_MARGIN):
+    min_x, max_x, min_y, max_y = bounds
+    w = max(max_x - min_x, 1e-6)
+    h = max(max_y - min_y, 1e-6)
+    avail_w = max(canvas_w - 2 * margin, 10.0)
+    avail_h = max(canvas_h - 2 * margin, 10.0)
+    return min(avail_w / w, avail_h / h)
+
+
+def _to_canvas_rect(bounds, item_bbox, scale, canvas_h, margin=_PREVIEW_MARGIN):
+    min_x, _max_x, min_y, _max_y = bounds
+    ix0, ix1, iy0, iy1 = item_bbox
+    x0 = margin + (ix0 - min_x) * scale
+    x1 = margin + (ix1 - min_x) * scale
+    # Revit sheet-space Y increases upward, WPF Canvas Y increases downward.
+    y0 = canvas_h - margin - (iy1 - min_y) * scale
+    y1 = canvas_h - margin - (iy0 - min_y) * scale
+    return x0, y0, max(x1 - x0, 1.0), max(y1 - y0, 1.0)
+
+
 def _scan_viewports_on_sheet(doc, sheet):
     rows = []
     try:
@@ -271,6 +360,12 @@ class DeeAlignerWindow(forms.WPFWindow):
         self._image_sheet = None
         self._image_items = []
         self._image_sheet_viewports = []
+
+        unit_abbr = _unit_abbreviation(doc)
+        self.views_offset_x_unit_tb.Text = unit_abbr
+        self.views_offset_y_unit_tb.Text = unit_abbr
+        self.images_offset_x_unit_tb.Text = unit_abbr
+        self.images_offset_y_unit_tb.Text = unit_abbr
 
         self._scan_all_sheets()
         self._refresh_image_sheet_dropdown()
@@ -379,6 +474,64 @@ class DeeAlignerWindow(forms.WPFWindow):
         sheet_count = len(set(r.sheet.Id for r in self._view_items if r.sheet is not None))
         self.views_status_tb.Text = "{0} view(s) loaded across {1} sheet(s).".format(
             len(self._view_items), sheet_count)
+        self._refresh_views_preview()
+
+    def views_grid_selection_changed(self, sender, args):
+        self._refresh_views_preview()
+
+    def _refresh_views_preview(self):
+        highlighted = list(self.views_grid.SelectedItems)
+        sheet = None
+        if highlighted and highlighted[0].sheet is not None:
+            sheet = highlighted[0].sheet
+        elif self._view_items and self._view_items[0].sheet is not None:
+            sheet = self._view_items[0].sheet
+
+        if sheet is None:
+            self.views_preview_canvas.Children.Clear()
+            self.views_preview_status_tb.Text = "Nothing to preview yet."
+            return
+
+        bounds = _get_sheet_bounds(self.doc, sheet)
+        if bounds is None:
+            self.views_preview_canvas.Children.Clear()
+            self.views_preview_status_tb.Text = "No title block found on '{0}'.".format(_sheet_label(sheet))
+            return
+
+        entries = []
+        for r in self._view_items:
+            if r.sheet is None or r.sheet.Id != sheet.Id:
+                continue
+            stroke = _CHECKED_STROKE if r.is_selected else _UNCHECKED_STROKE
+            entries.append((r.bbox, _VIEWPORT_FILL, stroke, 2.0 if r.is_selected else 1.0))
+        self._draw_preview(self.views_preview_canvas, bounds, entries)
+        self.views_preview_status_tb.Text = "Previewing '{0}'.".format(_sheet_label(sheet))
+
+    def views_center_in_sheet_click(self, sender, args):
+        selected = self._get_selected_views()
+        if not selected:
+            forms.alert("Check at least one View to center.")
+            return
+        offset_x = _display_to_internal(self.doc, self._safe_float(self.views_offset_x_tb.Text, 0.0))
+        offset_y = _display_to_internal(self.doc, self._safe_float(self.views_offset_y_tb.Text, 0.0))
+
+        results = []
+        t = Transaction(self.doc, "DeeAligner - Center Views in Sheet")
+        t.Start()
+        for row in selected:
+            if row.sheet is None:
+                results.append((False, self._row_label(row), "No sheet reference for this row"))
+                continue
+            try:
+                dx, dy = self._center_in_sheet(row, row.sheet, offset_x, offset_y)
+                results.append((True, self._row_label(row),
+                                 "Centered in sheet (moved by {0:.3f}, {1:.3f})".format(dx, dy)))
+            except Exception as e:
+                results.append((False, self._row_label(row), "FAILED: {0}".format(e)))
+        t.Commit()
+
+        self._refresh_views_grid()
+        self._report_results("Center Views in Sheet", results)
 
     def _get_selected_views(self):
         return [r for r in self._view_items if r.is_selected]
@@ -520,6 +673,52 @@ class DeeAlignerWindow(forms.WPFWindow):
         if self._image_sheet is not None:
             sheet_label = " on '{0}'".format(_sheet_label(self._image_sheet))
         self.images_status_tb.Text = "{0} image(s) loaded{1}.".format(len(self._image_items), sheet_label)
+        self._refresh_images_preview()
+
+    def _refresh_images_preview(self):
+        if self._image_sheet is None:
+            self.images_preview_canvas.Children.Clear()
+            self.images_preview_status_tb.Text = "Nothing to preview yet."
+            return
+
+        bounds = _get_sheet_bounds(self.doc, self._image_sheet)
+        if bounds is None:
+            self.images_preview_canvas.Children.Clear()
+            self.images_preview_status_tb.Text = "No title block found on '{0}'.".format(
+                _sheet_label(self._image_sheet))
+            return
+
+        entries = [(r.bbox, _VIEWPORT_FILL, _VIEWPORT_STROKE, 1.0) for r in self._image_sheet_viewports]
+        for r in self._image_items:
+            stroke = _CHECKED_STROKE if r.is_selected else _UNCHECKED_STROKE
+            entries.append((r.bbox, _IMAGE_FILL, stroke, 2.0 if r.is_selected else 1.0))
+        self._draw_preview(self.images_preview_canvas, bounds, entries)
+        self.images_preview_status_tb.Text = "Previewing '{0}'.".format(_sheet_label(self._image_sheet))
+
+    def images_center_in_sheet_click(self, sender, args):
+        selected = self._get_selected_images()
+        if not selected:
+            forms.alert("Check at least one Image to center.")
+            return
+        if self._image_sheet is None:
+            forms.alert("Load a sheet first.")
+            return
+        offset_x = _display_to_internal(self.doc, self._safe_float(self.images_offset_x_tb.Text, 0.0))
+        offset_y = _display_to_internal(self.doc, self._safe_float(self.images_offset_y_tb.Text, 0.0))
+
+        results = []
+        t = Transaction(self.doc, "DeeAligner - Center Images in Sheet")
+        t.Start()
+        for row in selected:
+            try:
+                dx, dy = self._center_in_sheet(row, self._image_sheet, offset_x, offset_y)
+                results.append((True, row.name, "Centered in sheet (moved by {0:.3f}, {1:.3f})".format(dx, dy)))
+            except Exception as e:
+                results.append((False, row.name, "FAILED: {0}".format(e)))
+        t.Commit()
+
+        self._refresh_images_grid()
+        self._report_results("Center Images in Sheet", results)
 
     def _get_selected_images(self):
         return [r for r in self._image_items if r.is_selected]
@@ -600,6 +799,67 @@ class DeeAlignerWindow(forms.WPFWindow):
         st = row.sheet_text
         return "{0} [{1}]".format(row.name, st) if st else row.name
 
+    def _safe_float(self, text, default):
+        try:
+            return float(text)
+        except Exception:
+            return default
+
+    def _center_in_sheet(self, row, sheet, offset_x_internal, offset_y_internal):
+        """Moves `row` so its own bbox center matches the center of `sheet`'s
+        title block bounds (the same bounds Auto-Arrange uses), plus a
+        caller-supplied offset - the title block's own bounding box is used
+        as a stand-in for the sheet's usable "white space" since there's no
+        generic way to detect the actual empty area inside a title block's
+        info strip; the offset exists to nudge away from one if needed."""
+        bounds = _get_sheet_bounds(self.doc, sheet)
+        if bounds is None:
+            raise Exception("No title block found on this sheet")
+        target_cx = (bounds[0] + bounds[1]) / 2.0 + offset_x_internal
+        target_cy = (bounds[2] + bounds[3]) / 2.0 + offset_y_internal
+        cur_cx = (row.min_x + row.max_x) / 2.0
+        cur_cy = (row.min_y + row.max_y) / 2.0
+        dx = target_cx - cur_cx
+        dy = target_cy - cur_cy
+        if row.kind == "Viewport":
+            _move_viewport(row.element, dx, dy)
+        else:
+            _move_image(self.doc, row.element, dx, dy)
+        self._refresh_row_bbox(row)
+        return dx, dy
+
+    def _draw_preview(self, canvas, sheet_bounds, entries):
+        """entries: list of (bbox, fill_brush, stroke_brush, stroke_thickness)."""
+        canvas.Children.Clear()
+        if sheet_bounds is None:
+            return
+        canvas_w = canvas.ActualWidth if canvas.ActualWidth > 1 else 400.0
+        canvas_h = canvas.ActualHeight if canvas.ActualHeight > 1 else 220.0
+        scale = _fit_scale(sheet_bounds, canvas_w, canvas_h)
+
+        x0, y0, w, h = _to_canvas_rect(sheet_bounds, sheet_bounds, scale, canvas_h)
+        outline = Rectangle()
+        outline.Width = w
+        outline.Height = h
+        outline.Stroke = _SHEET_STROKE
+        outline.StrokeThickness = 1.5
+        outline.Fill = Brushes.Transparent
+        Canvas.SetLeft(outline, x0)
+        Canvas.SetTop(outline, y0)
+        canvas.Children.Add(outline)
+
+        for bbox, fill, stroke, thickness in entries:
+            rx, ry, rw, rh = _to_canvas_rect(sheet_bounds, bbox, scale, canvas_h)
+            rect = Rectangle()
+            rect.Width = rw
+            rect.Height = rh
+            rect.Fill = fill
+            rect.Stroke = stroke
+            rect.StrokeThickness = thickness
+            Canvas.SetLeft(rect, rx)
+            Canvas.SetTop(rect, ry)
+            canvas.Children.Add(rect)
+
     def _apply_image_size(self, row, target_w, target_h):
         """Sets an Image's Width/Height instance parameters to (target_w,
         target_h) feet, then re-centers it on its pre-resize center - Revit's
@@ -649,6 +909,10 @@ class DeeAlignerWindow(forms.WPFWindow):
                 results.append((False, self._row_label(row), "FAILED: {0}".format(e)))
         t.Commit()
 
+        if grid is self.views_grid:
+            self._refresh_views_preview()
+        elif grid is self.images_grid:
+            self._refresh_images_preview()
         grid.Items.Refresh()
         self._report_results(op_name, results)
 
@@ -697,6 +961,7 @@ class DeeAlignerWindow(forms.WPFWindow):
         t.Commit()
 
         self.images_grid.Items.Refresh()
+        self._refresh_images_preview()
         self._report_results("Scale Images", results)
 
     def _match_size(self, mode):
@@ -724,6 +989,7 @@ class DeeAlignerWindow(forms.WPFWindow):
         t.Commit()
 
         self.images_grid.Items.Refresh()
+        self._refresh_images_preview()
         self._report_results("Match Image Size ({0})".format(mode), results)
 
     def match_largest_click(self, sender, args):
@@ -794,6 +1060,7 @@ class DeeAlignerWindow(forms.WPFWindow):
         t.Commit()
 
         self.images_grid.Items.Refresh()
+        self._refresh_images_preview()
         self._report_results("Auto-Arrange Images", results)
 
     def close_click(self, sender, args):
