@@ -6,7 +6,7 @@
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10">
-            <Run Text="Pick a sheet from the dropdown and Load Sheet to list every Viewport and Image on it, or select Viewports/Images in Revit first and click Use Current Selection. Check which rows to include, then use an alignment button below - operates on whatever's checked, needs at least 2 items (3 for Distribute). Auto-Arrange lays out checked Images into a grid within the sheet's title block bounds - it does not avoid overlapping viewports, so use it for images placed in space you've already reserved. Nothing changes until an alignment/arrange button is clicked."/>
+            <Run Text="Pick a sheet from the dropdown and Load Sheet to list every Viewport and Image on it, or select Viewports/Images in Revit first and click Use Current Selection. Check which rows to include, then use an alignment button below - operates on whatever's checked, needs at least 2 items (3 for Distribute). Scale Images resizes checked Images only (Width/Height, keeping each centered in place). Check for Overlaps reports intersecting pairs among everything loaded. Auto-Arrange packs checked Images into a grid within the sheet's title block bounds, sliding around unchecked Images/Viewports instead of overlapping them - a best-effort packer, so a very crowded sheet may leave some images unplaced. Nothing changes until a button below is clicked."/>
         </TextBlock>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
@@ -33,9 +33,23 @@
                     <Button x:Name="distribute_v_b" Content="Distribute Vertically" Click="distribute_v_click" Width="160" Height="26" Margin="0,0,6,6"/>
                 </WrapPanel>
             </GroupBox>
+            <GroupBox Header="Scale Images (checked Images only, keeps each centered)" Margin="0,0,0,8">
+                <WrapPanel Margin="6">
+                    <TextBlock Text="Scale Factor:" VerticalAlignment="Center" Margin="0,0,6,6"/>
+                    <TextBox x:Name="scale_factor_tb" Text="1.0" Width="60" Height="24" Margin="0,0,6,6" VerticalContentAlignment="Center"/>
+                    <Button x:Name="scale_factor_b" Content="Apply Scale Factor" Click="scale_factor_click" Width="140" Height="26" Margin="0,0,14,6"/>
+                    <Button x:Name="match_largest_b" Content="Match Size to Largest" Click="match_largest_click" Width="150" Height="26" Margin="0,0,6,6"/>
+                    <Button x:Name="match_smallest_b" Content="Match Size to Smallest" Click="match_smallest_click" Width="150" Height="26" Margin="0,0,6,6"/>
+                </WrapPanel>
+            </GroupBox>
+            <GroupBox Header="Overlap Check (all loaded items)" Margin="0,0,0,8">
+                <StackPanel Orientation="Horizontal" Margin="6">
+                    <Button x:Name="check_overlaps_b" Content="Check for Overlaps" Click="check_overlaps_click" Width="160" Height="26"/>
+                </StackPanel>
+            </GroupBox>
             <GroupBox Header="Auto-Arrange Images">
                 <StackPanel Orientation="Horizontal" Margin="6">
-                    <Button x:Name="auto_arrange_b" Content="Auto-Arrange Checked Images into Grid" Click="auto_arrange_click" Width="260" Height="28"/>
+                    <Button x:Name="auto_arrange_b" Content="Auto-Arrange Checked Images into Grid (avoids overlaps)" Click="auto_arrange_click" Width="320" Height="28"/>
                 </StackPanel>
             </GroupBox>
         </StackPanel>
@@ -45,8 +59,10 @@
                 <DataGridCheckBoxColumn Header="Include" Binding="{Binding is_selected, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
                 <DataGridTextColumn Header="Kind" Binding="{Binding kind}" Width="90" IsReadOnly="True"/>
                 <DataGridTextColumn Header="Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Center X" Binding="{Binding center_x_text}" Width="100" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Center Y" Binding="{Binding center_y_text}" Width="100" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Center X" Binding="{Binding center_x_text}" Width="90" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Center Y" Binding="{Binding center_y_text}" Width="90" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Width" Binding="{Binding width_text}" Width="80" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Height" Binding="{Binding height_text}" Width="80" IsReadOnly="True"/>
             </DataGrid.Columns>
         </DataGrid>
     </DockPanel>

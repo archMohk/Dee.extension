@@ -1,35 +1,46 @@
 # -*- coding: utf-8 -*-
 """
 DeeAligner (CreatePack)
-Aligns/distributes Viewports and Image instances placed on a sheet, and
-can auto-arrange a set of Images into a grid within the sheet's title
-block bounds.
+Aligns/distributes Viewports and Image instances placed on a sheet, can
+scale Images, check for overlaps, and auto-arrange a set of Images into
+a grid within the sheet's title block bounds while avoiding existing
+content.
 
 Load a sheet from the dropdown (lists every Viewport and Image on it),
 or select Viewports/Images in Revit first and click Use Current
 Selection - either way populates the same grid, where the Include
 checkbox controls which rows an alignment button acts on (align needs
-at least 2 checked, distribute needs at least 3). Auto-Arrange only
-touches checked Images, laying them into a grid sized to the sheet's
-title block bounds - it does NOT check for or avoid overlapping
-viewports/other content, so it's meant for images placed in space
-you've already reserved (e.g. a logo/photo strip), not a general
-layout solver.
+at least 2 checked, distribute needs at least 3). Scale Images (Width/
+Height instance parameters) only applies to checked Images - Apply
+Scale Factor multiplies each one's own current size, Match Size to
+Largest/Smallest resizes every checked Image to match whichever one
+(by area) is largest/smallest. Check for Overlaps reports every
+intersecting pair among ALL loaded items (not just checked). Auto-
+Arrange packs checked Images into the title block bounds using a shelf-
+packing heuristic that slides past unchecked Images/Viewports instead
+of overlapping them - a best-effort packer, not a guaranteed solve, so
+an image can be reported as "no overlap-free spot found" if the sheet
+is too crowded.
 
-Architecture: lib/align_tools.py holds the alignment/distribute/grid
-math as plain (min_x, max_x, min_y, max_y) bounding-box tuples with no
-Revit dependency (unit-tested standalone). This script only reads each
-Viewport/Image's bounding box in sheet space, calls into align_tools for
-the target deltas, and applies them via each category's own Revit API
-move mechanism (Viewport.SetBoxCenter vs ElementTransformUtils.MoveElement
-for Images) - the two need different calls since Viewport position on a
-sheet isn't a regular movable element the normal way.
+Architecture: lib/align_tools.py holds the alignment/distribute/grid/
+overlap/packing math as plain (min_x, max_x, min_y, max_y) bounding-box
+tuples with no Revit dependency (unit-tested standalone). This script
+only reads each Viewport/Image's bounding box in sheet space, calls into
+align_tools for the target deltas/placements, and applies them via each
+category's own Revit API move mechanism (Viewport.SetBoxCenter vs
+ElementTransformUtils.MoveElement for Images) - the two need different
+calls since Viewport position on a sheet isn't a regular movable element
+the normal way. Image scaling sets the "Width"/"Height" instance
+parameters (found via LookupParameter, matching the names shown in
+Revit's own Properties palette for a placed raster image), then
+re-centers the image on its pre-resize center since Revit's own resize
+anchor point isn't documented.
 
 Needs live-Revit verification before trusting on real sheets: GetBoxOutline/
 SetBoxCenter for Viewports, get_BoundingBox(sheet) for Images (this is how
 an Image placed directly on a sheet is expected to report its position),
-GetAllViewports, and OwnerViewId for an Image selected via Use Current
-Selection.
+GetAllViewports, OwnerViewId for an Image selected via Use Current
+Selection, and the "Width"/"Height" LookupParameter names for Image scaling.
 """
 import os
 
@@ -99,6 +110,25 @@ def _move_viewport(vp, dx, dy):
 
 def _move_image(doc, img, dx, dy):
     ElementTransformUtils.MoveElement(doc, img.Id, XYZ(dx, dy, 0.0))
+
+
+def _find_param_by_name(element, name):
+    try:
+        p = element.LookupParameter(name)
+        if p is not None:
+            return p
+    except Exception:
+        pass
+    return None
+
+
+def _image_size_params(img):
+    """Looks up the "Width"/"Height" instance parameters shown in Revit's
+    Properties palette for a placed raster Image. Height can come back
+    read-only when the Image's "Lock Proportions" is on - Revit adjusts it
+    automatically from Width in that case, so callers should only require
+    Width to be writable."""
+    return _find_param_by_name(img, "Width"), _find_param_by_name(img, "Height")
 
 
 def _get_sheet_bounds(doc, sheet):
@@ -177,6 +207,14 @@ class AlignableRow(object):
     @property
     def center_y_text(self):
         return "{0:.3f}".format((self.min_y + self.max_y) / 2.0)
+
+    @property
+    def width_text(self):
+        return "{0:.3f}".format(self.max_x - self.min_x)
+
+    @property
+    def height_text(self):
+        return "{0:.3f}".format(self.max_y - self.min_y)
 
 
 class DeeAlignerWindow(forms.WPFWindow):
@@ -275,6 +313,9 @@ class DeeAlignerWindow(forms.WPFWindow):
     def _get_selected(self):
         return [r for r in self._items if r.is_selected]
 
+    def _get_selected_images(self):
+        return [r for r in self._items if r.kind == "Image" and r.is_selected]
+
     def _refresh_row_bbox(self, row):
         try:
             if row.kind == "Viewport":
@@ -285,6 +326,29 @@ class DeeAlignerWindow(forms.WPFWindow):
                     row.min_x, row.max_x, row.min_y, row.max_y = bbox
         except Exception:
             pass
+
+    def _apply_image_size(self, row, target_w, target_h):
+        """Sets an Image's Width/Height instance parameters to (target_w,
+        target_h) feet, then re-centers it on its pre-resize center - Revit's
+        resize anchor point isn't documented, so this makes the result
+        anchor-agnostic instead of relying on a guessed corner/origin."""
+        w_param, h_param = _image_size_params(row.element)
+        if w_param is None or w_param.IsReadOnly:
+            raise Exception("No editable Width parameter found on this Image.")
+        old_cx = (row.min_x + row.max_x) / 2.0
+        old_cy = (row.min_y + row.max_y) / 2.0
+        w_param.Set(target_w)
+        if h_param is not None and not h_param.IsReadOnly:
+            h_param.Set(target_h)
+        self.doc.Regenerate()
+        self._refresh_row_bbox(row)
+        new_cx = (row.min_x + row.max_x) / 2.0
+        new_cy = (row.min_y + row.max_y) / 2.0
+        dx = old_cx - new_cx
+        dy = old_cy - new_cy
+        if abs(dx) > 1e-9 or abs(dy) > 1e-9:
+            _move_image(self.doc, row.element, dx, dy)
+            self._refresh_row_bbox(row)
 
     def _apply_alignment(self, op_name, align_fn, min_count=2):
         selected = self._get_selected()
@@ -353,6 +417,91 @@ class DeeAlignerWindow(forms.WPFWindow):
     def distribute_v_click(self, sender, args):
         self._apply_alignment("Distribute Vertically", align_tools.distribute_vertical, min_count=3)
 
+    def scale_factor_click(self, sender, args):
+        images = self._get_selected_images()
+        if not images:
+            forms.alert("Check at least one Image to scale.")
+            return
+        try:
+            factor = float(self.scale_factor_tb.Text)
+        except Exception:
+            forms.alert("Scale Factor must be a number (e.g. 1.0, 0.5, 2.0).")
+            return
+        if factor <= 0:
+            forms.alert("Scale Factor must be greater than 0.")
+            return
+
+        results = []
+        t = Transaction(self.doc, "DeeAligner - Scale Images")
+        t.Start()
+        for row in images:
+            try:
+                cur_w = row.max_x - row.min_x
+                cur_h = row.max_y - row.min_y
+                self._apply_image_size(row, cur_w * factor, cur_h * factor)
+                results.append((True, row.name, "Scaled by {0:.2f}x".format(factor)))
+            except Exception as e:
+                results.append((False, row.name, "FAILED: {0}".format(e)))
+        t.Commit()
+
+        self.items_grid.Items.Refresh()
+        self._report_results("Scale Images", results)
+
+    def _match_size(self, mode):
+        images = self._get_selected_images()
+        if len(images) < 2:
+            forms.alert("Check at least 2 Images to match sizes.")
+            return
+        by_area = sorted(images, key=lambda r: (r.max_x - r.min_x) * (r.max_y - r.min_y))
+        reference = by_area[0] if mode == "smallest" else by_area[-1]
+        target_w = reference.max_x - reference.min_x
+        target_h = reference.max_y - reference.min_y
+
+        results = []
+        t = Transaction(self.doc, "DeeAligner - Match Image Size")
+        t.Start()
+        for row in images:
+            if row.id == reference.id:
+                results.append((True, row.name, "Reference size ({0:.3f} x {1:.3f})".format(target_w, target_h)))
+                continue
+            try:
+                self._apply_image_size(row, target_w, target_h)
+                results.append((True, row.name, "Matched to {0:.3f} x {1:.3f}".format(target_w, target_h)))
+            except Exception as e:
+                results.append((False, row.name, "FAILED: {0}".format(e)))
+        t.Commit()
+
+        self.items_grid.Items.Refresh()
+        self._report_results("Match Image Size ({0})".format(mode), results)
+
+    def match_largest_click(self, sender, args):
+        self._match_size("largest")
+
+    def match_smallest_click(self, sender, args):
+        self._match_size("smallest")
+
+    def check_overlaps_click(self, sender, args):
+        if len(self._items) < 2:
+            forms.alert("Load a sheet or a selection with at least 2 items first.")
+            return
+        boxes = [r.bbox for r in self._items]
+        pairs = align_tools.find_overlapping_pairs(boxes)
+        html = ['<h2 style="font-family:sans-serif;color:#ddd;">DeeAligner - Overlap Check</h2>']
+        if not pairs:
+            html.append('<p style="color:#8bc34a;">No overlaps found among the {0} loaded item(s).</p>'
+                         .format(len(self._items)))
+        else:
+            html.append('<p style="color:#ddd;">{0} overlapping pair(s) found:</p>'.format(len(pairs)))
+            for i, j in pairs:
+                a = self._items[i]
+                b = self._items[j]
+                html.append(
+                    '<div style="padding:4px 10px;margin:2px 0;background:#c62828;color:#fff;'
+                    'border-radius:4px;font-family:monospace;font-size:12px;">'
+                    '&#9888;&nbsp; <b>{0}</b> ({1}) overlaps <b>{2}</b> ({3})</div>'.format(
+                        a.name, a.kind, b.name, b.kind))
+        output.print_html("".join(html))
+
     def auto_arrange_click(self, sender, args):
         images = [r for r in self._items if r.kind == "Image" and r.is_selected]
         if not images:
@@ -365,18 +514,27 @@ class DeeAlignerWindow(forms.WPFWindow):
         if bounds is None:
             forms.alert("Could not determine sheet bounds - no title block found on this sheet.")
             return
-        centers = align_tools.grid_layout_centers(len(images), bounds)
+
+        image_ids = set(r.id for r in images)
+        obstacles = [r.bbox for r in self._items if r.id not in image_ids]
+        sizes = [(r.max_x - r.min_x, r.max_y - r.min_y) for r in images]
+        placements = align_tools.shelf_pack(sizes, bounds, obstacles=obstacles, spacing=0.1)
 
         results = []
         t = Transaction(self.doc, "DeeAligner - Auto-Arrange Images")
         t.Start()
-        for row, (cx, cy) in zip(images, centers):
+        for row, placement in zip(images, placements):
+            if placement is None:
+                results.append((False, row.name, "No overlap-free spot found - left in place"))
+                continue
             try:
+                target_cx = (placement[0] + placement[1]) / 2.0
+                target_cy = (placement[2] + placement[3]) / 2.0
                 cur_cx = (row.min_x + row.max_x) / 2.0
                 cur_cy = (row.min_y + row.max_y) / 2.0
-                _move_image(self.doc, row.element, cx - cur_cx, cy - cur_cy)
+                _move_image(self.doc, row.element, target_cx - cur_cx, target_cy - cur_cy)
                 self._refresh_row_bbox(row)
-                results.append((True, row.name, "Arranged into grid"))
+                results.append((True, row.name, "Arranged into grid, avoiding existing content"))
             except Exception as e:
                 results.append((False, row.name, "FAILED: {0}".format(e)))
         t.Commit()
