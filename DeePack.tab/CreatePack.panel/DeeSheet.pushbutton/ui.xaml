@@ -63,7 +63,7 @@
             <TabItem Header="Super Sheet">
                 <DockPanel Margin="10">
                     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Every Sheet in the project, in one editable grid. Edit Number/Name directly in a cell - sort by Number (click the column header) to see where a new sheet lands. Add Row adds a new, not-yet-created sheet for you to fill in. The Delete checkbox marks an existing sheet for deletion, or just drops a not-yet-created row. Apply Changes creates/renames/deletes everything at once. Nothing changes until Apply Changes or Apply to All Sheets is clicked."/>
+                               Text="Every Sheet in the project, in one editable grid (starts sorted by Number). Edit Number/Name directly in a cell. Add Row appends a new, not-yet-created sheet - click it, then Move Up/Move Down to place it wherever you want in this list (this reorders the view only, not Revit's own sheet numbering/browser order). The Delete checkbox marks an existing sheet for deletion, or just drops a not-yet-created row. Apply Changes creates/renames/deletes everything at once. Nothing changes until Apply Changes or Apply to All Sheets is clicked."/>
 
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,10">
                         <TextBlock Text="Title Block:" VerticalAlignment="Center" Margin="0,0,8,0" FontWeight="Bold"/>
@@ -77,11 +77,13 @@
                         <Button x:Name="super_add_row_b" Content="Add Row" Click="super_add_row_click" Width="90" Height="24" Margin="8,0,0,0"/>
                         <Button x:Name="super_remove_selected_b" Content="Remove Highlighted Row(s)" Click="super_remove_selected_click" Width="180" Height="24" Margin="8,0,0,0"
                                 ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to remove/mark them."/>
+                        <Button x:Name="super_move_up_b" Content="Move Up" Click="super_move_up_click" Width="80" Height="24" Margin="16,0,0,0"/>
+                        <Button x:Name="super_move_down_b" Content="Move Down" Click="super_move_down_click" Width="90" Height="24" Margin="6,0,0,0"/>
                         <Button x:Name="super_apply_b" Content="Apply Changes" Click="super_apply_click" Width="130" Height="24" Margin="16,0,0,0" FontWeight="Bold"/>
                         <TextBlock x:Name="super_status_tb" Text="0 sheet(s)." VerticalAlignment="Center" Margin="16,0,0,0" FontStyle="Italic"/>
                     </StackPanel>
 
-                    <DataGrid x:Name="super_grid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserSortColumns="True"
+                    <DataGrid x:Name="super_grid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserSortColumns="False"
                               SelectionMode="Extended" SelectionUnit="FullRow" RowEditEnding="super_grid_row_edit_ending">
                         <DataGrid.Columns>
                             <DataGridCheckBoxColumn Header="Delete" Binding="{Binding marked_delete, Mode=TwoWay}" Width="55"/>

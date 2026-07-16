@@ -15,7 +15,10 @@ Two tabs:
 2. Super Sheet - scans every Sheet in the project into one editable
    grid. Edit Number/Name directly in a cell (the grid is sortable, so
    a new sheet numbered between two existing ones will naturally land
-   between them once sorted by Number); Add Row adds a new,
+   between them once sorted by Number); Move Up/Move Down let you
+   manually reorder the highlighted row in this view (independent of
+   sort order - purely a workspace-organization aid, doesn't touch
+   Revit's own sheet numbering/browser order); Add Row adds a new,
    not-yet-created sheet row; the Delete checkbox marks an existing
    sheet for deletion, or just drops a not-yet-created row since it
    was never made. Apply Changes creates/renames/deletes everything in
@@ -29,6 +32,7 @@ instance, and Document.Create.NewFamilyInstance(XYZ.Zero, symbol,
 sheet) for placing a title block on a sheet that doesn't have one.
 """
 import os
+import System
 from pyrevit import forms, script
 from Autodesk.Revit.DB import (
     FilteredElementCollector, BuiltInCategory, ViewSheet, ElementId, Transaction,
@@ -275,16 +279,38 @@ class DeeSheetWindow(forms.WPFWindow):
     def super_grid_row_edit_ending(self, sender, args):
         # WPF forbids CollectionView.Refresh() while a row edit is still
         # committing (throws "'Refresh' is not allowed during an AddNew or
-        # EditItem transaction"). The Status column just won't repaint until
-        # the next explicit refresh (Add Row/Remove/Refresh Sheets/Apply) -
-        # Apply Changes itself compares number/name to original_number/
-        # original_name directly, not the rendered Status text, so this is
-        # purely cosmetic and doesn't affect correctness.
-        pass
+        # EditItem transaction"). Deferring it to the next dispatcher cycle
+        # (same fix already proven in DeeView's views_row_edit_ending) lets
+        # the edit finish committing first, so the Status column still
+        # repaints right away.
+        try:
+            self.Dispatcher.BeginInvoke(System.Action(self._refresh_super_grid))
+        except Exception:
+            pass
 
     def super_add_row_click(self, sender, args):
         self._super_rows.append(SuperSheetRow(None, "", ""))
         self._refresh_super_grid()
+
+    def super_move_up_click(self, sender, args):
+        row = self.super_grid.SelectedItem
+        if not row:
+            return
+        idx = self._super_rows.index(row)
+        if idx > 0:
+            self._super_rows[idx - 1], self._super_rows[idx] = self._super_rows[idx], self._super_rows[idx - 1]
+            self._refresh_super_grid()
+            self.super_grid.SelectedItem = row
+
+    def super_move_down_click(self, sender, args):
+        row = self.super_grid.SelectedItem
+        if not row:
+            return
+        idx = self._super_rows.index(row)
+        if idx < len(self._super_rows) - 1:
+            self._super_rows[idx + 1], self._super_rows[idx] = self._super_rows[idx], self._super_rows[idx + 1]
+            self._refresh_super_grid()
+            self.super_grid.SelectedItem = row
 
     def super_remove_selected_click(self, sender, args):
         highlighted = list(self.super_grid.SelectedItems)
