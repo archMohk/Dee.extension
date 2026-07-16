@@ -22,6 +22,9 @@
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                         <Button x:Name="rooms_select_all_b" Content="Select All" Click="rooms_select_all_click" Width="90" Height="24"/>
                         <Button x:Name="rooms_deselect_all_b" Content="Deselect All" Click="rooms_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="rooms_select_highlighted_b" Content="Select Highlighted" Click="rooms_select_highlighted_click" Width="130" Height="24" Margin="16,0,0,0"
+                                ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                        <Button x:Name="rooms_deselect_highlighted_b" Content="Deselect Highlighted" Click="rooms_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
                         <Button x:Name="rooms_delete_b" Content="Delete Selected" Click="rooms_delete_click" Width="120" Height="24" Margin="20,0,0,0"/>
                         <TextBlock x:Name="rooms_count_tb" Text="0 zero-area room(s)" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
                     </StackPanel>
@@ -45,6 +48,9 @@
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                         <Button x:Name="inplace_select_all_b" Content="Select All" Click="inplace_select_all_click" Width="90" Height="24"/>
                         <Button x:Name="inplace_deselect_all_b" Content="Deselect All" Click="inplace_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="inplace_select_highlighted_b" Content="Select Highlighted" Click="inplace_select_highlighted_click" Width="130" Height="24" Margin="16,0,0,0"
+                                ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                        <Button x:Name="inplace_deselect_highlighted_b" Content="Deselect Highlighted" Click="inplace_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
                         <Button x:Name="inplace_isolate_b" Content="Isolate Selected in 3D View" Click="inplace_isolate_click" Width="180" Height="24" Margin="20,0,0,0"/>
                         <TextBlock x:Name="inplace_count_tb" Text="0 in-place familie(s)" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
                     </StackPanel>
@@ -68,6 +74,9 @@
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                         <Button x:Name="groups_select_all_b" Content="Select All" Click="groups_select_all_click" Width="90" Height="24"/>
                         <Button x:Name="groups_deselect_all_b" Content="Deselect All" Click="groups_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="groups_select_highlighted_b" Content="Select Highlighted" Click="groups_select_highlighted_click" Width="130" Height="24" Margin="16,0,0,0"
+                                ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                        <Button x:Name="groups_deselect_highlighted_b" Content="Deselect Highlighted" Click="groups_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
                         <Button x:Name="groups_delete_b" Content="Delete Selected" Click="groups_delete_click" Width="120" Height="24" Margin="20,0,0,0"/>
                         <TextBlock x:Name="groups_count_tb" Text="0 unused group(s)" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
                     </StackPanel>

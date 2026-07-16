@@ -32,7 +32,15 @@
                                 Width="160" Height="28" HorizontalAlignment="Left"/>
                     </StackPanel>
 
-                    <DataGrid x:Name="schedules_grid" AutoGenerateColumns="False" CanUserAddRows="False">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="schedules_select_all_b" Content="Select All" Click="schedules_select_all_click" Width="90" Height="24"/>
+                        <Button x:Name="schedules_deselect_all_b" Content="Deselect All" Click="schedules_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="schedules_select_highlighted_b" Content="Select Highlighted" Click="schedules_select_highlighted_click" Width="130" Height="24" Margin="16,0,0,0"
+                                ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                        <Button x:Name="schedules_deselect_highlighted_b" Content="Deselect Highlighted" Click="schedules_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
+                    </StackPanel>
+
+                    <DataGrid x:Name="schedules_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
                         <DataGrid.Columns>
                             <DataGridCheckBoxColumn Header="Export" Binding="{Binding is_selected, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
                             <DataGridTextColumn Header="Schedule Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
@@ -66,7 +74,14 @@
                         </Grid.ColumnDefinitions>
                         <DockPanel Grid.Column="0">
                             <TextBlock DockPanel.Dock="Top" Text="Compatible for import" FontWeight="Bold" Margin="0,0,0,6"/>
-                            <DataGrid x:Name="compatible_grid" AutoGenerateColumns="False" CanUserAddRows="False">
+                            <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                <Button x:Name="compatible_select_all_b" Content="Select All" Click="compatible_select_all_click" Width="70" Height="22" Margin="0,0,4,4"/>
+                                <Button x:Name="compatible_deselect_all_b" Content="Deselect All" Click="compatible_deselect_all_click" Width="75" Height="22" Margin="0,0,4,4"/>
+                                <Button x:Name="compatible_select_highlighted_b" Content="Select Highlighted" Click="compatible_select_highlighted_click" Width="110" Height="22" Margin="8,0,4,4"
+                                        ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                                <Button x:Name="compatible_deselect_highlighted_b" Content="Deselect Highlighted" Click="compatible_deselect_highlighted_click" Width="120" Height="22" Margin="0,0,4,4"/>
+                            </WrapPanel>
+                            <DataGrid x:Name="compatible_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
                                 <DataGrid.Columns>
                                     <DataGridCheckBoxColumn Header="Import" Binding="{Binding is_selected, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
                                     <DataGridTextColumn Header="Sheet" Binding="{Binding sheet_name}" Width="*" IsReadOnly="True"/>

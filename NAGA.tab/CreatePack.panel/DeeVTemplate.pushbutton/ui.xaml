@@ -32,6 +32,11 @@
                     <Button x:Name="templates_select_all_b" Content="Select All" Click="templates_select_all_click" Width="90" Height="24" Margin="8,0,0,0"/>
                     <Button x:Name="templates_deselect_all_b" Content="Deselect All" Click="templates_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
                 </StackPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button x:Name="templates_select_highlighted_b" Content="Select Highlighted" Click="templates_select_highlighted_click" Width="130" Height="24"
+                            ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                    <Button x:Name="templates_deselect_highlighted_b" Content="Deselect Highlighted" Click="templates_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
+                </StackPanel>
                 <TextBlock DockPanel.Dock="Top" x:Name="templates_count_tb" Text="0 view template(s) in this file" Margin="0,0,0,6" FontStyle="Italic"/>
                 <DataGrid x:Name="templates_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
                     <DataGrid.Columns>
@@ -47,6 +52,11 @@
                     <Button x:Name="refresh_docs_b" Content="Refresh Open Files" Click="refresh_docs_click" Width="150" Height="24"/>
                     <Button x:Name="docs_select_all_b" Content="Select All" Click="docs_select_all_click" Width="90" Height="24" Margin="8,0,0,0"/>
                     <Button x:Name="docs_deselect_all_b" Content="Deselect All" Click="docs_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button x:Name="docs_select_highlighted_b" Content="Select Highlighted" Click="docs_select_highlighted_click" Width="130" Height="24"
+                            ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                    <Button x:Name="docs_deselect_highlighted_b" Content="Deselect Highlighted" Click="docs_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
                 </StackPanel>
                 <TextBlock DockPanel.Dock="Top" x:Name="docs_count_tb" Text="0 other open file(s)" Margin="0,0,0,6" FontStyle="Italic"/>
                 <DataGrid x:Name="docs_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">

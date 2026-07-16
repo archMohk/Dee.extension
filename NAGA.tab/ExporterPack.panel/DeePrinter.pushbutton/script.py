@@ -367,6 +367,18 @@ class DeePrinterWindow(forms.WPFWindow):
     def uncheck_selected(self, sender, args):
         self._set_states(state=False, selected=True)
 
+    def check_highlighted_click(self, sender, args):
+        if not list(self.list_lb.SelectedItems):
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        self._set_states(state=True, selected=True)
+
+    def uncheck_highlighted_click(self, sender, args):
+        if not list(self.list_lb.SelectedItems):
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        self._set_states(state=False, selected=True)
+
     def search_txt_changed(self, sender, args):
         if self.search_tb.Text == "":
             self.clrsearch_b.Visibility = framework.Windows.Visibility.Collapsed

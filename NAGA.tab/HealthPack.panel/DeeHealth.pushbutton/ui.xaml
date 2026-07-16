@@ -65,7 +65,14 @@
                     <Button DockPanel.Dock="Bottom" x:Name="run_health_b" Content="Run Health Check" Click="run_health_click"
                             Width="180" Height="32" HorizontalAlignment="Left" Margin="0,10,0,0" FontWeight="Bold"/>
 
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="tests_enable_highlighted_b" Content="Enable Highlighted" Click="tests_enable_highlighted_click" Width="130" Height="24"
+                                ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check Run for them."/>
+                        <Button x:Name="tests_disable_highlighted_b" Content="Disable Highlighted" Click="tests_disable_highlighted_click" Width="130" Height="24" Margin="6,0,0,0"/>
+                    </StackPanel>
+
                     <DataGrid x:Name="config_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                              SelectionMode="Extended" SelectionUnit="FullRow"
                               RowStyle="{StaticResource statusRowStyle}">
                         <DataGrid.Columns>
                             <DataGridCheckBoxColumn Header="Run" Binding="{Binding run_enabled, UpdateSourceTrigger=PropertyChanged}" Width="45"/>

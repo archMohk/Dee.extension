@@ -194,6 +194,24 @@ class DeeVTemplateWindow(forms.WPFWindow):
             r.selected = False
         self._refresh_grid(self.templates_grid, self._template_rows)
 
+    def templates_select_highlighted_click(self, sender, args):
+        highlighted = list(self.templates_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = True
+        self._refresh_grid(self.templates_grid, self._template_rows)
+
+    def templates_deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.templates_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = False
+        self._refresh_grid(self.templates_grid, self._template_rows)
+
     # ---- Open documents ----
     def refresh_docs_click(self, sender, args):
         self._refresh_docs()
@@ -211,6 +229,24 @@ class DeeVTemplateWindow(forms.WPFWindow):
 
     def docs_deselect_all_click(self, sender, args):
         for r in self._doc_rows:
+            r.selected = False
+        self._refresh_grid(self.docs_grid, self._doc_rows)
+
+    def docs_select_highlighted_click(self, sender, args):
+        highlighted = list(self.docs_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = True
+        self._refresh_grid(self.docs_grid, self._doc_rows)
+
+    def docs_deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.docs_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
             r.selected = False
         self._refresh_grid(self.docs_grid, self._doc_rows)
 

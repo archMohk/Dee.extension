@@ -54,7 +54,15 @@
             </GroupBox>
         </StackPanel>
 
-        <DataGrid x:Name="items_grid" AutoGenerateColumns="False" CanUserAddRows="False">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button x:Name="select_all_b" Content="Select All" Click="select_all_click" Width="90" Height="24"/>
+            <Button x:Name="deselect_all_b" Content="Deselect All" Click="deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+            <Button x:Name="select_highlighted_b" Content="Select Highlighted" Click="select_highlighted_click" Width="130" Height="24" Margin="16,0,0,0"
+                    ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+            <Button x:Name="deselect_highlighted_b" Content="Deselect Highlighted" Click="deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
+        </StackPanel>
+
+        <DataGrid x:Name="items_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
             <DataGrid.Columns>
                 <DataGridCheckBoxColumn Header="Include" Binding="{Binding is_selected, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
                 <DataGridTextColumn Header="Kind" Binding="{Binding kind}" Width="90" IsReadOnly="True"/>

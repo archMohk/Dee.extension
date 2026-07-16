@@ -35,8 +35,11 @@
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                         <Button x:Name="check_all_levels_b" Content="Select All" Click="check_all_levels_click" Width="90" Height="24"/>
                         <Button x:Name="uncheck_all_levels_b" Content="Deselect All" Click="uncheck_all_levels_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="check_highlighted_levels_b" Content="Check Highlighted" Click="check_highlighted_levels_click" Width="130" Height="24" Margin="16,0,0,0"
+                                ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                        <Button x:Name="uncheck_highlighted_levels_b" Content="Uncheck Highlighted" Click="uncheck_highlighted_levels_click" Width="140" Height="24" Margin="6,0,0,0"/>
                     </StackPanel>
-                    <ListView x:Name="levels_lb">
+                    <ListView x:Name="levels_lb" SelectionMode="Extended">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal">
@@ -60,6 +63,9 @@
                         <Button x:Name="move_row_up_b" Content="Move Up" Click="move_row_up_click" Width="80" Height="24" Margin="20,0,0,0"/>
                         <Button x:Name="move_row_down_b" Content="Move Down" Click="move_row_down_click" Width="90" Height="24" Margin="6,0,0,0"/>
                         <Button x:Name="pick_levels_b" Content="Pick Levels for Selected Row(s)" Click="pick_levels_for_rows_click" Width="200" Height="24" Margin="20,0,0,0"/>
+                        <Button x:Name="enable_highlighted_b" Content="Enable Highlighted" Click="enable_highlighted_click" Width="130" Height="24" Margin="20,0,0,0"
+                                ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check Enabled for them."/>
+                        <Button x:Name="disable_highlighted_b" Content="Disable Highlighted" Click="disable_highlighted_click" Width="130" Height="24" Margin="6,0,0,0"/>
                     </StackPanel>
                     <Grid>
                         <Grid.ColumnDefinitions>

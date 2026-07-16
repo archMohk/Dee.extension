@@ -503,6 +503,24 @@ class DeeViewWindow(forms.WPFWindow):
             o.state = False
         self._refresh_levels_list()
 
+    def check_highlighted_levels_click(self, sender, args):
+        highlighted = list(self.levels_lb.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for o in highlighted:
+            o.state = True
+        self._refresh_levels_list()
+
+    def uncheck_highlighted_levels_click(self, sender, args):
+        highlighted = list(self.levels_lb.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for o in highlighted:
+            o.state = False
+        self._refresh_levels_list()
+
     def _refresh_levels_list(self):
         items = self.levels_lb.ItemsSource
         self.levels_lb.ItemsSource = None
@@ -526,6 +544,24 @@ class DeeViewWindow(forms.WPFWindow):
             return
         for row in selected:
             self._rows.remove(row)
+        self._refresh_views_grid()
+
+    def enable_highlighted_click(self, sender, args):
+        highlighted = list(self.views_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for row in highlighted:
+            row.enabled = True
+        self._refresh_views_grid()
+
+    def disable_highlighted_click(self, sender, args):
+        highlighted = list(self.views_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for row in highlighted:
+            row.enabled = False
         self._refresh_views_grid()
 
     def pick_levels_for_rows_click(self, sender, args):

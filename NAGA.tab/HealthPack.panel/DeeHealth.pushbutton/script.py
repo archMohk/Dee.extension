@@ -106,6 +106,30 @@ class DeeHealthWindow(forms.WPFWindow):
         self.approval_status_tb.Text = ""
         self.summary_tb.Text = ""
 
+    def _refresh_test_grids(self):
+        self.config_grid.ItemsSource = None
+        self.config_grid.ItemsSource = self._tests
+        self.results_grid.ItemsSource = None
+        self.results_grid.ItemsSource = self._tests
+
+    def tests_enable_highlighted_click(self, sender, args):
+        highlighted = list(self.config_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for t in highlighted:
+            t.run_enabled = True
+        self._refresh_test_grids()
+
+    def tests_disable_highlighted_click(self, sender, args):
+        highlighted = list(self.config_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for t in highlighted:
+            t.run_enabled = False
+        self._refresh_test_grids()
+
     # -- section group checkboxes -------------------------------------------
     def _rebuild_section_checks(self):
         panel = self.section_checks_panel

@@ -316,6 +316,34 @@ class DeeAlignerWindow(forms.WPFWindow):
     def _get_selected_images(self):
         return [r for r in self._items if r.kind == "Image" and r.is_selected]
 
+    def select_all_click(self, sender, args):
+        for r in self._items:
+            r.is_selected = True
+        self._refresh_grid()
+
+    def deselect_all_click(self, sender, args):
+        for r in self._items:
+            r.is_selected = False
+        self._refresh_grid()
+
+    def select_highlighted_click(self, sender, args):
+        highlighted = list(self.items_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.is_selected = True
+        self._refresh_grid()
+
+    def deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.items_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.is_selected = False
+        self._refresh_grid()
+
     def _refresh_row_bbox(self, row):
         try:
             if row.kind == "Viewport":

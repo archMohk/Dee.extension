@@ -466,6 +466,38 @@ class DeeScheduleXLWindow(forms.WPFWindow):
     def scan_schedules_click(self, sender, args):
         self._scan_schedules()
 
+    def _refresh_schedules_grid(self):
+        self.schedules_grid.ItemsSource = None
+        self.schedules_grid.ItemsSource = self._schedule_rows
+
+    def schedules_select_all_click(self, sender, args):
+        for r in self._schedule_rows:
+            r.is_selected = True
+        self._refresh_schedules_grid()
+
+    def schedules_deselect_all_click(self, sender, args):
+        for r in self._schedule_rows:
+            r.is_selected = False
+        self._refresh_schedules_grid()
+
+    def schedules_select_highlighted_click(self, sender, args):
+        highlighted = list(self.schedules_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.is_selected = True
+        self._refresh_schedules_grid()
+
+    def schedules_deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.schedules_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.is_selected = False
+        self._refresh_schedules_grid()
+
     def export_click(self, sender, args):
         selected = [r for r in self._schedule_rows if r.is_selected]
         if not selected:
@@ -567,6 +599,38 @@ class DeeScheduleXLWindow(forms.WPFWindow):
         self.compatible_grid.ItemsSource = compatible
         self.incompatible_grid.ItemsSource = None
         self.incompatible_grid.ItemsSource = incompatible
+
+    def _refresh_compatible_grid(self):
+        self.compatible_grid.ItemsSource = None
+        self.compatible_grid.ItemsSource = self._import_compatible
+
+    def compatible_select_all_click(self, sender, args):
+        for r in self._import_compatible:
+            r.is_selected = True
+        self._refresh_compatible_grid()
+
+    def compatible_deselect_all_click(self, sender, args):
+        for r in self._import_compatible:
+            r.is_selected = False
+        self._refresh_compatible_grid()
+
+    def compatible_select_highlighted_click(self, sender, args):
+        highlighted = list(self.compatible_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.is_selected = True
+        self._refresh_compatible_grid()
+
+    def compatible_deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.compatible_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.is_selected = False
+        self._refresh_compatible_grid()
 
     def import_click(self, sender, args):
         selected = [r for r in self._import_compatible if r.is_selected]

@@ -1663,6 +1663,24 @@ class DeeDistributorWindow(forms.WPFWindow):
             r.selected = False
         self._refresh_grid_view()
 
+    def select_highlighted_click(self, sender, args):
+        highlighted = list(self.rooms_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = True
+        self._refresh_grid_view()
+
+    def deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.rooms_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = False
+        self._refresh_grid_view()
+
     def _get_selected_rows(self):
         return [r for r in self._rows if r.selected]
 

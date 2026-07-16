@@ -34,6 +34,17 @@
                 <Button x:Name="toggleall_b" Grid.Column="2" Content="Toggle"
                         Click="toggle_all" Margin="3,10,0,0"/>
             </Grid>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="check_highlighted_b" Grid.Column="0" Content="Check Highlighted"
+                        Click="check_highlighted_click" Margin="0,6,3,0"
+                        ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                <Button x:Name="uncheck_highlighted_b" Grid.Column="1" Content="Uncheck Highlighted"
+                        Click="uncheck_highlighted_click" Margin="3,6,0,0"/>
+            </Grid>
             <Button x:Name="select_b" Content="Export Selected" Click="button_select"
                     Margin="0,10,0,0" Height="28"/>
 
@@ -160,7 +171,7 @@
                         Margin="20,0,0,0" Width="90" Height="22" Click="savesettings_click"/>
             </StackPanel>
         </StackPanel>
-        <ListView x:Name="list_lb">
+        <ListView x:Name="list_lb" SelectionMode="Extended">
             <ListView.ItemTemplate>
                 <DataTemplate>
                     <StackPanel Orientation="Horizontal">

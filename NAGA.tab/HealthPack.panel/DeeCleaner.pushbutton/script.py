@@ -377,6 +377,24 @@ class DeeCleanerWindow(forms.WPFWindow):
             r.selected = False
         self._refresh(self.rooms_grid, self._room_rows)
 
+    def rooms_select_highlighted_click(self, sender, args):
+        highlighted = list(self.rooms_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = True
+        self._refresh(self.rooms_grid, self._room_rows)
+
+    def rooms_deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.rooms_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = False
+        self._refresh(self.rooms_grid, self._room_rows)
+
     def rooms_delete_click(self, sender, args):
         selected = [r for r in self._room_rows if r.selected]
         if not selected:
@@ -412,6 +430,24 @@ class DeeCleanerWindow(forms.WPFWindow):
 
     def inplace_deselect_all_click(self, sender, args):
         for r in self._inplace_rows:
+            r.selected = False
+        self._refresh(self.inplace_grid, self._inplace_rows)
+
+    def inplace_select_highlighted_click(self, sender, args):
+        highlighted = list(self.inplace_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = True
+        self._refresh(self.inplace_grid, self._inplace_rows)
+
+    def inplace_deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.inplace_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
             r.selected = False
         self._refresh(self.inplace_grid, self._inplace_rows)
 
@@ -452,6 +488,24 @@ class DeeCleanerWindow(forms.WPFWindow):
 
     def groups_deselect_all_click(self, sender, args):
         for r in self._group_rows:
+            r.selected = False
+        self._refresh(self.groups_grid, self._group_rows)
+
+    def groups_select_highlighted_click(self, sender, args):
+        highlighted = list(self.groups_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = True
+        self._refresh(self.groups_grid, self._group_rows)
+
+    def groups_deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.groups_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
             r.selected = False
         self._refresh(self.groups_grid, self._group_rows)
 
