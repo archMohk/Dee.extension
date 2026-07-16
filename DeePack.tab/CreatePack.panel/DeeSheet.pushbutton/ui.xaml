@@ -6,6 +6,25 @@
     WindowStartupLocation="CenterScreen"
     ResizeMode="CanResize"
     ShowInTaskbar="False">
+    <Window.Resources>
+        <Style x:Key="superRowStyle" TargetType="DataGridRow">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding status_key}" Value="new">
+                    <Setter Property="Background" Value="#C6E0B4"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding status_key}" Value="modified">
+                    <Setter Property="Background" Value="#FFE699"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding status_key}" Value="delete">
+                    <Setter Property="Background" Value="#F4C7C3"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding status_key}" Value="discarded">
+                    <Setter Property="Background" Value="#E0E0E0"/>
+                    <Setter Property="Foreground" Value="#808080"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
     <DockPanel Margin="10">
         <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
                 Width="100" Height="28" HorizontalAlignment="Right" Margin="0,10,0,0"/>
@@ -84,7 +103,8 @@
                     </StackPanel>
 
                     <DataGrid x:Name="super_grid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserSortColumns="False"
-                              SelectionMode="Extended" SelectionUnit="FullRow" RowEditEnding="super_grid_row_edit_ending">
+                              SelectionMode="Extended" SelectionUnit="FullRow" RowEditEnding="super_grid_row_edit_ending"
+                              RowStyle="{StaticResource superRowStyle}">
                         <DataGrid.Columns>
                             <DataGridCheckBoxColumn Header="Delete" Binding="{Binding marked_delete, Mode=TwoWay}" Width="55"/>
                             <DataGridTextColumn Header="Sheet Number" Binding="{Binding number, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="140"/>

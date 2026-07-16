@@ -122,6 +122,15 @@ def _export_results_to_excel(rows, results, default_name):
 # --------------------------------------------------------------------------
 # Super Sheet data model
 # --------------------------------------------------------------------------
+_SUPER_STATUS_LABELS = {
+    "new": "New",
+    "modified": "Modified",
+    "delete": "To Delete",
+    "discarded": "Discarded",
+    "existing": "Existing",
+}
+
+
 class SuperSheetRow(object):
     def __init__(self, sheet, number, name):
         self.sheet = sheet
@@ -133,14 +142,18 @@ class SuperSheetRow(object):
         self.marked_delete = False
 
     @property
-    def status_text(self):
+    def status_key(self):
         if self.marked_delete:
-            return "To Delete" if not self.is_new else "Discarded"
+            return "discarded" if self.is_new else "delete"
         if self.is_new:
-            return "New"
+            return "new"
         if self.number != self.original_number or self.name != self.original_name:
-            return "Modified"
-        return "Existing"
+            return "modified"
+        return "existing"
+
+    @property
+    def status_text(self):
+        return _SUPER_STATUS_LABELS.get(self.status_key, "Existing")
 
 
 def _scan_all_sheets(doc):
