@@ -22,6 +22,9 @@
                             <RadioButton x:Name="scan_project_rb" GroupName="RoomSource" Content="Scan All Rooms in the Project" Margin="0,0,24,0"/>
                             <Button x:Name="scan_b" Content="Scan" Click="scan_click" Width="90" Height="24"/>
                             <Button x:Name="refresh_scan_b" Content="Refresh" Click="refresh_scan_click" Width="80" Height="24" Margin="6,0,0,0"/>
+                            <CheckBox x:Name="neglect_zero_area_cb" Content="Neglect Zero-Area Rooms" IsChecked="True"
+                                      VerticalAlignment="Center" Margin="24,0,0,0"
+                                      ToolTip="Rooms with zero Area are typically Unplaced or Not Enclosed - they can't generate finishes anyway. Takes effect on the next Scan/Refresh."/>
                         </StackPanel>
                     </GroupBox>
 
@@ -37,6 +40,9 @@
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                         <Button x:Name="select_all_b" Content="Select All" Click="select_all_click" Width="90" Height="24"/>
                         <Button x:Name="deselect_all_b" Content="Deselect All" Click="deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="select_highlighted_b" Content="Select Highlighted Rows" Click="select_highlighted_click" Width="150" Height="24" Margin="16,0,0,0"
+                                ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check their Select box."/>
+                        <Button x:Name="deselect_highlighted_b" Content="Deselect Highlighted Rows" Click="deselect_highlighted_click" Width="160" Height="24" Margin="6,0,0,0"/>
                         <TextBlock x:Name="room_count_tb" Text="0 rooms scanned" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
                     </StackPanel>
 

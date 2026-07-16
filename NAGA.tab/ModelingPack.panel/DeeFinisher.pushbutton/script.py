@@ -613,11 +613,30 @@ class DeeFinisherWindow(forms.WPFWindow):
         except Exception as e:
             forms.alert("Could not scan rooms: {0}".format(e))
             return
+
+        neglect_zero_area = bool(self.neglect_zero_area_cb.IsChecked)
+        neglected_count = 0
+        if neglect_zero_area:
+            kept = []
+            for r in rooms:
+                try:
+                    area = r.Area
+                except Exception:
+                    area = 0.0
+                if area > 0:
+                    kept.append(r)
+                else:
+                    neglected_count += 1
+            rooms = kept
+
         self._rows = [RoomRow(r, self.doc) for r in rooms]
         self._refresh_level_filter()
         self._refresh_copy_from()
         self._apply_filters()
-        self.room_count_tb.Text = "{0} room(s) scanned".format(len(self._rows))
+        count_text = "{0} room(s) scanned".format(len(self._rows))
+        if neglected_count:
+            count_text += " ({0} zero-area room(s) neglected)".format(neglected_count)
+        self.room_count_tb.Text = count_text
 
     def _refresh_level_filter(self):
         names = sorted(set(r.level_name for r in self._rows))
@@ -687,6 +706,24 @@ class DeeFinisherWindow(forms.WPFWindow):
 
     def deselect_all_click(self, sender, args):
         for r in self.rooms_grid.ItemsSource:
+            r.selected = False
+        self._refresh_grid_view()
+
+    def select_highlighted_click(self, sender, args):
+        highlighted = list(self.rooms_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = True
+        self._refresh_grid_view()
+
+    def deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.rooms_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
             r.selected = False
         self._refresh_grid_view()
 
