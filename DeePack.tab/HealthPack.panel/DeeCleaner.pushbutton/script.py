@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 DeeCleaner (HealthPack)
-Three independent cleanup scans over the whole project:
+Five independent cleanup scans over the whole project:
 
 1. Zero-Area Rooms - Rooms with Area <= 0 (typically Unplaced or Not
    Enclosed) - list + delete.
@@ -11,6 +11,13 @@ Three independent cleanup scans over the whole project:
    view named "DeeCleaner - In-Place Families").
 3. Unused Groups - Model Group / Detail Group types with zero placed
    instances anywhere in the project - list + delete.
+4. Views - every non-template View (Sheets excluded, they get their own
+   tab), flagged whether it's placed on any Sheet (via a Viewport, or a
+   ScheduleSheetInstance for Schedules) - list + delete, with a
+   convenience button to check every view NOT on a sheet.
+5. Sheets - every Sheet, flagged whether it contains any View (Viewport
+   or placed Schedule) - list + delete, with a convenience button to
+   check every empty sheet.
 
 Needs live-Revit verification: View.IsolateElementsTemporary /
 TemporaryViewMode enum usage for the isolate-view feature (the same
@@ -24,6 +31,7 @@ from Autodesk.Revit.DB import (
     FilteredElementCollector, BuiltInCategory, BuiltInParameter, ElementId,
     Transaction, View3D, ViewFamilyType, ViewFamily, TemporaryViewMode,
     UnitUtils, UnitTypeId, SpecTypeId, Group, GroupType, FamilyInstance,
+    View, ViewSheet, Viewport, ScheduleSheetInstance,
 )
 from Autodesk.Revit.DB.Architecture import Room
 
@@ -193,6 +201,51 @@ def _group_kind(grouptype):
     return "(unknown)"
 
 
+def _view_type_text(view):
+    try:
+        return str(view.ViewType)
+    except Exception:
+        return "(unknown)"
+
+
+def _placed_view_ids(doc):
+    """IDs of every View placed on some Sheet - via a Viewport for most
+    view types, or a ScheduleSheetInstance for Schedules (which aren't
+    placed with a Viewport)."""
+    placed = set()
+    try:
+        for vp in FilteredElementCollector(doc).OfClass(Viewport):
+            try:
+                placed.add(vp.ViewId)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    try:
+        for ssi in FilteredElementCollector(doc).OfClass(ScheduleSheetInstance):
+            try:
+                placed.add(ssi.ScheduleId)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return placed
+
+
+def _sheet_has_views(doc, sheet):
+    try:
+        if list(sheet.GetAllViewports()):
+            return True
+    except Exception:
+        pass
+    try:
+        if list(FilteredElementCollector(doc, sheet.Id).OfClass(ScheduleSheetInstance)):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 # --------------------------------------------------------------------------
 # 3D view helpers (same pattern already proven in DeeRehoster)
 # --------------------------------------------------------------------------
@@ -279,6 +332,29 @@ def _scan_unused_groups(doc):
     return rows
 
 
+def _scan_views(doc):
+    placed_ids = _placed_view_ids(doc)
+    rows = []
+    for v in FilteredElementCollector(doc).OfClass(View):
+        try:
+            if v.IsTemplate or isinstance(v, ViewSheet):
+                continue
+            rows.append(ViewRow(v, placed_ids))
+        except Exception:
+            continue
+    return rows
+
+
+def _scan_sheets(doc):
+    rows = []
+    for sheet in FilteredElementCollector(doc).OfClass(ViewSheet):
+        try:
+            rows.append(SheetRow(doc, sheet))
+        except Exception:
+            continue
+    return rows
+
+
 # --------------------------------------------------------------------------
 # Data model
 # --------------------------------------------------------------------------
@@ -316,6 +392,32 @@ class GroupRow(object):
         self.instance_count_text = "0"
 
 
+class ViewRow(object):
+    def __init__(self, view, placed_ids):
+        self.view = view
+        self.selected = False
+        self.name = _read_name(view) or "(unnamed)"
+        self.view_type = _view_type_text(view)
+        self.on_sheet = view.Id in placed_ids
+
+    @property
+    def on_sheet_text(self):
+        return "Yes" if self.on_sheet else "No"
+
+
+class SheetRow(object):
+    def __init__(self, doc, sheet):
+        self.sheet = sheet
+        self.selected = False
+        self.number = sheet.SheetNumber
+        self.name = _read_name(sheet) or "(unnamed)"
+        self.has_views = _sheet_has_views(doc, sheet)
+
+    @property
+    def has_views_text(self):
+        return "Yes" if self.has_views else "No"
+
+
 # --------------------------------------------------------------------------
 # Window
 # --------------------------------------------------------------------------
@@ -326,12 +428,16 @@ class DeeCleanerWindow(forms.WPFWindow):
         self._room_rows = []
         self._inplace_rows = []
         self._group_rows = []
+        self._view_rows = []
+        self._sheet_rows = []
 
     def scan_click(self, sender, args):
         with forms.ProgressBar(title="DeeCleaner — scanning project...", cancellable=True):
             self._room_rows = _scan_zero_area_rooms(self.doc)
             self._inplace_rows = _scan_inplace_families(self.doc)
             self._group_rows = _scan_unused_groups(self.doc)
+            self._view_rows = _scan_views(self.doc)
+            self._sheet_rows = _scan_sheets(self.doc)
 
         self.rooms_grid.ItemsSource = None
         self.rooms_grid.ItemsSource = self._room_rows
@@ -345,8 +451,21 @@ class DeeCleanerWindow(forms.WPFWindow):
         self.groups_grid.ItemsSource = self._group_rows
         self.groups_count_tb.Text = "{0} unused group(s)".format(len(self._group_rows))
 
-        self.status_tb.Text = "Scanned {0} zero-area room(s), {1} in-place familie(s), {2} unused group(s).".format(
-            len(self._room_rows), len(self._inplace_rows), len(self._group_rows))
+        self.views_grid.ItemsSource = None
+        self.views_grid.ItemsSource = self._view_rows
+        not_on_sheet = sum(1 for r in self._view_rows if not r.on_sheet)
+        self.views_count_tb.Text = "{0} view(s) ({1} not on any sheet)".format(len(self._view_rows), not_on_sheet)
+
+        self.sheets_grid.ItemsSource = None
+        self.sheets_grid.ItemsSource = self._sheet_rows
+        empty_sheets = sum(1 for r in self._sheet_rows if not r.has_views)
+        self.sheets_count_tb.Text = "{0} sheet(s) ({1} empty)".format(len(self._sheet_rows), empty_sheets)
+
+        self.status_tb.Text = (
+            "Scanned {0} zero-area room(s), {1} in-place familie(s), {2} unused group(s), "
+            "{3} view(s), {4} sheet(s).".format(
+                len(self._room_rows), len(self._inplace_rows), len(self._group_rows),
+                len(self._view_rows), len(self._sheet_rows)))
 
     def _refresh(self, grid, rows):
         grid.ItemsSource = None
@@ -535,6 +654,132 @@ class DeeCleanerWindow(forms.WPFWindow):
         self.groups_count_tb.Text = "{0} unused group(s)".format(len(self._group_rows))
         self._refresh(self.groups_grid, self._group_rows)
         self._report("Delete Unused Groups Results", results)
+
+    # ---- Tab 4: Views ----
+    def views_select_all_click(self, sender, args):
+        for r in self._view_rows:
+            r.selected = True
+        self._refresh(self.views_grid, self._view_rows)
+
+    def views_deselect_all_click(self, sender, args):
+        for r in self._view_rows:
+            r.selected = False
+        self._refresh(self.views_grid, self._view_rows)
+
+    def views_select_highlighted_click(self, sender, args):
+        highlighted = list(self.views_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = True
+        self._refresh(self.views_grid, self._view_rows)
+
+    def views_deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.views_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = False
+        self._refresh(self.views_grid, self._view_rows)
+
+    def views_select_not_on_sheet_click(self, sender, args):
+        for r in self._view_rows:
+            if not r.on_sheet:
+                r.selected = True
+        self._refresh(self.views_grid, self._view_rows)
+
+    def views_delete_click(self, sender, args):
+        selected = [r for r in self._view_rows if r.selected]
+        if not selected:
+            forms.alert("Check at least one view to delete.")
+            return
+        if not forms.alert(
+                "Delete {0} view(s)? This cannot be undone from this dialog.".format(len(selected)),
+                title="DeeCleaner - Confirm", yes=True, no=True):
+            return
+
+        results = []
+        t = Transaction(self.doc, "DeeCleaner - Delete Views")
+        t.Start()
+        for r in selected:
+            try:
+                self.doc.Delete(r.view.Id)
+                results.append((True, r.name, "Deleted"))
+            except Exception as e:
+                results.append((False, r.name, "FAILED: {0}".format(e)))
+        t.Commit()
+
+        deleted_set = set(r for r, res in zip(selected, results) if res[0])
+        self._view_rows = [r for r in self._view_rows if r not in deleted_set]
+        not_on_sheet = sum(1 for r in self._view_rows if not r.on_sheet)
+        self.views_count_tb.Text = "{0} view(s) ({1} not on any sheet)".format(len(self._view_rows), not_on_sheet)
+        self._refresh(self.views_grid, self._view_rows)
+        self._report("Delete Views Results", results)
+
+    # ---- Tab 5: Sheets ----
+    def sheets_select_all_click(self, sender, args):
+        for r in self._sheet_rows:
+            r.selected = True
+        self._refresh(self.sheets_grid, self._sheet_rows)
+
+    def sheets_deselect_all_click(self, sender, args):
+        for r in self._sheet_rows:
+            r.selected = False
+        self._refresh(self.sheets_grid, self._sheet_rows)
+
+    def sheets_select_highlighted_click(self, sender, args):
+        highlighted = list(self.sheets_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = True
+        self._refresh(self.sheets_grid, self._sheet_rows)
+
+    def sheets_deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.sheets_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = False
+        self._refresh(self.sheets_grid, self._sheet_rows)
+
+    def sheets_select_empty_click(self, sender, args):
+        for r in self._sheet_rows:
+            if not r.has_views:
+                r.selected = True
+        self._refresh(self.sheets_grid, self._sheet_rows)
+
+    def sheets_delete_click(self, sender, args):
+        selected = [r for r in self._sheet_rows if r.selected]
+        if not selected:
+            forms.alert("Check at least one sheet to delete.")
+            return
+        if not forms.alert(
+                "Delete {0} sheet(s)? This cannot be undone from this dialog.".format(len(selected)),
+                title="DeeCleaner - Confirm", yes=True, no=True):
+            return
+
+        results = []
+        t = Transaction(self.doc, "DeeCleaner - Delete Sheets")
+        t.Start()
+        for r in selected:
+            try:
+                self.doc.Delete(r.sheet.Id)
+                results.append((True, "{0} - {1}".format(r.number, r.name), "Deleted"))
+            except Exception as e:
+                results.append((False, "{0} - {1}".format(r.number, r.name), "FAILED: {0}".format(e)))
+        t.Commit()
+
+        deleted_set = set(r for r, res in zip(selected, results) if res[0])
+        self._sheet_rows = [r for r in self._sheet_rows if r not in deleted_set]
+        empty_sheets = sum(1 for r in self._sheet_rows if not r.has_views)
+        self.sheets_count_tb.Text = "{0} sheet(s) ({1} empty)".format(len(self._sheet_rows), empty_sheets)
+        self._refresh(self.sheets_grid, self._sheet_rows)
+        self._report("Delete Sheets Results", results)
 
     def close_click(self, sender, args):
         self.Close()

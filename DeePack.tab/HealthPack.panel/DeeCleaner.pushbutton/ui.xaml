@@ -1,6 +1,6 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="DeeCleaner — Zero-Area Rooms, In-Place Families, Unused Groups"
+        Title="DeeCleaner — Rooms, Families, Groups, Views &amp; Sheets Cleanup"
         ShowInTaskbar="False"
         MinHeight="640" MinWidth="1000" Height="720" Width="1080"
         WindowStartupLocation="CenterScreen">
@@ -86,6 +86,58 @@
                             <DataGridTextColumn Header="Name" Binding="{Binding name}" IsReadOnly="True" Width="260"/>
                             <DataGridTextColumn Header="Kind" Binding="{Binding kind}" IsReadOnly="True" Width="140"/>
                             <DataGridTextColumn Header="Placed Instances" Binding="{Binding instance_count_text}" IsReadOnly="True" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- TAB 4: Views -->
+            <TabItem Header="Views">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Every View in the project (Sheets excluded - see the Sheets tab), flagged whether it's placed on any Sheet. Select All Not On Sheet is a shortcut to check the common cleanup candidates. Check the ones to remove, then Delete Selected."/>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="views_select_all_b" Content="Select All" Click="views_select_all_click" Width="90" Height="24"/>
+                        <Button x:Name="views_deselect_all_b" Content="Deselect All" Click="views_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="views_select_highlighted_b" Content="Select Highlighted" Click="views_select_highlighted_click" Width="130" Height="24" Margin="16,0,0,0"
+                                ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                        <Button x:Name="views_deselect_highlighted_b" Content="Deselect Highlighted" Click="views_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="views_select_not_on_sheet_b" Content="Select All Not On Sheet" Click="views_select_not_on_sheet_click" Width="160" Height="24" Margin="16,0,0,0"/>
+                        <Button x:Name="views_delete_b" Content="Delete Selected" Click="views_delete_click" Width="120" Height="24" Margin="16,0,0,0"/>
+                        <TextBlock x:Name="views_count_tb" Text="0 view(s)" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+                    <DataGrid x:Name="views_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="60"/>
+                            <DataGridTextColumn Header="View Name" Binding="{Binding name}" IsReadOnly="True" Width="*"/>
+                            <DataGridTextColumn Header="View Type" Binding="{Binding view_type}" IsReadOnly="True" Width="140"/>
+                            <DataGridTextColumn Header="On Sheet?" Binding="{Binding on_sheet_text}" IsReadOnly="True" Width="90"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- TAB 5: Sheets -->
+            <TabItem Header="Sheets">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Every Sheet in the project, flagged whether it contains any View or Schedule. Select All Empty Sheets is a shortcut to check the common cleanup candidates. Check the ones to remove, then Delete Selected."/>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="sheets_select_all_b" Content="Select All" Click="sheets_select_all_click" Width="90" Height="24"/>
+                        <Button x:Name="sheets_deselect_all_b" Content="Deselect All" Click="sheets_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="sheets_select_highlighted_b" Content="Select Highlighted" Click="sheets_select_highlighted_click" Width="130" Height="24" Margin="16,0,0,0"
+                                ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                        <Button x:Name="sheets_deselect_highlighted_b" Content="Deselect Highlighted" Click="sheets_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="sheets_select_empty_b" Content="Select All Empty Sheets" Click="sheets_select_empty_click" Width="160" Height="24" Margin="16,0,0,0"/>
+                        <Button x:Name="sheets_delete_b" Content="Delete Selected" Click="sheets_delete_click" Width="120" Height="24" Margin="16,0,0,0"/>
+                        <TextBlock x:Name="sheets_count_tb" Text="0 sheet(s)" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+                    <DataGrid x:Name="sheets_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="60"/>
+                            <DataGridTextColumn Header="Number" Binding="{Binding number}" IsReadOnly="True" Width="100"/>
+                            <DataGridTextColumn Header="Name" Binding="{Binding name}" IsReadOnly="True" Width="*"/>
+                            <DataGridTextColumn Header="Contains Views?" Binding="{Binding has_views_text}" IsReadOnly="True" Width="110"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </DockPanel>
