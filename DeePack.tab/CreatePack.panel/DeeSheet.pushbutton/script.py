@@ -273,7 +273,14 @@ class DeeSheetWindow(forms.WPFWindow):
             len(self._super_rows), new_count, del_count)
 
     def super_grid_row_edit_ending(self, sender, args):
-        self.super_grid.Items.Refresh()
+        # WPF forbids CollectionView.Refresh() while a row edit is still
+        # committing (throws "'Refresh' is not allowed during an AddNew or
+        # EditItem transaction"). The Status column just won't repaint until
+        # the next explicit refresh (Add Row/Remove/Refresh Sheets/Apply) -
+        # Apply Changes itself compares number/name to original_number/
+        # original_name directly, not the rendered Status text, so this is
+        # purely cosmetic and doesn't affect correctness.
+        pass
 
     def super_add_row_click(self, sender, args):
         self._super_rows.append(SuperSheetRow(None, "", ""))
