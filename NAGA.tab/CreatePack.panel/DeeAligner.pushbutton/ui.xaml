@@ -1,0 +1,53 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeAligner — Align Views &amp; Images on Sheets"
+        ShowInTaskbar="False"
+        MinHeight="640" MinWidth="900" Height="700" Width="980"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10">
+            <Run Text="Pick a sheet from the dropdown and Load Sheet to list every Viewport and Image on it, or select Viewports/Images in Revit first and click Use Current Selection. Check which rows to include, then use an alignment button below - operates on whatever's checked, needs at least 2 items (3 for Distribute). Auto-Arrange lays out checked Images into a grid within the sheet's title block bounds - it does not avoid overlapping viewports, so use it for images placed in space you've already reserved. Nothing changes until an alignment/arrange button is clicked."/>
+        </TextBlock>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+            <TextBlock Text="Sheet:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <ComboBox x:Name="sheet_cb" Width="320" Height="24"/>
+            <Button x:Name="load_sheet_b" Content="Load Sheet" Click="load_sheet_click" Width="110" Height="24" Margin="8,0,0,0"/>
+            <Button x:Name="use_selection_b" Content="Use Current Selection" Click="use_selection_click" Width="160" Height="24" Margin="8,0,0,0"/>
+            <TextBlock x:Name="status_tb" Text="Nothing loaded yet." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
+        </StackPanel>
+
+        <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
+                Width="100" Height="26" HorizontalAlignment="Right" Margin="0,10,0,0"/>
+
+        <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+            <GroupBox Header="Align Selected (Viewports and/or Images together)" Margin="0,0,0,8">
+                <WrapPanel Margin="6">
+                    <Button x:Name="align_left_b" Content="Align Left" Click="align_left_click" Width="110" Height="26" Margin="0,0,6,6"/>
+                    <Button x:Name="align_right_b" Content="Align Right" Click="align_right_click" Width="110" Height="26" Margin="0,0,6,6"/>
+                    <Button x:Name="align_top_b" Content="Align Top" Click="align_top_click" Width="110" Height="26" Margin="0,0,6,6"/>
+                    <Button x:Name="align_bottom_b" Content="Align Bottom" Click="align_bottom_click" Width="110" Height="26" Margin="0,0,6,6"/>
+                    <Button x:Name="align_center_h_b" Content="Align Center (H)" Click="align_center_h_click" Width="130" Height="26" Margin="0,0,6,6"/>
+                    <Button x:Name="align_middle_v_b" Content="Align Middle (V)" Click="align_middle_v_click" Width="130" Height="26" Margin="0,0,6,6"/>
+                    <Button x:Name="distribute_h_b" Content="Distribute Horizontally" Click="distribute_h_click" Width="160" Height="26" Margin="0,0,6,6"/>
+                    <Button x:Name="distribute_v_b" Content="Distribute Vertically" Click="distribute_v_click" Width="160" Height="26" Margin="0,0,6,6"/>
+                </WrapPanel>
+            </GroupBox>
+            <GroupBox Header="Auto-Arrange Images">
+                <StackPanel Orientation="Horizontal" Margin="6">
+                    <Button x:Name="auto_arrange_b" Content="Auto-Arrange Checked Images into Grid" Click="auto_arrange_click" Width="260" Height="28"/>
+                </StackPanel>
+            </GroupBox>
+        </StackPanel>
+
+        <DataGrid x:Name="items_grid" AutoGenerateColumns="False" CanUserAddRows="False">
+            <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="Include" Binding="{Binding is_selected, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
+                <DataGridTextColumn Header="Kind" Binding="{Binding kind}" Width="90" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Center X" Binding="{Binding center_x_text}" Width="100" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Center Y" Binding="{Binding center_y_text}" Width="100" IsReadOnly="True"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>
