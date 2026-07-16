@@ -1,46 +1,60 @@
 # -*- coding: utf-8 -*-
 """
 DeeAligner (CreatePack)
-Aligns/distributes Viewports and Image instances placed on a sheet, can
-scale Images, check for overlaps, and auto-arrange a set of Images into
-a grid within the sheet's title block bounds while avoiding existing
-content.
+Two separate tabs, one per content type:
 
-Load a sheet from the dropdown (lists every Viewport and Image on it),
-or select Viewports/Images in Revit first and click Use Current
-Selection - either way populates the same grid, where the Include
-checkbox controls which rows an alignment button acts on (align needs
-at least 2 checked, distribute needs at least 3). Scale Images (Width/
-Height instance parameters) only applies to checked Images - Apply
-Scale Factor multiplies each one's own current size, Match Size to
-Largest/Smallest resizes every checked Image to match whichever one
-(by area) is largest/smallest. Check for Overlaps reports every
-intersecting pair among ALL loaded items (not just checked). Auto-
-Arrange packs checked Images into the title block bounds using a shelf-
-packing heuristic that slides past unchecked Images/Viewports instead
-of overlapping them - a best-effort packer, not a guaranteed solve, so
-an image can be reported as "no overlap-free spot found" if the sheet
-is too crowded.
+- Views: check any number of sheets in the list, Scan Selected Sheets
+  pools every Viewport found on them into one grid (each row shows which
+  sheet it's on). The align/distribute buttons then batch-align across
+  that whole pooled set - e.g. Align Left moves every checked Viewport,
+  regardless of which sheet it's on, so its left edge matches the
+  overall minimum. This works because Revit's sheet-space coordinates
+  are paper-based, not model-based - two sheets of the same size share
+  the same coordinate space, so lining up raw (X, Y) positions across
+  sheets is meaningful (this needs live-Revit confirmation, see below).
+- Images: pick one sheet (dropdown) or use the current Revit selection,
+  scan pulls just the Images on it. Same align/distribute buttons, plus
+  Scale Images, Check for Overlaps, and Auto-Arrange - all scoped to
+  that one sheet, and all still aware of the sheet's Viewports as
+  obstacles to avoid (for Overlap Check and Auto-Arrange) even though
+  Viewports aren't listed as rows here anymore.
+
+Load a sheet/sheets, or use Use Current Selection on either tab, to
+populate that tab's grid. The Include checkbox controls which rows an
+alignment button acts on (align needs at least 2 checked, distribute
+needs at least 3). Scale Images (Width/Height instance parameters)
+multiplies each checked Image's own current size, or matches every
+checked Image to whichever one (by area) is largest/smallest. Check for
+Overlaps reports every intersecting pair among the Images tab's loaded
+Images plus that sheet's Viewports. Auto-Arrange packs checked Images
+into the sheet's title block bounds using a shelf-packing heuristic
+that slides past unchecked Images/Viewports instead of overlapping them
+- a best-effort packer, not a guaranteed solve, so an image can be
+reported as "no overlap-free spot found" if the sheet is too crowded.
 
 Architecture: lib/align_tools.py holds the alignment/distribute/grid/
 overlap/packing math as plain (min_x, max_x, min_y, max_y) bounding-box
-tuples with no Revit dependency (unit-tested standalone). This script
-only reads each Viewport/Image's bounding box in sheet space, calls into
-align_tools for the target deltas/placements, and applies them via each
-category's own Revit API move mechanism (Viewport.SetBoxCenter vs
+tuples with no Revit dependency (unit-tested standalone, and shared
+unchanged between both tabs). This script only reads each Viewport/
+Image's bounding box in sheet space, calls into align_tools for the
+target deltas/placements, and applies them via each category's own
+Revit API move mechanism (Viewport.SetBoxCenter vs
 ElementTransformUtils.MoveElement for Images) - the two need different
-calls since Viewport position on a sheet isn't a regular movable element
-the normal way. Image scaling sets the "Width"/"Height" instance
-parameters (found via LookupParameter, matching the names shown in
-Revit's own Properties palette for a placed raster image), then
-re-centers the image on its pre-resize center since Revit's own resize
-anchor point isn't documented.
+calls since Viewport position on a sheet isn't a regular movable
+element the normal way. Image scaling sets the "Width"/"Height"
+instance parameters (found via LookupParameter, matching the names
+shown in Revit's own Properties palette for a placed raster image),
+then re-centers the image on its pre-resize center since Revit's own
+resize anchor point isn't documented.
 
-Needs live-Revit verification before trusting on real sheets: GetBoxOutline/
-SetBoxCenter for Viewports, get_BoundingBox(sheet) for Images (this is how
-an Image placed directly on a sheet is expected to report its position),
-GetAllViewports, OwnerViewId for an Image selected via Use Current
-Selection, and the "Width"/"Height" LookupParameter names for Image scaling.
+Needs live-Revit verification before trusting on real sheets:
+GetBoxOutline/SetBoxCenter for Viewports, get_BoundingBox(sheet) for
+Images, GetAllViewports, OwnerViewId for an Image selected via Use
+Current Selection, the "Width"/"Height" LookupParameter names for Image
+scaling, and - new for this cross-sheet batch-align feature - that raw
+sheet-space (X, Y) values are in fact directly comparable between two
+different ViewSheet elements of the same size (this is the assumption
+the whole Views tab batch-align relies on).
 """
 import os
 
@@ -84,6 +98,15 @@ def _read_name(element):
         except Exception:
             continue
     return None
+
+
+def _sheet_label(sheet):
+    if sheet is None:
+        return ""
+    try:
+        return "{0} - {1}".format(sheet.SheetNumber, _read_name(sheet) or "(unnamed)")
+    except Exception:
+        return ""
 
 
 def _viewport_bbox(vp):
@@ -148,7 +171,7 @@ def _get_sheet_bounds(doc, sheet):
     return None
 
 
-def _scan_sheet_items(doc, sheet):
+def _scan_viewports_on_sheet(doc, sheet):
     rows = []
     try:
         vp_ids = list(sheet.GetAllViewports())
@@ -162,10 +185,14 @@ def _scan_sheet_items(doc, sheet):
             view = doc.GetElement(vp.ViewId)
             name = _read_name(view) or "(view)"
             min_x, max_x, min_y, max_y = _viewport_bbox(vp)
-            rows.append(AlignableRow(vp, "Viewport", name, min_x, max_x, min_y, max_y))
+            rows.append(AlignableRow(vp, "Viewport", name, min_x, max_x, min_y, max_y, sheet=sheet))
         except Exception:
             continue
+    return rows
 
+
+def _scan_images_on_sheet(doc, sheet):
+    rows = []
     try:
         images = list(FilteredElementCollector(doc, sheet.Id).OfClass(ImageInstance))
     except Exception:
@@ -178,14 +205,14 @@ def _scan_sheet_items(doc, sheet):
             min_x, max_x, min_y, max_y = bbox
             type_elem = doc.GetElement(img.GetTypeId())
             name = _read_name(type_elem) or "(image)"
-            rows.append(AlignableRow(img, "Image", name, min_x, max_x, min_y, max_y))
+            rows.append(AlignableRow(img, "Image", name, min_x, max_x, min_y, max_y, sheet=sheet))
         except Exception:
             continue
     return rows
 
 
 class AlignableRow(object):
-    def __init__(self, element, kind, name, min_x, max_x, min_y, max_y):
+    def __init__(self, element, kind, name, min_x, max_x, min_y, max_y, sheet=None):
         self.element = element
         self.kind = kind
         self.id = element.Id
@@ -195,10 +222,15 @@ class AlignableRow(object):
         self.min_y = min_y
         self.max_y = max_y
         self.is_selected = True
+        self.sheet = sheet
 
     @property
     def bbox(self):
         return (self.min_x, self.max_x, self.min_y, self.max_y)
+
+    @property
+    def sheet_text(self):
+        return _sheet_label(self.sheet)
 
     @property
     def center_x_text(self):
@@ -217,143 +249,356 @@ class AlignableRow(object):
         return "{0:.3f}".format(self.max_y - self.min_y)
 
 
+class SheetRow(object):
+    def __init__(self, sheet):
+        self.sheet = sheet
+        self.selected = False
+        self.number = sheet.SheetNumber
+        self.name = _read_name(sheet) or "(unnamed)"
+
+
 class DeeAlignerWindow(forms.WPFWindow):
     def __init__(self, xaml_file, doc):
         forms.WPFWindow.__init__(self, xaml_file)
         self.doc = doc
-        self._items = []
-        self._sheet = None
-        self._sheet_by_name = {}
-        self._scan_sheets()
 
-    def _scan_sheets(self):
-        names = []
-        self._sheet_by_name = {}
+        # Views tab
+        self._sheet_rows = []
+        self._view_items = []
+
+        # Images tab
+        self._image_sheet_by_label = {}
+        self._image_sheet = None
+        self._image_items = []
+        self._image_sheet_viewports = []
+
+        self._scan_all_sheets()
+        self._refresh_image_sheet_dropdown()
+
+    # ======================================================================
+    # Views tab - sheet checklist
+    # ======================================================================
+    def _scan_all_sheets(self):
+        rows = []
         for sheet in FilteredElementCollector(self.doc).OfClass(ViewSheet):
             try:
-                name = "{0} - {1}".format(sheet.SheetNumber, _read_name(sheet) or "(unnamed)")
-                self._sheet_by_name[name] = sheet
-                names.append(name)
+                rows.append(SheetRow(sheet))
             except Exception:
                 continue
-        names.sort()
-        self.sheet_cb.ItemsSource = None
-        self.sheet_cb.ItemsSource = names
+        rows.sort(key=lambda r: r.number)
+        self._sheet_rows = rows
+        self._refresh_sheets_grid()
 
-    def load_sheet_click(self, sender, args):
-        name = self.sheet_cb.SelectedItem
-        sheet = self._sheet_by_name.get(name)
-        if sheet is None:
-            forms.alert("Pick a sheet first.")
+    def refresh_sheets_click(self, sender, args):
+        self._scan_all_sheets()
+
+    def _refresh_sheets_grid(self):
+        self.sheets_grid.ItemsSource = None
+        self.sheets_grid.ItemsSource = self._sheet_rows
+
+    def sheets_select_all_click(self, sender, args):
+        for r in self._sheet_rows:
+            r.selected = True
+        self._refresh_sheets_grid()
+
+    def sheets_deselect_all_click(self, sender, args):
+        for r in self._sheet_rows:
+            r.selected = False
+        self._refresh_sheets_grid()
+
+    def sheets_select_highlighted_click(self, sender, args):
+        highlighted = list(self.sheets_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
             return
-        with forms.ProgressBar(title="DeeAligner — scanning sheet...", cancellable=True):
-            self._sheet = sheet
-            self._items = _scan_sheet_items(self.doc, sheet)
-        self._refresh_grid()
+        for r in highlighted:
+            r.selected = True
+        self._refresh_sheets_grid()
 
-    def use_selection_click(self, sender, args):
+    def sheets_deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.sheets_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = False
+        self._refresh_sheets_grid()
+
+    # ======================================================================
+    # Views tab - scan + grid + align
+    # ======================================================================
+    def scan_views_click(self, sender, args):
+        checked_sheets = [r.sheet for r in self._sheet_rows if r.selected]
+        if not checked_sheets:
+            forms.alert("Check at least one sheet in the list above first.")
+            return
+        rows = []
+        with forms.ProgressBar(title="DeeAligner — scanning sheets...", cancellable=True) as pb:
+            total = len(checked_sheets)
+            for i, sheet in enumerate(checked_sheets):
+                if pb.cancelled:
+                    break
+                pb.update_progress(i, total)
+                rows.extend(_scan_viewports_on_sheet(self.doc, sheet))
+        self._view_items = rows
+        self._refresh_views_grid()
+
+    def use_selection_views_click(self, sender, args):
         try:
             sel_ids = set(__revit__.ActiveUIDocument.Selection.GetElementIds())
         except Exception:
             forms.alert("Could not read the current Revit selection.")
             return
         if not sel_ids:
-            forms.alert("Nothing selected in Revit - select Viewports/Images on a sheet first.")
+            forms.alert("Nothing selected in Revit - select Viewports on sheets first.")
+            return
+
+        rows = []
+        for eid in sel_ids:
+            el = self.doc.GetElement(eid)
+            if el is None or not isinstance(el, Viewport):
+                continue
+            try:
+                sheet = self.doc.GetElement(el.SheetId)
+                view = self.doc.GetElement(el.ViewId)
+                name = _read_name(view) or "(view)"
+                min_x, max_x, min_y, max_y = _viewport_bbox(el)
+                rows.append(AlignableRow(el, "Viewport", name, min_x, max_x, min_y, max_y, sheet=sheet))
+            except Exception:
+                continue
+
+        if not rows:
+            forms.alert("Selection doesn't contain any Viewports placed on a sheet.")
+            return
+        self._view_items = rows
+        self._refresh_views_grid()
+
+    def _refresh_views_grid(self):
+        self.views_grid.ItemsSource = None
+        self.views_grid.ItemsSource = self._view_items
+        sheet_count = len(set(r.sheet.Id for r in self._view_items if r.sheet is not None))
+        self.views_status_tb.Text = "{0} view(s) loaded across {1} sheet(s).".format(
+            len(self._view_items), sheet_count)
+
+    def _get_selected_views(self):
+        return [r for r in self._view_items if r.is_selected]
+
+    def views_select_all_click(self, sender, args):
+        for r in self._view_items:
+            r.is_selected = True
+        self._refresh_views_grid()
+
+    def views_deselect_all_click(self, sender, args):
+        for r in self._view_items:
+            r.is_selected = False
+        self._refresh_views_grid()
+
+    def views_select_highlighted_click(self, sender, args):
+        highlighted = list(self.views_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.is_selected = True
+        self._refresh_views_grid()
+
+    def views_deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.views_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.is_selected = False
+        self._refresh_views_grid()
+
+    def views_align_left_click(self, sender, args):
+        self._apply_alignment("Align Left", align_tools.align_left, self._view_items, self.views_grid)
+
+    def views_align_right_click(self, sender, args):
+        self._apply_alignment("Align Right", align_tools.align_right, self._view_items, self.views_grid)
+
+    def views_align_top_click(self, sender, args):
+        self._apply_alignment("Align Top", align_tools.align_top, self._view_items, self.views_grid)
+
+    def views_align_bottom_click(self, sender, args):
+        self._apply_alignment("Align Bottom", align_tools.align_bottom, self._view_items, self.views_grid)
+
+    def views_align_center_h_click(self, sender, args):
+        self._apply_alignment(
+            "Align Center Horizontal", align_tools.align_center_horizontal, self._view_items, self.views_grid)
+
+    def views_align_middle_v_click(self, sender, args):
+        self._apply_alignment(
+            "Align Middle Vertical", align_tools.align_middle_vertical, self._view_items, self.views_grid)
+
+    def views_distribute_h_click(self, sender, args):
+        self._apply_alignment(
+            "Distribute Horizontally", align_tools.distribute_horizontal, self._view_items, self.views_grid,
+            min_count=3)
+
+    def views_distribute_v_click(self, sender, args):
+        self._apply_alignment(
+            "Distribute Vertically", align_tools.distribute_vertical, self._view_items, self.views_grid,
+            min_count=3)
+
+    # ======================================================================
+    # Images tab - sheet dropdown + scan + grid
+    # ======================================================================
+    def _refresh_image_sheet_dropdown(self):
+        labels = []
+        self._image_sheet_by_label = {}
+        for sheet in FilteredElementCollector(self.doc).OfClass(ViewSheet):
+            try:
+                label = _sheet_label(sheet)
+                self._image_sheet_by_label[label] = sheet
+                labels.append(label)
+            except Exception:
+                continue
+        labels.sort()
+        self.image_sheet_cb.ItemsSource = None
+        self.image_sheet_cb.ItemsSource = labels
+
+    def refresh_image_sheets_click(self, sender, args):
+        self._refresh_image_sheet_dropdown()
+
+    def load_image_sheet_click(self, sender, args):
+        label = self.image_sheet_cb.SelectedItem
+        sheet = self._image_sheet_by_label.get(label)
+        if sheet is None:
+            forms.alert("Pick a sheet first.")
+            return
+        with forms.ProgressBar(title="DeeAligner — scanning sheet...", cancellable=True):
+            self._image_sheet = sheet
+            self._image_items = _scan_images_on_sheet(self.doc, sheet)
+            self._image_sheet_viewports = _scan_viewports_on_sheet(self.doc, sheet)
+        self._refresh_images_grid()
+
+    def use_selection_images_click(self, sender, args):
+        try:
+            sel_ids = set(__revit__.ActiveUIDocument.Selection.GetElementIds())
+        except Exception:
+            forms.alert("Could not read the current Revit selection.")
+            return
+        if not sel_ids:
+            forms.alert("Nothing selected in Revit - select Images on a sheet first.")
             return
 
         rows = []
         sheet = None
         for eid in sel_ids:
             el = self.doc.GetElement(eid)
-            if el is None:
+            if el is None or not isinstance(el, ImageInstance):
                 continue
             try:
-                if isinstance(el, Viewport):
-                    owner_sheet = self.doc.GetElement(el.SheetId)
-                    if sheet is None:
-                        sheet = owner_sheet
-                    view = self.doc.GetElement(el.ViewId)
-                    name = _read_name(view) or "(view)"
-                    min_x, max_x, min_y, max_y = _viewport_bbox(el)
-                    rows.append(AlignableRow(el, "Viewport", name, min_x, max_x, min_y, max_y))
-                elif isinstance(el, ImageInstance):
-                    owner_view = self.doc.GetElement(el.OwnerViewId)
-                    if owner_view is None:
-                        continue
-                    if sheet is None:
-                        sheet = owner_view
-                    bbox = _image_bbox(el, owner_view)
-                    if bbox is None:
-                        continue
-                    min_x, max_x, min_y, max_y = bbox
-                    type_elem = self.doc.GetElement(el.GetTypeId())
-                    name = _read_name(type_elem) or "(image)"
-                    rows.append(AlignableRow(el, "Image", name, min_x, max_x, min_y, max_y))
+                owner_view = self.doc.GetElement(el.OwnerViewId)
+                if owner_view is None:
+                    continue
+                if sheet is None:
+                    sheet = owner_view
+                bbox = _image_bbox(el, owner_view)
+                if bbox is None:
+                    continue
+                min_x, max_x, min_y, max_y = bbox
+                type_elem = self.doc.GetElement(el.GetTypeId())
+                name = _read_name(type_elem) or "(image)"
+                rows.append(AlignableRow(el, "Image", name, min_x, max_x, min_y, max_y, sheet=sheet))
             except Exception:
                 continue
 
         if not rows:
-            forms.alert("Selection doesn't contain any Viewports or Images placed on a sheet.")
+            forms.alert("Selection doesn't contain any Images placed on a sheet.")
             return
-        self._items = rows
-        self._sheet = sheet
-        self._refresh_grid()
+        self._image_items = rows
+        self._image_sheet = sheet
+        self._image_sheet_viewports = _scan_viewports_on_sheet(self.doc, sheet) if sheet is not None else []
+        self._refresh_images_grid()
 
-    def _refresh_grid(self):
-        self.items_grid.ItemsSource = None
-        self.items_grid.ItemsSource = self._items
+    def _refresh_images_grid(self):
+        self.images_grid.ItemsSource = None
+        self.images_grid.ItemsSource = self._image_items
         sheet_label = ""
-        if self._sheet is not None:
-            try:
-                sheet_label = " on '{0} - {1}'".format(self._sheet.SheetNumber, _read_name(self._sheet) or "")
-            except Exception:
-                pass
-        self.status_tb.Text = "{0} item(s) loaded{1}.".format(len(self._items), sheet_label)
-
-    def _get_selected(self):
-        return [r for r in self._items if r.is_selected]
+        if self._image_sheet is not None:
+            sheet_label = " on '{0}'".format(_sheet_label(self._image_sheet))
+        self.images_status_tb.Text = "{0} image(s) loaded{1}.".format(len(self._image_items), sheet_label)
 
     def _get_selected_images(self):
-        return [r for r in self._items if r.kind == "Image" and r.is_selected]
+        return [r for r in self._image_items if r.is_selected]
 
-    def select_all_click(self, sender, args):
-        for r in self._items:
+    def images_select_all_click(self, sender, args):
+        for r in self._image_items:
             r.is_selected = True
-        self._refresh_grid()
+        self._refresh_images_grid()
 
-    def deselect_all_click(self, sender, args):
-        for r in self._items:
+    def images_deselect_all_click(self, sender, args):
+        for r in self._image_items:
             r.is_selected = False
-        self._refresh_grid()
+        self._refresh_images_grid()
 
-    def select_highlighted_click(self, sender, args):
-        highlighted = list(self.items_grid.SelectedItems)
+    def images_select_highlighted_click(self, sender, args):
+        highlighted = list(self.images_grid.SelectedItems)
         if not highlighted:
             forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
             return
         for r in highlighted:
             r.is_selected = True
-        self._refresh_grid()
+        self._refresh_images_grid()
 
-    def deselect_highlighted_click(self, sender, args):
-        highlighted = list(self.items_grid.SelectedItems)
+    def images_deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.images_grid.SelectedItems)
         if not highlighted:
             forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
             return
         for r in highlighted:
             r.is_selected = False
-        self._refresh_grid()
+        self._refresh_images_grid()
 
+    def images_align_left_click(self, sender, args):
+        self._apply_alignment("Align Left", align_tools.align_left, self._image_items, self.images_grid)
+
+    def images_align_right_click(self, sender, args):
+        self._apply_alignment("Align Right", align_tools.align_right, self._image_items, self.images_grid)
+
+    def images_align_top_click(self, sender, args):
+        self._apply_alignment("Align Top", align_tools.align_top, self._image_items, self.images_grid)
+
+    def images_align_bottom_click(self, sender, args):
+        self._apply_alignment("Align Bottom", align_tools.align_bottom, self._image_items, self.images_grid)
+
+    def images_align_center_h_click(self, sender, args):
+        self._apply_alignment(
+            "Align Center Horizontal", align_tools.align_center_horizontal, self._image_items, self.images_grid)
+
+    def images_align_middle_v_click(self, sender, args):
+        self._apply_alignment(
+            "Align Middle Vertical", align_tools.align_middle_vertical, self._image_items, self.images_grid)
+
+    def images_distribute_h_click(self, sender, args):
+        self._apply_alignment(
+            "Distribute Horizontally", align_tools.distribute_horizontal, self._image_items, self.images_grid,
+            min_count=3)
+
+    def images_distribute_v_click(self, sender, args):
+        self._apply_alignment(
+            "Distribute Vertically", align_tools.distribute_vertical, self._image_items, self.images_grid,
+            min_count=3)
+
+    # ======================================================================
+    # Shared alignment engine (works for either tab's item list/grid)
+    # ======================================================================
     def _refresh_row_bbox(self, row):
         try:
             if row.kind == "Viewport":
                 row.min_x, row.max_x, row.min_y, row.max_y = _viewport_bbox(row.element)
-            elif self._sheet is not None:
-                bbox = _image_bbox(row.element, self._sheet)
+            elif row.sheet is not None:
+                bbox = _image_bbox(row.element, row.sheet)
                 if bbox is not None:
                     row.min_x, row.max_x, row.min_y, row.max_y = bbox
         except Exception:
             pass
+
+    def _row_label(self, row):
+        st = row.sheet_text
+        return "{0} [{1}]".format(row.name, st) if st else row.name
 
     def _apply_image_size(self, row, target_w, target_h):
         """Sets an Image's Width/Height instance parameters to (target_w,
@@ -378,10 +623,10 @@ class DeeAlignerWindow(forms.WPFWindow):
             _move_image(self.doc, row.element, dx, dy)
             self._refresh_row_bbox(row)
 
-    def _apply_alignment(self, op_name, align_fn, min_count=2):
-        selected = self._get_selected()
+    def _apply_alignment(self, op_name, align_fn, items, grid, min_count=2):
+        selected = [r for r in items if r.is_selected]
         if len(selected) < min_count:
-            forms.alert("Select at least {0} item(s) to {1}.".format(min_count, op_name.lower()))
+            forms.alert("Check at least {0} item(s) to {1}.".format(min_count, op_name.lower()))
             return
         boxes = [r.bbox for r in selected]
         deltas = align_fn(boxes)
@@ -392,19 +637,19 @@ class DeeAlignerWindow(forms.WPFWindow):
         for row, (dx, dy) in zip(selected, deltas):
             try:
                 if abs(dx) < 1e-9 and abs(dy) < 1e-9:
-                    results.append((True, row.name, "Already aligned"))
+                    results.append((True, self._row_label(row), "Already aligned"))
                     continue
                 if row.kind == "Viewport":
                     _move_viewport(row.element, dx, dy)
                 else:
                     _move_image(self.doc, row.element, dx, dy)
                 self._refresh_row_bbox(row)
-                results.append((True, row.name, "Moved by ({0:.3f}, {1:.3f})".format(dx, dy)))
+                results.append((True, self._row_label(row), "Moved by ({0:.3f}, {1:.3f})".format(dx, dy)))
             except Exception as e:
-                results.append((False, row.name, "FAILED: {0}".format(e)))
+                results.append((False, self._row_label(row), "FAILED: {0}".format(e)))
         t.Commit()
 
-        self.items_grid.Items.Refresh()
+        grid.Items.Refresh()
         self._report_results(op_name, results)
 
     def _report_results(self, op_name, results):
@@ -421,30 +666,9 @@ class DeeAlignerWindow(forms.WPFWindow):
                 '{1}&nbsp; <b>{2}</b> &mdash; {3}</div>'.format(bg, icon, name, detail))
         output.print_html("".join(html))
 
-    def align_left_click(self, sender, args):
-        self._apply_alignment("Align Left", align_tools.align_left)
-
-    def align_right_click(self, sender, args):
-        self._apply_alignment("Align Right", align_tools.align_right)
-
-    def align_top_click(self, sender, args):
-        self._apply_alignment("Align Top", align_tools.align_top)
-
-    def align_bottom_click(self, sender, args):
-        self._apply_alignment("Align Bottom", align_tools.align_bottom)
-
-    def align_center_h_click(self, sender, args):
-        self._apply_alignment("Align Center Horizontal", align_tools.align_center_horizontal)
-
-    def align_middle_v_click(self, sender, args):
-        self._apply_alignment("Align Middle Vertical", align_tools.align_middle_vertical)
-
-    def distribute_h_click(self, sender, args):
-        self._apply_alignment("Distribute Horizontally", align_tools.distribute_horizontal, min_count=3)
-
-    def distribute_v_click(self, sender, args):
-        self._apply_alignment("Distribute Vertically", align_tools.distribute_vertical, min_count=3)
-
+    # ======================================================================
+    # Images tab - scale / overlap / auto-arrange
+    # ======================================================================
     def scale_factor_click(self, sender, args):
         images = self._get_selected_images()
         if not images:
@@ -472,7 +696,7 @@ class DeeAlignerWindow(forms.WPFWindow):
                 results.append((False, row.name, "FAILED: {0}".format(e)))
         t.Commit()
 
-        self.items_grid.Items.Refresh()
+        self.images_grid.Items.Refresh()
         self._report_results("Scale Images", results)
 
     def _match_size(self, mode):
@@ -499,7 +723,7 @@ class DeeAlignerWindow(forms.WPFWindow):
                 results.append((False, row.name, "FAILED: {0}".format(e)))
         t.Commit()
 
-        self.items_grid.Items.Refresh()
+        self.images_grid.Items.Refresh()
         self._report_results("Match Image Size ({0})".format(mode), results)
 
     def match_largest_click(self, sender, args):
@@ -509,20 +733,21 @@ class DeeAlignerWindow(forms.WPFWindow):
         self._match_size("smallest")
 
     def check_overlaps_click(self, sender, args):
-        if len(self._items) < 2:
-            forms.alert("Load a sheet or a selection with at least 2 items first.")
+        combined = list(self._image_items) + list(self._image_sheet_viewports)
+        if len(combined) < 2:
+            forms.alert("Load a sheet or a selection with at least one Image first.")
             return
-        boxes = [r.bbox for r in self._items]
+        boxes = [r.bbox for r in combined]
         pairs = align_tools.find_overlapping_pairs(boxes)
         html = ['<h2 style="font-family:sans-serif;color:#ddd;">DeeAligner - Overlap Check</h2>']
         if not pairs:
-            html.append('<p style="color:#8bc34a;">No overlaps found among the {0} loaded item(s).</p>'
-                         .format(len(self._items)))
+            html.append('<p style="color:#8bc34a;">No overlaps found among the {0} Image(s) and Viewport(s) '
+                         'on this sheet.</p>'.format(len(combined)))
         else:
             html.append('<p style="color:#ddd;">{0} overlapping pair(s) found:</p>'.format(len(pairs)))
             for i, j in pairs:
-                a = self._items[i]
-                b = self._items[j]
+                a = combined[i]
+                b = combined[j]
                 html.append(
                     '<div style="padding:4px 10px;margin:2px 0;background:#c62828;color:#fff;'
                     'border-radius:4px;font-family:monospace;font-size:12px;">'
@@ -531,20 +756,21 @@ class DeeAlignerWindow(forms.WPFWindow):
         output.print_html("".join(html))
 
     def auto_arrange_click(self, sender, args):
-        images = [r for r in self._items if r.kind == "Image" and r.is_selected]
+        images = self._get_selected_images()
         if not images:
             forms.alert("Check at least one Image to arrange.")
             return
-        if self._sheet is None:
+        if self._image_sheet is None:
             forms.alert("Load a sheet first (Auto-Arrange needs the sheet's title block bounds).")
             return
-        bounds = _get_sheet_bounds(self.doc, self._sheet)
+        bounds = _get_sheet_bounds(self.doc, self._image_sheet)
         if bounds is None:
             forms.alert("Could not determine sheet bounds - no title block found on this sheet.")
             return
 
         image_ids = set(r.id for r in images)
-        obstacles = [r.bbox for r in self._items if r.id not in image_ids]
+        obstacles = [r.bbox for r in self._image_items if r.id not in image_ids]
+        obstacles.extend(r.bbox for r in self._image_sheet_viewports)
         sizes = [(r.max_x - r.min_x, r.max_y - r.min_y) for r in images]
         placements = align_tools.shelf_pack(sizes, bounds, obstacles=obstacles, spacing=0.1)
 
@@ -567,7 +793,7 @@ class DeeAlignerWindow(forms.WPFWindow):
                 results.append((False, row.name, "FAILED: {0}".format(e)))
         t.Commit()
 
-        self.items_grid.Items.Refresh()
+        self.images_grid.Items.Refresh()
         self._report_results("Auto-Arrange Images", results)
 
     def close_click(self, sender, args):

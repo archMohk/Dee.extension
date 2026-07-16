@@ -2,76 +2,152 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeAligner — Align Views &amp; Images on Sheets"
         ShowInTaskbar="False"
-        MinHeight="640" MinWidth="900" Height="700" Width="980"
+        MinHeight="700" MinWidth="1000" Height="780" Width="1080"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
-        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10">
-            <Run Text="Pick a sheet from the dropdown and Load Sheet to list every Viewport and Image on it, or select Viewports/Images in Revit first and click Use Current Selection. Check which rows to include, then use an alignment button below - operates on whatever's checked, needs at least 2 items (3 for Distribute). Scale Images resizes checked Images only (Width/Height, keeping each centered in place). Check for Overlaps reports intersecting pairs among everything loaded. Auto-Arrange packs checked Images into a grid within the sheet's title block bounds, sliding around unchecked Images/Viewports instead of overlapping them - a best-effort packer, so a very crowded sheet may leave some images unplaced. Nothing changes until a button below is clicked."/>
-        </TextBlock>
-
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
-            <TextBlock Text="Sheet:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-            <ComboBox x:Name="sheet_cb" Width="320" Height="24"/>
-            <Button x:Name="load_sheet_b" Content="Load Sheet" Click="load_sheet_click" Width="110" Height="24" Margin="8,0,0,0"/>
-            <Button x:Name="use_selection_b" Content="Use Current Selection" Click="use_selection_click" Width="160" Height="24" Margin="8,0,0,0"/>
-            <TextBlock x:Name="status_tb" Text="Nothing loaded yet." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
-        </StackPanel>
-
         <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
                 Width="100" Height="26" HorizontalAlignment="Right" Margin="0,10,0,0"/>
 
-        <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
-            <GroupBox Header="Align Selected (Viewports and/or Images together)" Margin="0,0,0,8">
-                <WrapPanel Margin="6">
-                    <Button x:Name="align_left_b" Content="Align Left" Click="align_left_click" Width="110" Height="26" Margin="0,0,6,6"/>
-                    <Button x:Name="align_right_b" Content="Align Right" Click="align_right_click" Width="110" Height="26" Margin="0,0,6,6"/>
-                    <Button x:Name="align_top_b" Content="Align Top" Click="align_top_click" Width="110" Height="26" Margin="0,0,6,6"/>
-                    <Button x:Name="align_bottom_b" Content="Align Bottom" Click="align_bottom_click" Width="110" Height="26" Margin="0,0,6,6"/>
-                    <Button x:Name="align_center_h_b" Content="Align Center (H)" Click="align_center_h_click" Width="130" Height="26" Margin="0,0,6,6"/>
-                    <Button x:Name="align_middle_v_b" Content="Align Middle (V)" Click="align_middle_v_click" Width="130" Height="26" Margin="0,0,6,6"/>
-                    <Button x:Name="distribute_h_b" Content="Distribute Horizontally" Click="distribute_h_click" Width="160" Height="26" Margin="0,0,6,6"/>
-                    <Button x:Name="distribute_v_b" Content="Distribute Vertically" Click="distribute_v_click" Width="160" Height="26" Margin="0,0,6,6"/>
-                </WrapPanel>
-            </GroupBox>
-            <GroupBox Header="Scale Images (checked Images only, keeps each centered)" Margin="0,0,0,8">
-                <WrapPanel Margin="6">
-                    <TextBlock Text="Scale Factor:" VerticalAlignment="Center" Margin="0,0,6,6"/>
-                    <TextBox x:Name="scale_factor_tb" Text="1.0" Width="60" Height="24" Margin="0,0,6,6" VerticalContentAlignment="Center"/>
-                    <Button x:Name="scale_factor_b" Content="Apply Scale Factor" Click="scale_factor_click" Width="140" Height="26" Margin="0,0,14,6"/>
-                    <Button x:Name="match_largest_b" Content="Match Size to Largest" Click="match_largest_click" Width="150" Height="26" Margin="0,0,6,6"/>
-                    <Button x:Name="match_smallest_b" Content="Match Size to Smallest" Click="match_smallest_click" Width="150" Height="26" Margin="0,0,6,6"/>
-                </WrapPanel>
-            </GroupBox>
-            <GroupBox Header="Overlap Check (all loaded items)" Margin="0,0,0,8">
-                <StackPanel Orientation="Horizontal" Margin="6">
-                    <Button x:Name="check_overlaps_b" Content="Check for Overlaps" Click="check_overlaps_click" Width="160" Height="26"/>
-                </StackPanel>
-            </GroupBox>
-            <GroupBox Header="Auto-Arrange Images">
-                <StackPanel Orientation="Horizontal" Margin="6">
-                    <Button x:Name="auto_arrange_b" Content="Auto-Arrange Checked Images into Grid (avoids overlaps)" Click="auto_arrange_click" Width="320" Height="28"/>
-                </StackPanel>
-            </GroupBox>
-        </StackPanel>
+        <TabControl x:Name="main_tabs">
+            <!-- TAB 1: Views -->
+            <TabItem Header="Views">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Check any number of sheets below and Scan Selected Sheets to pool every Viewport on them into one grid (or select Viewports in Revit first and click Use Current Selection). Check which rows to include, then use an alignment button - it batch-aligns across every checked sheet at once (e.g. Align Left moves every checked Viewport, whatever sheet it's on, so its left edge matches the overall minimum). Needs at least 2 checked (3 for Distribute)."/>
 
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-            <Button x:Name="select_all_b" Content="Select All" Click="select_all_click" Width="90" Height="24"/>
-            <Button x:Name="deselect_all_b" Content="Deselect All" Click="deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
-            <Button x:Name="select_highlighted_b" Content="Select Highlighted" Click="select_highlighted_click" Width="130" Height="24" Margin="16,0,0,0"
-                    ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
-            <Button x:Name="deselect_highlighted_b" Content="Deselect Highlighted" Click="deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
-        </StackPanel>
+                    <GroupBox DockPanel.Dock="Top" Header="Sheets" Margin="0,0,0,8">
+                        <DockPanel Margin="6">
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                                <Button x:Name="refresh_sheets_b" Content="Refresh Sheets" Click="refresh_sheets_click" Width="100" Height="24"/>
+                                <Button x:Name="sheets_select_all_b" Content="Select All" Click="sheets_select_all_click" Width="90" Height="24" Margin="10,0,0,0"/>
+                                <Button x:Name="sheets_deselect_all_b" Content="Deselect All" Click="sheets_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                                <Button x:Name="sheets_select_highlighted_b" Content="Select Highlighted" Click="sheets_select_highlighted_click" Width="130" Height="24" Margin="16,0,0,0"
+                                        ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                                <Button x:Name="sheets_deselect_highlighted_b" Content="Deselect Highlighted" Click="sheets_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
+                            </StackPanel>
+                            <DataGrid x:Name="sheets_grid" Height="140" AutoGenerateColumns="False" CanUserAddRows="False"
+                                      SelectionMode="Extended" SelectionUnit="FullRow">
+                                <DataGrid.Columns>
+                                    <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="60"/>
+                                    <DataGridTextColumn Header="Number" Binding="{Binding number}" IsReadOnly="True" Width="100"/>
+                                    <DataGridTextColumn Header="Name" Binding="{Binding name}" IsReadOnly="True" Width="*"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </GroupBox>
 
-        <DataGrid x:Name="items_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
-            <DataGrid.Columns>
-                <DataGridCheckBoxColumn Header="Include" Binding="{Binding is_selected, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
-                <DataGridTextColumn Header="Kind" Binding="{Binding kind}" Width="90" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Center X" Binding="{Binding center_x_text}" Width="90" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Center Y" Binding="{Binding center_y_text}" Width="90" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Width" Binding="{Binding width_text}" Width="80" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Height" Binding="{Binding height_text}" Width="80" IsReadOnly="True"/>
-            </DataGrid.Columns>
-        </DataGrid>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="scan_views_b" Content="Scan Selected Sheets" Click="scan_views_click" Width="150" Height="26"/>
+                        <Button x:Name="use_selection_views_b" Content="Use Current Selection" Click="use_selection_views_click" Width="160" Height="26" Margin="8,0,0,0"/>
+                        <TextBlock x:Name="views_status_tb" Text="Nothing loaded yet." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+
+                    <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                        <GroupBox Header="Batch Align Checked Views (across all checked sheets)">
+                            <WrapPanel Margin="6">
+                                <Button x:Name="views_align_left_b" Content="Align Left" Click="views_align_left_click" Width="110" Height="26" Margin="0,0,6,6"/>
+                                <Button x:Name="views_align_right_b" Content="Align Right" Click="views_align_right_click" Width="110" Height="26" Margin="0,0,6,6"/>
+                                <Button x:Name="views_align_top_b" Content="Align Top" Click="views_align_top_click" Width="110" Height="26" Margin="0,0,6,6"/>
+                                <Button x:Name="views_align_bottom_b" Content="Align Bottom" Click="views_align_bottom_click" Width="110" Height="26" Margin="0,0,6,6"/>
+                                <Button x:Name="views_align_center_h_b" Content="Align Center (H)" Click="views_align_center_h_click" Width="130" Height="26" Margin="0,0,6,6"/>
+                                <Button x:Name="views_align_middle_v_b" Content="Align Middle (V)" Click="views_align_middle_v_click" Width="130" Height="26" Margin="0,0,6,6"/>
+                                <Button x:Name="views_distribute_h_b" Content="Distribute Horizontally" Click="views_distribute_h_click" Width="160" Height="26" Margin="0,0,6,6"/>
+                                <Button x:Name="views_distribute_v_b" Content="Distribute Vertically" Click="views_distribute_v_click" Width="160" Height="26" Margin="0,0,6,6"/>
+                            </WrapPanel>
+                        </GroupBox>
+                    </StackPanel>
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="views_select_all_b" Content="Select All" Click="views_select_all_click" Width="90" Height="24"/>
+                        <Button x:Name="views_deselect_all_b" Content="Deselect All" Click="views_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="views_select_highlighted_b" Content="Select Highlighted" Click="views_select_highlighted_click" Width="130" Height="24" Margin="16,0,0,0"
+                                ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                        <Button x:Name="views_deselect_highlighted_b" Content="Deselect Highlighted" Click="views_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
+                    </StackPanel>
+
+                    <DataGrid x:Name="views_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Include" Binding="{Binding is_selected, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
+                            <DataGridTextColumn Header="Sheet" Binding="{Binding sheet_text}" Width="160" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="View Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Center X" Binding="{Binding center_x_text}" Width="90" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Center Y" Binding="{Binding center_y_text}" Width="90" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Width" Binding="{Binding width_text}" Width="80" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Height" Binding="{Binding height_text}" Width="80" IsReadOnly="True"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- TAB 2: Images -->
+            <TabItem Header="Images">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Pick one sheet and Load Sheet to list every Image on it (or select Images in Revit first and click Use Current Selection). Check which rows to include, then use an alignment button (needs at least 2 checked, 3 for Distribute), Scale Images, or Auto-Arrange - all scoped to this one sheet, and all aware of its Viewports as obstacles to avoid even though Viewports aren't listed as rows here."/>
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+                        <TextBlock Text="Sheet:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="image_sheet_cb" Width="300" Height="24"/>
+                        <Button x:Name="refresh_image_sheets_b" Content="Refresh Sheet List" Click="refresh_image_sheets_click" Width="130" Height="24" Margin="8,0,0,0"/>
+                        <Button x:Name="load_image_sheet_b" Content="Load Sheet" Click="load_image_sheet_click" Width="100" Height="24" Margin="8,0,0,0"/>
+                        <Button x:Name="use_selection_images_b" Content="Use Current Selection" Click="use_selection_images_click" Width="160" Height="24" Margin="8,0,0,0"/>
+                    </StackPanel>
+                    <TextBlock DockPanel.Dock="Top" x:Name="images_status_tb" Text="Nothing loaded yet." Margin="0,0,0,8" FontStyle="Italic"/>
+
+                    <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                        <GroupBox Header="Align Checked Images (to each other, on this sheet)" Margin="0,0,0,8">
+                            <WrapPanel Margin="6">
+                                <Button x:Name="images_align_left_b" Content="Align Left" Click="images_align_left_click" Width="110" Height="26" Margin="0,0,6,6"/>
+                                <Button x:Name="images_align_right_b" Content="Align Right" Click="images_align_right_click" Width="110" Height="26" Margin="0,0,6,6"/>
+                                <Button x:Name="images_align_top_b" Content="Align Top" Click="images_align_top_click" Width="110" Height="26" Margin="0,0,6,6"/>
+                                <Button x:Name="images_align_bottom_b" Content="Align Bottom" Click="images_align_bottom_click" Width="110" Height="26" Margin="0,0,6,6"/>
+                                <Button x:Name="images_align_center_h_b" Content="Align Center (H)" Click="images_align_center_h_click" Width="130" Height="26" Margin="0,0,6,6"/>
+                                <Button x:Name="images_align_middle_v_b" Content="Align Middle (V)" Click="images_align_middle_v_click" Width="130" Height="26" Margin="0,0,6,6"/>
+                                <Button x:Name="images_distribute_h_b" Content="Distribute Horizontally" Click="images_distribute_h_click" Width="160" Height="26" Margin="0,0,6,6"/>
+                                <Button x:Name="images_distribute_v_b" Content="Distribute Vertically" Click="images_distribute_v_click" Width="160" Height="26" Margin="0,0,6,6"/>
+                            </WrapPanel>
+                        </GroupBox>
+                        <GroupBox Header="Scale Images (checked Images only, keeps each centered)" Margin="0,0,0,8">
+                            <WrapPanel Margin="6">
+                                <TextBlock Text="Scale Factor:" VerticalAlignment="Center" Margin="0,0,6,6"/>
+                                <TextBox x:Name="scale_factor_tb" Text="1.0" Width="60" Height="24" Margin="0,0,6,6" VerticalContentAlignment="Center"/>
+                                <Button x:Name="scale_factor_b" Content="Apply Scale Factor" Click="scale_factor_click" Width="140" Height="26" Margin="0,0,14,6"/>
+                                <Button x:Name="match_largest_b" Content="Match Size to Largest" Click="match_largest_click" Width="150" Height="26" Margin="0,0,6,6"/>
+                                <Button x:Name="match_smallest_b" Content="Match Size to Smallest" Click="match_smallest_click" Width="150" Height="26" Margin="0,0,6,6"/>
+                            </WrapPanel>
+                        </GroupBox>
+                        <GroupBox Header="Overlap Check (Images + this sheet's Viewports)" Margin="0,0,0,8">
+                            <StackPanel Orientation="Horizontal" Margin="6">
+                                <Button x:Name="check_overlaps_b" Content="Check for Overlaps" Click="check_overlaps_click" Width="160" Height="26"/>
+                            </StackPanel>
+                        </GroupBox>
+                        <GroupBox Header="Auto-Arrange Images">
+                            <StackPanel Orientation="Horizontal" Margin="6">
+                                <Button x:Name="auto_arrange_b" Content="Auto-Arrange Checked Images into Grid (avoids overlaps)" Click="auto_arrange_click" Width="320" Height="28"/>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="images_select_all_b" Content="Select All" Click="images_select_all_click" Width="90" Height="24"/>
+                        <Button x:Name="images_deselect_all_b" Content="Deselect All" Click="images_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="images_select_highlighted_b" Content="Select Highlighted" Click="images_select_highlighted_click" Width="130" Height="24" Margin="16,0,0,0"
+                                ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                        <Button x:Name="images_deselect_highlighted_b" Content="Deselect Highlighted" Click="images_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
+                    </StackPanel>
+
+                    <DataGrid x:Name="images_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Include" Binding="{Binding is_selected, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
+                            <DataGridTextColumn Header="Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Center X" Binding="{Binding center_x_text}" Width="90" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Center Y" Binding="{Binding center_y_text}" Width="90" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Width" Binding="{Binding width_text}" Width="80" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Height" Binding="{Binding height_text}" Width="80" IsReadOnly="True"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
     </DockPanel>
 </Window>
