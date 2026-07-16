@@ -1,0 +1,61 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeV.Template — Transfer View Templates Between Open Files"
+        ShowInTaskbar="False"
+        MinHeight="600" MinWidth="1000" Height="680" Width="1080"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10"
+                   Text="Scans the View Templates in THIS file (left) and every other Revit document currently open in this session (right, linked models excluded). Check the templates and target file(s) you want, pick how to handle a name that already exists in a target, then Transfer."/>
+
+        <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
+                Width="100" Height="26" HorizontalAlignment="Right" Margin="0,10,0,0"/>
+
+        <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBlock Text="If a Template with the same name already exists in the target file:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <ComboBox x:Name="duplicate_mode_cb" Width="160" Height="24"/>
+            </StackPanel>
+            <Button x:Name="transfer_b" Content="Transfer Selected Template(s) to Selected File(s)" Click="transfer_click" Width="320" Height="30"/>
+        </StackPanel>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="10"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <DockPanel Grid.Column="0">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button x:Name="scan_templates_b" Content="Scan View Templates" Click="scan_templates_click" Width="150" Height="24"/>
+                    <Button x:Name="templates_select_all_b" Content="Select All" Click="templates_select_all_click" Width="90" Height="24" Margin="8,0,0,0"/>
+                    <Button x:Name="templates_deselect_all_b" Content="Deselect All" Click="templates_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                </StackPanel>
+                <TextBlock DockPanel.Dock="Top" x:Name="templates_count_tb" Text="0 view template(s) in this file" Margin="0,0,0,6" FontStyle="Italic"/>
+                <DataGrid x:Name="templates_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
+                    <DataGrid.Columns>
+                        <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
+                        <DataGridTextColumn Header="View Template Name" Binding="{Binding name}" IsReadOnly="True" Width="*"/>
+                        <DataGridTextColumn Header="View Type" Binding="{Binding view_type}" IsReadOnly="True" Width="110"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+
+            <DockPanel Grid.Column="2">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button x:Name="refresh_docs_b" Content="Refresh Open Files" Click="refresh_docs_click" Width="150" Height="24"/>
+                    <Button x:Name="docs_select_all_b" Content="Select All" Click="docs_select_all_click" Width="90" Height="24" Margin="8,0,0,0"/>
+                    <Button x:Name="docs_deselect_all_b" Content="Deselect All" Click="docs_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                </StackPanel>
+                <TextBlock DockPanel.Dock="Top" x:Name="docs_count_tb" Text="0 other open file(s)" Margin="0,0,0,6" FontStyle="Italic"/>
+                <DataGrid x:Name="docs_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
+                    <DataGrid.Columns>
+                        <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
+                        <DataGridTextColumn Header="Open Document" Binding="{Binding title}" IsReadOnly="True" Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</Window>
