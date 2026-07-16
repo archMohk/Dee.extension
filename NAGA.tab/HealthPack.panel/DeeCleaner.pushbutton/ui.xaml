@@ -1,0 +1,86 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeCleaner — Zero-Area Rooms, In-Place Families, Unused Groups"
+        ShowInTaskbar="False"
+        MinHeight="640" MinWidth="1000" Height="720" Width="1080"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+            <Button x:Name="scan_b" Content="Scan Project" Click="scan_click" Width="120" Height="26"/>
+            <TextBlock x:Name="status_tb" Text="Nothing scanned yet." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
+        </StackPanel>
+
+        <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
+                Width="100" Height="26" HorizontalAlignment="Right" Margin="0,10,0,0"/>
+
+        <TabControl x:Name="main_tabs">
+            <!-- TAB 1: Zero-Area Rooms -->
+            <TabItem Header="Zero-Area Rooms">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Rooms with zero Area are typically Unplaced or Not Enclosed. Review the list, check the ones to remove, then Delete Selected."/>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="rooms_select_all_b" Content="Select All" Click="rooms_select_all_click" Width="90" Height="24"/>
+                        <Button x:Name="rooms_deselect_all_b" Content="Deselect All" Click="rooms_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="rooms_delete_b" Content="Delete Selected" Click="rooms_delete_click" Width="120" Height="24" Margin="20,0,0,0"/>
+                        <TextBlock x:Name="rooms_count_tb" Text="0 zero-area room(s)" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+                    <DataGrid x:Name="rooms_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="60"/>
+                            <DataGridTextColumn Header="Number" Binding="{Binding number}" IsReadOnly="True" Width="90"/>
+                            <DataGridTextColumn Header="Name" Binding="{Binding name}" IsReadOnly="True" Width="200"/>
+                            <DataGridTextColumn Header="Level" Binding="{Binding level_name}" IsReadOnly="True" Width="140"/>
+                            <DataGridTextColumn Header="Area" Binding="{Binding area_text}" IsReadOnly="True" Width="80"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- TAB 2: In-Place Families -->
+            <TabItem Header="In-Place Families">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Model in-place family instances found in the project, with their location. Check the ones you want to inspect, then Isolate Selected in 3D View - this creates/reuses a dedicated 3D view named 'DeeCleaner - In-Place Families' and temporarily isolates just those elements (Revit's own Temporary Hide/Isolate - reset it from the View Control Bar when done, or make it permanent from there too)."/>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="inplace_select_all_b" Content="Select All" Click="inplace_select_all_click" Width="90" Height="24"/>
+                        <Button x:Name="inplace_deselect_all_b" Content="Deselect All" Click="inplace_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="inplace_isolate_b" Content="Isolate Selected in 3D View" Click="inplace_isolate_click" Width="180" Height="24" Margin="20,0,0,0"/>
+                        <TextBlock x:Name="inplace_count_tb" Text="0 in-place familie(s)" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+                    <DataGrid x:Name="inplace_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="60"/>
+                            <DataGridTextColumn Header="Family Name" Binding="{Binding name}" IsReadOnly="True" Width="220"/>
+                            <DataGridTextColumn Header="Category" Binding="{Binding category_name}" IsReadOnly="True" Width="140"/>
+                            <DataGridTextColumn Header="Level" Binding="{Binding level_name}" IsReadOnly="True" Width="120"/>
+                            <DataGridTextColumn Header="Location (X, Y, Z)" Binding="{Binding location_text}" IsReadOnly="True" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- TAB 3: Unused Groups -->
+            <TabItem Header="Unused Groups">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Model Group and Detail Group types with zero placed instances anywhere in the project. Check the ones to remove, then Delete Selected."/>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="groups_select_all_b" Content="Select All" Click="groups_select_all_click" Width="90" Height="24"/>
+                        <Button x:Name="groups_deselect_all_b" Content="Deselect All" Click="groups_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="groups_delete_b" Content="Delete Selected" Click="groups_delete_click" Width="120" Height="24" Margin="20,0,0,0"/>
+                        <TextBlock x:Name="groups_count_tb" Text="0 unused group(s)" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+                    <DataGrid x:Name="groups_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="60"/>
+                            <DataGridTextColumn Header="Name" Binding="{Binding name}" IsReadOnly="True" Width="260"/>
+                            <DataGridTextColumn Header="Kind" Binding="{Binding kind}" IsReadOnly="True" Width="140"/>
+                            <DataGridTextColumn Header="Placed Instances" Binding="{Binding instance_count_text}" IsReadOnly="True" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>
