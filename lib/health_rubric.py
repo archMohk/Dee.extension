@@ -75,6 +75,10 @@ CHECK_ID_MAP = {
 }
 
 
+SCORE_STATUS_OK = 0.8
+SCORE_STATUS_WARN = 0.4
+
+
 class HealthTest(object):
     """One row of the rubric. weight/e/f/g are None when the workbook left
     that cell blank (an informational/report-only row - still runs and
@@ -90,6 +94,8 @@ class HealthTest(object):
         self.description = description
         self.check_id = CHECK_ID_MAP.get(normalize_test_name(name))
         self.implemented = False
+        self.run_enabled = True
+        self.has_run = False
         self.result_value = None
         self.result_detail = ""
         self.result_score = None
@@ -101,6 +107,32 @@ class HealthTest(object):
     @property
     def implemented_text(self):
         return "Yes" if self.implemented else "No"
+
+    @property
+    def status_key(self):
+        """Drives row coloring in the UI: "ignored" (Run unchecked),
+        "" (not run yet), "notimpl" (no matching check), "unscored" (ran,
+        informational only - no weight), or "ok"/"warn"/"fail" by score."""
+        if not self.run_enabled:
+            return "ignored"
+        if not self.has_run:
+            return ""
+        if not self.implemented:
+            return "notimpl"
+        if self.result_score is None:
+            return "unscored"
+        if self.result_score >= SCORE_STATUS_OK:
+            return "ok"
+        if self.result_score >= SCORE_STATUS_WARN:
+            return "warn"
+        return "fail"
+
+    @property
+    def status_label(self):
+        return {
+            "ignored": "Ignored", "": "Not run", "notimpl": "Not Implemented",
+            "unscored": "Informational", "ok": "Good", "warn": "Warning", "fail": "Fail",
+        }.get(self.status_key, "")
 
     @property
     def weight_text(self):
@@ -237,6 +269,39 @@ def parse_rubric_grid(grid):
     return tests
 
 
+# check_id -> (weight, E, F, G) applied ONLY when the source rubric left a
+# test's weight/thresholds blank AND that specific test clearly follows the
+# same "any occurrence at all is a defect" pattern as a scored sibling test
+# in the same section (Unplaced Rooms/Spaces both use E=0,F=0,G=">0" - these
+# four are the same kind of check, just not itemized as their own scored row
+# in the source workbook). Genuinely descriptive-only tests (Total Elements,
+# Views, Sheets, Levels, Grids, Project Information, Design Options, etc.)
+# are deliberately NOT here - a raw count has no natural good/bad direction
+# to infer, and fabricating one would be arbitrary and misleading.
+INFERRED_THRESHOLDS = {
+    "overlapping_rooms": (0.02, 0, 0, ">0"),
+    "duplicate_room_numbers": (0.02, 0, 0, ">0"),
+    "overlapping_spaces": (0.02, 0, 0, ">0"),
+    "duplicate_space_numbers": (0.02, 0, 0, ">0"),
+}
+
+
+def infer_missing_thresholds(tests):
+    """Fills in weight/E/F/G for the handful of tests in INFERRED_THRESHOLDS
+    whenever the rubric left them blank (weight is None) - in place, and
+    only touches a test if it currently has no weight, so it never
+    overrides something the user (or the source Excel) already set."""
+    for t in tests:
+        if t.weight is not None or t.check_id not in INFERRED_THRESHOLDS:
+            continue
+        weight, e, f, g = INFERRED_THRESHOLDS[t.check_id]
+        t.weight = weight
+        t.e_raw = e
+        t.f_raw = f
+        t.g_raw = g
+    return tests
+
+
 def compute_overall_score(tests):
     """Weighted average of every test that both HAS a weight and was
     actually scored (result_score is not None) - re-normalized against
@@ -344,4 +409,4 @@ def get_default_tests():
     """Returns a fresh list of HealthTest objects built from the embedded
     default rubric - fresh each call, so editing the grid in one DeeHealth
     session never mutates what the next session starts from."""
-    return parse_rubric_grid(DEFAULT_RUBRIC_GRID)
+    return infer_missing_thresholds(parse_rubric_grid(DEFAULT_RUBRIC_GRID))

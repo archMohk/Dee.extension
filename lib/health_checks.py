@@ -239,8 +239,11 @@ def file_size(doc, ctx):
 
 
 def purgeable_elements(doc, ctx):
+    instances = ctx.get("all_family_instances") if ctx else None
+    if instances is None:
+        instances = list(FilteredElementCollector(doc).OfClass(FamilyInstance).WhereElementIsNotElementType())
     instance_type_ids = set()
-    for inst in FilteredElementCollector(doc).OfClass(FamilyInstance).WhereElementIsNotElementType():
+    for inst in instances:
         try:
             instance_type_ids.add(inst.GetTypeId())
         except Exception:
@@ -265,8 +268,11 @@ def purgeable_elements(doc, ctx):
 
 
 def duplicate_elements(doc, ctx):
+    elements = ctx.get("all_elements") if ctx else None
+    if elements is None:
+        elements = list(FilteredElementCollector(doc).WhereElementIsNotElementType())
     groups = {}
-    for el in FilteredElementCollector(doc).WhereElementIsNotElementType():
+    for el in elements:
         try:
             cat = el.Category
             if cat is None or cat.CategoryType != CategoryType.Model:
@@ -340,8 +346,11 @@ def masses(doc, ctx):
 
 
 def largest_family(doc, ctx):
+    instances = ctx.get("all_family_instances") if ctx else None
+    if instances is None:
+        instances = list(FilteredElementCollector(doc).OfClass(FamilyInstance).WhereElementIsNotElementType())
     instance_counts = {}
-    for inst in FilteredElementCollector(doc).OfClass(FamilyInstance).WhereElementIsNotElementType():
+    for inst in instances:
         try:
             sym = inst.Symbol
             fam = sym.Family if sym is not None else None
@@ -397,8 +406,11 @@ def project_organization(doc, ctx):
 
 
 def in_place_families(doc, ctx):
+    instances = ctx.get("all_family_instances") if ctx else None
+    if instances is None:
+        instances = list(FilteredElementCollector(doc).OfClass(FamilyInstance).WhereElementIsNotElementType())
     count = 0
-    for inst in FilteredElementCollector(doc).OfClass(FamilyInstance).WhereElementIsNotElementType():
+    for inst in instances:
         try:
             sym = inst.Symbol
             fam = sym.Family if sym is not None else None
@@ -533,8 +545,11 @@ def design_options(doc, ctx):
         options = list(FilteredElementCollector(doc).OfClass(DesignOption))
     except Exception as e:
         return None, "Could not read Design Options: {0}".format(e)
+    elements = ctx.get("all_elements") if ctx else None
+    if elements is None:
+        elements = list(FilteredElementCollector(doc).WhereElementIsNotElementType())
     counts = {}
-    for el in FilteredElementCollector(doc).WhereElementIsNotElementType():
+    for el in elements:
         try:
             do = el.DesignOption
             if do is not None:
@@ -591,8 +606,11 @@ def phase_elements(doc, ctx):
         phases = list(doc.Phases)
     except Exception as e:
         return None, "Could not read Phases: {0}".format(e)
+    elements = ctx.get("all_elements") if ctx else None
+    if elements is None:
+        elements = list(FilteredElementCollector(doc).WhereElementIsNotElementType())
     counts = {}
-    for el in FilteredElementCollector(doc).WhereElementIsNotElementType():
+    for el in elements:
         try:
             p = el.get_Parameter(BuiltInParameter.PHASE_CREATED)
             if p is not None:
@@ -638,8 +656,18 @@ def _views_on_sheets(doc):
     return on_sheet_ids
 
 
+def _ctx_real_views(doc, ctx):
+    views = ctx.get("real_views") if ctx else None
+    return views if views is not None else _real_views(doc)
+
+
+def _ctx_views_on_sheets(doc, ctx):
+    ids = ctx.get("views_on_sheet_ids") if ctx else None
+    return ids if ids is not None else _views_on_sheets(doc)
+
+
 def views_count(doc, ctx):
-    views = _real_views(doc)
+    views = _ctx_real_views(doc, ctx)
     return len(views), "{0} view(s) (excluding templates and sheets)".format(len(views))
 
 
@@ -651,7 +679,7 @@ def sheets_count(doc, ctx):
 def views_hidden_elements(doc, ctx):
     count = 0
     checked = 0
-    for v in _real_views(doc):
+    for v in _ctx_real_views(doc, ctx):
         try:
             checked += 1
             found_hidden = False
@@ -670,8 +698,8 @@ def views_hidden_elements(doc, ctx):
 
 
 def views_not_on_sheets(doc, ctx):
-    on_sheet_ids = _views_on_sheets(doc)
-    views = _real_views(doc)
+    on_sheet_ids = _ctx_views_on_sheets(doc, ctx)
+    views = _ctx_real_views(doc, ctx)
     count = 0
     for v in views:
         try:
@@ -685,10 +713,10 @@ def views_not_on_sheets(doc, ctx):
 
 
 def views_no_template(doc, ctx):
-    on_sheet_ids = _views_on_sheets(doc)
+    on_sheet_ids = _ctx_views_on_sheets(doc, ctx)
     count = 0
     checked = 0
-    for v in _real_views(doc):
+    for v in _ctx_real_views(doc, ctx):
         try:
             if v.Id not in on_sheet_ids:
                 continue
@@ -841,25 +869,27 @@ def unhosted_elements(doc, ctx):
 
 
 def mishosted_elements(doc, ctx):
-    levels = sorted(FilteredElementCollector(doc).OfClass(Level), key=lambda l: l.Elevation)
+    levels = (ctx.get("levels_sorted") if ctx else None)
+    if levels is None:
+        levels = sorted(FilteredElementCollector(doc).OfClass(Level), key=lambda l: l.Elevation)
     if not levels:
         return None, "No Levels found"
-    level_ids = set(l.Id for l in levels)
+    level_by_id = dict((l.Id, l) for l in levels)
+    elements = ctx.get("all_elements") if ctx else None
+    if elements is None:
+        elements = list(FilteredElementCollector(doc).WhereElementIsNotElementType())
     mismatch_count = 0
     checked = 0
-    for el in FilteredElementCollector(doc).WhereElementIsNotElementType():
+    for el in elements:
         try:
             cat = el.Category
             if cat is None or cat.CategoryType != CategoryType.Model:
                 continue
             current_level_id = el.LevelId
-            if (current_level_id is None or current_level_id == ElementId.InvalidElementId
-                    or current_level_id not in level_ids):
-                continue
-            checked += 1
-            current_level = next((l for l in levels if l.Id == current_level_id), None)
+            current_level = level_by_id.get(current_level_id)
             if current_level is None:
                 continue
+            checked += 1
             offset_param = _find_offset_parameter(el)
             offset = offset_param.AsDouble() if offset_param is not None else 0.0
             absolute_elevation = current_level.Elevation + offset
@@ -876,6 +906,25 @@ def mishosted_elements(doc, ctx):
     return mismatch_count, (
         "{0} element(s) whose Level doesn't match their actual physical elevation, "
         "out of {1} checked".format(mismatch_count, checked))
+
+
+def prepare_context(doc, base_ctx=None):
+    """Pre-collects the handful of large, expensive collections that
+    several checks each used to gather independently (a full-document
+    element scan, all FamilyInstances, sorted Levels, real Views, and
+    which Views are on sheets) - the main source of a slow overall run
+    on a big project. Call this ONCE before running any checks and pass
+    the result as `ctx` to every check_fn; each check falls back to
+    collecting its own data if the relevant ctx key is missing, so
+    checks remain independently callable/testable without this."""
+    ctx = dict(base_ctx or {})
+    all_elements = list(FilteredElementCollector(doc).WhereElementIsNotElementType())
+    ctx["all_elements"] = all_elements
+    ctx["all_family_instances"] = [el for el in all_elements if isinstance(el, FamilyInstance)]
+    ctx["levels_sorted"] = sorted(FilteredElementCollector(doc).OfClass(Level), key=lambda l: l.Elevation)
+    ctx["real_views"] = _real_views(doc)
+    ctx["views_on_sheet_ids"] = _views_on_sheets(doc)
+    return ctx
 
 
 # -- dispatch table -----------------------------------------------------------

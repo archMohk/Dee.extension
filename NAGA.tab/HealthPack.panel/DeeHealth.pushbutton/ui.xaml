@@ -2,44 +2,115 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeHealth — Model Health Score"
         ShowInTaskbar="False"
-        MinHeight="700" MinWidth="1200" Height="780" Width="1300"
+        MinHeight="740" MinWidth="1250" Height="820" Width="1350"
         WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <Style x:Key="statusRowStyle" TargetType="DataGridRow">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding status_key}" Value="ok">
+                    <Setter Property="Background" Value="#C6E0B4"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding status_key}" Value="warn">
+                    <Setter Property="Background" Value="#FFE699"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding status_key}" Value="fail">
+                    <Setter Property="Background" Value="#F4C7C3"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding status_key}" Value="ignored">
+                    <Setter Property="Background" Value="#E0E0E0"/>
+                    <Setter Property="Foreground" Value="#808080"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding status_key}" Value="notimpl">
+                    <Setter Property="Background" Value="#CFD8DC"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
     <DockPanel Margin="10">
-        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10">
-            <Run Text="Import Rubric loads a QC-test-style Excel workbook (Section/Test names, weights, and the three threshold cells E/F/G) into the editable grid below - Weight/E/F/G stay editable afterward, so you can tune the scoring without touching the Excel again. Run Health Check executes every test that maps to a known check, fills in its measured Value and per-test Score, and computes an overall weighted score (tests with no Weight are informational only and never affect the score). Nothing changes in the model - every check here only reads."/>
-        </TextBlock>
+        <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
+                Width="100" Height="26" HorizontalAlignment="Right" Margin="0,10,0,0"/>
 
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-            <Button x:Name="import_rubric_b" Content="Import Rubric from Excel" Click="import_rubric_click" Width="180" Height="26"/>
-            <TextBlock x:Name="rubric_summary_tb" Text="No rubric loaded yet." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
-        </StackPanel>
+        <TabControl x:Name="main_tabs">
+            <TabItem Header="1. Configuration">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10">
+                        <Run Text="Opens with the built-in default rubric already loaded (your own QC workbook), so Run Health Check works immediately. Import Rubric from Excel overrides it with a different/updated workbook. Weight/E/F/G stay editable here for tuning; the Run checkbox (per test, or per section using the checkboxes below) lets you skip tests you don't need - useful both to narrow the scope and to cut run time on a large project. Nothing changes in the model - every check only reads."/>
+                    </TextBlock>
 
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
-            <TextBlock Text="Naming Pattern (regex, used by the 3 naming-convention tests):" VerticalAlignment="Center" Margin="0,0,8,0"/>
-            <TextBox x:Name="naming_pattern_tb" Width="260" Height="24"/>
-        </StackPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="import_rubric_b" Content="Import Rubric from Excel" Click="import_rubric_click" Width="180" Height="26"/>
+                        <TextBlock x:Name="rubric_summary_tb" Text="No rubric loaded yet." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
 
-        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
-            <Button x:Name="run_health_b" Content="Run Health Check" Click="run_health_click" Width="160" Height="30"/>
-            <Button x:Name="export_csv_b" Content="Export Results to CSV" Click="export_csv_click" Width="160" Height="30" Margin="10,0,0,0"/>
-            <Button x:Name="export_report_b" Content="Export Health Report (Excel)" Click="export_report_click" Width="200" Height="30" Margin="10,0,0,0"/>
-            <TextBlock x:Name="overall_score_tb" Text="Overall Score: --" VerticalAlignment="Center" Margin="24,0,0,0" FontSize="18" FontWeight="Bold"/>
-            <Button x:Name="close_b" Content="Close" Click="close_click" Width="100" Height="26" HorizontalAlignment="Right" Margin="40,0,0,0"/>
-        </StackPanel>
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" Grid.Column="0" Margin="0,0,24,0">
+                            <TextBlock Text="Naming Pattern (regex):" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox x:Name="naming_pattern_tb" Width="220" Height="24"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Grid.Column="1">
+                            <TextBlock Text="Approval Limit (%):" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox x:Name="approval_limit_tb" Width="60" Height="24" Text="70"/>
+                            <TextBlock Text="(Overall Score at or above this is a PASS)" VerticalAlignment="Center" Margin="8,0,0,0" FontStyle="Italic"/>
+                        </StackPanel>
+                    </Grid>
 
-        <DataGrid x:Name="rubric_grid" AutoGenerateColumns="False" CanUserAddRows="False">
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="Section" Binding="{Binding section}" Width="150" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Test" Binding="{Binding name}" Width="180" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Implemented" Binding="{Binding implemented_text}" Width="90" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Weight" Binding="{Binding weight_text, UpdateSourceTrigger=PropertyChanged}" Width="70"/>
-                <DataGridTextColumn Header="E (good)" Binding="{Binding e_text, UpdateSourceTrigger=PropertyChanged}" Width="80"/>
-                <DataGridTextColumn Header="F (warn)" Binding="{Binding f_text, UpdateSourceTrigger=PropertyChanged}" Width="80"/>
-                <DataGridTextColumn Header="G (fail)" Binding="{Binding g_text, UpdateSourceTrigger=PropertyChanged}" Width="80"/>
-                <DataGridTextColumn Header="Value" Binding="{Binding result_value_text}" Width="90" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Score" Binding="{Binding result_score_text}" Width="70" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Description" Binding="{Binding description}" Width="*" IsReadOnly="True"/>
-            </DataGrid.Columns>
-        </DataGrid>
+                    <Expander DockPanel.Dock="Top" Header="Run by Section (check/uncheck to include/exclude a whole section)" Margin="0,0,0,8" IsExpanded="False">
+                        <WrapPanel x:Name="section_checks_panel" Margin="6"/>
+                    </Expander>
+
+                    <Button DockPanel.Dock="Bottom" x:Name="run_health_b" Content="Run Health Check" Click="run_health_click"
+                            Width="180" Height="32" HorizontalAlignment="Left" Margin="0,10,0,0" FontWeight="Bold"/>
+
+                    <DataGrid x:Name="config_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                              RowStyle="{StaticResource statusRowStyle}">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Run" Binding="{Binding run_enabled, UpdateSourceTrigger=PropertyChanged}" Width="45"/>
+                            <DataGridTextColumn Header="Section" Binding="{Binding section}" Width="150" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Test" Binding="{Binding name}" Width="180" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Implemented" Binding="{Binding implemented_text}" Width="85" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Weight" Binding="{Binding weight_text, UpdateSourceTrigger=PropertyChanged}" Width="65"/>
+                            <DataGridTextColumn Header="E (good)" Binding="{Binding e_text, UpdateSourceTrigger=PropertyChanged}" Width="75"/>
+                            <DataGridTextColumn Header="F (warn)" Binding="{Binding f_text, UpdateSourceTrigger=PropertyChanged}" Width="75"/>
+                            <DataGridTextColumn Header="G (fail)" Binding="{Binding g_text, UpdateSourceTrigger=PropertyChanged}" Width="75"/>
+                            <DataGridTextColumn Header="Description" Binding="{Binding description}" Width="*" IsReadOnly="True"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="2. Results">
+                <DockPanel Margin="8">
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="overall_score_tb" Text="Overall Score: --" VerticalAlignment="Center" FontSize="22" FontWeight="Bold"/>
+                            <TextBlock x:Name="approval_status_tb" Text="" VerticalAlignment="Center" Margin="20,0,0,0" FontSize="16" FontWeight="Bold"/>
+                        </StackPanel>
+                        <TextBlock x:Name="summary_tb" TextWrapping="Wrap" Margin="0,8,0,0" FontFamily="Consolas"/>
+                    </StackPanel>
+
+                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
+                        <Button x:Name="export_csv_b" Content="Export Results to CSV" Click="export_csv_click" Width="170" Height="28"/>
+                        <Button x:Name="export_report_b" Content="Export Health Report (Excel)" Click="export_report_click" Width="200" Height="28" Margin="10,0,0,0"/>
+                    </StackPanel>
+
+                    <DataGrid x:Name="results_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
+                              RowStyle="{StaticResource statusRowStyle}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Section" Binding="{Binding section}" Width="150"/>
+                            <DataGridTextColumn Header="Test" Binding="{Binding name}" Width="200"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status_label}" Width="100"/>
+                            <DataGridTextColumn Header="Value" Binding="{Binding result_value_text}" Width="100"/>
+                            <DataGridTextColumn Header="Score" Binding="{Binding result_score_text}" Width="70"/>
+                            <DataGridTextColumn Header="Weight" Binding="{Binding weight_text}" Width="65"/>
+                            <DataGridTextColumn Header="Detail" Binding="{Binding result_detail}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
     </DockPanel>
 </Window>
