@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Update
+Update - branded window (logo + text + website), replacing the old plain
+forms.alert confirm dialog. Underlying behavior is unchanged:
+
 For installs done via 'pyrevit extend' (colleagues who installed the
 public GitHub-distributed copy): first runs 'pyrevit extensions update
 --all' as an external process to git-pull the latest changes for every
@@ -21,11 +23,25 @@ rename an already-created ribbon TAB (Revit only builds tab titles once
 at startup) - that specific kind of change still needs a full Revit
 restart, same as pyRevit's own Reload.
 """
+import os
+import webbrowser
+
+import clr
+clr.AddReference("WindowsBase")
+clr.AddReference("PresentationCore")
+clr.AddReference("PresentationFramework")
+clr.AddReference("System")
+from System import Uri
+from System.Windows.Media.Imaging import BitmapImage
+from System.Diagnostics import Process, ProcessStartInfo
+
 from pyrevit import forms
 from pyrevit.loader import sessionmgr
-import clr
-clr.AddReference("System")
-from System.Diagnostics import Process, ProcessStartInfo
+
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
+_LOGO_FILE = os.path.abspath(os.path.join(_THIS_DIR, "..", "..", "..", "..", "icon.png"))
+_WEBSITE_URL = "https://www.archmkd.com"
 
 
 def _run_pyrevit_update():
@@ -46,13 +62,36 @@ def _run_pyrevit_update():
         return False, str(ex)
 
 
-if forms.alert(
-        "Update Dee tools now?\n\n"
-        "This pulls the latest version from GitHub (if this install was set "
-        "up with 'pyrevit extend'), then reloads pyRevit to pick up the "
-        "changes. A renamed ribbon TAB specifically still needs a full "
-        "Revit restart to show up.",
-        title="Dee Update", yes=True, no=True):
+class UpdateWindow(forms.WPFWindow):
+    def __init__(self, xaml_file):
+        forms.WPFWindow.__init__(self, xaml_file)
+        self.confirmed = False
+        try:
+            if os.path.exists(_LOGO_FILE):
+                bmp = BitmapImage()
+                bmp.BeginInit()
+                bmp.UriSource = Uri(_LOGO_FILE)
+                bmp.EndInit()
+                self.logo_img.Source = bmp
+        except Exception:
+            pass
+
+    def website_click(self, sender, args):
+        webbrowser.open(_WEBSITE_URL)
+
+    def update_click(self, sender, args):
+        self.confirmed = True
+        self.Close()
+
+    def cancel_click(self, sender, args):
+        self.confirmed = False
+        self.Close()
+
+
+window = UpdateWindow(_XAML_FILE)
+window.ShowDialog()
+
+if window.confirmed:
     ok, output = _run_pyrevit_update()
     if not ok and output:
         forms.alert(

@@ -1,0 +1,20 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="About DeePack"
+        Height="420" Width="420"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False">
+    <StackPanel Margin="24" HorizontalAlignment="Center">
+        <Image x:Name="logo_img" Width="88" Height="88" Margin="0,0,0,14"/>
+        <TextBlock Text="DeePack" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center"/>
+        <TextBlock x:Name="version_tb" Text="v1.0 BETA" FontSize="13" HorizontalAlignment="Center"
+                   Foreground="#888888" Margin="0,2,0,14"/>
+        <TextBlock Text="Developer: Arch. Mohammed Abdelmaguid" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+        <TextBlock TextWrapping="Wrap" TextAlignment="Center" Width="340" Margin="0,0,0,16"
+                   Text="Batch open, link, and publish Revit cloud models from ACC/BIM360, plus a growing set of modeling, QC, sheet, and alignment tools for NAGA Architects Designers &amp; Planners."/>
+        <Button x:Name="website_b" Content="www.archmkd.com" Click="website_click"
+                HorizontalAlignment="Center" Padding="14,6" Margin="0,0,0,16" Cursor="Hand"/>
+        <Button x:Name="close_b" Content="Close" Click="close_click" Width="100" Height="28" HorizontalAlignment="Center"/>
+    </StackPanel>
+</Window>
