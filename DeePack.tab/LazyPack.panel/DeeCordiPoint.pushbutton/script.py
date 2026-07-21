@@ -52,7 +52,6 @@ from Autodesk.Revit.DB import (
     BasePoint, InternalOrigin, RevitLinkInstance, ImportInstance, UnitUtils, UnitTypeId,
     SpecTypeId, BuiltInParameter,
 )
-from Autodesk.Revit.UI import PostableCommand, RevitCommandId
 
 from System.Collections.Generic import List
 import clr
@@ -727,32 +726,6 @@ class DeeCordiPointWindow(forms.WPFWindow):
         self.acquire_status_tb.Text = (
             "'{0}' is now selected in Revit. Go to Manage tab > Coordinates > "
             "Acquire Coordinates to pick it up.".format(row.name))
-
-    def acquire_coordinates_click(self, sender, args):
-        row = self.acquire_targets_cb.SelectedItem
-        if row is None:
-            forms.alert("Pick a link from the list first.")
-            return
-        if not forms.alert(
-                "Select '{0}' and run Acquire Coordinates now?\n\n"
-                "This window will close so Revit can run the command right after. Revit "
-                "still performs the actual coordinate acquisition - if it still prompts you "
-                "to pick a link, just click on '{0}' in the view.".format(row.name),
-                title="DeeCordiPoint - Confirm", yes=True, no=True):
-            return
-        try:
-            uidoc = __revit__.ActiveUIDocument
-            uidoc.Selection.SetElementIds(List[ElementId]([row.element_id]))
-        except Exception as e:
-            forms.alert("Could not select that link: {0}".format(e))
-            return
-        try:
-            cmd_id = RevitCommandId.LookupPostableCommandId(PostableCommand.AcquireCoordinates)
-            __revit__.PostCommand(cmd_id)
-        except Exception as e:
-            forms.alert("Could not start Acquire Coordinates: {0}".format(e))
-            return
-        self.Close()
 
     def _refresh_true_north(self):
         pbp = _get_project_base_point(self.doc)
