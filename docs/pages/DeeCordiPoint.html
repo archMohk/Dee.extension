@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeCordiPoint — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb">LazyPack tab &rsaquo; CoordinatePack panel</div>
+  <span class="panel-chip">LazyPack (CoordinatePack)</span>
+  <h1 class="tool-title">DeeCordiPoint</h1>
+  <p class="tagline">Isolate Levels, Site, Project Base Point, Survey Point, and Internal Origin in a dedicated 3D view &mdash; relocate a far-away Survey Point, export point coordinates, and list linked models' coordinate info.</p>
+
+  <div class="callout warn"><strong>Risk level: Medium</strong> Relocate Survey Point moves a real coordinate reference element (un-clip &rarr; move &rarr; re-clip). It doesn't change the Survey Point's real-world coordinate value, only its on-screen distance from the model &mdash; but it's still worth understanding before you click it on a live project.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Creates (or reuses) a 3D view named <strong>DeeLazy Coordinates View</strong> and isolates Levels, Site, the Project Base Point, Survey Point, and Internal Origin in it, so you can see exactly where your project's coordinate reference points sit relative to the model. The Key Points grid shows each point's X/Y/Z, Angle to True North, and Clipped state, plus how far the Survey Point is from the Internal Origin.</p>
+    <p>If the Survey Point is far away (a common cause of Revit accuracy/rendering issues once real-world survey coordinates are acquired), <strong>Relocate Survey Point</strong> un-clips it, moves it to coincide with either the Internal Origin or the Project Base Point, then re-clips it &mdash; its real-world coordinate value doesn't change, only its on-screen distance from the model.</p>
+    <p>You can also <strong>Export Points to Excel</strong>, and <strong>Scan Linked Models</strong> to list every linked model's placement origin relative to the host (plus that link's own Project Base Point/Survey Point if it's currently loaded), also exportable.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Click <strong>Create/Update Coordinates View</strong> &mdash; review the Key Points grid and the distance readout.</li>
+      <li>Set a Distance Threshold if you want a warning when the Survey Point is farther than that from the Internal Origin.</li>
+      <li>If needed, click <strong>Relocate Survey Point to Internal Origin</strong> or <strong>...to Project Base Point</strong>, and confirm.</li>
+      <li>Use <strong>Export Points to Excel</strong> for a record.</li>
+      <li>Click <strong>Scan Linked Models</strong> to see every link's coordinate info, and export that too if needed.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>Distance Threshold</th><td>Shown in your project's display unit; triggers a warning after building the view if the Survey Point exceeds it.</td></tr>
+      <tr><th>Relocate target</th><td>Internal Origin or Project Base Point &mdash; pick whichever you want the Survey Point to sit on top of.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>This is a brand-new ribbon tab, so it needs a full Revit restart + <code>pyrevit caches clear --all</code> to appear the first time &mdash; a plain Reload isn't enough.</li>
+      <li>A linked model's own Project Base Point/Survey Point only show up if that link is currently loaded (not unloaded/missing).</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>
