@@ -1,0 +1,73 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeCordiPoint — Coordinate Points"
+        ShowInTaskbar="False"
+        MinHeight="620" MinWidth="900" Height="680" Width="960"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10"
+                   Text="Create/Update Coordinates View builds (or reuses) a 3D view named 'DeeLazy Coordinates View' and isolates Levels, Site, the Project Base Point, Survey Point, and Internal Origin in it. The Points grid below then shows each one's coordinates - if the Survey Point is far from the Internal Origin (a common cause of Revit accuracy/rendering issues with real-world survey coordinates), Relocate Survey Point un-clips it, moves it to coincide with your chosen target point, then re-clips it - its real-world coordinate value doesn't change, just its on-screen distance from the model."/>
+
+        <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
+                Width="100" Height="26" HorizontalAlignment="Right" Margin="0,10,0,0"/>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+            <Button x:Name="build_view_b" Content="Create/Update Coordinates View" Click="build_view_click" Width="220" Height="28"/>
+            <TextBlock x:Name="view_status_tb" Text="View not built yet." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
+        </StackPanel>
+
+        <GroupBox DockPanel.Dock="Top" Header="Key Points" Margin="0,0,0,10">
+            <DockPanel Margin="6">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button x:Name="export_points_b" Content="Export Points to Excel" Click="export_points_click" Width="170" Height="24"/>
+                    <TextBlock x:Name="distance_tb" Text="" VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
+                </StackPanel>
+                <DataGrid x:Name="points_grid" Height="130" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Point" Binding="{Binding name}" Width="150"/>
+                        <DataGridTextColumn Header="X" Binding="{Binding x_text}" Width="100"/>
+                        <DataGridTextColumn Header="Y" Binding="{Binding y_text}" Width="100"/>
+                        <DataGridTextColumn Header="Z" Binding="{Binding z_text}" Width="100"/>
+                        <DataGridTextColumn Header="Angle to True North" Binding="{Binding angle_text}" Width="140"/>
+                        <DataGridTextColumn Header="Clipped" Binding="{Binding clipped_text}" Width="80"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </GroupBox>
+
+        <GroupBox DockPanel.Dock="Top" Header="Relocate Survey Point (only runs if you click one of these buttons)" Margin="0,0,0,10">
+            <StackPanel Margin="6">
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Text="Distance Threshold:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBox x:Name="threshold_tb" Text="10000" Width="80" Height="24" VerticalContentAlignment="Center"/>
+                    <TextBlock x:Name="threshold_unit_tb" Text="ft" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                    <TextBlock Text="(a warning shows if the Survey Point's distance from the Internal Origin exceeds this)" VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic" TextWrapping="Wrap"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="relocate_to_origin_b" Content="Relocate Survey Point to Internal Origin" Click="relocate_to_origin_click" Width="230" Height="26"/>
+                    <Button x:Name="relocate_to_pbp_b" Content="Relocate Survey Point to Project Base Point" Click="relocate_to_pbp_click" Width="240" Height="26" Margin="10,0,0,0"/>
+                </StackPanel>
+            </StackPanel>
+        </GroupBox>
+
+        <GroupBox Header="Linked Models" Margin="0,0,0,0">
+            <DockPanel Margin="6">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button x:Name="scan_links_b" Content="Scan Linked Models" Click="scan_links_click" Width="150" Height="24"/>
+                    <Button x:Name="export_links_b" Content="Export Links to Excel" Click="export_links_click" Width="170" Height="24" Margin="8,0,0,0"/>
+                    <TextBlock x:Name="links_status_tb" Text="0 link(s)." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
+                </StackPanel>
+                <DataGrid x:Name="links_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Link Name" Binding="{Binding name}" Width="*"/>
+                        <DataGridTextColumn Header="Origin X" Binding="{Binding origin_x_text}" Width="90"/>
+                        <DataGridTextColumn Header="Origin Y" Binding="{Binding origin_y_text}" Width="90"/>
+                        <DataGridTextColumn Header="Origin Z" Binding="{Binding origin_z_text}" Width="90"/>
+                        <DataGridTextColumn Header="Link's Own Project Base Point" Binding="{Binding own_pbp_text}" Width="180"/>
+                        <DataGridTextColumn Header="Link's Own Survey Point" Binding="{Binding own_survey_text}" Width="180"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </GroupBox>
+    </DockPanel>
+</Window>
