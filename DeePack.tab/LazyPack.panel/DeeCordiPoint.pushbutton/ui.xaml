@@ -109,11 +109,14 @@
                     <GroupBox Header="Acquire Coordinates" Margin="0,0,0,10">
                         <StackPanel Margin="6">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="Pick the Revit or CAD link to acquire coordinates from, then click Select in Revit - this pre-selects that link so Manage tab &gt; Coordinates &gt; Acquire Coordinates picks it up immediately without its own re-pick prompt. Revit performs the actual coordinate acquisition; this tool only makes the selection for you."/>
+                                       Text="Pick the Revit or CAD link to acquire coordinates from. 'Acquire Coordinates Now' selects it and runs the command automatically (this window closes so Revit can run it right after) - Revit still performs the actual coordinate acquisition. 'Select in Revit' just pre-selects it if you'd rather run the command from the ribbon yourself."/>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                                <ComboBox x:Name="acquire_targets_cb" Width="360" Height="26"/>
-                                <Button x:Name="refresh_acquire_targets_b" Content="Rescan Links" Click="refresh_acquire_targets_click" Width="110" Height="26" Margin="8,0,0,0"/>
-                                <Button x:Name="select_acquire_target_b" Content="Select in Revit" Click="select_acquire_target_click" Width="130" Height="26" Margin="8,0,0,0"/>
+                                <ComboBox x:Name="acquire_targets_cb" Width="300" Height="26"/>
+                                <Button x:Name="refresh_acquire_targets_b" Content="Rescan Links" Click="refresh_acquire_targets_click" Width="100" Height="26" Margin="8,0,0,0"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <Button x:Name="acquire_coordinates_b" Content="Acquire Coordinates Now" Click="acquire_coordinates_click" Width="180" Height="26"/>
+                                <Button x:Name="select_acquire_target_b" Content="Select in Revit Only" Click="select_acquire_target_click" Width="150" Height="26" Margin="8,0,0,0"/>
                             </StackPanel>
                             <TextBlock x:Name="acquire_status_tb" Text="" FontStyle="Italic" TextWrapping="Wrap"/>
                         </StackPanel>
