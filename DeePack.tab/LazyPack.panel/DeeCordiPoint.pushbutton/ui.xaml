@@ -13,33 +13,58 @@
 
         <TabControl DockPanel.Dock="Top">
             <TabItem Header="Points">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <DockPanel Margin="8">
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,8,0,10">
                         <Button x:Name="build_view_b" Content="Create/Update Coordinates View" Click="build_view_click" Width="220" Height="28"/>
                         <TextBlock x:Name="view_status_tb" Text="View not built yet." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
                     </StackPanel>
 
-                    <GroupBox DockPanel.Dock="Top" Header="Key Points" Margin="0,0,0,10">
+                    <GroupBox DockPanel.Dock="Top" Header="Key Points (Internal Origin &amp; Survey Point)" Margin="0,0,0,10">
                         <DockPanel Margin="6">
                             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                                 <Button x:Name="export_points_b" Content="Export Points to Excel" Click="export_points_click" Width="170" Height="24"/>
                                 <TextBlock x:Name="distance_tb" Text="" VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
                             </StackPanel>
-                            <DataGrid x:Name="points_grid" Height="130" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
+                            <DataGrid x:Name="points_grid" Height="90" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Point" Binding="{Binding name}" Width="150"/>
-                                    <DataGridTextColumn Header="X" Binding="{Binding x_text}" Width="100"/>
-                                    <DataGridTextColumn Header="Y" Binding="{Binding y_text}" Width="100"/>
-                                    <DataGridTextColumn Header="Z" Binding="{Binding z_text}" Width="100"/>
-                                    <DataGridTextColumn Header="Angle to True North" Binding="{Binding angle_text}" Width="140"/>
-                                    <DataGridTextColumn Header="Clipped" Binding="{Binding clipped_text}" Width="80"/>
+                                    <DataGridTextColumn Header="Point" Binding="{Binding name}" Width="130"/>
+                                    <DataGridTextColumn Header="X" Binding="{Binding x_text}" Width="80"/>
+                                    <DataGridTextColumn Header="Y" Binding="{Binding y_text}" Width="80"/>
+                                    <DataGridTextColumn Header="Z" Binding="{Binding z_text}" Width="80"/>
+                                    <DataGridTextColumn Header="North/South" Binding="{Binding ns_text}" Width="95"/>
+                                    <DataGridTextColumn Header="East/West" Binding="{Binding ew_text}" Width="95"/>
+                                    <DataGridTextColumn Header="Elevation" Binding="{Binding elev_text}" Width="90"/>
+                                    <DataGridTextColumn Header="Angle to True North" Binding="{Binding angle_text}" Width="130"/>
+                                    <DataGridTextColumn Header="Clipped" Binding="{Binding clipped_text}" Width="70"/>
                                 </DataGrid.Columns>
                             </DataGrid>
                         </DockPanel>
                     </GroupBox>
 
-                    <GroupBox DockPanel.Dock="Top" Header="Relocate Survey Point (only runs if you click one of these buttons)" Margin="0,0,0,10">
+                    <GroupBox DockPanel.Dock="Top" Header="Project Base Point" Margin="0,0,0,10">
+                        <DataGrid x:Name="pbp_grid" Margin="6" Height="60" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Point" Binding="{Binding name}" Width="130"/>
+                                <DataGridTextColumn Header="X" Binding="{Binding x_text}" Width="80"/>
+                                <DataGridTextColumn Header="Y" Binding="{Binding y_text}" Width="80"/>
+                                <DataGridTextColumn Header="Z" Binding="{Binding z_text}" Width="80"/>
+                                <DataGridTextColumn Header="North/South" Binding="{Binding ns_text}" Width="95"/>
+                                <DataGridTextColumn Header="East/West" Binding="{Binding ew_text}" Width="95"/>
+                                <DataGridTextColumn Header="Elevation" Binding="{Binding elev_text}" Width="90"/>
+                                <DataGridTextColumn Header="Angle to True North" Binding="{Binding angle_text}" Width="130"/>
+                                <DataGridTextColumn Header="Clipped" Binding="{Binding clipped_text}" Width="70"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </GroupBox>
+
+                    <GroupBox DockPanel.Dock="Top" Header="Survey Point: Clip/Unclip &amp; Relocate" Margin="0,0,0,10">
                         <StackPanel Margin="6">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <Button x:Name="unclip_survey_b" Content="Unclip Survey Point" Click="unclip_survey_click" Width="150" Height="26"/>
+                                <Button x:Name="clip_survey_b" Content="Clip Survey Point" Click="clip_survey_click" Width="150" Height="26" Margin="8,0,0,0"/>
+                                <TextBlock x:Name="survey_clip_status_tb" Text="" VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic" TextWrapping="Wrap"/>
+                            </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                 <TextBlock Text="Distance Threshold:" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                 <TextBox x:Name="threshold_tb" Text="10000" Width="80" Height="24" VerticalContentAlignment="Center"/>
@@ -60,7 +85,7 @@
                                 <Button x:Name="export_links_b" Content="Export Links to Excel" Click="export_links_click" Width="170" Height="24" Margin="8,0,0,0"/>
                                 <TextBlock x:Name="links_status_tb" Text="0 link(s)." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
                             </StackPanel>
-                            <DataGrid x:Name="links_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
+                            <DataGrid x:Name="links_grid" Height="150" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Link Name" Binding="{Binding name}" Width="*"/>
                                     <DataGridTextColumn Header="Origin X" Binding="{Binding origin_x_text}" Width="90"/>
@@ -73,6 +98,7 @@
                         </DockPanel>
                     </GroupBox>
                 </DockPanel>
+                </ScrollViewer>
             </TabItem>
 
             <TabItem Header="Coordinate System">

@@ -32,12 +32,15 @@ Also offers:
   True North editor, and Set Active View to Project North/True North.
 
 Needs live-Revit verification: the "Clipped" and "Angle to True North"
-parameter names on BasePoint elements, whether
-ElementTransformUtils.MoveElement works on an unclipped BasePoint the
-same way as a normal element, the view "Orientation" parameter/its
-Project North vs True North integer values, and whether pre-selecting
-a link before invoking Acquire Coordinates from the ribbon actually
-lets Revit skip its own re-pick prompt.
+parameter names on BasePoint elements, the BASEPOINT_NORTHSOUTH_PARAM/
+BASEPOINT_EASTWEST_PARAM/BASEPOINT_ELEVATION_PARAM BuiltInParameters
+(North/South, East/West, Elevation - shown per-point in the tables and
+export), whether ElementTransformUtils.MoveElement works on an
+unclipped BasePoint the same way as a normal element, the view
+"Orientation" parameter/its Project North vs True North integer
+values, and whether pre-selecting a link before invoking Acquire
+Coordinates from the ribbon actually lets Revit skip its own re-pick
+prompt.
 """
 import os
 import math
@@ -212,6 +215,43 @@ def _angle_to_true_north(element):
         return p.AsDouble()
     except Exception:
         return None
+
+
+def _shared_coord_param(element, bip, name):
+    if element is None:
+        return None
+    try:
+        p = element.get_Parameter(bip)
+        if p is not None:
+            return p
+    except Exception:
+        pass
+    try:
+        return element.LookupParameter(name)
+    except Exception:
+        return None
+
+
+def _north_south_param(element):
+    return _shared_coord_param(element, BuiltInParameter.BASEPOINT_NORTHSOUTH_PARAM, "North/South")
+
+
+def _east_west_param(element):
+    return _shared_coord_param(element, BuiltInParameter.BASEPOINT_EASTWEST_PARAM, "East/West")
+
+
+def _elevation_param(element):
+    return _shared_coord_param(element, BuiltInParameter.BASEPOINT_ELEVATION_PARAM, "Elevation")
+
+
+def _shared_coord_text(doc, element, getter):
+    p = getter(element)
+    if p is None:
+        return "N/A"
+    try:
+        return "{0:.3f}".format(_internal_to_display(doc, p.AsDouble()))
+    except Exception:
+        return "N/A"
 
 
 def _view_orientation_param(view):
@@ -429,6 +469,9 @@ class PointRow(object):
             self.z_text = "{0:.3f}".format(_internal_to_display(doc, pos.Z))
         else:
             self.x_text = self.y_text = self.z_text = "(unknown)"
+        self.ns_text = _shared_coord_text(doc, element, _north_south_param)
+        self.ew_text = _shared_coord_text(doc, element, _east_west_param)
+        self.elev_text = _shared_coord_text(doc, element, _elevation_param)
         angle = _angle_to_true_north(element)
         self.angle_text = "{0:.2f} deg".format(math.degrees(angle)) if angle is not None else "N/A"
         clipped = _is_clipped(element)
@@ -456,6 +499,7 @@ class DeeCordiPointWindow(forms.WPFWindow):
         forms.WPFWindow.__init__(self, xaml_file)
         self.doc = doc
         self._points = []
+        self._pbp_points = []
         self._links = []
         self._acquire_targets = []
         self.threshold_unit_tb.Text = _unit_abbreviation(doc)
@@ -469,20 +513,28 @@ class DeeCordiPointWindow(forms.WPFWindow):
         io = _get_internal_origin(self.doc)
         rows = [
             PointRow(self.doc, "Internal Origin", io),
-            PointRow(self.doc, "Project Base Point", pbp),
             PointRow(self.doc, "Survey Point", sp),
         ]
         self._points = rows
         self.points_grid.ItemsSource = None
         self.points_grid.ItemsSource = rows
 
+        pbp_rows = [PointRow(self.doc, "Project Base Point", pbp)]
+        self._pbp_points = pbp_rows
+        self.pbp_grid.ItemsSource = None
+        self.pbp_grid.ItemsSource = pbp_rows
+
         io_pos = _point_position(io)
         sp_pos = _point_position(sp)
         if io_pos is not None and sp_pos is not None:
-            dist_internal = io_pos.DistanceTo(sp_pos)
-            dist_display = _internal_to_display(self.doc, dist_internal)
-            self.distance_tb.Text = "Survey Point is {0:.1f} {1} from the Internal Origin.".format(
-                dist_display, _unit_abbreviation(self.doc))
+            unit = _unit_abbreviation(self.doc)
+            dist_display = _internal_to_display(self.doc, io_pos.DistanceTo(sp_pos))
+            dx = _internal_to_display(self.doc, sp_pos.X - io_pos.X)
+            dy = _internal_to_display(self.doc, sp_pos.Y - io_pos.Y)
+            dz = _internal_to_display(self.doc, sp_pos.Z - io_pos.Z)
+            self.distance_tb.Text = (
+                "Survey Point vs Internal Origin: {0:.1f} {1} apart  "
+                "(dX {2:.1f}, dY {3:.1f}, dZ {4:.1f} {1}).".format(dist_display, unit, dx, dy, dz))
         else:
             self.distance_tb.Text = ""
 
@@ -527,7 +579,8 @@ class DeeCordiPointWindow(forms.WPFWindow):
         self._check_threshold_warning()
 
     def export_points_click(self, sender, args):
-        if not self._points:
+        all_rows = list(self._points) + list(self._pbp_points)
+        if not all_rows:
             forms.alert("Nothing to export yet.")
             return
         dlg = SaveFileDialog()
@@ -535,17 +588,49 @@ class DeeCordiPointWindow(forms.WPFWindow):
         dlg.FileName = "DeeCordiPoint_Points.xlsx"
         if dlg.ShowDialog() != DialogResult.OK:
             return
-        rows = [([r.name, r.x_text, r.y_text, r.z_text, r.angle_text, r.clipped_text], None)
-                for r in self._points]
+        rows = [([r.name, r.x_text, r.y_text, r.z_text, r.ns_text, r.ew_text, r.elev_text,
+                  r.angle_text, r.clipped_text], None) for r in all_rows]
         try:
             xlsx_writer.write_themed_xlsx(
                 dlg.FileName, "DeeCordiPoint - Coordinate Points",
-                ["Point", "X", "Y", "Z", "Angle to True North", "Clipped"],
-                [22, 14, 14, 14, 20, 12], rows)
+                ["Point", "X", "Y", "Z", "North/South", "East/West", "Elevation",
+                 "Angle to True North", "Clipped"],
+                [22, 12, 12, 12, 14, 14, 14, 20, 12], rows)
         except Exception as e:
             forms.alert("Could not export: {0}".format(e))
             return
         MessageBox.Show("Exported {0} row(s) to:\n{1}".format(len(rows), dlg.FileName), "DeeCordiPoint")
+
+    def unclip_survey_click(self, sender, args):
+        self._set_survey_clip(False)
+
+    def clip_survey_click(self, sender, args):
+        self._set_survey_clip(True)
+
+    def _set_survey_clip(self, clipped):
+        sp = _get_survey_point(self.doc)
+        if sp is None:
+            forms.alert("Could not find the Survey Point in this project.")
+            return
+        param = _clipped_param(sp)
+        if param is None:
+            forms.alert("Could not find the Clipped parameter on the Survey Point.")
+            return
+        action = "Clip" if clipped else "Unclip"
+        t = Transaction(self.doc, "DeeCordiPoint - {0} Survey Point".format(action))
+        t.Start()
+        try:
+            param.Set(1 if clipped else 0)
+            t.Commit()
+        except Exception as e:
+            t.RollBack()
+            forms.alert("Could not {0} the Survey Point: {1}".format(action.lower(), e))
+            return
+        self.survey_clip_status_tb.Text = (
+            "Survey Point is now clipped." if clipped else
+            "Survey Point is now unclipped - dragging it in Revit will move only the point, "
+            "not the model.")
+        self._refresh_points()
 
     def relocate_to_origin_click(self, sender, args):
         self._relocate("origin")
