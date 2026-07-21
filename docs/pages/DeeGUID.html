@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeGUID — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; RevitInfo panel</div>
+  <span class="panel-chip">RevitInfo</span>
+  <h1 class="tool-title">DeeGUID</h1>
+  <p class="tagline">Diagnostic only &mdash; prints the active cloud document's real project/model GUIDs so they can be compared against what the ACC tools compute.</p>
+
+  <div class="callout ok"><strong>Risk level: None</strong> Fully read-only/diagnostic &mdash; prints information only, never changes anything.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>This is a developer/diagnostic tool, not a day-to-day production tool. With a cloud (ACC/BIM360) model open and active, it reads the document's real Project GUID / Model GUID / Region directly from Revit, then searches your accessible hubs/projects for a matching item by filename and tries several GUID-decoding strategies against the ACC API's data, printing each candidate next to a MATCH/mismatch tag against the real values. It exists to help verify the GUID-resolution logic the other batch tools (DeeOpener, DeeCoord, etc.) rely on internally.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Open a cloud model via File &gt; Open &gt; Cloud Model, and make sure it's the active document.</li>
+      <li>Run the tool &mdash; it prints a diagnostic report straight to the pyRevit output window, ending with a summary of the real target GUIDs.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>The active document must already be an open cloud model, and it needs to be findable by exact filename match in one of your accessible ACC hubs.</li>
+      <li>Most users won't need this day-to-day &mdash; it's here for troubleshooting the ACC-related tools if one of them ever behaves unexpectedly.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeePublisher — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; BatchPack panel</div>
+  <span class="panel-chip">BatchPack</span>
+  <h1 class="tool-title">DeePublisher</h1>
+  <p class="tagline">Select Revit cloud files from ACC and batch-publish them. Supports Normal Publish (with links) and Publish without Links.</p>
+
+  <div class="callout warn"><strong>Risk level: Medium</strong> Publishing pushes the current server state to whatever consumes published models (e.g. Navisworks/BIM 360 viewers) for every file you check &mdash; there's no extra "are you sure?" confirmation beyond the file selection itself, so review the checked list before clicking Publish Selected.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Logs into ACC, lets you pick a Hub and Project, then check off files and publish them &mdash; this fires the same server-side publish command the ACC Docs "Publish" button uses, per file. It's an asynchronous request: success means the publish job was queued, not that it's already finished. This tool does not configure each file's Publish Settings itself (see <a href="DeeCoord.html">DeeCoord</a> for that) &mdash; it assumes the files are already set up to publish correctly.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Sign in to ACC, pick Hub &rarr; Project.</li>
+      <li>Check which files to publish.</li>
+      <li>Pick Normal Publish or Publish without Links.</li>
+      <li>Click Publish Selected and review the colored results.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Make sure each file's Publish Settings are already configured correctly &mdash; this tool doesn't set them up.</li>
+      <li>Double-check the checked file list before publishing; there's no per-file undo once a publish job is queued.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

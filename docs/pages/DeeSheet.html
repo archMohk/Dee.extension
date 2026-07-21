@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeSheet — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; CreatePack panel</div>
+  <span class="panel-chip">CreatePack</span>
+  <h1 class="tool-title">DeeSheet</h1>
+  <p class="tagline">Create sheets in bulk from an Excel paste, or manage every sheet in the project in one editable table.</p>
+
+  <div class="callout ok"><strong>Risk level: Low</strong> Everything happens inside a Transaction (undoable). Deleting a sheet does remove it permanently once you confirm and apply, so double-check the Delete checkboxes before clicking Apply Changes.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Two tabs:</p>
+    <ul>
+      <li><strong>Normal Creation</strong> &mdash; paste the Sheet Number column from Excel into one box and the Sheet Name column into the other (line 1 in both = one sheet, line 2 = the next, and so on), pick a Title Block, and batch-create them all. Numbers that already exist are skipped. You can export the results to a themed Excel report.</li>
+      <li><strong>Super Sheet</strong> &mdash; scans every Sheet already in the project into one editable grid. Edit Number/Name directly in a cell, use Move Up/Move Down to reorder rows in the view (handy for slotting a new sheet between two existing ones), Add Row for a brand-new sheet, and a Delete checkbox per row to mark a sheet for removal. Rows are color-coded by status (green = new, amber = modified, red = to delete). One Apply Changes button creates/renames/deletes everything at once. A Title Block dropdown + Apply to All Sheets button can also swap every existing sheet's title block type in one go.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <p><strong>Normal Creation:</strong></p>
+    <ol>
+      <li>Pick a Title Block from the dropdown.</li>
+      <li>Copy the Sheet Number column from Excel into the left box, and the Sheet Name column into the right box.</li>
+      <li>Click Create Sheets. Optionally export the results afterward.</li>
+    </ol>
+    <p><strong>Super Sheet:</strong></p>
+    <ol>
+      <li>The grid auto-loads on open (or click Refresh Sheets). Edit any cell directly.</li>
+      <li>Add Row for a new sheet, fill in its Number/Name, then Move Up/Down to place it where you want.</li>
+      <li>Check Delete on any row you want removed.</li>
+      <li>Click Apply Changes &mdash; review the create/update/delete counts in the confirmation, then confirm.</li>
+      <li>For a bulk title block swap: pick a type from the dropdown at top and click Apply to All Sheets.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>Title Block dropdown</th><td>Used for new sheets on both tabs; "(None)" is a valid choice.</td></tr>
+      <tr><th>Delete checkbox (Super Sheet)</th><td>Marks a real sheet for deletion, or just drops a not-yet-created row you added by mistake.</td></tr>
+      <tr><th>Apply to All Sheets</th><td>Swaps every existing sheet's title block instance to the selected type (keeps position), or places one on any sheet that currently has none.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Sheet Number and Sheet Name boxes must have the same number of lines (Normal Creation).</li>
+      <li>Column sorting is intentionally disabled in Super Sheet's grid so Move Up/Down works reliably &mdash; the list just starts sorted by Number from the initial scan.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

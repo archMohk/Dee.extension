@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeView — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; CreatePack panel</div>
+  <span class="panel-chip">CreatePack</span>
+  <h1 class="tool-title">DeeView</h1>
+  <p class="tagline">Batch-create views (Floor/Ceiling/Structural/Area plans) for selected levels, with templates, scales, naming, and optional sheet placement.</p>
+
+  <div class="callout ok"><strong>Risk level: Low</strong> Only creates new views/sheets in the current document &mdash; nothing is deleted, and it's all one Transaction (undoable).</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>A 3-step wizard for generating a batch of views in one pass instead of creating each one by hand:</p>
+    <ul>
+      <li><strong>Step 1 &mdash; Levels:</strong> check which Levels to seed new view rows with (search box included for large level lists).</li>
+      <li><strong>Step 2 &mdash; Views:</strong> a table of view "definitions" to create &mdash; each row has its own View Type, View Template, Scale, Prefix/Suffix naming, and a Place on Sheet toggle, and its own list of Levels (Pick Levels for Selected Row(s) lets different rows target different levels). Preview Naming shows exactly what every resulting view name will be before you create anything.</li>
+      <li><strong>Step 3 &mdash; Sheets:</strong> options for placing the newly created views onto sheets automatically.</li>
+    </ul>
+    <p>A Presets toolbar at the top lets you save/load/import/export your whole Step 2 configuration as JSON, so a naming/template setup can be reused across projects.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Check the Levels you want in Step 1 (or skip and add levels per-row later).</li>
+      <li>In Step 2, Add Row for each kind of view you want, set its View Type/Template/Scale/Prefix/Suffix, and assign Levels to it.</li>
+      <li>Click Preview Naming to sanity-check the resulting names.</li>
+      <li>Move to Step 3 if you want views placed on sheets automatically.</li>
+      <li>Generate. Optionally save your Step 2 setup as a Preset first if you'll reuse it.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Check the Preview Naming output before generating &mdash; a naming clash (duplicate resulting name) is easier to fix before creation than after.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

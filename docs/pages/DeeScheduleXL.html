@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeScheduleXL — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; ExporterPack panel</div>
+  <span class="panel-chip">ExporterPack</span>
+  <h1 class="tool-title">DeeScheduleXL</h1>
+  <p class="tagline">Export Schedules to Excel (locked calculated cells, hidden Element Id per row) and re-import edited values back onto the matching elements.</p>
+
+  <div class="callout warn"><strong>Risk level: Medium</strong> Import writes values back onto real model elements &mdash; it checks a fingerprint per sheet so it only imports onto a Schedule whose structure hasn't changed since export, but always review the import results.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Three tabs:</p>
+    <ul>
+      <li><strong>Export</strong> &mdash; writes one Excel sheet per selected Schedule. Bidirectional mode adds a hidden Element Id column and locks calculated/non-settable cells so the file can be re-imported later; Unidirectional is a clean one-way copy only. Only itemized Schedules (one row per element) support Bidirectional.</li>
+      <li><strong>Import</strong> &mdash; reads a previously-exported file, checks each sheet against the current model's Schedules (a fingerprint catches a Schedule that's changed structure since export), and writes edited (unlocked) cell values back onto the matching elements.</li>
+      <li><strong>Live Editor</strong> &mdash; an in-tool Excel-like grid with copy/paste, so you can edit and push values back without ever leaving Revit.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Scan/Re-scan Schedules, check which ones to export, pick Bidirectional or Unidirectional, and Export to Excel.</li>
+      <li>Edit the file in Excel (or use the Live Editor tab directly in Revit).</li>
+      <li>Browse to the edited file on the Import tab &mdash; compatible sheets show on the left, incompatible ones (with a reason) on the right.</li>
+      <li>Check the sheets to import and click Import.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Only itemized Schedules support round-trip (Bidirectional) editing &mdash; others export fine but can't be re-imported.</li>
+      <li>If a Schedule's structure changes after export (fields added/removed/reordered), that sheet becomes import-incompatible and is reported with a reason rather than silently mis-applied.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

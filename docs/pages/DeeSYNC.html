@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeSYNC — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; BatchPack panel</div>
+  <span class="panel-chip">BatchPack</span>
+  <h1 class="tool-title">DeeSYNC</h1>
+  <p class="tagline">Synchronizes every workshared Revit model currently open in this session.</p>
+
+  <div class="callout danger"><strong>Risk level: High</strong> There is no file picker and no per-file confirmation &mdash; picking "Sync Only" or "Sync and Close" immediately synchronizes every open workshared model in the session in one go. Make sure you actually want to sync all of them before choosing.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>No ACC login and no file browsing &mdash; this works purely on whatever's already open in the current Revit session. You pick "Sync Only" or "Sync and Close", and every open, workshared, non-linked, non-family document gets a full Synchronize With Central (comment "Batch sync - all open models", relinquishing all worksets). Non-workshared open documents are skipped and reported as such.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Make sure only the models you actually want synced are open in this Revit session (there's no per-file picker).</li>
+      <li>Run the tool and choose Sync Only or Sync and Close.</li>
+      <li>Review the plain-text OK/FAILED/SKIPPED list per document.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Close any open model you don't want synced <em>before</em> running this &mdash; there's no way to exclude one afterward.</li>
+      <li>Synchronize With Central pushes to the shared central model, visible to every collaborator.</li>
+      <li>If nothing workshared is open, the tool simply does nothing (no "nothing found" alert) &mdash; don't assume a run happened just because no error appeared.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

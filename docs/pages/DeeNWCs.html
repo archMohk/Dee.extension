@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeNWCs — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; ExporterPack panel</div>
+  <span class="panel-chip">ExporterPack</span>
+  <h1 class="tool-title">DeeNWCs</h1>
+  <p class="tagline">Browse your ACC/BIM360 project, batch-open selected Revit files, and export every view with 'NAVIS' in its name to NWC.</p>
+
+  <div class="callout ok"><strong>Risk level: Low</strong> Read-only against the model (just exports NWC files to disk) &mdash; no sync or publish happens.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Logs into ACC/BIM360 (opens your browser once to sign in), lets you pick a Hub and Project, then check off which cloud Revit files to process. For each file, it opens it and exports every view whose name contains "NAVIS" to an NWC file &mdash; useful if your team keeps a dedicated "NAVIS" 3D view per model for Navisworks coordination exports.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Sign in to ACC when prompted (first run only &mdash; the login is cached for about an hour).</li>
+      <li>Pick a Hub, then a Project.</li>
+      <li>Use the cached file list or rescan the project.</li>
+      <li>Check which files to process.</li>
+      <li>Run &mdash; review the colored results report at the end.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Requires <code>acc_config.json</code> (ask your administrator if you see a message that it's missing) and valid ACC/BIM360 access to the target hub/project.</li>
+      <li>Each processed file needs at least one view with "NAVIS" in its name, or nothing will export for it.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

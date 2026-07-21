@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeCleaner — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; HealthPack panel</div>
+  <span class="panel-chip">HealthPack</span>
+  <h1 class="tool-title">DeeCleaner</h1>
+  <p class="tagline">Find and clean up zero-area rooms, in-place families, unused Model/Detail Groups, unplaced views, and empty sheets.</p>
+
+  <div class="callout warn"><strong>Risk level: Medium</strong> The Delete actions on each tab are real, permanent deletions once confirmed &mdash; review the checked rows before clicking Delete Selected.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Five independent cleanup scans over the whole project, each its own tab:</p>
+    <ul>
+      <li><strong>Zero-Area Rooms</strong> &mdash; Rooms with Area &le; 0 (typically Unplaced or Not Enclosed). List + Delete Selected.</li>
+      <li><strong>In-Place Families</strong> &mdash; every in-place family instance with its category/level/location. List + Isolate Selected in 3D View (creates a dedicated 3D view and temporarily isolates just those elements via Revit's own Temporary Hide/Isolate).</li>
+      <li><strong>Unused Groups</strong> &mdash; Model Group / Detail Group types with zero placed instances anywhere in the project. List + Delete Selected.</li>
+      <li><strong>Views</strong> &mdash; every View (Sheets excluded), flagged Yes/No whether it's placed on any Sheet. "Select All Not On Sheet" is a one-click shortcut to the usual cleanup candidates. List + Delete Selected.</li>
+      <li><strong>Sheets</strong> &mdash; every Sheet, flagged Yes/No whether it contains any View/Schedule. "Select All Empty Sheets" shortcuts to the usual cleanup candidates. List + Delete Selected.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Click Scan Project &mdash; this populates all five tabs at once.</li>
+      <li>Switch to the tab you want to act on.</li>
+      <li>Check the rows to act on (Select All, Select Highlighted, or the tab's shortcut button all help here), or use Isolate for In-Place Families.</li>
+      <li>Click Delete Selected (or Isolate Selected in 3D View) and confirm.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Deleting a Sheet removes it and its placed Viewports, but the underlying Views themselves survive (they just become unplaced) &mdash; run the Views tab afterward if you also want to clean those up.</li>
+      <li>"Isolate in 3D View" uses Revit's Temporary Hide/Isolate &mdash; it's session-only until you make it permanent or reset it from the View Control Bar.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

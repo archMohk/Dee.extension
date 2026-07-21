@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeGrid — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; CreatePack panel</div>
+  <span class="panel-chip">CreatePack</span>
+  <h1 class="tool-title">DeeGrid</h1>
+  <p class="tagline">Scan project Grids (Vertical/Horizontal) into editable tables with a live 2D previewer &mdash; rename, reposition, add, or delete grids and apply the changes to the model in one batch.</p>
+
+  <div class="callout ok"><strong>Risk level: Low</strong> Nothing changes in the model until you apply your edits, and it's all one Transaction (undoable).</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Scans every Grid in the project and splits them into Vertical and Horizontal tables, each with a live 2D previewer showing spacing. You can rename grids (batch pattern-based renaming), reposition/respace them by editing the dimensions directly, add new grids, or delete existing ones &mdash; then apply everything in one batch instead of editing each grid one at a time in Revit's own UI.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Open the tool &mdash; it scans and lists the project's Grids in the Vertical/Horizontal tables.</li>
+      <li>Use the previewer to check current spacing, then edit names/positions directly in the table, or use the batch-rename pattern option.</li>
+      <li>Add or remove rows for grids you want created or deleted.</li>
+      <li>Apply the changes to push everything to the model in one go.</li>
+      <li>Optionally export the grid list to CSV for a record/Excel handoff.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Review the live preview before applying &mdash; repositioning grids affects anything dimensioned or hosted to them.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

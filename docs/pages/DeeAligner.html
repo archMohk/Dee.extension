@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeAligner — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; CreatePack panel</div>
+  <span class="panel-chip">CreatePack</span>
+  <h1 class="tool-title">DeeAligner</h1>
+  <p class="tagline">Align/distribute Viewports and Images on a sheet, or auto-arrange Images into a grid.</p>
+
+  <div class="callout ok"><strong>Risk level: Low</strong> Everything happens inside a Transaction in the current document. Nothing is synced or published, and every move can be undone (Ctrl+Z) like any normal edit.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>DeeAligner has two tabs for two different jobs:</p>
+    <ul>
+      <li><strong>Views tab</strong> &mdash; check any number of sheets in a checklist, then Scan Selected Sheets pools every Viewport on all of them into one grid (each row shows which sheet it came from). The align/distribute buttons then batch-align across that whole pooled set &mdash; e.g. Align Left moves every checked Viewport, whatever sheet it's on, so its left edge matches the overall minimum. This works because two sheets of the same paper size share the same sheet-space coordinate system, so it's genuinely useful for putting the main view in the same spot on every sheet in a set.</li>
+      <li><strong>Images tab</strong> &mdash; pick one sheet (or use your current Revit selection) and work on the Images placed on it: align/distribute them relative to each other, scale them, check for overlaps, or auto-arrange them into a tidy grid inside the sheet's title block bounds.</li>
+    </ul>
+    <p>Both tabs also have a <strong>Center in Sheet</strong> option with an Offset X/Y so you can drop an item dead-center in the sheet's title block bounds (nudging away from a title strip if needed), and a live preview canvas that draws the sheet outline plus a box per item so you can see what's about to move before you click anything.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <p><strong>Views tab:</strong></p>
+    <ol>
+      <li>Check the sheets you want in the list, then click <strong>Scan Selected Sheets</strong> (or select Viewports in Revit first and click <strong>Use Current Selection</strong>).</li>
+      <li>Check which rows in the grid you want an operation to act on (Include column).</li>
+      <li>Click an align/distribute button, or set an Offset and click <strong>Center Checked in Sheet</strong>.</li>
+    </ol>
+    <p><strong>Images tab:</strong></p>
+    <ol>
+      <li>Pick a sheet from the dropdown and click <strong>Load Sheet</strong> (or Use Current Selection).</li>
+      <li>Check which Images to act on.</li>
+      <li>Use Align/Distribute, Scale Images, Check for Overlaps, Auto-Arrange, or Center Checked in Sheet.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>Align Left/Right/Top/Bottom</th><td>Lines up the checked items' edges to the overall minimum/maximum.</td></tr>
+      <tr><th>Align Center (H) / Middle (V)</th><td>Centers checked items on the overall selection's own bounding box.</td></tr>
+      <tr><th>Distribute Horizontally/Vertically</th><td>Spaces item centers evenly between the first and last (needs 3+ checked items).</td></tr>
+      <tr><th>Center in Sheet + Offset X/Y</th><td>Moves each checked item to its sheet's title-block-bounds center, then nudges it by the offset (shown in your project's display unit).</td></tr>
+      <tr><th>Scale Factor / Match Size to Largest/Smallest</th><td>Images tab only &mdash; resizes checked Images by a multiplier, or matches every checked Image to whichever one is largest/smallest by area.</td></tr>
+      <tr><th>Auto-Arrange</th><td>Images tab only &mdash; packs checked Images into a grid, sliding around unchecked Images and Viewports so it doesn't overlap them (best-effort, not guaranteed on a crowded sheet).</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Align/Center needs at least 2 checked items; Distribute needs at least 3.</li>
+      <li>"Center in Sheet" uses the sheet's title block bounding box as a stand-in for its usable white space &mdash; if your title block has a wide info panel along one edge, use the Offset fields to compensate.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeLINK — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; BatchPack panel</div>
+  <span class="panel-chip">BatchPack</span>
+  <h1 class="tool-title">DeeLINK</h1>
+  <p class="tagline">Browse your ACC/BIM360 project, pick multiple Revit files, and batch-link them into the active document. Choose from 4 positioning methods.</p>
+
+  <div class="callout ok"><strong>Risk level: Low-Medium</strong> Adds link instances to the currently open model in-session &mdash; not destructive, but double-check the active document is the right one before running, and remember to Sync afterward if the links should be shared.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Logs into ACC, lets you pick a Hub and Project, then check off which cloud Revit files to link into your currently active document &mdash; all in one batch, using whichever positioning method you choose.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Open the project document you want to link into, and make sure it's the active document.</li>
+      <li>Sign in to ACC, pick Hub &rarr; Project.</li>
+      <li>Check which files to link.</li>
+      <li>Pick a positioning method.</li>
+      <li>Run &mdash; review the results, then Sync the active document if the links should be visible to others.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>Positioning method</th><td>Auto - Center to Center, Auto - Internal Origin to Internal Origin, Auto - By Shared Coordinates, or Auto - Project Base Point to Project Base Point. Applied identically to every file linked in that run.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Requires an already-open, non-family project document to be active &mdash; the tool alerts and stops if none is open.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

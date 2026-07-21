@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeCloseAll — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; BatchPack panel</div>
+  <span class="panel-chip">BatchPack</span>
+  <h1 class="tool-title">DeeCloseAll</h1>
+  <p class="tagline">Close currently open Revit documents &mdash; choose Synchronize &amp; Close, Relinquish &amp; Close, or Close without Relinquish.</p>
+
+  <div class="callout danger"><strong>Risk level: High (for one of its 3 modes)</strong> "Relinquish &amp; Close" discards any unsynced local changes in the selected documents. The tool does warn you in its confirmation dialog, but double-check you picked the right mode before confirming.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Lists every currently open, non-linked Revit document as a checklist, and applies one of three closing modes to everything you check:</p>
+    <ul>
+      <li><strong>Synchronize &amp; Close</strong> &mdash; saves local changes, runs a full Synchronize With Central, relinquishes worksets/permissions, then closes.</li>
+      <li><strong>Relinquish &amp; Close (unsaved changes lost)</strong> &mdash; releases your worksets/borrowed elements <em>without</em> pushing local changes to central, then closes. Any unsynced local edits are lost.</li>
+      <li><strong>Close without Relinquish</strong> &mdash; just closes; your worksets/borrowed elements stay checked out under your name until you deal with it or reopen the file.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Check which open documents to act on.</li>
+      <li>Pick one of the 3 modes.</li>
+      <li>Confirm in the dialog (it restates the mode and, for Relinquish, warns that unsynced changes will be lost).</li>
+      <li>Review the results report &mdash; the currently active document's close is deferred and finishes right after the tool exits.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Only pick Relinquish &amp; Close if you're certain you don't need whatever local changes are in those documents.</li>
+      <li>Synchronize &amp; Close pushes to the shared central model, which is visible to every collaborator on that project.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeS.Publish — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; BatchPack panel</div>
+  <span class="panel-chip">BatchPack</span>
+  <h1 class="tool-title">DeeS.Publish</h1>
+  <p class="tagline">Publish ALL Revit files in one or more selected ACC/BIM360 projects.</p>
+
+  <div class="callout danger"><strong>Risk level: Highest in the pack</strong> A single run can publish <strong>every</strong> Revit file across multiple entire projects &mdash; there's no per-file opt-out once a project is selected. Read the confirmation dialog's per-project file-count breakdown carefully before continuing.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Unlike <a href="DeePublisher.html">DeePublisher</a> (which picks individual files), this tool selects entire <strong>projects</strong> &mdash; every Revit file found in each selected project gets published, with no per-file picker at all. Before doing anything, it shows a confirmation listing a file-count breakdown per project (e.g. "ProjectA &mdash; 12 file(s), ProjectB &mdash; 5 file(s)") and the total, with explicit wording "This will publish ALL of them."</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Sign in to ACC, pick a Hub.</li>
+      <li>Check one or more Projects (not individual files).</li>
+      <li>Read the confirmation breakdown carefully, then click Publish All (or Cancel).</li>
+      <li>Pick Normal Publish or Publish without Links (applied to every file across every selected project).</li>
+      <li>Review the colored results, grouped by [ProjectName] FileName.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Only select a project here if you genuinely want to publish every file in it &mdash; there is no way to exclude individual files within a selected project.</li>
+      <li>Use <a href="DeePublisher.html">DeePublisher</a> instead if you only want specific files published.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

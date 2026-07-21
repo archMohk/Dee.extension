@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeBIMview — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; BatchPack panel</div>
+  <span class="panel-chip">BatchPack</span>
+  <h1 class="tool-title">DeeBIMview</h1>
+  <p class="tagline">Open Revit files and create the BIM Coordination + NAVIS 3D views (no sync, no publish).</p>
+
+  <div class="callout ok"><strong>Risk level: Low</strong> Creates 3D views only. Files are left open, unsynced &mdash; nothing is pushed to the shared model.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Logs into ACC/BIM360, lets you pick a Hub and Project, then check off which cloud Revit files to process. For each selected file, it opens it directly from the cloud and creates (or reuses) two 3D views &mdash; a "BIM Coordination View" and a "BIM Exported NAVIS" view, both hiding the RVT Links category so linked models don't clutter them. Files are left open afterward for you to review, sync, or publish manually.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Sign in to ACC when prompted (cached for about an hour after).</li>
+      <li>Pick a Hub, then a Project.</li>
+      <li>Use the cached file list or rescan.</li>
+      <li>Check which files to process, and pick an Open mode (Regular, or All Worksets Closed).</li>
+      <li>Confirm/edit the View Type, Coordination View, and NAVIS View names.</li>
+      <li>Run &mdash; review the colored results, then sync/publish/close the opened files yourself.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>Open mode</th><td>Regular Open (all worksets) or Open with All Worksets Closed.</td></tr>
+      <tr><th>View/Type names</th><td>Editable defaults for the 3D View Type, Coordination View, and NAVIS View.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Requires <code>acc_config.json</code> and valid ACC/BIM360 access to the target hub/project.</li>
+      <li>The file list can be a cached snapshot from a previous run &mdash; rescan if you know the project's files have changed recently.</li>
+      <li>This tool intentionally does not sync/publish/close &mdash; do that yourself afterward.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeV.Template — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; CreatePack panel</div>
+  <span class="panel-chip">CreatePack</span>
+  <h1 class="tool-title">DeeV.Template</h1>
+  <p class="tagline">Scan View Templates in this file and transfer selected ones to other open Revit documents in this session.</p>
+
+  <div class="callout warn"><strong>Risk level: Medium</strong> Overwrite mode deletes the existing same-named template in the target file first, then copies the source version in as a plain replacement (not a merged update) &mdash; make sure that's really what you want before choosing it.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Lists every View Template in the current file on the left, and every other Revit document open in the same Revit session (linked models excluded) on the right. Check any/all templates and any/all target files, then transfer &mdash; it copies the selected templates into each target using the same mechanism Revit's own cross-project copy/paste uses.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Open the other project file(s) you want to receive templates in the same Revit session first.</li>
+      <li>Check the View Template(s) to send in the left grid.</li>
+      <li>Check the target file(s) in the right grid (use Refresh Open Files if you opened one after starting the tool).</li>
+      <li>Pick Skip Existing or Overwrite Existing for name collisions.</li>
+      <li>Click Transfer Selected Template(s) to Selected File(s).</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>Skip Existing</th><td>Leaves a same-named template in the target untouched.</td></tr>
+      <tr><th>Overwrite Existing</th><td>Deletes the existing template in the target, then copies the source version in as a replacement.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Only documents already open in the same Revit session show up as targets &mdash; open them first.</li>
+      <li>Linked models are excluded from the target list on purpose.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeCoord — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; BatchPack panel</div>
+  <span class="panel-chip">BatchPack</span>
+  <h1 class="tool-title">DeeCoord</h1>
+  <p class="tagline">Create BIM Coordination views &amp; publish set, sync, and publish.</p>
+
+  <div class="callout danger"><strong>Risk level: High</strong> Can Synchronize With Central (pushes to the shared model) and Publish, across many files, in one unattended run. It also drives the real Revit window via simulated ribbon clicks &mdash; don't touch the mouse/keyboard or switch windows while it's running.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>The full pipeline version of <a href="DeeBIMview.html">DeeBIMview</a>. For each selected cloud file, it can run up to 5 steps (each individually toggled on/off): Create/Update the Coordination + NAVIS 3D views, Configure Publish Settings, Synchronize With Central, Close After Sync, and Publish. The Publish Settings step actually drives Revit's real Collaborate &gt; Publish Settings dialog via simulated clicks (there's no API for it) to create/select the named publish set and include the coordination view, then Save &amp; Close. If that step fails for a file, its Publish step is automatically skipped so it doesn't publish an unconfigured set.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Sign in to ACC, pick Hub &rarr; Project, and select files (same as DeeBIMview).</li>
+      <li>Confirm/edit the View Type, Coordination View, NAVIS View, and Publish Settings set names.</li>
+      <li>Check which of the 5 steps to run for this batch.</li>
+      <li>If Publish is enabled, pick Normal Publish or Publish without Links.</li>
+      <li>Run it, and <strong>leave the Revit window alone</strong> until it finishes &mdash; it will visibly switch ribbon tabs and open/close a dialog for the Publish Settings step.</li>
+      <li>Review the per-file, per-step colored results report.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>5 step toggles</th><td>Create/Update Views, Configure Publish Settings, Synchronize With Central, Close After Sync, Publish &mdash; all on by default, any can be turned off.</td></tr>
+      <tr><th>Publish mode</th><td>Normal Publish (with links) or Publish without Links.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>This is the highest-risk tool in the pack &mdash; it can push real changes to the shared central model and publish for many files in a single run. Double-check the file list and enabled steps before starting.</li>
+      <li>Because it drives the real Revit UI, don't use the mouse/keyboard on this machine or switch away from Revit while it's running &mdash; that can break the currently-running step.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

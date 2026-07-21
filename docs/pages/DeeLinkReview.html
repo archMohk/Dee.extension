@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeLinkReview — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; BatchPack panel</div>
+  <span class="panel-chip">BatchPack</span>
+  <h1 class="tool-title">DeeLinkReview</h1>
+  <p class="tagline">Batch-scan files for shared linked models, pick one, and open Coordination Review for it (you review/accept/reject yourself).</p>
+
+  <div class="callout ok"><strong>Risk level: Low</strong> Only opens files and a native Revit dialog for you &mdash; every Accept/Reject/Postpone decision stays entirely in your hands.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Scans a batch of cloud files (opening and closing each in turn) to find which linked models are shared across them, then shows a summary like "LinkedModel.rvt (in 3/5 files)". You pick one linked model to review; if more than one host file in the batch references it, you then pick which host file to open. The tool opens that file and drives Revit's Collaborate &gt; Coordination Review dialog open for you &mdash; then explicitly tells you to make the Accept/Reject/Postpone decision yourself, since there's no safe API to automate that.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Sign in to ACC, pick Hub &rarr; Project.</li>
+      <li>Check which files to scan, click Scan Selected.</li>
+      <li>Pick the shared linked model you want to review from the summary.</li>
+      <li>If needed, pick which host file to open it in.</li>
+      <li>Make your Accept/Reject/Postpone decision in the Coordination Review dialog that opens (or open it yourself via Collaborate &gt; Coordinate &gt; Coordination Review if it couldn't be opened automatically).</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Needs at least one selected file that actually contains linked RVT models &mdash; otherwise it reports nothing found.</li>
+      <li>As with DeeCoord, the dialog-opening step drives the real Revit window &mdash; avoid interacting with the machine while it's mid-scan.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

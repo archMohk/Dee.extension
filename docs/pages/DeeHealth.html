@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeHealth — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; HealthPack panel</div>
+  <span class="panel-chip">HealthPack</span>
+  <h1 class="tool-title">DeeHealth</h1>
+  <p class="tagline">Import an Excel QC rubric (section/test weights + thresholds), run ~40 model health checks, and compute a weighted overall health score.</p>
+
+  <div class="callout ok"><strong>Risk level: None</strong> Every check only reads the model &mdash; nothing is ever changed.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Runs the firm's QC rubric (45 weighted tests across sections like Model Performance, External Files, Project Settings, Views, Datum, and naming conventions) against the open project and produces a single weighted Overall Score, plus a PASS/FAIL against a configurable approval limit, and a plain-English auto-generated summary. Opens with a built-in default rubric already loaded, so it works immediately without needing an Excel file &mdash; Import Rubric from Excel lets you swap in a different/updated workbook.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li><strong>Configuration tab:</strong> optionally Import Rubric from Excel, adjust Weight/E/F/G thresholds per test, set the Approval Limit, and use the per-test or per-section Run checkboxes to skip tests you don't need (also cuts run time on a large project).</li>
+      <li>Click Run Health Check.</li>
+      <li>The Results tab shows the Overall Score, PASS/FAIL, the auto-summary, and every test's individual status (color-coded row by row).</li>
+      <li>Export the report to a themed 2-sheet Excel workbook (Summary + Detailed) if you need to hand it off.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>Run checkbox (per test/section)</th><td>Skip tests that don't apply, or that are slow on a large project.</td></tr>
+      <tr><th>Weight / E (good) / F (warn) / G (fail)</th><td>Editable thresholds per test, tuned to the firm's own QC rubric.</td></tr>
+      <tr><th>Approval Limit (%)</th><td>The Overall Score cutoff for PASS vs FAIL.</td></tr>
+      <tr><th>Naming Pattern (regex)</th><td>Used by the naming-convention checks.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Some checks (e.g. views not on sheets) can be slow on very large models &mdash; use the Run checkboxes to narrow scope if a full run is too slow.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

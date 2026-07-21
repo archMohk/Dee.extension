@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeFinisher — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; ModelingPack panel</div>
+  <span class="panel-chip">ModelingPack</span>
+  <h1 class="tool-title">DeeFinisher</h1>
+  <p class="tagline">Scan rooms and batch-generate Floor / Wall / Ceiling finishes from room boundaries.</p>
+
+  <div class="callout ok"><strong>Risk level: Low</strong> Everything happens inside one Transaction (undoable). Re-runs use Skip/Replace/Update/Ask so you don't pile up duplicate finish elements.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Scans Rooms (active view or whole project), lets you assign a Floor Finish Type / Wall Finish Type / Ceiling Finish Type per room &mdash; or in bulk via the Global Assignment Panel &mdash; previews what will be created, then generates the actual Floor/Wall/Ceiling elements from each room's boundary in one Transaction. Wall Finish is generated in "full" mode: each straight, wall-bounded boundary segment is offset inward by half the finish wall's thickness, corners are mitered, and adjacent segments are joined after creation.</p>
+    <p>Rooms with zero Area (Unplaced/Not Enclosed) can be filtered out of the scan entirely via a checkbox. A Select Highlighted Rows / Deselect Highlighted Rows pair lets you Shift-click or Ctrl-click a range of rows in the grid, then check them all at once.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Scan Rooms (active view or whole project).</li>
+      <li>Assign Floor/Wall/Ceiling Finish Types per room, or select several rows and use the Global Assignment Panel to apply to all of them at once.</li>
+      <li>Set Wall Finish Options (height mode) and Duplicate Detection mode (Skip/Replace/Update/Ask for re-runs).</li>
+      <li>Preview, then Generate.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Curved boundary segments fall back to an unmitered offset, and separation-line-bounded segments are skipped for Wall Finish (there's no physical wall to line) &mdash; review results and re-run with Replace/Update if a corner needs manual cleanup.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

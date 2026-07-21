@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeDistributor — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; ModelingPack panel</div>
+  <span class="panel-chip">ModelingPack</span>
+  <h1 class="tool-title">DeeDistributor</h1>
+  <p class="tagline">Auto-distribute family instances across room/space boundaries using configurable patterns, spacing, alignment, rotation, and collision detection.</p>
+
+  <div class="callout ok"><strong>Risk level: Low</strong> Only places new family instances &mdash; it's all one Transaction (undoable), and nothing existing is deleted or moved.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Places a chosen family (e.g. ceiling lights, floor outlets, columns) automatically across one or more Rooms/Spaces, following a pattern (uniform grid, single row, etc.) with configurable spacing, alignment, and rotation. It also has a Lighting Distribution mode with automatic spacing calculated from room area. Collision detection avoids overlapping existing elements, and spacing/instance-count safety guards keep a mis-typed tiny spacing value from generating an absurd number of instances.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li><strong>Step 1:</strong> pick the source &mdash; selected Rooms/Spaces, the active view, or the whole project &mdash; and scan.</li>
+      <li>Check which Rooms/Spaces to distribute into.</li>
+      <li><strong>Step 2:</strong> pick the Category, Family, and Type to place, and configure the distribution pattern, spacing, and hosting.</li>
+      <li><strong>Step 3:</strong> review the instance-count estimate and preview, then generate.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Check the instance-count estimate in Step 3 before generating on a large room set with tight spacing &mdash; it's there specifically to catch runaway counts before they happen.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

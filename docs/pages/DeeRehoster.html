@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeRehoster — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; HealthPack panel</div>
+  <span class="panel-chip">HealthPack</span>
+  <h1 class="tool-title">DeeRehoster</h1>
+  <p class="tagline">Scan every Level's hosted elements, report/export them, color-code them in a new 3D view, and optionally rehost them to a different Level.</p>
+
+  <div class="callout warn"><strong>Risk level: Medium</strong> Rehosting changes an element's Level parameter (and, for Base+Top style elements, shifts its offsets to compensate) &mdash; review the scan/report before applying to a large scope.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Scans elements by Level, lets you review/export the results, builds a color-coded 3D view (one color per Level) so mis-hosted elements are visually obvious, and lets you rehost elements &mdash; either a manual selection/category scope, or automatically via <strong>Fix Mis-Hosted Elements</strong>, which detects elements whose Level parameter doesn't match their true physical elevation and corrects the Level (nothing physically moves) while building a "DeeRehoster - Corrected Elements" view showing just what got fixed.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Scan the model to build the Level/element list.</li>
+      <li>Review the color-coded 3D view to spot obviously mis-hosted elements.</li>
+      <li>Either manually pick a category/selection scope and a target Level to rehost, or click Fix Mis-Hosted Elements to let it detect and correct mismatches automatically.</li>
+      <li>Review the results report and the "Corrected Elements" view afterward.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>Fix Mis-Hosted Elements only changes the Level parameter to match physical elevation &mdash; it does not move geometry.</li>
+      <li>Review the scan report before rehosting a broad scope; some elements may be intentionally hosted differently from their raw elevation.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>
