@@ -14,17 +14,30 @@ Also offers:
   it to coincide with your chosen target (Internal Origin or Project
   Base Point), then re-clips it - the standard Revit technique for
   bringing an inconveniently-far Survey Point back close to the model
-  without changing its real-world coordinate value.
+  without changing its real-world coordinate value. The Project Base
+  Point's Angle to True North is explicitly captured before and
+  restored after the whole cycle, so the relocate can never silently
+  change North/South orientation as a side effect.
 - Export Points to Excel: writes the Key Points grid to an xlsx file
   (via the shared lib/xlsx_writer.py).
 - Scan/Export Linked Models: lists every RevitLinkInstance's placement
   origin relative to the host, plus that link's own Project Base
   Point/Survey Point if the link is currently loaded.
+- Coordinate System tab: an Acquire Coordinates helper (lists every
+  Revit link and linked CAD file, pre-selects your chosen one in Revit
+  so Manage > Coordinates > Acquire Coordinates picks it up
+  immediately - deliberately NOT an attempt to replicate Acquire
+  Coordinates' own math via API, since getting that subtly wrong could
+  leave real-world coordinates silently incorrect), a direct Angle to
+  True North editor, and Set Active View to Project North/True North.
 
 Needs live-Revit verification: the "Clipped" and "Angle to True North"
-parameter names on BasePoint elements, and whether
+parameter names on BasePoint elements, whether
 ElementTransformUtils.MoveElement works on an unclipped BasePoint the
-same way as a normal element.
+same way as a normal element, the view "Orientation" parameter/its
+Project North vs True North integer values, and whether pre-selecting
+a link before invoking Acquire Coordinates from the ribbon actually
+lets Revit skip its own re-pick prompt.
 """
 import os
 import math
@@ -33,8 +46,8 @@ from pyrevit import forms, script
 from Autodesk.Revit.DB import (
     FilteredElementCollector, BuiltInCategory, Category, ElementId, Transaction,
     View3D, ViewFamilyType, ViewFamily, TemporaryViewMode, XYZ, ElementTransformUtils,
-    BasePoint, InternalOrigin, RevitLinkInstance, UnitUtils, UnitTypeId, SpecTypeId,
-    BuiltInParameter,
+    BasePoint, InternalOrigin, RevitLinkInstance, ImportInstance, UnitUtils, UnitTypeId,
+    SpecTypeId, BuiltInParameter,
 )
 
 from System.Collections.Generic import List
@@ -182,16 +195,39 @@ def _is_clipped(element):
         return None
 
 
-def _angle_to_true_north(element):
+def _angle_to_true_north_param(element):
     if element is None:
         return None
     try:
-        p = element.LookupParameter("Angle to True North")
+        return element.LookupParameter("Angle to True North")
+    except Exception:
+        return None
+
+
+def _angle_to_true_north(element):
+    p = _angle_to_true_north_param(element)
+    if p is None:
+        return None
+    try:
+        return p.AsDouble()
+    except Exception:
+        return None
+
+
+def _view_orientation_param(view):
+    """The "Orientation" parameter shown on Plan/Site view Properties
+    (Project North / True North). Tries the dedicated BuiltInParameter
+    first, falls back to a name-based lookup."""
+    try:
+        p = view.get_Parameter(BuiltInParameter.PLAN_VIEW_NORTH)
         if p is not None:
-            return p.AsDouble()
+            return p
     except Exception:
         pass
-    return None
+    try:
+        return view.LookupParameter("Orientation")
+    except Exception:
+        return None
 
 
 def _format_point_text(doc, pos):
@@ -281,6 +317,21 @@ def _relocate_survey_point(doc, sp, target_pos):
     sp_pos = _point_position(sp)
     if sp_pos is None:
         raise Exception("Could not read the Survey Point's current position.")
+
+    # Capture Angle to True North (owned by the Project Base Point) before
+    # touching anything, and restore it afterward if it moved at all - a
+    # defensive guard so this relocate can never silently change
+    # North/South orientation as a side effect of the unclip/move/re-clip
+    # cycle, regardless of what Revit does internally.
+    pbp = _get_project_base_point(doc)
+    angle_param = _angle_to_true_north_param(pbp)
+    saved_angle = None
+    if angle_param is not None:
+        try:
+            saved_angle = angle_param.AsDouble()
+        except Exception:
+            saved_angle = None
+
     clip_param = _clipped_param(sp)
     was_clipped = _is_clipped(sp)
     if was_clipped and clip_param is not None:
@@ -294,6 +345,13 @@ def _relocate_survey_point(doc, sp, target_pos):
     if was_clipped and clip_param is not None:
         clip_param.Set(1)
         doc.Regenerate()
+
+    if saved_angle is not None and angle_param is not None:
+        try:
+            if abs(angle_param.AsDouble() - saved_angle) > 1e-9:
+                angle_param.Set(saved_angle)
+        except Exception:
+            pass
 
 
 def _scan_link_points(doc):
@@ -322,9 +380,43 @@ def _scan_link_points(doc):
     return rows
 
 
+def _scan_acquire_targets(doc):
+    """Every Revit link and linked (not embedded) CAD import - candidates
+    for Acquire Coordinates."""
+    rows = []
+    for link in FilteredElementCollector(doc).OfClass(RevitLinkInstance):
+        try:
+            link_type = doc.GetElement(link.GetTypeId())
+            name = _read_name(link_type) or _read_name(link) or "(unnamed link)"
+            rows.append(AcquireTargetRow("Revit Link", name, link.Id))
+        except Exception:
+            continue
+    for imp in FilteredElementCollector(doc).OfClass(ImportInstance):
+        try:
+            if not imp.IsLinked:
+                continue
+            name = _read_name(imp) or "(unnamed CAD link)"
+            rows.append(AcquireTargetRow("CAD Link", name, imp.Id))
+        except Exception:
+            continue
+    return rows
+
+
+_ORIENTATION_PROJECT_NORTH = 0
+_ORIENTATION_TRUE_NORTH = 1
+
+
 # --------------------------------------------------------------------------
 # Data model
 # --------------------------------------------------------------------------
+class AcquireTargetRow(object):
+    def __init__(self, kind, name, element_id):
+        self.kind = kind
+        self.name = name
+        self.element_id = element_id
+        self.display = "[{0}] {1}".format(kind, name)
+
+
 class PointRow(object):
     def __init__(self, doc, name, element):
         self.name = name
@@ -365,8 +457,11 @@ class DeeCordiPointWindow(forms.WPFWindow):
         self.doc = doc
         self._points = []
         self._links = []
+        self._acquire_targets = []
         self.threshold_unit_tb.Text = _unit_abbreviation(doc)
         self._refresh_points()
+        self._refresh_acquire_targets()
+        self._refresh_true_north()
 
     def _refresh_points(self):
         pbp = _get_project_base_point(self.doc)
@@ -473,7 +568,8 @@ class DeeCordiPointWindow(forms.WPFWindow):
         if not forms.alert(
                 "Un-clip the Survey Point, move it to coincide with {0}, then re-clip it?\n\n"
                 "Its real-world coordinate value will not change - only its on-screen distance "
-                "from the model.".format(target_label),
+                "from the model. The Project Base Point's Angle to True North is captured before "
+                "and restored after, so North/South orientation will not be affected.".format(target_label),
                 title="DeeCordiPoint - Confirm", yes=True, no=True):
             return
 
@@ -517,6 +613,90 @@ class DeeCordiPointWindow(forms.WPFWindow):
             forms.alert("Could not export: {0}".format(e))
             return
         MessageBox.Show("Exported {0} row(s) to:\n{1}".format(len(rows), dlg.FileName), "DeeCordiPoint")
+
+    def _refresh_acquire_targets(self):
+        rows = _scan_acquire_targets(self.doc)
+        self._acquire_targets = rows
+        self.acquire_targets_cb.ItemsSource = None
+        self.acquire_targets_cb.ItemsSource = rows
+        self.acquire_targets_cb.DisplayMemberPath = "display"
+        if rows:
+            self.acquire_targets_cb.SelectedIndex = 0
+        self.acquire_status_tb.Text = "{0} link(s) found.".format(len(rows))
+
+    def refresh_acquire_targets_click(self, sender, args):
+        self._refresh_acquire_targets()
+
+    def select_acquire_target_click(self, sender, args):
+        row = self.acquire_targets_cb.SelectedItem
+        if row is None:
+            forms.alert("Pick a link from the list first.")
+            return
+        try:
+            uidoc = __revit__.ActiveUIDocument
+            uidoc.Selection.SetElementIds(List[ElementId]([row.element_id]))
+        except Exception as e:
+            forms.alert("Could not select that link: {0}".format(e))
+            return
+        self.acquire_status_tb.Text = (
+            "'{0}' is now selected in Revit. Go to Manage tab > Coordinates > "
+            "Acquire Coordinates to pick it up.".format(row.name))
+
+    def _refresh_true_north(self):
+        pbp = _get_project_base_point(self.doc)
+        angle = _angle_to_true_north(pbp)
+        self.true_north_tb.Text = "{0:.3f}".format(math.degrees(angle)) if angle is not None else ""
+
+    def apply_true_north_click(self, sender, args):
+        pbp = _get_project_base_point(self.doc)
+        param = _angle_to_true_north_param(pbp)
+        if param is None:
+            forms.alert("Could not find the Angle to True North parameter on the Project Base Point.")
+            return
+        try:
+            degrees = float(self.true_north_tb.Text)
+        except Exception:
+            forms.alert("Enter a valid angle in degrees.")
+            return
+        t = Transaction(self.doc, "DeeCordiPoint - Set Angle to True North")
+        t.Start()
+        try:
+            param.Set(math.radians(degrees))
+            t.Commit()
+        except Exception as e:
+            t.RollBack()
+            forms.alert("Could not set the angle: {0}".format(e))
+            return
+        self.true_north_status_tb.Text = "Angle to True North set to {0:.3f} deg.".format(degrees)
+        self._refresh_points()
+        self._refresh_true_north()
+
+    def _set_view_orientation(self, target_value, label):
+        view = self.doc.ActiveView
+        param = _view_orientation_param(view)
+        if param is None:
+            forms.alert("This view doesn't have an Orientation parameter (only Plan/Site views do).")
+            return
+        if param.IsReadOnly:
+            forms.alert("The Orientation parameter is read-only on this view.")
+            return
+        t = Transaction(self.doc, "DeeCordiPoint - Set View Orientation")
+        t.Start()
+        try:
+            param.Set(target_value)
+            t.Commit()
+        except Exception as e:
+            t.RollBack()
+            forms.alert("Could not set the view orientation: {0}".format(e))
+            return
+        self.orientation_status_tb.Text = "Active view '{0}' set to {1}.".format(
+            _read_name(view) or view.Id, label)
+
+    def set_project_north_click(self, sender, args):
+        self._set_view_orientation(_ORIENTATION_PROJECT_NORTH, "Project North")
+
+    def set_true_north_click(self, sender, args):
+        self._set_view_orientation(_ORIENTATION_TRUE_NORTH, "True North")
 
     def close_click(self, sender, args):
         self.Close()
