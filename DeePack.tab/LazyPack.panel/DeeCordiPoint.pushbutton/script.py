@@ -21,15 +21,17 @@ Also offers:
 - Export Points to Excel: writes the Key Points grid to an xlsx file
   (via the shared lib/xlsx_writer.py).
 - Scan/Export Linked Models: lists every RevitLinkInstance's placement
-  origin relative to the host, plus that link's own Project Base
-  Point/Survey Point if the link is currently loaded.
-- Coordinate System tab: an Acquire Coordinates helper (lists every
-  Revit link and linked CAD file, pre-selects your chosen one in Revit
-  so Manage > Coordinates > Acquire Coordinates picks it up
-  immediately - deliberately NOT an attempt to replicate Acquire
-  Coordinates' own math via API, since getting that subtly wrong could
-  leave real-world coordinates silently incorrect), a direct Angle to
-  True North editor, and Set Active View to Project North/True North.
+  origin relative to the host (plus that link's own Project Base
+  Point/Survey Point if the link is currently loaded), and every
+  linked CAD import, in one combined grid. Select in Revit pre-selects
+  whichever row you pick there, so Manage > Coordinates > Acquire
+  Coordinates can pick it up immediately - deliberately NOT an attempt
+  to replicate Acquire Coordinates' own math via API, since getting
+  that subtly wrong could leave real-world coordinates silently
+  incorrect. The window stays open and nothing runs automatically;
+  you choose when to invoke Acquire Coordinates yourself.
+- Coordinate System tab: a direct Angle to True North editor, and Set
+  Active View to Project North/True North.
 
 Needs live-Revit verification: the "Clipped" and "Angle to True North"
 parameter names on BasePoint elements, the BASEPOINT_NORTHSOUTH_PARAM/
@@ -395,6 +397,10 @@ def _relocate_survey_point(doc, sp, target_pos):
 
 
 def _scan_link_points(doc):
+    """Every Revit link (with its own coordinate points, if loaded) and
+    every linked (not embedded) CAD import - one combined list, so the
+    same grid can be used both to review link coordinates and to pick
+    a link/CAD file to acquire coordinates from."""
     rows = []
     for link in FilteredElementCollector(doc).OfClass(RevitLinkInstance):
         try:
@@ -416,29 +422,21 @@ def _scan_link_points(doc):
                 own_survey_pos = _point_position(_get_survey_point(link_doc))
         except Exception:
             pass
-        rows.append(LinkRow(doc, name, origin, own_pbp_pos, own_survey_pos))
-    return rows
+        rows.append(LinkRow(doc, "Revit Link", name, link.Id, origin, own_pbp_pos, own_survey_pos))
 
-
-def _scan_acquire_targets(doc):
-    """Every Revit link and linked (not embedded) CAD import - candidates
-    for Acquire Coordinates."""
-    rows = []
-    for link in FilteredElementCollector(doc).OfClass(RevitLinkInstance):
-        try:
-            link_type = doc.GetElement(link.GetTypeId())
-            name = _read_name(link_type) or _read_name(link) or "(unnamed link)"
-            rows.append(AcquireTargetRow("Revit Link", name, link.Id))
-        except Exception:
-            continue
     for imp in FilteredElementCollector(doc).OfClass(ImportInstance):
         try:
             if not imp.IsLinked:
                 continue
             name = _read_name(imp) or "(unnamed CAD link)"
-            rows.append(AcquireTargetRow("CAD Link", name, imp.Id))
         except Exception:
             continue
+        origin = None
+        try:
+            origin = imp.GetTransform().Origin
+        except Exception:
+            origin = None
+        rows.append(LinkRow(doc, "CAD Link", name, imp.Id, origin, None, None))
     return rows
 
 
@@ -449,14 +447,6 @@ _ORIENTATION_TRUE_NORTH = 1
 # --------------------------------------------------------------------------
 # Data model
 # --------------------------------------------------------------------------
-class AcquireTargetRow(object):
-    def __init__(self, kind, name, element_id):
-        self.kind = kind
-        self.name = name
-        self.element_id = element_id
-        self.display = "[{0}] {1}".format(kind, name)
-
-
 class PointRow(object):
     def __init__(self, doc, name, element):
         self.name = name
@@ -479,8 +469,10 @@ class PointRow(object):
 
 
 class LinkRow(object):
-    def __init__(self, doc, name, origin, own_pbp_pos, own_survey_pos):
+    def __init__(self, doc, kind, name, element_id, origin, own_pbp_pos, own_survey_pos):
+        self.kind = kind
         self.name = name
+        self.element_id = element_id
         if origin is not None:
             self.origin_x_text = "{0:.3f}".format(_internal_to_display(doc, origin.X))
             self.origin_y_text = "{0:.3f}".format(_internal_to_display(doc, origin.Y))
@@ -501,10 +493,8 @@ class DeeCordiPointWindow(forms.WPFWindow):
         self._points = []
         self._pbp_points = []
         self._links = []
-        self._acquire_targets = []
         self.threshold_unit_tb.Text = _unit_abbreviation(doc)
         self._refresh_points()
-        self._refresh_acquire_targets()
         self._refresh_true_north()
 
     def _refresh_points(self):
@@ -687,35 +677,23 @@ class DeeCordiPointWindow(forms.WPFWindow):
         dlg.FileName = "DeeCordiPoint_Links.xlsx"
         if dlg.ShowDialog() != DialogResult.OK:
             return
-        rows = [([r.name, r.origin_x_text, r.origin_y_text, r.origin_z_text,
+        rows = [([r.kind, r.name, r.origin_x_text, r.origin_y_text, r.origin_z_text,
                   r.own_pbp_text, r.own_survey_text], None) for r in self._links]
         try:
             xlsx_writer.write_themed_xlsx(
                 dlg.FileName, "DeeCordiPoint - Linked Models",
-                ["Link Name", "Origin X", "Origin Y", "Origin Z", "Own Project Base Point", "Own Survey Point"],
-                [30, 14, 14, 14, 26, 26], rows)
+                ["Kind", "Link Name", "Origin X", "Origin Y", "Origin Z",
+                 "Own Project Base Point", "Own Survey Point"],
+                [12, 30, 14, 14, 14, 26, 26], rows)
         except Exception as e:
             forms.alert("Could not export: {0}".format(e))
             return
         MessageBox.Show("Exported {0} row(s) to:\n{1}".format(len(rows), dlg.FileName), "DeeCordiPoint")
 
-    def _refresh_acquire_targets(self):
-        rows = _scan_acquire_targets(self.doc)
-        self._acquire_targets = rows
-        self.acquire_targets_cb.ItemsSource = None
-        self.acquire_targets_cb.ItemsSource = rows
-        self.acquire_targets_cb.DisplayMemberPath = "display"
-        if rows:
-            self.acquire_targets_cb.SelectedIndex = 0
-        self.acquire_status_tb.Text = "{0} link(s) found.".format(len(rows))
-
-    def refresh_acquire_targets_click(self, sender, args):
-        self._refresh_acquire_targets()
-
-    def select_acquire_target_click(self, sender, args):
-        row = self.acquire_targets_cb.SelectedItem
+    def select_link_click(self, sender, args):
+        row = self.links_grid.SelectedItem
         if row is None:
-            forms.alert("Pick a link from the list first.")
+            forms.alert("Select a row in the grid above first (click Scan Linked Models if it's empty).")
             return
         try:
             uidoc = __revit__.ActiveUIDocument
@@ -723,7 +701,7 @@ class DeeCordiPointWindow(forms.WPFWindow):
         except Exception as e:
             forms.alert("Could not select that link: {0}".format(e))
             return
-        self.acquire_status_tb.Text = (
+        self.select_link_status_tb.Text = (
             "'{0}' is now selected in Revit. Go to Manage tab > Coordinates > "
             "Acquire Coordinates to pick it up.".format(row.name))
 

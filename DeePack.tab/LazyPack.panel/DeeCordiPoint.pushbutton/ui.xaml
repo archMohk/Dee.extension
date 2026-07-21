@@ -78,15 +78,16 @@
                         </StackPanel>
                     </GroupBox>
 
-                    <GroupBox Header="Linked Models" Margin="0,0,0,0">
+                    <GroupBox Header="Linked Models (Revit &amp; CAD)" Margin="0,0,0,0">
                         <DockPanel Margin="6">
                             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                                 <Button x:Name="scan_links_b" Content="Scan Linked Models" Click="scan_links_click" Width="150" Height="24"/>
                                 <Button x:Name="export_links_b" Content="Export Links to Excel" Click="export_links_click" Width="170" Height="24" Margin="8,0,0,0"/>
                                 <TextBlock x:Name="links_status_tb" Text="0 link(s)." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
                             </StackPanel>
-                            <DataGrid x:Name="links_grid" Height="150" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
+                            <DataGrid x:Name="links_grid" DockPanel.Dock="Top" Height="150" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
                                 <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Kind" Binding="{Binding kind}" Width="70"/>
                                     <DataGridTextColumn Header="Link Name" Binding="{Binding name}" Width="*"/>
                                     <DataGridTextColumn Header="Origin X" Binding="{Binding origin_x_text}" Width="90"/>
                                     <DataGridTextColumn Header="Origin Y" Binding="{Binding origin_y_text}" Width="90"/>
@@ -95,6 +96,10 @@
                                     <DataGridTextColumn Header="Link's Own Survey Point" Binding="{Binding own_survey_text}" Width="180"/>
                                 </DataGrid.Columns>
                             </DataGrid>
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button x:Name="select_link_b" Content="Select in Revit (for Acquire Coordinates)" Click="select_link_click" Width="240" Height="26"/>
+                            </StackPanel>
+                            <TextBlock x:Name="select_link_status_tb" Text="Click a row above, then Select in Revit, then run Manage tab &gt; Coordinates &gt; Acquire Coordinates yourself." Margin="0,6,0,0" FontStyle="Italic" TextWrapping="Wrap"/>
                         </DockPanel>
                     </GroupBox>
                 </DockPanel>
@@ -104,20 +109,7 @@
             <TabItem Header="Coordinate System">
                 <StackPanel Margin="8">
                     <TextBlock TextWrapping="Wrap" Margin="0,8,0,10"
-                               Text="These tools apply the coordinate system for the active document: acquiring coordinates from a link, editing the Project Base Point's Angle to True North directly, and switching the active view between Project North and True North."/>
-
-                    <GroupBox Header="Acquire Coordinates" Margin="0,0,0,10">
-                        <StackPanel Margin="6">
-                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="Pick the Revit or CAD link to acquire coordinates from, then click Select in Revit - this pre-selects that link so Manage tab &gt; Coordinates &gt; Acquire Coordinates picks it up immediately without its own re-pick prompt. Revit performs the actual coordinate acquisition; this tool only makes the selection for you."/>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                                <ComboBox x:Name="acquire_targets_cb" Width="360" Height="26"/>
-                                <Button x:Name="refresh_acquire_targets_b" Content="Rescan Links" Click="refresh_acquire_targets_click" Width="110" Height="26" Margin="8,0,0,0"/>
-                                <Button x:Name="select_acquire_target_b" Content="Select in Revit" Click="select_acquire_target_click" Width="130" Height="26" Margin="8,0,0,0"/>
-                            </StackPanel>
-                            <TextBlock x:Name="acquire_status_tb" Text="" FontStyle="Italic" TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </GroupBox>
+                               Text="These tools apply the coordinate system for the active document: editing the Project Base Point's Angle to True North directly, and switching the active view between Project North and True North."/>
 
                     <GroupBox Header="Angle to True North" Margin="0,0,0,10">
                         <StackPanel Margin="6">

@@ -19,8 +19,8 @@
     <h2>What it does</h2>
     <p><strong>Points tab</strong> &mdash; Creates (or reuses) a 3D view named <strong>DeeLazy Coordinates View</strong> and isolates Levels, Site, the Project Base Point, Survey Point, and Internal Origin in it, so you can see exactly where your project's coordinate reference points sit relative to the model. The <strong>Key Points</strong> grid (Internal Origin &amp; Survey Point) and the separate <strong>Project Base Point</strong> grid each show X/Y/Z plus the shared coordinates &mdash; North/South, East/West, Elevation &mdash; along with Angle to True North and Clipped state. The distance readout below Key Points shows how far apart the Survey Point and Internal Origin are, both as a total distance and as per-axis dX/dY/dZ.</p>
     <p><strong>Unclip Survey Point</strong> / <strong>Clip Survey Point</strong> let you toggle the Clipped state directly and manually &mdash; unclipped, you can drag the Survey Point yourself in Revit and only the point moves (not the model); clipped (the default) protects it from accidental drags. Separately, if the Survey Point is far away (a common cause of Revit accuracy/rendering issues once real-world survey coordinates are acquired), <strong>Relocate Survey Point</strong> un-clips it, moves it to coincide with either the Internal Origin or the Project Base Point, then re-clips it &mdash; its real-world coordinate value doesn't change, only its on-screen distance from the model. The Project Base Point's Angle to True North is captured before this cycle and restored afterward if it changed at all, so relocating the Survey Point can never silently affect North/South orientation.</p>
-    <p>You can also <strong>Export Points to Excel</strong> (both tables together), and <strong>Scan Linked Models</strong> to list every linked model's placement origin relative to the host (plus that link's own Project Base Point/Survey Point if it's currently loaded), also exportable.</p>
-    <p><strong>Coordinate System tab</strong> &mdash; <strong>Acquire Coordinates</strong> lists every Revit link and linked CAD file in the project; pick one and click Select in Revit to pre-select it, then run Manage tab &gt; Coordinates &gt; Acquire Coordinates yourself &mdash; Revit does the actual coordinate math, this tool just saves you the manual pick. <strong>Angle to True North</strong> lets you read/set the Project Base Point's angle directly, in degrees. <strong>Active View Orientation</strong> switches the active Plan/Site view between Project North and True North.</p>
+    <p><strong>Linked Models (Revit &amp; CAD)</strong> &mdash; <strong>Scan Linked Models</strong> lists every Revit link (with that link's own Project Base Point/Survey Point, if currently loaded) and every linked CAD file in one grid. Click a row, then <strong>Select in Revit</strong> to pre-select it, and run Manage tab &gt; Coordinates &gt; Acquire Coordinates yourself &mdash; Revit performs the actual coordinate acquisition; this tool only makes the selection for you and never runs anything automatically. <strong>Export Points to Excel</strong> and <strong>Export Links to Excel</strong> save records of either grid.</p>
+    <p><strong>Coordinate System tab</strong> &mdash; <strong>Angle to True North</strong> lets you read/set the Project Base Point's angle directly, in degrees. <strong>Active View Orientation</strong> switches the active Plan/Site view between Project North and True North.</p>
   </div>
 
   <div class="card">
@@ -31,9 +31,9 @@
       <li>Set a Distance Threshold if you want a warning when the Survey Point is farther than that from the Internal Origin.</li>
       <li>If needed, click <strong>Relocate Survey Point to Internal Origin</strong> or <strong>...to Project Base Point</strong>, and confirm.</li>
       <li>Use <strong>Export Points to Excel</strong> for a record of both tables.</li>
-      <li>Click <strong>Scan Linked Models</strong> to see every link's coordinate info, and export that too if needed.</li>
-      <li>Switch to the <strong>Coordinate System</strong> tab: pick a link and click <strong>Select in Revit</strong>, then run Acquire Coordinates from the Manage ribbon tab yourself.</li>
-      <li>Edit the <strong>Angle to True North</strong> field and click Apply if you need to set it directly.</li>
+      <li>Click <strong>Scan Linked Models</strong> to see every Revit link and CAD link's coordinate info, and export that too if needed.</li>
+      <li>To acquire coordinates from one of those links: click its row in the grid, click <strong>Select in Revit</strong>, then run Acquire Coordinates from the Manage ribbon tab yourself.</li>
+      <li>Switch to the <strong>Coordinate System</strong> tab and edit the <strong>Angle to True North</strong> field, then click Apply if you need to set it directly.</li>
       <li>Use <strong>Set Active View to Project North / True North</strong> to flip the current plan/site view's orientation.</li>
     </ol>
   </div>
@@ -44,7 +44,7 @@
       <tr><th>Unclip / Clip Survey Point</th><td>Toggles the Clipped parameter directly, so you can drag the Survey Point yourself in Revit (unclipped moves only the point, not the model) and re-lock it afterward.</td></tr>
       <tr><th>Distance Threshold</th><td>Shown in your project's display unit; triggers a warning after building the view if the Survey Point exceeds it.</td></tr>
       <tr><th>Relocate target</th><td>Internal Origin or Project Base Point &mdash; pick whichever you want the Survey Point to sit on top of. North/South orientation is preserved either way.</td></tr>
-      <tr><th>Acquire Coordinates target</th><td>Any Revit link or linked (non-embedded) CAD import in the project &mdash; only pre-selects it, doesn't run Acquire Coordinates itself.</td></tr>
+      <tr><th>Select in Revit (for Acquire Coordinates)</th><td>Pre-selects the Revit link or linked (non-embedded) CAD import you clicked in the Linked Models grid &mdash; doesn't run Acquire Coordinates itself, window stays open.</td></tr>
       <tr><th>Angle to True North</th><td>Degrees, applied directly to the Project Base Point's own parameter.</td></tr>
       <tr><th>Active View Orientation</th><td>Project North or True North, applied to the active view only (Plan/Site views).</td></tr>
     </table>
