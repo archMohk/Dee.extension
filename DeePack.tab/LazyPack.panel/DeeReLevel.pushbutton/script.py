@@ -53,25 +53,34 @@ below) rather than one bespoke function per category - adding a new
 category means adding a table row (open/closed principle), not new
 branching logic.
 
-For two-ended sloped runs (pipes/ducts), shifting the single Offset
-parameter by -delta shifts the whole run's location curve rigidly in
-Z, which preserves both endpoint elevations - and therefore the slope
-between them - simultaneously. This is flagged as the single highest-
-uncertainty assumption in the whole tool (see NEEDS LIVE VERIFICATION
-below) since it depends on exactly how Revit's sloped-pipe/duct
-placement is internally driven; the UI marks every sloped MEP element
-with a "verify after applying" badge rather than asserting silent
-certainty.
+CONFIRMED (via live testing, not just a theoretical concern) BROKEN:
+editing the Offset parameter directly on directional MEP curve runs
+(Pipes, Ducts, Flex Pipes, Flex Ducts, Cable Trays, Conduits) can flip
+which end Revit treats as the start of the run, invalidating every
+connection on it - Revit reported this exactly as "the duct/pipe has
+been modified to be in the opposite direction causing the connections
+to be invalid" (22 such errors on first live test). Those 6 categories
+now use the SAME fallback_translation path as Structural Framing - a
+pure rigid ElementTransformUtils.MoveElement by (0, 0, -delta) instead
+of a parameter edit. A rigid translation cannot change a curve's
+direction (every point moves by the identical vector), only its
+position, so both endpoint elevations, the slope between them, and
+every connector orientation are preserved simultaneously. Point-based
+MEP categories (fittings, accessories, equipment, fixtures, sprinklers)
+still use the Offset/Elevation parameter edit, since they aren't
+directional curves - this has not yet been separately confirmed safe,
+see NEEDS LIVE VERIFICATION below.
 
 Elements that don't have an offset-type parameter DeeReLevel can find
-(some structural connections, exotic in-place families) fall back to
-a direct geometric translation via ElementTransformUtils.MoveElement
-by (0, 0, -delta) - mathematically equivalent, just less semantically
-tidy in schedules since the offset parameter itself won't reflect the
-new position. Group members never get this fallback individually
-(that would corrupt the group's internal geometry) - if a fallback
-translation is ever needed on a grouped element, the whole Group
-instance is translated once instead.
+(Structural Framing, the 6 MEP curve categories above, exotic in-place
+families) use that same direct geometric translation via
+ElementTransformUtils.MoveElement by (0, 0, -delta) - mathematically
+equivalent to the parameter-edit approach for absolute position, just
+less semantically tidy in schedules since the offset parameter itself
+won't reflect the new position. Group members never get this fallback
+individually (that would corrupt the group's internal geometry) - if a
+fallback translation is ever needed on a grouped element, the whole
+Group instance is translated once instead.
 
 Hosting relationships (wall/floor/ceiling/roof/face/work-plane host)
 are NEVER touched - DeeReLevel only ever edits Level and Offset-type
@@ -86,15 +95,28 @@ assumed correct - consistent with every other tool in this session)
   string-name LookupParameter fallback, but the primary BuiltInParameter
   enum members should be spot-checked against a real project per
   category before trusting this on production models.
-- Whether a single Offset-parameter shift on a SLOPED pipe/duct truly
-  translates the whole run rigidly (vs. Revit recomputing one end from
-  slope+length, which would silently break the assumption). Flagged in
-  the UI on every sloped element found.
+- CONFIRMED BROKEN and fixed: editing Offset directly on directional MEP
+  curve runs (Pipes/Ducts/Flex Pipes/Flex Ducts/Cable Trays/Conduits)
+  can flip the run's direction and invalidate its connections - see the
+  module docstring's main section above. These 6 categories now use
+  fallback_translation (a rigid geometric move) instead of a parameter
+  edit. Point-based MEP categories (fittings, accessories, equipment,
+  fixtures, sprinklers) still use a parameter edit and have NOT been
+  separately confirmed safe - watch for similar connection errors on
+  those categories specifically.
 - Structural Framing (beams): no reliable single offset parameter was
   assumed here - DeeReLevel always uses the fallback geometric
   translation path for OST_StructuralFraming, since beam vertical
   position is primarily sketch/analytical-model driven. Verify this
   path preserves analytical model alignment before relying on it.
+- Transaction.GetFailureHandlingOptions()/SetFailureHandlingOptions()
+  must be called AFTER Transaction.Start(), not before - calling them
+  before Start() (an earlier version of this file did) silently fails
+  to attach the custom FailureProcessor, so Revit's own default failure
+  dialogs appear instead of the intended "log it, roll back cleanly"
+  behavior. Fixed, but the underlying FailureProcessor logic (suppress
+  warnings, roll back on errors) still needs a live test with an actual
+  warning-level failure to confirm it behaves as intended.
 - Whether Parameter.Set() truly succeeds unmodified on Pinned elements
   across Revit 2024-2026 (assumed yes, based on Pinned blocking
   Move/Rotate/Delete but not parameter edits) - if wrong, the
@@ -325,12 +347,16 @@ _CATEGORY_RULES = [
                  offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Elevation"),
     CategoryRule("Structure", _bic("OST_Rebar"), "Rebar", report_only=True),
 
-    # ---- MEP (all treated as "simple rule", one Offset shift proven to
-    #      preserve slope for the common single-reference-level case -
-    #      see the module docstring's NEEDS LIVE VERIFICATION note) ----
-    CategoryRule("MEP", _bic("OST_PipeCurves"), "Pipes",
-                 level_bip=_bip("RBS_START_LEVEL_PARAM"), level_name="Reference Level",
-                 offset_bip=_bip("RBS_OFFSET_PARAM"), offset_name="Offset", is_mep=True),
+    # ---- MEP ----
+    # Directional curve-based runs (Pipes/Ducts/Flex/Cable Tray/Conduit):
+    # CONFIRMED BROKEN as a parameter edit - setting Offset directly can
+    # flip which end Revit treats as the start of the run, invalidating
+    # every connection on it ("the duct/pipe has been modified to be in
+    # the opposite direction causing the connections to be invalid").
+    # Fixed by using fallback_translation (a pure rigid ElementTransformUtils
+    # translation) instead - a rigid move can never change a curve's
+    # direction, only its position, so connections/orientation survive.
+    CategoryRule("MEP", _bic("OST_PipeCurves"), "Pipes", is_mep=True, fallback_translation=True),
     CategoryRule("MEP", _bic("OST_PipeFitting"), "Pipe Fittings",
                  level_bip=_bip("RBS_START_LEVEL_PARAM"), level_name="Reference Level",
                  offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
@@ -338,28 +364,21 @@ _CATEGORY_RULES = [
                  level_bip=_bip("FAMILY_LEVEL_PARAM"), level_name="Reference Level",
                  offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
     CategoryRule("MEP", _bic("OST_PipeInsulations"), "Pipe Insulation", report_only=True, is_mep=True),
-    CategoryRule("MEP", _bic("OST_DuctCurves"), "Ducts",
-                 level_bip=_bip("RBS_START_LEVEL_PARAM"), level_name="Reference Level",
-                 offset_bip=_bip("RBS_OFFSET_PARAM"), offset_name="Offset", is_mep=True),
+    CategoryRule("MEP", _bic("OST_DuctCurves"), "Ducts", is_mep=True, fallback_translation=True),
     CategoryRule("MEP", _bic("OST_DuctFitting"), "Duct Fittings",
                  level_bip=_bip("RBS_START_LEVEL_PARAM"), level_name="Reference Level",
                  offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
     CategoryRule("MEP", _bic("OST_DuctAccessory"), "Duct Accessories",
                  level_bip=_bip("FAMILY_LEVEL_PARAM"), level_name="Reference Level",
                  offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
-    CategoryRule("MEP", _bic("OST_FlexPipeCurves"), "Flex Pipes",
-                 level_bip=_bip("RBS_START_LEVEL_PARAM"), level_name="Reference Level",
-                 offset_bip=_bip("RBS_OFFSET_PARAM"), offset_name="Offset", is_mep=True),
-    CategoryRule("MEP", _bic("OST_FlexDuctCurves"), "Flex Ducts",
-                 level_bip=_bip("RBS_START_LEVEL_PARAM"), level_name="Reference Level",
-                 offset_bip=_bip("RBS_OFFSET_PARAM"), offset_name="Offset", is_mep=True),
-    CategoryRule("MEP", _bic("OST_CableTray"), "Cable Trays",
-                 level_bip=_bip("RBS_START_LEVEL_PARAM"), level_name="Reference Level",
-                 offset_bip=_bip("RBS_OFFSET_PARAM"), offset_name="Offset", is_mep=True),
+    CategoryRule("MEP", _bic("OST_FlexPipeCurves"), "Flex Pipes", is_mep=True, fallback_translation=True),
+    CategoryRule("MEP", _bic("OST_FlexDuctCurves"), "Flex Ducts", is_mep=True, fallback_translation=True),
+    CategoryRule("MEP", _bic("OST_CableTray"), "Cable Trays", is_mep=True, fallback_translation=True),
     CategoryRule("MEP", _bic("OST_CableTrayFitting"), "Cable Tray Fittings",
                  level_bip=_bip("RBS_START_LEVEL_PARAM"), level_name="Reference Level",
                  offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
-    CategoryRule("MEP", _bic("OST_Conduit"), "Conduits",
+    CategoryRule("MEP", _bic("OST_Conduit"), "Conduits", is_mep=True, fallback_translation=True),
+    CategoryRule("MEP", _bic("OST_ConduitFitting"), "Conduit Fittings",
                  level_bip=_bip("RBS_START_LEVEL_PARAM"), level_name="Reference Level",
                  offset_bip=_bip("RBS_OFFSET_PARAM"), offset_name="Offset", is_mep=True),
     CategoryRule("MEP", _bic("OST_ConduitFitting"), "Conduit Fittings",
@@ -833,10 +852,15 @@ class LevelUpdater(object):
         calc = OffsetCalculator(self.doc, level_name, delta, self.pinned_mode)
 
         t = Transaction(self.doc, "DeeReLevel - Update Level '{0}'".format(level_name))
+        t.Start()
+        # GetFailureHandlingOptions()/SetFailureHandlingOptions() must be
+        # called AFTER Start() - calling them before Start() (as an earlier
+        # version of this file did) silently fails to attach the custom
+        # preprocessor, so Revit falls back to its own default failure UI
+        # instead of the "log it, roll back cleanly" behavior intended here.
         options = t.GetFailureHandlingOptions()
         options.SetFailuresPreprocessor(FailureProcessor(self.errors))
         t.SetFailureHandlingOptions(options)
-        t.Start()
         try:
             row.level.Elevation = new_elev
             self.doc.Regenerate()
@@ -1117,7 +1141,7 @@ class DeeReLevelWindow(forms.WPFWindow):
                     else:
                         status, note = "ok", ""
                         if rule.is_mep:
-                            note = "MEP run - slope preserved by shifting the whole run; verify after applying"
+                            note = "MEP fitting/equipment/fixture - offset adjusted directly; verify connections after applying"
                         param_name = rule.offset_name or ""
                         new_txt = ""
                     preview_rows.append(ElementActionRow(
