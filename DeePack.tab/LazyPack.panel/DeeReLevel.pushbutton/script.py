@@ -975,6 +975,15 @@ class DeeReLevelWindow(forms.WPFWindow):
         self._status_lines = []
         self._dark = False
         self._last_execution_seconds = 0.0
+        # Set AFTER all the above, not via XAML's SelectedIndex="0": WPF
+        # fires SelectionChanged the moment a ComboBox's initial selection
+        # is established, and doing that from XAML happens mid-way through
+        # forms.WPFWindow.__init__() itself (while load_xaml() is still
+        # running) - before this method has assigned self._all_levels etc.,
+        # which crashed with "object has no attribute '_all_levels'".
+        # Setting it here, after those assignments, fires the same event
+        # safely.
+        self.status_filter_cb.SelectedIndex = 0
         self._log("Ready. Click Scan Project to begin.")
 
     # ---------------- logging ----------------
@@ -1011,7 +1020,11 @@ class DeeReLevelWindow(forms.WPFWindow):
             pass
         status_filter = self._status_filter_value()
 
-        rows = self._all_levels
+        # Defensive: a XAML-driven control event (ComboBox/DataGrid initial
+        # selection, etc.) can in principle fire before __init__ finishes
+        # assigning instance attributes - see the SelectedIndex note in
+        # __init__. Fall back to an empty list rather than crashing.
+        rows = getattr(self, "_all_levels", None) or []
         if term:
             rows = [r for r in rows if term in r.name.lower()]
         if status_filter == "Changed":

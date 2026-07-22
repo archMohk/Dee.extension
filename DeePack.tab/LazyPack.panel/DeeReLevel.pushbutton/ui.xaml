@@ -22,7 +22,7 @@
             <TextBox x:Name="search_tb" Width="160" Height="24" VerticalContentAlignment="Center"
                      TextChanged="search_changed"/>
             <TextBlock Text="Filter:" VerticalAlignment="Center" Margin="14,0,6,0"/>
-            <ComboBox x:Name="status_filter_cb" Width="110" Height="24" SelectedIndex="0" SelectionChanged="filter_changed">
+            <ComboBox x:Name="status_filter_cb" Width="110" Height="24" SelectionChanged="filter_changed">
                 <ComboBoxItem Content="All"/>
                 <ComboBoxItem Content="Changed"/>
                 <ComboBoxItem Content="Applied"/>
