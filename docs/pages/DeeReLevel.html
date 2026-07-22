@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeReLevel — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; LazyPack panel</div>
+  <span class="panel-chip">LazyPack</span>
+  <h1 class="tool-title">DeeReLevel</h1>
+  <p class="tagline">Change one or more Level elevations while automatically preserving the real-world position of everything hosted or constrained to them &mdash; the goal is to move the Level, not the building.</p>
+
+  <div class="callout danger"><strong>Risk level: High</strong> This tool edits Level elevations and then rewrites offset-type parameters on every wall, floor, roof, ceiling, hosted family, and MEP run referencing those Levels, across the whole model, in one operation. Always run <strong>Scan Project</strong> and <strong>Preview Changes</strong> first, review the Preview tab, and try it on a non-production/backup copy of a project before trusting it on live work.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>By default, moving a Revit Level moves the entire building with it, because every hosted element's "offset from level" parameter stays the same while the level itself shifts. DeeReLevel does the opposite: for every affected element it recalculates the matching offset parameter (Base Offset, Sill Height, Height Offset From Level, an MEP run's Offset, etc.) so that <code>level elevation + offset</code> &mdash; the element's actual real-world elevation &mdash; comes out exactly the same as before. Only the Level moves; nothing else does.</p>
+    <p>Coverage spans walls, floors, roofs, ceilings, doors, windows, railings, stairs, rooms/areas, generic models, casework, furniture, specialty equipment, architectural &amp; structural columns, foundations, and the full MEP set (pipes, ducts, cable trays, conduits, flex pipes/ducts, fittings, accessories, mechanical/plumbing/electrical/lighting fixtures, sprinklers, fire protection equipment). Rebar, Rooms/Areas, and annotation categories (Spot Elevations, Dimensions, Detail Components, Reference Planes) are scanned and reported but never modified, since they follow their host or reference geometry automatically. Structural Framing has no reliable single offset parameter, so it's moved directly instead (see the warning badge it gets in Preview).</p>
+    <p>Hosting relationships are never touched &mdash; DeeReLevel only ever edits Level and offset-type instance parameters, so a wall-hosted door stays hosted exactly as it was. Group members are never moved individually (that would corrupt the group); if a fallback move is ever needed on a grouped element, the whole Group instance is moved once instead.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Click <strong>Scan Project</strong> &mdash; every Level is listed with its current elevation and hosted-element count.</li>
+      <li>Type a new value into <strong>New Elevation</strong> for each Level you want to change, and tick its <strong>Select</strong> checkbox.</li>
+      <li>Click <strong>Preview Changes</strong> &mdash; review the Preview / Affected Elements tab: which elements will be adjusted automatically ("ok"), which need manual verification after applying ("warning" &mdash; sloped MEP runs and Structural Framing), and which are report-only.</li>
+      <li>Check the <strong>Log &amp; Errors</strong> tab for any warnings (e.g. two levels ending up at the same elevation).</li>
+      <li>Click <strong>Apply Changes</strong> and confirm &mdash; each Level is applied in its own transaction, so one Level's failure doesn't roll back a different Level's already-applied changes.</li>
+      <li>Use <strong>Export Report</strong> to save an Excel (3-sheet: Levels, Affected Elements, Errors/Warnings) or JSON record of what happened.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>Search / Filter</th><td>Narrow the Levels grid by name, or by status (Changed/Applied/Errors).</td></tr>
+      <tr><th>Select All / Select None</th><td>Bulk-select the currently visible (filtered) levels.</td></tr>
+      <tr><th>Pinned elements</th><td>Only matters for the Structural Framing fallback-move path (parameter edits work on pinned elements either way): <em>Ignore</em> skips pinned elements entirely, <em>Temporarily unpin</em> unpins, moves, and re-pins.</td></tr>
+      <tr><th>Dark Mode</th><td>Toggles the window's background/foreground colors.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>This is a brand-new button, so it needs a full Revit restart + <code>pyrevit caches clear --all</code> to appear the first time &mdash; a plain Reload isn't enough.</li>
+      <li>Every BuiltInParameter this tool relies on has a defensive fallback and is designed to degrade gracefully if wrong for your Revit version, but the parameter-to-category mapping has not been confirmed against a live project yet &mdash; check the Preview tab's Parameter/Old Value/New Value columns look sensible before applying.</li>
+      <li>Sloped MEP runs (pipes/ducts under slope) are adjusted by shifting their whole run's Offset parameter by the same amount the Level moved &mdash; mathematically this preserves both endpoint elevations and the slope, but it depends on how Revit internally drives a sloped run's geometry from that parameter. Preview flags every sloped MEP element for manual verification after applying.</li>
+      <li>Structural Framing (beams) always uses a direct geometric move rather than a parameter edit, since no single reliable offset parameter was assumed for it &mdash; verify analytical model alignment afterward.</li>
+      <li>Try it on a backup/non-production copy of a project first, especially for MEP-heavy or structurally complex models.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

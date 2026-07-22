@@ -1,0 +1,101 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeReLevel — Safely Modify Levels"
+        ShowInTaskbar="False"
+        MinHeight="640" MinWidth="1040" Height="720" Width="1140"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel x:Name="root_panel" Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                   Text="Change one or more Level elevations while DeeReLevel automatically preserves the real-world position of everything hosted or constrained to them - walls, floors, roofs, ceilings, hosted families, and MEP runs keep their absolute elevation; only the Level moves. Scan Project first, edit New Elevation for the levels you want to change, Preview Changes to review what will be touched, then Apply Changes."/>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button x:Name="scan_b" Content="Scan Project" Click="scan_click" Width="120" Height="28"/>
+            <Button x:Name="preview_b" Content="Preview Changes" Click="preview_click" Width="130" Height="28" Margin="8,0,0,0"/>
+            <Button x:Name="apply_b" Content="Apply Changes" Click="apply_click" Width="130" Height="28" Margin="8,0,0,0"/>
+            <Button x:Name="export_b" Content="Export Report" Click="export_click" Width="120" Height="28" Margin="8,0,0,0"/>
+            <Button x:Name="cancel_b" Content="Cancel" Click="cancel_click" Width="90" Height="28" Margin="8,0,0,0"/>
+            <Button x:Name="dark_mode_b" Content="Dark Mode" Click="toggle_dark_mode_click" Width="90" Height="28" Margin="24,0,0,0"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+            <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <TextBox x:Name="search_tb" Width="160" Height="24" VerticalContentAlignment="Center"
+                     TextChanged="search_changed"/>
+            <TextBlock Text="Filter:" VerticalAlignment="Center" Margin="14,0,6,0"/>
+            <ComboBox x:Name="status_filter_cb" Width="110" Height="24" SelectedIndex="0" SelectionChanged="filter_changed">
+                <ComboBoxItem Content="All"/>
+                <ComboBoxItem Content="Changed"/>
+                <ComboBoxItem Content="Applied"/>
+                <ComboBoxItem Content="Errors"/>
+            </ComboBox>
+            <Button x:Name="select_all_b" Content="Select All" Click="select_all_click" Width="90" Height="24" Margin="14,0,0,0"/>
+            <Button x:Name="select_none_b" Content="Select None" Click="select_none_click" Width="90" Height="24" Margin="6,0,0,0"/>
+            <TextBlock Text="Pinned elements (fallback moves only):" VerticalAlignment="Center" Margin="20,0,6,0"/>
+            <ComboBox x:Name="pinned_mode_cb" Width="230" Height="24" SelectedIndex="0">
+                <ComboBoxItem Content="Ignore pinned elements" Tag="ignore"/>
+                <ComboBoxItem Content="Temporarily unpin, apply, restore" Tag="unpin"/>
+            </ComboBox>
+        </StackPanel>
+
+        <TabControl DockPanel.Dock="Top">
+            <TabItem Header="Levels">
+                <DataGrid x:Name="levels_grid" Margin="6" AutoGenerateColumns="False" CanUserAddRows="False"
+                          CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
+                    <DataGrid.Columns>
+                        <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="60"/>
+                        <DataGridTextColumn Header="Level Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
+                        <DataGridTextColumn Header="Current Elevation" Binding="{Binding current_elev_text}" Width="130" IsReadOnly="True"/>
+                        <DataGridTextColumn Header="New Elevation" Binding="{Binding new_elevation_text, Mode=TwoWay}" Width="130"/>
+                        <DataGridTextColumn Header="Elevation Difference" Binding="{Binding diff_text}" Width="140" IsReadOnly="True"/>
+                        <DataGridTextColumn Header="Hosted Elements" Binding="{Binding hosted_count_text}" Width="130" IsReadOnly="True"/>
+                        <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="160" IsReadOnly="True"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+
+            <TabItem Header="Preview / Affected Elements">
+                <DockPanel Margin="6">
+                    <TextBlock x:Name="preview_summary_tb" DockPanel.Dock="Top" Text="Click Preview Changes after selecting levels above."
+                               Margin="0,0,0,8" FontStyle="Italic" TextWrapping="Wrap"/>
+                    <DataGrid x:Name="preview_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                              CanUserSortColumns="True" SelectionMode="Extended" IsReadOnly="True" RowHeaderWidth="0">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Level" Binding="{Binding level_name}" Width="130"/>
+                            <DataGridTextColumn Header="Category" Binding="{Binding category_label}" Width="150"/>
+                            <DataGridTextColumn Header="Element Id" Binding="{Binding element_id_text}" Width="90"/>
+                            <DataGridTextColumn Header="Parameter" Binding="{Binding param_name}" Width="140"/>
+                            <DataGridTextColumn Header="Old Value" Binding="{Binding old_value_text}" Width="90"/>
+                            <DataGridTextColumn Header="New Value" Binding="{Binding new_value_text}" Width="90"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="80"/>
+                            <DataGridTextColumn Header="Note" Binding="{Binding note}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="Log &amp; Errors">
+                <Grid Margin="6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1.2*"/>
+                        <ColumnDefinition Width="1*"/>
+                    </Grid.ColumnDefinitions>
+                    <DockPanel Grid.Column="0" Margin="0,0,6,0">
+                        <TextBlock DockPanel.Dock="Top" Text="Live Status" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <TextBox x:Name="status_tb" IsReadOnly="True" TextWrapping="NoWrap"
+                                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                 FontFamily="Consolas" FontSize="11"/>
+                    </DockPanel>
+                    <DockPanel Grid.Column="1" Margin="6,0,0,0">
+                        <TextBlock DockPanel.Dock="Top" Text="Errors &amp; Warnings" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <DataGrid x:Name="error_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" RowHeaderWidth="0">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Type" Binding="{Binding kind}" Width="80"/>
+                                <DataGridTextColumn Header="Message" Binding="{Binding message}" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>
