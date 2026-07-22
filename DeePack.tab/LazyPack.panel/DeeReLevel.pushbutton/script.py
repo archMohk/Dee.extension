@@ -71,7 +71,7 @@ the identical vector - so connections, direction, and slope are all
 preserved simultaneously regardless of category.
 
 Elements that don't have an offset-type parameter DeeReLevel can find
-(Structural Framing, the 6 MEP curve categories above, exotic in-place
+(Structural Framing, all the MEP categories above, exotic in-place
 families) use that same direct geometric translation via
 ElementTransformUtils.MoveElement by (0, 0, -delta) - mathematically
 equivalent to the parameter-edit approach for absolute position, just
@@ -80,6 +80,28 @@ won't reflect the new position. Group members never get this fallback
 individually (that would corrupt the group's internal geometry) - if a
 fallback translation is ever needed on a grouped element, the whole
 Group instance is translated once instead.
+
+CONFIRMED (via a THIRD round of live testing - the rigid-translation
+fix above wasn't sufficient on its own) that even a pure geometric move
+can trigger the same "cannot be ignored" Revit error if it only moves
+PART of a physically-connected MEP assembly: an element's connector may
+be joined to a neighbor that ISN'T also being moved this pass (because
+that neighbor's own level didn't match, or wasn't detected) - Revit
+correctly rejects this as a genuine connectivity break, not a false
+positive, and (per Revit's own dialog) this specific error class is
+NOT ignorable/suppressible by any FailuresPreprocessor - the only real
+fix is to never attempt the move in the first place. _get_connected_neighbor_ids()
+walks an element's ConnectorManager (or MEPModel.ConnectorManager for
+family instances) to find every directly-connected element; before any
+MEP fallback-translation move, OffsetCalculator checks whether ALL of
+those neighbors are also in this level's moving_ids set (built once per
+level in LevelUpdater._apply_one_level) - if any neighbor is NOT also
+moving, the element is skipped (reported clearly, not silently) rather
+than attempting a move Revit will hard-reject and roll back. This
+trades completeness for safety: some MEP elements whose connected
+system spans an unselected level, or a level DeeReLevel didn't detect
+correctly, simply won't be touched - the user is told exactly why in
+the Preview/Apply reports and can move that system manually if needed.
 
 Hosting relationships (wall/floor/ceiling/roof/face/work-plane host)
 are NEVER touched - DeeReLevel only ever edits Level and Offset-type
@@ -612,17 +634,66 @@ def count_hosted_elements(level, index):
 # three amount to "adjust the matched parameter(s), never touch Host,
 # redirect any fallback move to the whole Group")
 # ==========================================================================
+def _get_connected_neighbor_ids(element):
+    """Element ids directly connected to `element` via MEP connectors.
+    Revit exposes connectors two different ways depending on category:
+    MEPCurve-derived elements (pipes, ducts, fittings) have
+    .ConnectorManager directly; most other connector-bearing family
+    instances (equipment, fixtures) expose it via
+    .MEPModel.ConnectorManager instead. Returns an empty set (not an
+    error) for elements with no connectors at all."""
+    neighbor_ids = set()
+    conn_mgr = None
+    try:
+        conn_mgr = element.ConnectorManager
+    except Exception:
+        conn_mgr = None
+    if conn_mgr is None:
+        try:
+            conn_mgr = element.MEPModel.ConnectorManager
+        except Exception:
+            conn_mgr = None
+    if conn_mgr is None:
+        return neighbor_ids
+    try:
+        connectors = list(conn_mgr.Connectors)
+    except Exception:
+        return neighbor_ids
+    for c in connectors:
+        try:
+            if not c.IsConnected:
+                continue
+            for ref in c.AllRefs:
+                try:
+                    owner = ref.Owner
+                    if owner is not None and owner.Id.IntegerValue != element.Id.IntegerValue:
+                        neighbor_ids.add(owner.Id.IntegerValue)
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    return neighbor_ids
+
+
 class OffsetCalculator(object):
     """Applies new_offset = old_offset - delta (see lib/relevel_tools.py)
     to a single element's matched parameter(s). Never raises out of
     `apply()` - every outcome becomes an ElementActionRow so one bad
     element can't abort an entire level's batch."""
 
-    def __init__(self, doc, level_name, delta_internal, pinned_mode="unpin"):
+    def __init__(self, doc, level_name, delta_internal, pinned_mode="unpin", moving_ids=None):
         self.doc = doc
         self.level_name = level_name
         self.delta = delta_internal
         self.pinned_mode = pinned_mode   # "unpin" or "ignore"
+        # Element ids that WILL be touched during this level's apply pass.
+        # A fallback-translation move on an element whose connected
+        # neighbor is NOT in this set would leave that neighbor behind,
+        # which Revit hard-rejects as a "cannot be ignored" network-
+        # connectivity error - the only real fix is to detect that ahead
+        # of time and skip the move rather than let Revit reject the
+        # whole transaction after the fact.
+        self.moving_ids = moving_ids or set()
 
     def apply(self, element, rule, base_hit, top_hit):
         if rule.report_only:
@@ -666,10 +737,20 @@ class OffsetCalculator(object):
 
     def _apply_fallback_translation(self, element, rule):
         """No offset parameter mapped for this category (Structural
-        Framing) - counteract the level's move with a direct geometric
-        translation instead. Group members are redirected to move the
-        whole Group instance once, never the member alone (moving a
-        single member out of formation corrupts the group)."""
+        Framing, MEP) - counteract the level's move with a direct
+        geometric translation instead. Group members are redirected to
+        move the whole Group instance once, never the member alone
+        (moving a single member out of formation corrupts the group)."""
+        if rule.is_mep:
+            neighbor_ids = _get_connected_neighbor_ids(element)
+            stray = neighbor_ids - self.moving_ids
+            if stray:
+                return ElementActionRow(
+                    self.level_name, rule.label, element, "(location)", "", "", "skipped",
+                    "Skipped - connected to {0} element(s) not also moving with this Level "
+                    "(Revit would hard-reject a partial move as a network-connectivity "
+                    "error); move it manually together with its connected system if "
+                    "needed".format(len(stray)))
         try:
             group_id = element.GroupId
         except Exception:
@@ -895,7 +976,10 @@ class LevelUpdater(object):
             return
 
         related = scan_related_elements(row.level, index)
-        calc = OffsetCalculator(self.doc, level_name, delta, self.pinned_mode)
+        moving_ids = set(
+            element.Id.IntegerValue for element, rule, base_hit, top_hit in related
+            if not rule.report_only)
+        calc = OffsetCalculator(self.doc, level_name, delta, self.pinned_mode, moving_ids)
 
         t = Transaction(self.doc, "DeeReLevel - Update Level '{0}'".format(level_name))
         t.Start()
@@ -1177,15 +1261,26 @@ class DeeReLevelWindow(forms.WPFWindow):
                 delta = rt.compute_delta(row.current_elev_internal, row.new_elev_internal())
                 related = scan_related_elements(row.level, index)
                 row.hosted_count = len(related)
+                moving_ids = set(
+                    el.Id.IntegerValue for el, rl, bh, th in related if not rl.report_only)
                 for element, rule, base_hit, top_hit in related:
                     if rule.report_only:
                         status, note, param_name = "skipped", "Report-only category - not modified", ""
                         new_txt = ""
                     elif rule.fallback_translation:
-                        status = "warning"
-                        note = "Will be moved directly (no offset parameter mapped) - verify after applying"
-                        param_name = "(location)"
-                        new_txt = rt.format_signed(_to_display(self.doc, -delta))
+                        stray = (_get_connected_neighbor_ids(element) - moving_ids) if rule.is_mep else set()
+                        if stray:
+                            status = "skipped"
+                            note = ("Connected to {0} element(s) not also moving with this Level - "
+                                     "would break network connectivity, so Apply will skip this "
+                                     "one".format(len(stray)))
+                            param_name = "(location)"
+                            new_txt = ""
+                        else:
+                            status = "warning"
+                            note = "Will be moved directly (no offset parameter mapped) - verify after applying"
+                            param_name = "(location)"
+                            new_txt = rt.format_signed(_to_display(self.doc, -delta))
                     else:
                         status, note = "ok", ""
                         if rule.is_mep:
