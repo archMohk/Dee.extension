@@ -54,22 +54,21 @@ category means adding a table row (open/closed principle), not new
 branching logic.
 
 CONFIRMED (via live testing, not just a theoretical concern) BROKEN:
-editing the Offset parameter directly on directional MEP curve runs
-(Pipes, Ducts, Flex Pipes, Flex Ducts, Cable Trays, Conduits) can flip
-which end Revit treats as the start of the run, invalidating every
-connection on it - Revit reported this exactly as "the duct/pipe has
-been modified to be in the opposite direction causing the connections
-to be invalid" (22 such errors on first live test). Those 6 categories
-now use the SAME fallback_translation path as Structural Framing - a
-pure rigid ElementTransformUtils.MoveElement by (0, 0, -delta) instead
-of a parameter edit. A rigid translation cannot change a curve's
-direction (every point moves by the identical vector), only its
-position, so both endpoint elevations, the slope between them, and
-every connector orientation are preserved simultaneously. Point-based
-MEP categories (fittings, accessories, equipment, fixtures, sprinklers)
-still use the Offset/Elevation parameter edit, since they aren't
-directional curves - this has not yet been separately confirmed safe,
-see NEEDS LIVE VERIFICATION below.
+editing the Offset/Elevation parameter directly on ANY network-connected
+MEP element - not just directional curve runs - can invalidate its
+connections. Two distinct live errors surfaced this:
+  "the duct/pipe has been modified to be in the opposite direction
+  causing the connections to be invalid" (directional curve runs -
+  Pipes/Ducts/Flex Pipes/Flex Ducts/Cable Trays/Conduits)
+  "the family is connected in a network and can no longer keep the
+  connectivity" (fittings/accessories/equipment/fixtures)
+Every MEP category in _CATEGORY_RULES now uses fallback_translation (a
+pure rigid ElementTransformUtils.MoveElement by (0, 0, -delta)) instead
+of a parameter edit, EXCEPT Pipe Insulation (report-only, no
+connectors). A rigid translation cannot change orientation or break a
+connector's relative position - every point of the element moves by
+the identical vector - so connections, direction, and slope are all
+preserved simultaneously regardless of category.
 
 Elements that don't have an offset-type parameter DeeReLevel can find
 (Structural Framing, the 6 MEP curve categories above, exotic in-place
@@ -95,15 +94,18 @@ assumed correct - consistent with every other tool in this session)
   string-name LookupParameter fallback, but the primary BuiltInParameter
   enum members should be spot-checked against a real project per
   category before trusting this on production models.
-- CONFIRMED BROKEN and fixed: editing Offset directly on directional MEP
-  curve runs (Pipes/Ducts/Flex Pipes/Flex Ducts/Cable Trays/Conduits)
-  can flip the run's direction and invalidate its connections - see the
-  module docstring's main section above. These 6 categories now use
-  fallback_translation (a rigid geometric move) instead of a parameter
-  edit. Point-based MEP categories (fittings, accessories, equipment,
-  fixtures, sprinklers) still use a parameter edit and have NOT been
-  separately confirmed safe - watch for similar connection errors on
-  those categories specifically.
+- CONFIRMED BROKEN and fixed (twice - two rounds of live testing found
+  this in different categories each time): editing Offset/Elevation
+  directly invalidates connections for ANY connector-bearing MEP
+  element, not just directional curve runs - see the module docstring's
+  main section above. Every MEP category except Pipe Insulation now
+  uses fallback_translation. The fallback level lookup (_fallback_level_id)
+  tries FAMILY_LEVEL_PARAM then a short list of common display names
+  ("Reference Level", "Level", "Schedule Level", "Base Level") since
+  MEP curves and plain family instances don't share one consistent
+  parameter name - this list may still be incomplete for some
+  categories; if a level's hosted-element count looks too low after
+  Scan, that's the first place to check.
 - Structural Framing (beams): no reliable single offset parameter was
   assumed here - DeeReLevel always uses the fallback geometric
   translation path for OST_StructuralFraming, since beam vertical
@@ -201,6 +203,22 @@ def _unit_abbreviation(doc):
         if u == uid:
             return abbr
     return "ft"
+
+
+# Rough per-element/per-level time budget used only to print a ballpark
+# "estimated time" message before Apply - not a measured benchmark, just
+# enough to warn the user before a long batch starts. Deliberately
+# labelled "approximate" everywhere it's shown.
+_EST_SECONDS_PER_ELEMENT = 0.08
+_EST_SECONDS_PER_LEVEL = 1.0
+
+
+def _format_duration(seconds):
+    seconds = max(0, int(round(seconds)))
+    if seconds < 60:
+        return "{0} second{1}".format(seconds, "" if seconds == 1 else "s")
+    minutes = seconds / 60.0
+    return "{0:.1f} minute{1}".format(minutes, "" if abs(minutes - 1.0) < 0.05 else "s")
 
 
 def _read_name(element):
@@ -348,60 +366,37 @@ _CATEGORY_RULES = [
     CategoryRule("Structure", _bic("OST_Rebar"), "Rebar", report_only=True),
 
     # ---- MEP ----
-    # Directional curve-based runs (Pipes/Ducts/Flex/Cable Tray/Conduit):
-    # CONFIRMED BROKEN as a parameter edit - setting Offset directly can
-    # flip which end Revit treats as the start of the run, invalidating
-    # every connection on it ("the duct/pipe has been modified to be in
-    # the opposite direction causing the connections to be invalid").
-    # Fixed by using fallback_translation (a pure rigid ElementTransformUtils
-    # translation) instead - a rigid move can never change a curve's
-    # direction, only its position, so connections/orientation survive.
+    # CONFIRMED BROKEN (via live testing) as a parameter edit for EVERY
+    # network-connected MEP category, not just directional curve runs:
+    # - "the duct/pipe has been modified to be in the opposite direction
+    #   causing the connections to be invalid" (curve runs)
+    # - "the family is connected in a network and can no longer keep the
+    #   connectivity" (fittings/accessories/equipment/fixtures)
+    # Any element with a connector can have its network invalidated by a
+    # scalar Offset/Elevation parameter edit, so every MEP category here
+    # (except Pipe Insulation, which has no connectors) uses
+    # fallback_translation - a pure rigid ElementTransformUtils move,
+    # which cannot change orientation or break a connector's relative
+    # position, only shift everything together by the same vector.
     CategoryRule("MEP", _bic("OST_PipeCurves"), "Pipes", is_mep=True, fallback_translation=True),
-    CategoryRule("MEP", _bic("OST_PipeFitting"), "Pipe Fittings",
-                 level_bip=_bip("RBS_START_LEVEL_PARAM"), level_name="Reference Level",
-                 offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
-    CategoryRule("MEP", _bic("OST_PipeAccessory"), "Pipe Accessories",
-                 level_bip=_bip("FAMILY_LEVEL_PARAM"), level_name="Reference Level",
-                 offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
+    CategoryRule("MEP", _bic("OST_PipeFitting"), "Pipe Fittings", is_mep=True, fallback_translation=True),
+    CategoryRule("MEP", _bic("OST_PipeAccessory"), "Pipe Accessories", is_mep=True, fallback_translation=True),
     CategoryRule("MEP", _bic("OST_PipeInsulations"), "Pipe Insulation", report_only=True, is_mep=True),
     CategoryRule("MEP", _bic("OST_DuctCurves"), "Ducts", is_mep=True, fallback_translation=True),
-    CategoryRule("MEP", _bic("OST_DuctFitting"), "Duct Fittings",
-                 level_bip=_bip("RBS_START_LEVEL_PARAM"), level_name="Reference Level",
-                 offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
-    CategoryRule("MEP", _bic("OST_DuctAccessory"), "Duct Accessories",
-                 level_bip=_bip("FAMILY_LEVEL_PARAM"), level_name="Reference Level",
-                 offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
+    CategoryRule("MEP", _bic("OST_DuctFitting"), "Duct Fittings", is_mep=True, fallback_translation=True),
+    CategoryRule("MEP", _bic("OST_DuctAccessory"), "Duct Accessories", is_mep=True, fallback_translation=True),
     CategoryRule("MEP", _bic("OST_FlexPipeCurves"), "Flex Pipes", is_mep=True, fallback_translation=True),
     CategoryRule("MEP", _bic("OST_FlexDuctCurves"), "Flex Ducts", is_mep=True, fallback_translation=True),
     CategoryRule("MEP", _bic("OST_CableTray"), "Cable Trays", is_mep=True, fallback_translation=True),
-    CategoryRule("MEP", _bic("OST_CableTrayFitting"), "Cable Tray Fittings",
-                 level_bip=_bip("RBS_START_LEVEL_PARAM"), level_name="Reference Level",
-                 offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
+    CategoryRule("MEP", _bic("OST_CableTrayFitting"), "Cable Tray Fittings", is_mep=True, fallback_translation=True),
     CategoryRule("MEP", _bic("OST_Conduit"), "Conduits", is_mep=True, fallback_translation=True),
-    CategoryRule("MEP", _bic("OST_ConduitFitting"), "Conduit Fittings",
-                 level_bip=_bip("RBS_START_LEVEL_PARAM"), level_name="Reference Level",
-                 offset_bip=_bip("RBS_OFFSET_PARAM"), offset_name="Offset", is_mep=True),
-    CategoryRule("MEP", _bic("OST_ConduitFitting"), "Conduit Fittings",
-                 level_bip=_bip("RBS_START_LEVEL_PARAM"), level_name="Reference Level",
-                 offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
-    CategoryRule("MEP", _bic("OST_MechanicalEquipment"), "Mechanical Equipment",
-                 level_bip=_bip("FAMILY_LEVEL_PARAM"), level_name="Level",
-                 offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
-    CategoryRule("MEP", _bic("OST_PlumbingFixtures"), "Plumbing Fixtures",
-                 level_bip=_bip("FAMILY_LEVEL_PARAM"), level_name="Level",
-                 offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
-    CategoryRule("MEP", _bic("OST_ElectricalFixtures"), "Electrical Fixtures",
-                 level_bip=_bip("FAMILY_LEVEL_PARAM"), level_name="Level",
-                 offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
-    CategoryRule("MEP", _bic("OST_LightingFixtures"), "Lighting Fixtures",
-                 level_bip=_bip("FAMILY_LEVEL_PARAM"), level_name="Level",
-                 offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
-    CategoryRule("MEP", _bic("OST_Sprinklers"), "Sprinklers",
-                 level_bip=_bip("FAMILY_LEVEL_PARAM"), level_name="Level",
-                 offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
-    CategoryRule("MEP", _bic("OST_FireProtection"), "Fire Protection Equipment",
-                 level_bip=_bip("FAMILY_LEVEL_PARAM"), level_name="Level",
-                 offset_bip=_bip("INSTANCE_ELEVATION_PARAM"), offset_name="Offset", is_mep=True),
+    CategoryRule("MEP", _bic("OST_ConduitFitting"), "Conduit Fittings", is_mep=True, fallback_translation=True),
+    CategoryRule("MEP", _bic("OST_MechanicalEquipment"), "Mechanical Equipment", is_mep=True, fallback_translation=True),
+    CategoryRule("MEP", _bic("OST_PlumbingFixtures"), "Plumbing Fixtures", is_mep=True, fallback_translation=True),
+    CategoryRule("MEP", _bic("OST_ElectricalFixtures"), "Electrical Fixtures", is_mep=True, fallback_translation=True),
+    CategoryRule("MEP", _bic("OST_LightingFixtures"), "Lighting Fixtures", is_mep=True, fallback_translation=True),
+    CategoryRule("MEP", _bic("OST_Sprinklers"), "Sprinklers", is_mep=True, fallback_translation=True),
+    CategoryRule("MEP", _bic("OST_FireProtection"), "Fire Protection Equipment", is_mep=True, fallback_translation=True),
 
     # ---- Annotation (report-only: geometry they reference doesn't move,
     #      so they shouldn't need touching) ----
@@ -514,6 +509,27 @@ def _param_level_id(element, bip, name):
     return None
 
 
+_FALLBACK_LEVEL_PARAM_NAMES = ("Reference Level", "Level", "Schedule Level", "Base Level")
+
+
+def _fallback_level_id(element):
+    """Level lookup for fallback_translation categories. These span two
+    different Revit conventions - MEP curves and their connected
+    fittings/accessories use "Reference Level", while plain family
+    instances (equipment, fixtures, Structural Framing) more commonly
+    use "Level"/"Schedule Level"/"Base Level" - so this tries
+    FAMILY_LEVEL_PARAM first, then each common display name in turn,
+    rather than assuming one fixed parameter works for every category."""
+    lvl_id = _param_level_id(element, _bip("FAMILY_LEVEL_PARAM"), None)
+    if lvl_id is not None:
+        return lvl_id
+    for name in _FALLBACK_LEVEL_PARAM_NAMES:
+        lvl_id = _param_level_id(element, None, name)
+        if lvl_id is not None:
+            return lvl_id
+    return None
+
+
 def hosting_kind(element):
     """Classifies a family instance's hosting relationship for
     reporting only (Wall/Ceiling/Floor/Roof/Face/Work Plane Hosted,
@@ -551,7 +567,7 @@ def build_relationship_index(doc, active_design_option_id, progress=None):
     total = len(_CATEGORY_RULES)
     for i, rule in enumerate(_CATEGORY_RULES):
         if progress is not None:
-            progress.update(i, total)
+            progress.update(i, total, step_name="Scanning: {0}".format(rule.label))
         try:
             collector = FilteredElementCollector(doc).OfCategory(rule.bic).WhereElementIsNotElementType()
         except Exception:
@@ -565,7 +581,7 @@ def build_relationship_index(doc, active_design_option_id, progress=None):
                 pass
 
             if rule.fallback_translation:
-                base_lvl_id = _param_level_id(el, None, "Reference Level")
+                base_lvl_id = _fallback_level_id(el)
                 top_lvl_id = None
             else:
                 base_lvl_id = _param_level_id(el, rule.level_bip, rule.level_name)
@@ -771,12 +787,21 @@ class FailureProcessor(IFailuresPreprocessor):
 # callers don't need to know pyRevit's specific progress-bar API.
 # ==========================================================================
 class ProgressService(object):
-    def __init__(self, title):
-        self.title = title
+    """Thin wrapper around pyrevit.forms.ProgressBar. `title_template` may
+    contain a literal "{step}" token (replaced here with the current
+    process/category/level name via set_step()) plus pyRevit's own
+    "{value}"/"{max_value}" tokens (left untouched for pyRevit's
+    ProgressBar to substitute itself on every update_progress() call) -
+    so the bar's title can show both a numeric count AND which named
+    step is currently running."""
+    def __init__(self, title_template):
+        self._title_template = title_template
         self._pb = None
+        self._step_name = ""
 
     def __enter__(self):
-        self._pb = forms.ProgressBar(title=self.title, cancellable=True)
+        self._pb = forms.ProgressBar(title=self._title_template.replace("{step}", "starting..."),
+                                      cancellable=True)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -786,7 +811,16 @@ class ProgressService(object):
             pass
         return False
 
-    def update(self, current, total):
+    def set_step(self, step_name):
+        self._step_name = step_name
+        try:
+            self._pb.title = self._title_template.replace("{step}", step_name)
+        except Exception:
+            pass
+
+    def update(self, current, total, step_name=None):
+        if step_name is not None:
+            self.set_step(step_name)
         try:
             self._pb.update_progress(current, total)
         except Exception:
@@ -808,25 +842,37 @@ class ProgressService(object):
 # already committed for a different, unrelated level.
 # ==========================================================================
 class LevelUpdater(object):
-    def __init__(self, doc, active_design_option_id, pinned_mode="unpin"):
+    def __init__(self, doc, active_design_option_id, pinned_mode="unpin", log_fn=None):
         self.doc = doc
         self.active_design_option_id = active_design_option_id
         self.pinned_mode = pinned_mode
         self.action_rows = []
         self.errors = []
+        self.log_fn = log_fn
 
-    def apply(self, level_rows_selected, progress=None):
+    def _log(self, message):
+        if self.log_fn is not None:
+            try:
+                self.log_fn(message)
+            except Exception:
+                pass
+
+    def apply(self, level_rows_selected, progress=None, index=None):
         tg = TransactionGroup(self.doc, "DeeReLevel - Update Levels")
         tg.Start()
         total = len(level_rows_selected)
         try:
-            index = build_relationship_index(self.doc, self.active_design_option_id)
+            if index is None:
+                self._log("Indexing related elements across all categories...")
+                index = build_relationship_index(self.doc, self.active_design_option_id, progress)
             for i, row in enumerate(level_rows_selected):
                 if progress is not None:
-                    progress.update(i, total)
+                    progress.update(i, total, step_name="Applying: {0}".format(row.name))
                     if progress.cancelled:
+                        self._log("Cancelled by user - rolling back.")
                         tg.RollBack()
                         return False
+                self._log("Applying level '{0}' ({1} of {2})...".format(row.name, i + 1, total))
                 self._apply_one_level(row, index)
             tg.Assimilate()
             return True
@@ -1092,9 +1138,10 @@ class DeeReLevelWindow(forms.WPFWindow):
 
     # ---------------- Scan Project ----------------
     def scan_click(self, sender, args):
-        self._log("Scanning levels and indexing related elements...")
         levels = scan_levels(self.doc)
-        with ProgressService("DeeReLevel - Scanning Project") as prog:
+        self._log("Scanning {0} level(s) across {1} categories - this may take a moment on large projects...".format(
+            len(levels), len(_CATEGORY_RULES)))
+        with ProgressService("DeeReLevel - {step} ({value} of {max_value})") as prog:
             index = build_relationship_index(self.doc, self.active_design_option_id, prog)
             rows = []
             for lvl in levels:
@@ -1123,9 +1170,10 @@ class DeeReLevelWindow(forms.WPFWindow):
 
         self._log("Building preview for {0} level(s)...".format(len(selected)))
         preview_rows = []
-        with ProgressService("DeeReLevel - Building Preview") as prog:
+        with ProgressService("DeeReLevel - {step} ({value} of {max_value})") as prog:
             index = build_relationship_index(self.doc, self.active_design_option_id, prog)
             for row in selected:
+                self._log("Previewing level '{0}'...".format(row.name))
                 delta = rt.compute_delta(row.current_elev_internal, row.new_elev_internal())
                 related = scan_related_elements(row.level, index)
                 row.hosted_count = len(related)
@@ -1172,20 +1220,29 @@ class DeeReLevelWindow(forms.WPFWindow):
             forms.alert("Fix these before applying:\n\n" + "\n".join(errors))
             return
 
+        self._log("Indexing related elements to estimate how long Apply will take...")
+        with ProgressService("DeeReLevel - {step} ({value} of {max_value})") as prog:
+            index = build_relationship_index(self.doc, self.active_design_option_id, prog)
+        total_elements = sum(len(scan_related_elements(row.level, index)) for row in selected)
+        est_seconds = len(selected) * _EST_SECONDS_PER_LEVEL + total_elements * _EST_SECONDS_PER_ELEMENT
+
         names = ", ".join(r.name for r in selected)
         if not forms.alert(
                 "Apply new elevations to {0} level(s): {1}?\n\n"
-                "DeeReLevel will adjust every matched offset parameter so hosted "
-                "elements, MEP runs, and constraints keep their current real-world "
-                "position. Review the Preview tab first if you haven't already.".format(
-                    len(selected), names),
+                "DeeReLevel will adjust every matched offset parameter (or, where "
+                "confirmed unsafe, move the element directly) so hosted elements, "
+                "MEP runs, and constraints keep their current real-world position.\n\n"
+                "About {2} affected element(s) across these levels - estimated time: "
+                "~{3} (a rough approximation, not a measurement).\n\n"
+                "Review the Preview tab first if you haven't already.".format(
+                    len(selected), names, total_elements, _format_duration(est_seconds)),
                 title="DeeReLevel - Confirm Apply", yes=True, no=True):
             return
 
         start = time.time()
-        updater = LevelUpdater(self.doc, self.active_design_option_id, self._pinned_mode())
-        with ProgressService("DeeReLevel - Applying Changes") as prog:
-            ok = updater.apply(selected, prog)
+        updater = LevelUpdater(self.doc, self.active_design_option_id, self._pinned_mode(), log_fn=self._log)
+        with ProgressService("DeeReLevel - {step} ({value} of {max_value})") as prog:
+            ok = updater.apply(selected, prog, index=index)
         self._last_execution_seconds = time.time() - start
 
         self._action_rows = updater.action_rows

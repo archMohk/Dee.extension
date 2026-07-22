@@ -19,7 +19,7 @@
     <h2>What it does</h2>
     <p>By default, moving a Revit Level moves the entire building with it, because every hosted element's "offset from level" parameter stays the same while the level itself shifts. DeeReLevel does the opposite: for every affected element it recalculates the matching offset parameter (Base Offset, Sill Height, Height Offset From Level, an MEP run's Offset, etc.) so that <code>level elevation + offset</code> &mdash; the element's actual real-world elevation &mdash; comes out exactly the same as before. Only the Level moves; nothing else does.</p>
     <p>Coverage spans walls, floors, roofs, ceilings, doors, windows, railings, stairs, rooms/areas, generic models, casework, furniture, specialty equipment, architectural &amp; structural columns, foundations, and the full MEP set (pipes, ducts, cable trays, conduits, flex pipes/ducts, fittings, accessories, mechanical/plumbing/electrical/lighting fixtures, sprinklers, fire protection equipment). Rebar, Rooms/Areas, and annotation categories (Spot Elevations, Dimensions, Detail Components, Reference Planes) are scanned and reported but never modified, since they follow their host or reference geometry automatically.</p>
-    <p>Directional MEP runs (Pipes, Ducts, Flex Pipes, Flex Ducts, Cable Trays, Conduits) and Structural Framing are moved with a direct geometric shift rather than a parameter edit &mdash; live testing confirmed that editing a pipe/duct's Offset parameter directly can flip which end Revit treats as the start of the run and invalidate its connections, so those categories now use a rigid translation instead, which cannot change a curve's direction, only its position (see the warning badge these get in Preview).</p>
+    <p>Every MEP category (except Pipe Insulation, which has no connectors) and Structural Framing are moved with a direct geometric shift rather than a parameter edit. Two rounds of live testing confirmed that editing Offset/Elevation directly can invalidate connections on ANY connector-bearing MEP element &mdash; not just directional runs like pipes/ducts, but fittings, accessories, equipment, and fixtures too &mdash; so all of them now use a rigid translation instead, which cannot change orientation or break a connection, only shift everything together by the same amount (see the warning badge these get in Preview).</p>
     <p>Hosting relationships are never touched &mdash; DeeReLevel only ever edits Level and offset-type instance parameters, so a wall-hosted door stays hosted exactly as it was. Group members are never moved individually (that would corrupt the group); if a fallback move is ever needed on a grouped element, the whole Group instance is moved once instead.</p>
   </div>
 
@@ -30,7 +30,7 @@
       <li>Type a new value into <strong>New Elevation</strong> for each Level you want to change, and tick its <strong>Select</strong> checkbox.</li>
       <li>Click <strong>Preview Changes</strong> &mdash; review the Preview / Affected Elements tab: which elements will be adjusted automatically ("ok"), which need manual verification after applying ("warning" &mdash; sloped MEP runs and Structural Framing), and which are report-only.</li>
       <li>Check the <strong>Log &amp; Errors</strong> tab for any warnings (e.g. two levels ending up at the same elevation).</li>
-      <li>Click <strong>Apply Changes</strong> and confirm &mdash; each Level is applied in its own transaction, so one Level's failure doesn't roll back a different Level's already-applied changes.</li>
+      <li>Click <strong>Apply Changes</strong> &mdash; the confirmation dialog shows an approximate affected-element count and estimated time before you confirm. Each Level is applied in its own transaction, so one Level's failure doesn't roll back a different Level's already-applied changes.</li>
       <li>Use <strong>Export Report</strong> to save an Excel (3-sheet: Levels, Affected Elements, Errors/Warnings) or JSON record of what happened.</li>
     </ol>
   </div>
@@ -40,7 +40,7 @@
     <table class="opts">
       <tr><th>Search / Filter</th><td>Narrow the Levels grid by name, or by status (Changed/Applied/Errors).</td></tr>
       <tr><th>Select All / Select None</th><td>Bulk-select the currently visible (filtered) levels.</td></tr>
-      <tr><th>Pinned elements</th><td>Only matters for the Structural Framing fallback-move path (parameter edits work on pinned elements either way): <em>Ignore</em> skips pinned elements entirely, <em>Temporarily unpin</em> unpins, moves, and re-pins.</td></tr>
+      <tr><th>Pinned elements</th><td>Only matters for elements using the direct-move path (Structural Framing and every MEP category except Pipe Insulation) &mdash; parameter edits on the remaining categories work on pinned elements either way: <em>Ignore</em> skips pinned elements entirely, <em>Temporarily unpin</em> unpins, moves, and re-pins.</td></tr>
       <tr><th>Dark Mode</th><td>Toggles the window's background/foreground colors.</td></tr>
     </table>
   </div>
@@ -50,8 +50,8 @@
     <ul>
       <li>This is a brand-new button, so it needs a full Revit restart + <code>pyrevit caches clear --all</code> to appear the first time &mdash; a plain Reload isn't enough.</li>
       <li>Every BuiltInParameter this tool relies on has a defensive fallback and is designed to degrade gracefully if wrong for your Revit version, but the parameter-to-category mapping has not been confirmed against a live project yet &mdash; check the Preview tab's Parameter/Old Value/New Value columns look sensible before applying.</li>
-      <li>Pipes, Ducts, Flex Pipes, Flex Ducts, Cable Trays, Conduits, and Structural Framing (beams) always use a direct geometric move rather than a parameter edit &mdash; this was changed after live testing showed editing Offset directly on a pipe/duct can flip its direction and break its connections. Preview flags every one of these elements for manual verification after applying regardless.</li>
-      <li>Point-based MEP categories (pipe/duct fittings and accessories, mechanical/plumbing/electrical/lighting equipment, sprinklers, fire protection equipment) still use a parameter edit and have not yet been separately confirmed safe against a live project.</li>
+      <li>All MEP categories (pipes, ducts, fittings, accessories, equipment, fixtures, sprinklers, fire protection &mdash; everything except Pipe Insulation) and Structural Framing (beams) use a direct geometric move rather than a parameter edit &mdash; this was changed after two rounds of live testing each found a different category breaking connections when its Offset/Elevation parameter was edited directly. Preview flags every one of these elements for manual verification after applying regardless.</li>
+      <li>DeeReLevel shows a rough (not measured) estimated time and affected-element count before Apply runs, and logs which level/category is currently being processed in the Log &amp; Errors tab's Live Status panel as it works.</li>
       <li>Try it on a backup/non-production copy of a project first, especially for MEP-heavy or structurally complex models.</li>
     </ul>
   </div>
