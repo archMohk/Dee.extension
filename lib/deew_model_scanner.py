@@ -34,7 +34,7 @@ inventing unverified API behavior.
 import os
 import datetime
 
-from Autodesk.Revit.DB import BasicFileInfo, ModelPathUtils
+from Autodesk.Revit.DB import BasicFileInfo
 
 
 MODEL_TYPE_STANDALONE = "Standalone"
@@ -172,8 +172,14 @@ def scan_file(file_path):
         pass
 
     try:
-        model_path = ModelPathUtils.ConvertUserVisiblePathToModelPath(file_path)
-        basic_info = BasicFileInfo.Extract(model_path)
+        # BasicFileInfo.Extract(string) takes a plain file path, NOT a
+        # ModelPath/FilePath object (confirmed via revitapidocs.com's
+        # documented signature: `public static BasicFileInfo Extract(
+        # string file)`) - passing a ModelPathUtils-converted object
+        # here throws "expected str, got FilePath" under IronPython,
+        # since ModelPath's derived FilePath class doesn't coerce to a
+        # Python str for .NET overload binding.
+        basic_info = BasicFileInfo.Extract(file_path)
     except Exception as e:
         model.model_type = MODEL_TYPE_CORRUPTED
         model.status = "Could not read file header"

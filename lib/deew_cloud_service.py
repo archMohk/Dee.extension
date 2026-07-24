@@ -85,19 +85,15 @@ def list_project_names(hub_id, token):
     return acc_api.list_projects(hub_id, token)
 
 
-def list_folder_names(hub_id, project_id, token):
-    return acc_api.get_top_folders(hub_id, project_id, token)
-
-
 def pick_destination(token=None):
     """Interactive Hub -> Project -> Folder picker, reusing
-    acc_file_browser's existing Hub/Project pickers plus a folder
-    picker built the same way - the user only ever picks from
-    real names, never a GUID (per spec). Returns a dict with both the
-    human-readable names (for the UI/report) and the raw ids
+    acc_file_browser's existing Hub/Project pickers plus its folder-
+    TREE drill-down picker (pick_folder) - the user only ever picks
+    from real names, never a GUID (per spec), and can navigate into
+    nested subfolders rather than only ever a top-level one, so the
+    Cloud Model lands at the correct real path. Returns a dict with
+    both the human-readable names (for the UI/report) and the raw ids
     save_to_cloud() needs, or None if the user cancelled at any step."""
-    from pyrevit import forms
-
     token = token or get_token()
     hub = afb.pick_hub(token)
     if not hub:
@@ -109,16 +105,10 @@ def pick_destination(token=None):
         return None
     project_id, project_name = project
 
-    folders = list_folder_names(hub_id, project_id, token)
-    if not folders:
+    folder = afb.pick_folder(hub_id, project_id, token)
+    if not folder:
         return None
-    folder_names = {}
-    for fid, name in folders:
-        folder_names[name] = fid
-    picked_name = forms.SelectFromList.show(
-        sorted(folder_names.keys()), title="Select ACC Folder", button_name="Select Folder")
-    if not picked_name:
-        return None
+    folder_id, folder_path = folder
 
     return {
         "token": token,
@@ -127,8 +117,8 @@ def pick_destination(token=None):
         "region": region,
         "project_id": project_id,
         "project_name": project_name,
-        "folder_id": folder_names[picked_name],
-        "folder_name": picked_name,
+        "folder_id": folder_id,
+        "folder_name": folder_path,
     }
 
 

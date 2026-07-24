@@ -286,6 +286,56 @@ def pick_project(hub_id, token):
     return project_lookup[project_name], project_name
 
 
+def pick_folder(hub_id, project_id, token):
+    """Interactive folder-TREE drill-down picker - unlike pick_hub/
+    pick_project (single flat list), this lets the user descend
+    through nested subfolders one level at a time so a Cloud Model can
+    be saved to its correct real path in the project (not only ever
+    one of the project's top-level folders). At every level past the
+    first, a "[Use This Folder]" option is offered so the user can stop
+    at any depth rather than being forced to a leaf.
+
+    Returns (folder_id, "breadcrumb / path / string"), or None if the
+    user cancelled at any step. A folder with no subfolders is
+    auto-finalized (returned immediately) since there's nothing further
+    to drill into."""
+    breadcrumb = []
+    folder_id = None
+    try:
+        subfolders = acc_api.get_top_folders(hub_id, project_id, token)
+    except Exception:
+        subfolders = []
+    if not subfolders:
+        forms.alert("No folders found in that project.")
+        return None
+
+    while True:
+        options = sorted(name for _fid, name in subfolders)
+        if breadcrumb:
+            options = ["[Use This Folder: {0}]".format(" / ".join(breadcrumb))] + options
+
+        title = "Select ACC Folder"
+        if breadcrumb:
+            title = "Select ACC Folder  -  {0}".format(" / ".join(breadcrumb))
+        picked = forms.SelectFromList.show(options, title=title, button_name="Open / Select")
+        if not picked:
+            return None
+
+        if picked.startswith("[Use This Folder"):
+            return folder_id, " / ".join(breadcrumb)
+
+        picked_id = dict((name, fid) for fid, name in subfolders)[picked]
+        breadcrumb.append(picked)
+        folder_id = picked_id
+        try:
+            subfolders, _items = acc_api.list_folder_contents(project_id, folder_id, token)
+        except Exception:
+            subfolders = []
+        if not subfolders:
+            # Leaf folder - nothing further to drill into, so use it.
+            return folder_id, " / ".join(breadcrumb)
+
+
 def list_project_files(hub_id, project_id, token, cache_file):
     """Full 'use cache or rescan' flow (same prompts/behavior as DeeOpener).
     Returns a dict {display_name: item_id}, or None if the user cancelled or

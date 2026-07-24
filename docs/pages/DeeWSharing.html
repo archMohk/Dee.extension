@@ -18,7 +18,7 @@
   <div class="card">
     <h2>What it does</h2>
     <p>For every selected .rvt file: determines whether it's Standalone, Central, a Local Copy of Central, already a Cloud Model, Detached, Corrupted, or Read-Only; opens it with the right strategy (detaching and preserving worksets for Central/Local Copy models, opening normally for Standalone, skipping anything already in the cloud); enables worksharing if requested and not already enabled; then calls Revit's own <code>Document.SaveAsCloudModel</code> to upload it into the ACC Hub/Project/Folder you picked. Every step is logged and reported.</p>
-    <p>ACC Hub, Project, and Folder are all loaded by name via Autodesk's Data Management API &mdash; you never type or need to know a GUID. Note that the actual upload uses <strong>Revit's own Autodesk sign-in</strong> (the account signed into Revit itself, top-right corner) separately from the sign-in used just to browse hub/project/folder names.</p>
+    <p>ACC Hub, Project, and Folder are all loaded by name via Autodesk's Data Management API &mdash; you never type or need to know a GUID. The folder step lets you drill down through nested subfolders (not only the project's top-level folders) &mdash; pick a folder to descend into it, or choose "Use This Folder" at any level to stop there, so the Cloud Model lands at the real path your project actually uses. Note that the actual upload uses <strong>Revit's own Autodesk sign-in</strong> (the account signed into Revit itself, top-right corner) separately from the sign-in used just to browse hub/project/folder names.</p>
   </div>
 
   <div class="card">
