@@ -329,7 +329,7 @@ class DeeWSharingWindow(forms.WPFWindow):
         with progsvc.DeeWProgressService(_TOOL_TITLE, 1) as prog:
             def progress_cb(i, total, name):
                 prog.total_files = max(total, 1)
-                prog.step(name, "Scanning")
+                prog.step(name, "Scanning", index=i)
             models = scanner.scan_folder(folder, recursive=recursive, progress_cb=progress_cb)
         scanner.annotate_version_mismatch(models, _revit_version_text(self.application))
         self._models = models

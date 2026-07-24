@@ -110,8 +110,17 @@ class DeeWProgressService(object):
             pass
         return False
 
-    def step(self, current_file, current_step):
+    def step(self, current_file, current_step, index=None):
+        """index: optional explicit position (0-based) for callers that
+        don't go through finish_file() to advance the counter - e.g.
+        scan_folder()'s progress_cb, which reports enumeration progress
+        (no success/fail/skip outcome exists yet at scan time) rather
+        than per-file processing outcomes. Without this, the bar's
+        percentage-fill stayed frozen at 0 throughout an entire scan,
+        even though the title text itself was updating correctly."""
         self._file_start_time = time.time()
+        if index is not None:
+            self._current_index = index
         self._render(current_file, current_step)
 
     def _render(self, current_file, current_step):
