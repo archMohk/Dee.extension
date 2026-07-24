@@ -24,8 +24,8 @@
   <div class="card">
     <h2>How to use it</h2>
     <ol>
-      <li>Browse to a source folder and click <strong>Scan Folder</strong> &mdash; every .rvt file is listed with its detected type, worksharing status, version, and size.</li>
-      <li>Tick the models you want to convert (Select All / Unselect All available).</li>
+      <li>Browse to a source folder and click <strong>Scan Folder</strong> &mdash; every .rvt file is listed with its detected type, worksharing status, version, and size. Or click <strong>Add Files...</strong> to add specific .rvt files one at a time (multi-select supported) instead of scanning a whole folder &mdash; the two can be combined freely, and duplicates are skipped automatically.</li>
+      <li>Tick the models you want to convert (Select All / Unselect All available). Check the <strong>Version Check</strong> column &mdash; it flags any file whose own saved Revit version differs from the Revit session you're running right now, since Revit silently upgrades a file to the current version the moment it's opened.</li>
       <li>Switch to <strong>ACC Destination &amp; Options</strong>, click <strong>Pick ACC Destination...</strong>, and choose your Hub, Project, and Folder by name.</li>
       <li>Set your processing options (Enable Worksharing, Detach, Audit, Compact, etc.).</li>
       <li>Click <strong>Run</strong> &mdash; review the Log &amp; Report tab as it processes.</li>
@@ -53,6 +53,7 @@
       <li>This package was originally built to run on pyRevit's CPython 3 engine, but live testing found that engine crashes at the .NET level before any script runs at all (confirmed in both Revit 2024 and Revit 2026, two different failures) &mdash; DeeW.Cloud now runs on pyRevit's default IronPython 2 engine instead, the same as every other tool in Dee.extension.</li>
       <li>Make sure Revit itself is signed in to your Autodesk account (top-right corner) &mdash; the actual cloud upload uses that sign-in, separately from the ACC browsing step.</li>
       <li>Several Revit API details used here (cloud-model detection, the cloud model's GUID after upload, "Open All Worksets") are flagged in the code as needing live-Revit verification &mdash; check the report's Warnings/Errors columns after your first real run.</li>
+      <li>Autodesk's ACC/Data Management API has no field for "this project's official Revit version" &mdash; a Cloud Model's version is simply whatever Revit session saves it. The Version Check column compares each file against the Revit you're currently running instead, which is the version any newly-uploaded Cloud Model will actually end up in.</li>
       <li>Try it on a backup/non-production copy of a project first.</li>
     </ul>
   </div>

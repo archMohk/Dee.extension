@@ -64,6 +64,7 @@ class ScannedModel(object):
         self.size_text = "0 KB"
         self.status = "Scanned"
         self.error = ""
+        self.version_warning = ""
 
     @property
     def size_mb_text(self):
@@ -200,3 +201,30 @@ def scan_file(file_path):
 
     model.status = "Scanned"
     return model
+
+
+def annotate_version_mismatch(models, running_version_text):
+    """Sets .version_warning on each model when its own saved Revit
+    version differs from the Revit session that will actually perform
+    the upload.
+
+    There is no ACC/Data Management API field for "the project's
+    official Revit version" (verified against acc_api.py's endpoints -
+    hubs/projects/folders/items only expose id/name, never a Revit
+    format/version) - a Cloud Model's version is simply whatever Revit
+    session saves it. So the one thing that's actually knowable and
+    relevant is: does this file's OWN saved version match the Revit
+    session running this tool right now? If not, opening it will
+    silently upgrade it to the running version - worth flagging before
+    upload, never worth blocking on, since it isn't an error."""
+    for model in models:
+        try:
+            if model.version and model.version not in ("Unknown", running_version_text):
+                model.version_warning = (
+                    "Saved in Revit {0}; current Revit is {1} - will be "
+                    "upgraded to {1} when opened.".format(model.version, running_version_text)
+                )
+            else:
+                model.version_warning = ""
+        except Exception:
+            model.version_warning = ""

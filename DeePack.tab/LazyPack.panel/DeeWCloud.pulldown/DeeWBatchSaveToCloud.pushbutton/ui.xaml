@@ -23,6 +23,7 @@
                         <Button x:Name="browse_b" Content="Browse..." Click="browse_click" Width="90" Height="24" Margin="8,0,0,0"/>
                         <Button x:Name="scan_b" Content="Scan Folder" Click="scan_click" Width="100" Height="24" Margin="8,0,0,0"/>
                         <CheckBox x:Name="recursive_cb" Content="Include subfolders" VerticalAlignment="Center" Margin="14,0,0,0" IsChecked="True"/>
+                        <Button x:Name="add_files_b" Content="Add Files..." Click="add_files_click" Width="100" Height="24" Margin="14,0,0,0"/>
                     </StackPanel>
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                         <Button x:Name="select_all_b" Content="Select All" Click="select_all_click" Width="90" Height="24"/>
@@ -39,6 +40,7 @@
                             <DataGridTextColumn Header="Model Type" Binding="{Binding model_type}" Width="110" IsReadOnly="True"/>
                             <DataGridTextColumn Header="Upload Mode" Binding="{Binding upload_mode}" Width="150" IsReadOnly="True"/>
                             <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="180" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Version Check" Binding="{Binding version_warning}" Width="220" IsReadOnly="True"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </DockPanel>

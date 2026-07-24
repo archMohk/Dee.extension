@@ -75,7 +75,7 @@ import datetime
 
 import clr
 clr.AddReference("System.Windows.Forms")
-from System.Windows.Forms import FolderBrowserDialog, SaveFileDialog, DialogResult, MessageBox
+from System.Windows.Forms import FolderBrowserDialog, OpenFileDialog, SaveFileDialog, DialogResult, MessageBox
 
 from pyrevit import forms, script
 
@@ -167,6 +167,7 @@ class SharingPipeline(object):
         row = reportgen.ReportRow(
             scanned_model.file_name, scanned_model.file_path,
             _revit_version_text(self.application), scanned_model.model_type)
+        row.warnings = scanned_model.version_warning
         start = time.time()
         document = None
         try:
@@ -330,11 +331,32 @@ class DeeWSharingWindow(forms.WPFWindow):
                 prog.total_files = max(total, 1)
                 prog.step(name, "Scanning")
             models = scanner.scan_folder(folder, recursive=recursive, progress_cb=progress_cb)
+        scanner.annotate_version_mismatch(models, _revit_version_text(self.application))
         self._models = models
         self.models_grid.ItemsSource = None
         self.models_grid.ItemsSource = models
         self.scan_status_tb.Text = "{0} RVT file(s) found.".format(len(models))
         self._log("Scan complete: {0} file(s).".format(len(models)))
+
+    def add_files_click(self, sender, args):
+        dlg = OpenFileDialog()
+        dlg.Filter = "Revit Files (*.rvt)|*.rvt"
+        dlg.Multiselect = True
+        dlg.Title = "Add individual Revit files"
+        if dlg.ShowDialog() != DialogResult.OK:
+            return
+        existing_paths = set(m.file_path for m in self._models)
+        added = 0
+        for path in dlg.FileNames:
+            if path in existing_paths:
+                continue
+            self._models.append(scanner.scan_file(path))
+            existing_paths.add(path)
+            added += 1
+        scanner.annotate_version_mismatch(self._models, _revit_version_text(self.application))
+        self._refresh_models_grid()
+        self.scan_status_tb.Text = "{0} RVT file(s) in list.".format(len(self._models))
+        self._log("Added {0} file(s) individually ({1} already in list).".format(added, len(dlg.FileNames) - added))
 
     def select_all_click(self, sender, args):
         for m in self._models:
