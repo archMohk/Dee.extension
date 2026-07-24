@@ -1,0 +1,115 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeW.Sharing — Convert Models to ACC Cloud Models"
+        ShowInTaskbar="False"
+        MinHeight="620" MinWidth="1040" Height="700" Width="1120"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                   Text="Converts Revit models into Autodesk Construction Cloud Cloud Models. Detects each model's type automatically, detaches from central and enables worksharing where needed, uploads to your chosen ACC Hub/Project/Folder, and reports the result."/>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button x:Name="run_b" Content="Run" Click="run_click" Width="90" Height="28"/>
+            <Button x:Name="export_report_b" Content="Export Report" Click="export_report_click" Width="120" Height="28" Margin="8,0,0,0"/>
+            <Button x:Name="cancel_b" Content="Cancel" Click="cancel_click" Width="90" Height="28" Margin="8,0,0,0"/>
+        </StackPanel>
+
+        <TabControl DockPanel.Dock="Top">
+            <TabItem Header="Source Models">
+                <DockPanel Margin="8">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,8,0,8">
+                        <TextBlock Text="Source Folder:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBox x:Name="source_folder_tb" Width="480" Height="24" VerticalContentAlignment="Center" IsReadOnly="True"/>
+                        <Button x:Name="browse_b" Content="Browse..." Click="browse_click" Width="90" Height="24" Margin="8,0,0,0"/>
+                        <Button x:Name="scan_b" Content="Scan Folder" Click="scan_click" Width="100" Height="24" Margin="8,0,0,0"/>
+                        <CheckBox x:Name="recursive_cb" Content="Include subfolders" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                    </StackPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="select_all_b" Content="Select All" Click="select_all_click" Width="90" Height="24"/>
+                        <Button x:Name="select_none_b" Content="Unselect All" Click="select_none_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <TextBlock x:Name="scan_status_tb" Text="No files scanned yet." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+                    <DataGrid x:Name="models_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                              CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
+                            <DataGridTextColumn Header="File Name" Binding="{Binding file_name}" Width="*" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Version" Binding="{Binding version}" Width="80" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Model Type" Binding="{Binding model_type}" Width="110" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Worksharing" Binding="{Binding worksharing_status}" Width="100" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Size" Binding="{Binding size_text}" Width="90" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="180" IsReadOnly="True"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="ACC Destination &amp; Options">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="8">
+                    <GroupBox Header="ACC Destination" Margin="0,0,0,10">
+                        <StackPanel Margin="6">
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Text="Hub, Project, and Folder are loaded from Autodesk Construction Cloud by name - you never need to know or type a GUID."/>
+                            <Button x:Name="pick_destination_b" Content="Pick ACC Destination..." Click="pick_destination_click" Width="180" Height="26" HorizontalAlignment="Left"/>
+                            <TextBlock x:Name="destination_tb" Text="No destination selected yet." Margin="0,8,0,0" FontStyle="Italic" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Processing Options" Margin="0,0,0,10">
+                        <StackPanel Margin="6">
+                            <CheckBox x:Name="enable_worksharing_cb" Content="Enable Worksharing (if not already workshared)" Margin="0,4,0,4" IsChecked="True"/>
+                            <CheckBox x:Name="detach_cb" Content="Detach from Central Automatically (Central / Local Copy models)" Margin="0,4,0,4" IsChecked="True"/>
+                            <StackPanel Orientation="Horizontal" Margin="20,0,0,4">
+                                <RadioButton x:Name="preserve_worksets_rb" Content="Preserve Existing Worksets" GroupName="worksets" IsChecked="True" Margin="0,0,20,0"/>
+                                <RadioButton x:Name="discard_worksets_rb" Content="Discard Existing Worksets" GroupName="worksets"/>
+                            </StackPanel>
+                            <CheckBox x:Name="audit_cb" Content="Audit" Margin="0,4,0,4"/>
+                            <CheckBox x:Name="compact_cb" Content="Compact" Margin="0,4,0,4"/>
+                            <CheckBox x:Name="open_all_worksets_cb" Content="Open All Worksets" Margin="0,4,0,4" IsChecked="True"/>
+                            <CheckBox x:Name="ignore_missing_links_cb" Content="Ignore Missing Links" Margin="0,4,0,4" IsChecked="True"/>
+                            <CheckBox x:Name="ignore_missing_families_cb" Content="Ignore Missing Families" Margin="0,4,0,4" IsChecked="True"/>
+                            <CheckBox x:Name="auto_resolve_dialogs_cb" Content="Automatically Resolve Dialogs" Margin="0,4,0,4" IsChecked="True"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
+                                <RadioButton x:Name="overwrite_cloud_rb" Content="Overwrite Existing Cloud Model" GroupName="duplicate" Margin="0,0,20,0"/>
+                                <RadioButton x:Name="rename_cloud_rb" Content="Rename Duplicate Cloud Model" GroupName="duplicate" IsChecked="True"/>
+                            </StackPanel>
+                            <CheckBox x:Name="generate_report_cb" Content="Generate Report" Margin="0,4,0,4" IsChecked="True"/>
+                            <CheckBox x:Name="close_after_cb" Content="Close File After Processing" Margin="0,4,0,4" IsChecked="True"/>
+                        </StackPanel>
+                    </GroupBox>
+                </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Log &amp; Report">
+                <Grid Margin="6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="1.3*"/>
+                    </Grid.ColumnDefinitions>
+                    <DockPanel Grid.Column="0" Margin="0,0,6,0">
+                        <TextBlock DockPanel.Dock="Top" Text="Live Status" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <TextBox x:Name="status_tb" IsReadOnly="True" TextWrapping="NoWrap"
+                                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                 FontFamily="Consolas" FontSize="11"/>
+                    </DockPanel>
+                    <DockPanel Grid.Column="1" Margin="6,0,0,0">
+                        <TextBlock DockPanel.Dock="Top" Text="Report" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <TextBlock x:Name="summary_tb" DockPanel.Dock="Top" Text="" Margin="0,0,0,6" FontStyle="Italic" TextWrapping="Wrap"/>
+                        <DataGrid x:Name="report_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" RowHeaderWidth="0">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="File" Binding="{Binding file_name}" Width="140"/>
+                                <DataGridTextColumn Header="Model Type" Binding="{Binding original_model_type}" Width="100"/>
+                                <DataGridTextColumn Header="Worksharing" Binding="{Binding worksharing_enabled}" Width="90"/>
+                                <DataGridTextColumn Header="Upload Status" Binding="{Binding upload_status}" Width="140"/>
+                                <DataGridTextColumn Header="Warnings" Binding="{Binding warnings}" Width="140"/>
+                                <DataGridTextColumn Header="Errors" Binding="{Binding errors}" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>

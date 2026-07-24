@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeW.Batch Save to Cloud — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; LazyPack panel &rsaquo; DeeW.Cloud dropdown</div>
+  <span class="panel-chip">LazyPack</span>
+  <h1 class="tool-title">DeeW.Batch Save to Cloud</h1>
+  <p class="tagline">Bulk-converts hundreds of local Revit models into Autodesk Construction Cloud Cloud Models, with a fully automatic dialog-suppressed pipeline optimized for very large batches.</p>
+
+  <div class="callout danger"><strong>Risk level: High</strong> Designed to run fully unattended across potentially hundreds of files: every dialog is auto-resolved and nothing pauses for confirmation, including before detach/worksharing/upload. This is the highest blast-radius tool in the extension &mdash; always test on a small batch of backup/non-production files first.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Same core pipeline as <a href="DeeWSharing.html">DeeW.Sharing</a> (shares all of its underlying services), but built for scale: only one Revit Document is ever open at a time, and it's closed and released immediately after each file so processing hundreds of models doesn't exhaust memory. Each file's upload mode is auto-detected from its type:</p>
+    <ul>
+      <li><strong>Mode 1</strong>: Local RVT &rarr; ACC Cloud Model</li>
+      <li><strong>Mode 2</strong>: Central RVT &rarr; Detach &rarr; ACC Cloud Model</li>
+      <li><strong>Mode 3</strong>: Local Copy of Central &rarr; Detach &rarr; ACC Cloud Model</li>
+    </ul>
+    <p>Every dialog Revit can show (missing links/families, upgrade notices, duplicate types, save warnings, etc.) is auto-resolved so the batch never blocks; any per-file error is logged and the batch continues to the next file rather than aborting.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Browse to a source folder (optionally including subfolders) and click <strong>Scan Folder</strong>.</li>
+      <li>Select the models to process; check the <strong>Upload Mode</strong> column to see what each one will do.</li>
+      <li>Pick your ACC destination and set your options.</li>
+      <li>Click <strong>Run Batch</strong> and let it work through the list &mdash; the Log &amp; Report tab shows live progress (current file, current step, elapsed/ETA, success/fail/skip counts).</li>
+      <li>Use <strong>Export Report</strong> for a full Excel/CSV/TXT record.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>Skip / Overwrite Existing / Rename Duplicates</th><td>How to handle a cloud model that already has the target name. Overwrite does <strong>not</strong> delete/replace the existing cloud item (an unverified, destructive API call this tool doesn't perform) &mdash; it skips the file instead, clearly noted in the report.</td></tr>
+      <tr><th>Delete Local Backup</th><td>Deletes Revit's own auto-generated "&lt;name&gt;.####.rvt" backup files next to the source file after a successful upload &mdash; never the source file itself.</td></tr>
+      <tr><th>Enable Worksharing / Detach Automatically / Audit / Compact / Open All Worksets</th><td>Same as DeeW.Sharing.</td></tr>
+      <tr><th>Automatically Resolve Dialogs</th><td>On by default for this tool, since a batch of hundreds of files must never stop on a modal prompt.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>This is a brand-new dropdown (DeeW.Cloud) with brand-new buttons, so it needs a full Revit restart + <code>pyrevit caches clear --all</code> to appear the first time.</li>
+      <li>Runs under pyRevit's CPython 3 engine, new ground for this extension &mdash; see <a href="DeeWSharing.html">DeeW.Sharing</a>'s handbook page for the full explanation.</li>
+      <li>Make sure Revit itself is signed in to your Autodesk account &mdash; the actual cloud upload needs that, separately from ACC browsing.</li>
+      <li>Test on a small batch of backup/non-production files first, especially given how automatic and unattended this tool is by design.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

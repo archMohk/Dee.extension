@@ -10,3 +10,10 @@ dlgval.json
 Project_Dlg_Data/
 __pycache__/
 *.pyc
+
+# DeeW.Cloud: per-machine persistent settings (last folder/ACC
+# destination/options) and log files - not source, re-generated on
+# first use, and may reference machine-local paths or ACC project
+# names not meant for the public repo.
+lib/.deew_settings/
+logs/

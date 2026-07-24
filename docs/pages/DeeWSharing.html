@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeW.Sharing — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; LazyPack panel &rsaquo; DeeW.Cloud dropdown</div>
+  <span class="panel-chip">LazyPack</span>
+  <h1 class="tool-title">DeeW.Sharing</h1>
+  <p class="tagline">Converts Revit models into Autodesk Construction Cloud Cloud Models &mdash; detects each model's type, detaches from central and enables worksharing where needed, uploads to your chosen ACC Hub/Project/Folder, and reports the result.</p>
+
+  <div class="callout danger"><strong>Risk level: High</strong> This tool detaches models from central, enables worksharing, and uploads new Cloud Models to Autodesk Construction Cloud &mdash; none of these are easily reversible. Test on a backup/non-production copy of a project first, and confirm your ACC destination is correct before running on real files.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>For every selected .rvt file: determines whether it's Standalone, Central, a Local Copy of Central, already a Cloud Model, Detached, Corrupted, or Read-Only; opens it with the right strategy (detaching and preserving worksets for Central/Local Copy models, opening normally for Standalone, skipping anything already in the cloud); enables worksharing if requested and not already enabled; then calls Revit's own <code>Document.SaveAsCloudModel</code> to upload it into the ACC Hub/Project/Folder you picked. Every step is logged and reported.</p>
+    <p>ACC Hub, Project, and Folder are all loaded by name via Autodesk's Data Management API &mdash; you never type or need to know a GUID. Note that the actual upload uses <strong>Revit's own Autodesk sign-in</strong> (the account signed into Revit itself, top-right corner) separately from the sign-in used just to browse hub/project/folder names.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Browse to a source folder and click <strong>Scan Folder</strong> &mdash; every .rvt file is listed with its detected type, worksharing status, version, and size.</li>
+      <li>Tick the models you want to convert (Select All / Unselect All available).</li>
+      <li>Switch to <strong>ACC Destination &amp; Options</strong>, click <strong>Pick ACC Destination...</strong>, and choose your Hub, Project, and Folder by name.</li>
+      <li>Set your processing options (Enable Worksharing, Detach, Audit, Compact, etc.).</li>
+      <li>Click <strong>Run</strong> &mdash; review the Log &amp; Report tab as it processes.</li>
+      <li>Use <strong>Export Report</strong> for an Excel/CSV/TXT record.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>Enable Worksharing</th><td>Runs <code>Document.EnableWorksharing</code> with Revit's own default workset names ("Shared Levels and Grids" / "Workset1") if the model isn't already workshared.</td></tr>
+      <tr><th>Detach from Central Automatically</th><td>Applies to Central and Local Copy models only; Standalone models open normally, Cloud models are skipped.</td></tr>
+      <tr><th>Preserve / Discard Existing Worksets</th><td>Which detach behavior to use when detaching is enabled.</td></tr>
+      <tr><th>Audit / Compact / Open All Worksets</th><td>Standard Revit open/save options, applied per file.</td></tr>
+      <tr><th>Automatically Resolve Dialogs</th><td>Auto-dismisses Revit's native dialogs (missing links/families, upgrade notices, etc.) so a batch never blocks on a modal prompt.</td></tr>
+      <tr><th>Overwrite / Rename Duplicate Cloud Model</th><td>If a cloud model with the same name already exists: Rename appends "(2)", "(3)", etc.; Overwrite does <strong>not</strong> delete/replace the existing cloud item (that would need an unverified, destructive API call) &mdash; it skips the file instead and says so clearly in the report.</td></tr>
+      <tr><th>Generate Report / Close File After Processing</th><td>Self-explanatory; Close After Processing keeps memory use low across many files.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>This is a brand-new dropdown (DeeW.Cloud) with brand-new buttons, so it needs a full Revit restart + <code>pyrevit caches clear --all</code> to appear the first time &mdash; a plain Reload isn't enough.</li>
+      <li>This tool (and every other DeeW.Cloud tool) runs under pyRevit's CPython 3 engine, unlike every other button in Dee.extension which uses IronPython 2 &mdash; this is new ground for this extension and hasn't been live-tested yet, including whether the WPF window itself opens correctly under this engine.</li>
+      <li>Make sure Revit itself is signed in to your Autodesk account (top-right corner) &mdash; the actual cloud upload uses that sign-in, separately from the ACC browsing step.</li>
+      <li>Several Revit API details used here (cloud-model detection, the cloud model's GUID after upload, "Open All Worksets") are flagged in the code as needing live-Revit verification &mdash; check the report's Warnings/Errors columns after your first real run.</li>
+      <li>Try it on a backup/non-production copy of a project first.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>
