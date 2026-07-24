@@ -1,4 +1,3 @@
-#! python3
 # -*- coding: utf-8 -*-
 """
 DeeW.Sharing (DeeW.Cloud)
@@ -9,24 +8,29 @@ central and enables worksharing where needed, saves to your chosen ACC
 Hub/Project/Folder, and generates a detailed report.
 
 --------------------------------------------------------------------
-Architecture
+Architecture - IronPython 2, not CPython 3 (history below)
 --------------------------------------------------------------------
-This tool - and the rest of the DeeW.Cloud package - runs under
-pyRevit's CPython 3 engine (the "#! python3" hashbang above, a
-pyRevit-documented mechanism confirmed via pyRevit's own source before
-using it), per the explicit "Python 3, not IronPython 2" requirement
-this package was built against. This is DELIBERATELY DIFFERENT from
-every other tool in Dee.extension (all IronPython 2, pyRevit's
-default engine) - kept isolated to this one package so the rest of
-the extension is unaffected. pyrevit.forms.WPFWindow and the
-Click="method_name" XAML-binding pattern used throughout this file are
-the SAME pyRevit library code regardless of engine, so this is
-expected to behave identically to every IronPython 2 tool already
-proven in this extension - flagged here as the single biggest
-"needs live verification" item for this whole package, since running
-pyRevit's WPF forms under CPython+pythonnet is new ground for this
-specific codebase (every other WPF tool here has only ever been
-tested under IronPython 2).
+This package was originally built to run under pyRevit's CPython 3
+engine (via a "#! python3" script.py hashbang), per this package's
+original spec, which explicitly asked for Python 3 over IronPython 2.
+Live testing immediately confirmed that engine is not usable in this
+environment: opening this tool crashed with a .NET-level
+TypeInitializationException ("the type initializer for 'Delegates'
+threw an exception") in Revit 2024, and a DIFFERENT .NET-level
+FormatException ("the input string '3.12.3' was not in a correct
+format") in Revit 2026 - both failures happen inside pyRevit's own
+CPython-engine bootstrapping, before any script code (including this
+file) ever runs, so neither was fixable from within this package.
+This matches pyRevit's own community-documented caveat that its
+CPython engine "is under active development and might be unstable."
+
+Given that, this file (and the rest of DeeW.Cloud) now runs on
+pyRevit's default IronPython 2 engine, matching every other tool in
+Dee.extension (proven stable across 39+ tools all built the same way).
+pyrevit.forms.WPFWindow and the Click="method_name" XAML-binding
+pattern used throughout this file are identical to every other
+IronPython 2 tool in this extension - no longer a new-ground
+assumption.
 
 Business logic is split across reusable lib/ services (per spec,
 shared with every other DeeW.Cloud tool, present and future):
@@ -51,7 +55,6 @@ rather than fragmenting the orchestration logic itself across files.
 NEEDS LIVE-REVIT VERIFICATION (flagged explicitly - see also the
 per-function docstrings in each lib/deew_*.py module)
 --------------------------------------------------------------------
-- Running pyRevit's WPF forms under the CPython 3 engine (see above).
 - Document.IsModelInCloud, WorksetConfigurationOption.OpenAllWorksets,
   and the cloud-model-GUID readback in deew_report_generator.py.
 - acc_api.search_cloud_models() is documented as project-wide, not

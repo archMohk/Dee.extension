@@ -6,14 +6,12 @@ DeeW.Cloud tool (Publish, Consume, Transfer, Batch Upgrade, Audit,
 Clean, Sync, Package) so none of them need their own placeholder
 window - one XAML file, one launcher function.
 
-Runs under pyRevit's CPython 3 engine (this whole DeeW.Cloud package
-does - see the "#! python3" hashbang at the top of every tool's
-script.py), unlike the rest of Dee.extension which stays on pyRevit's
-default IronPython 2 engine. pyrevit.forms.WPFWindow itself is
-engine-agnostic pyRevit library code, so this pattern is expected to
-work the same under either engine - flagged here as a general
-DeeW.Cloud assumption needing live-Revit verification, same as every
-other tool in this extension.
+Runs on pyRevit's default IronPython 2 engine, same as every other
+tool in Dee.extension. DeeW.Cloud was originally built against
+pyRevit's CPython 3 engine, but live testing found that engine crashes
+at the .NET level before any script runs in this environment - see
+DeeWSharing.pushbutton/script.py's module docstring for the full
+story - so the whole package now uses IronPython 2 instead.
 """
 import os
 

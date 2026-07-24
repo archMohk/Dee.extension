@@ -1,4 +1,3 @@
-#! python3
 # -*- coding: utf-8 -*-
 """DeeW.Publish (DeeW.Cloud)
 Placeholder - not implemented yet. Shows the shared "Coming Soon"

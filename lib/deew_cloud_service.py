@@ -6,15 +6,16 @@ modelName) - the Revit API method (introduced Revit 2021, verified
 against revitapidocs.com before writing this file, not guessed) for
 converting a local model into a new ACC/BIM 360 Cloud Model - and
 reuses this repo's EXISTING acc_auth/acc_api/acc_file_browser modules
-for Hub/Project/Folder DISCOVERY (browsing real names via the APS
-Data Management REST API), so DeeW.Cloud tools never ask the user to
-type or know a raw GUID, per spec. Confirmed compatible with pyRevit's
-CPython 3 engine (this package's engine - see the "#! python3"
-hashbang in every DeeW.Cloud script.py): acc_auth.py/acc_api.py/
-acc_file_browser.py all py_compile cleanly under Python 3 with no
-Python-2-only syntax, though runtime .NET-interop behavior under
-pythonnet (CPython) vs IronPython's native interop is still worth a
-live spot-check since it's new ground for this specific codebase.
+unchanged for Hub/Project/Folder DISCOVERY (browsing real names via
+the APS Data Management REST API), so DeeW.Cloud tools never ask the
+user to type or know a raw GUID, per spec. Runs on pyRevit's default
+IronPython 2 engine - DeeW.Cloud was originally built against pyRevit's
+CPython 3 engine, but live testing found that engine crashes at the
+.NET level before any script runs in this environment (see
+DeeWSharing.pushbutton/script.py's module docstring for the full
+story), so this package now uses the same proven engine as every other
+tool in Dee.extension, including the acc_auth/acc_api/acc_file_browser
+modules this file imports.
 
 --------------------------------------------------------------------
 IMPORTANT: two SEPARATE Autodesk identities are involved here

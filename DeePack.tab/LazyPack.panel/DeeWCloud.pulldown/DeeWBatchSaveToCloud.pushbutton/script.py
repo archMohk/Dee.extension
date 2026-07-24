@@ -1,4 +1,3 @@
-#! python3
 # -*- coding: utf-8 -*-
 """
 DeeW.Batch Save to Cloud (DeeW.Cloud)
@@ -15,13 +14,15 @@ a time, closed and released before the next file starts (spec:
 memory after each document").
 
 --------------------------------------------------------------------
-Architecture
+Architecture - IronPython 2, not CPython 3 (history below)
 --------------------------------------------------------------------
-Runs under pyRevit's CPython 3 engine (see the "#! python3" hashbang
-above) - see DeeWSharing.pushbutton/script.py's module docstring for
-the full explanation of why, and the "needs live verification" note
-about running pyRevit's WPF forms under CPython for the first time in
-this codebase, which applies equally here.
+This package was originally built to run under pyRevit's CPython 3
+engine. Live testing confirmed that engine crashes at the .NET level
+before any script code runs (two different failures, in Revit 2024
+and Revit 2026 respectively) - see DeeWSharing.pushbutton/script.py's
+module docstring for the full explanation. This file (and the rest of
+DeeW.Cloud) now runs on pyRevit's default IronPython 2 engine instead,
+matching every other tool in Dee.extension.
 
 Shares every lib/deew_*.py service with DeeW.Sharing (logging,
 settings, model scanning, document lifecycle, cloud upload, dialog/

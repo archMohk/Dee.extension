@@ -22,6 +22,7 @@ crash because of an unhandled exception" applies to the logger itself
 too, not just to Revit API calls.
 """
 import os
+import io
 import datetime
 import threading
 
@@ -68,7 +69,12 @@ class DeeWLogger(object):
             return
         try:
             line = "[{0}] {1:<8s} {2}\n".format(entry["timestamp"], entry["level"], entry["message"])
-            with open(self._file_path, "a", encoding="utf-8") as f:
+            # io.open (not the plain `open` builtin) - the builtin
+            # open() has no `encoding` keyword under Python 2/
+            # IronPython 2 (this whole package's engine - see
+            # deew_cloud_service.py's module docstring), only io.open
+            # supports `encoding` consistently across Python 2 and 3.
+            with io.open(self._file_path, "a", encoding="utf-8") as f:
                 f.write(line)
         except Exception:
             pass

@@ -17,6 +17,7 @@ listed in .gitignore since it holds machine-local paths and ACC
 project/folder identifiers, not something to publish in a public repo.
 """
 import os
+import io
 import json
 
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -36,7 +37,10 @@ def load(tool_name, defaults=None):
     path = _settings_path(tool_name)
     try:
         if os.path.isfile(path):
-            with open(path, "r", encoding="utf-8") as f:
+            # io.open, not the plain `open` builtin - open() has no
+            # `encoding` keyword under Python 2/IronPython 2 (this
+            # package's engine).
+            with io.open(path, "r", encoding="utf-8") as f:
                 saved = json.load(f)
             if isinstance(saved, dict):
                 result.update(saved)
@@ -53,7 +57,7 @@ def save(tool_name, settings_dict):
         if not os.path.isdir(_SETTINGS_DIR):
             os.makedirs(_SETTINGS_DIR)
         path = _settings_path(tool_name)
-        with open(path, "w", encoding="utf-8") as f:
+        with io.open(path, "w", encoding="utf-8") as f:
             json.dump(settings_dict, f, indent=2)
         return True
     except Exception:

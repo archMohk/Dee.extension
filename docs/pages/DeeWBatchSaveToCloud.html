@@ -51,7 +51,7 @@
     <h2>Before you run it</h2>
     <ul>
       <li>This is a brand-new dropdown (DeeW.Cloud) with brand-new buttons, so it needs a full Revit restart + <code>pyrevit caches clear --all</code> to appear the first time.</li>
-      <li>Runs under pyRevit's CPython 3 engine, new ground for this extension &mdash; see <a href="DeeWSharing.html">DeeW.Sharing</a>'s handbook page for the full explanation.</li>
+      <li>Originally built for pyRevit's CPython 3 engine, but live testing found that engine crashes at the .NET level before any script runs at all &mdash; this tool now runs on pyRevit's default IronPython 2 engine instead, same as every other tool in Dee.extension. See <a href="DeeWSharing.html">DeeW.Sharing</a>'s handbook page for the full story.</li>
       <li>Make sure Revit itself is signed in to your Autodesk account &mdash; the actual cloud upload needs that, separately from ACC browsing.</li>
       <li>Test on a small batch of backup/non-production files first, especially given how automatic and unattended this tool is by design.</li>
     </ul>

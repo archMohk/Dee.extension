@@ -50,7 +50,7 @@
     <h2>Before you run it</h2>
     <ul>
       <li>This is a brand-new dropdown (DeeW.Cloud) with brand-new buttons, so it needs a full Revit restart + <code>pyrevit caches clear --all</code> to appear the first time &mdash; a plain Reload isn't enough.</li>
-      <li>This tool (and every other DeeW.Cloud tool) runs under pyRevit's CPython 3 engine, unlike every other button in Dee.extension which uses IronPython 2 &mdash; this is new ground for this extension and hasn't been live-tested yet, including whether the WPF window itself opens correctly under this engine.</li>
+      <li>This package was originally built to run on pyRevit's CPython 3 engine, but live testing found that engine crashes at the .NET level before any script runs at all (confirmed in both Revit 2024 and Revit 2026, two different failures) &mdash; DeeW.Cloud now runs on pyRevit's default IronPython 2 engine instead, the same as every other tool in Dee.extension.</li>
       <li>Make sure Revit itself is signed in to your Autodesk account (top-right corner) &mdash; the actual cloud upload uses that sign-in, separately from the ACC browsing step.</li>
       <li>Several Revit API details used here (cloud-model detection, the cloud model's GUID after upload, "Open All Worksets") are flagged in the code as needing live-Revit verification &mdash; check the report's Warnings/Errors columns after your first real run.</li>
       <li>Try it on a backup/non-production copy of a project first.</li>

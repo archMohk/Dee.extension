@@ -8,14 +8,20 @@ Original Model Type, Worksharing Enabled, Upload Status, Warnings,
 Errors, Processing Time, Date, Revit Version, User.
 
 Reuses this repo's existing lib/xlsx_writer.py for the Excel export
-(confirmed to py_compile cleanly under Python 3 - the same dependency-
-free, zipfile-only writer already used by every IronPython 2 tool in
-this extension, imported here unchanged).
+unchanged - the same dependency-free, zipfile-only writer already used
+by every other tool in this extension.
+
+CSV export is written manually (plain comma-joining with minimal
+quoting) rather than via Python's stdlib `csv` module - that module is
+documented as not reliably Unicode-safe under Python 2/IronPython 2
+(the engine this whole extension, including DeeW.Cloud, runs on - see
+deew_cloud_service.py's module docstring for why DeeW.Cloud isn't on
+CPython 3 despite originally being built for it), so a small hand-
+rolled writer avoids that class of bug entirely rather than working
+around it.
 """
-import csv
+import os
 import datetime
-import getpass
-import io
 
 import xlsx_writer
 
@@ -51,7 +57,11 @@ class ReportRow(object):
         self.date_text = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.revit_version = revit_version
         try:
-            self.user = getpass.getuser()
+            # os.environ lookup rather than getpass.getuser() - this
+            # extension only ever runs on Windows (a Revit add-in), so
+            # the USERNAME env var is always present and avoids any
+            # getpass-module portability quirks under IronPython 2.
+            self.user = os.environ.get("USERNAME", "Unknown")
         except Exception:
             self.user = "Unknown"
 
@@ -104,16 +114,22 @@ def get_cloud_model_guid(document):
         return "N/A"
 
 
+def _csv_escape(value):
+    text = "" if value is None else str(value)
+    if any(ch in text for ch in (",", '"', "\n", "\r")):
+        text = '"' + text.replace('"', '""') + '"'
+    return text
+
+
 def export_csv(path, rows):
-    with io.open(path, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.writer(f)
-        writer.writerow(REPORT_HEADERS)
+    with open(path, "w") as f:
+        f.write(",".join(_csv_escape(h) for h in REPORT_HEADERS) + "\r\n")
         for row in rows:
-            writer.writerow(row.to_list())
+            f.write(",".join(_csv_escape(v) for v in row.to_list()) + "\r\n")
 
 
 def export_txt(path, rows):
-    with io.open(path, "w", encoding="utf-8") as f:
+    with open(path, "w") as f:
         f.write("\t".join(REPORT_HEADERS) + "\n")
         for row in rows:
             f.write("\t".join(str(v) for v in row.to_list()) + "\n")
