@@ -260,17 +260,28 @@ def make_dialog_handler(log_list):
 
 
 def pick_hub(token):
-    """Returns (hub_id, region, hub_name), or None if the user cancelled."""
+    """Returns (hub_id, region, hub_name), or None if the user cancelled.
+
+    The hub list itself is never region-filtered - acc_api.list_hubs()
+    calls the single global APS "/project/v1/hubs" endpoint, which
+    returns every hub (US, EMEA, or otherwise) the SIGNED-IN Autodesk
+    account has membership in, all in one call. If an expected region's
+    hub is missing here, that's an Autodesk-account/admin-permissions
+    matter (the signed-in account isn't a member of that hub), not a
+    region restriction in this code - the region tag shown in each list
+    entry below makes that directly checkable."""
     hubs = acc_api.list_hubs(token)
     if not hubs:
         forms.alert("No ACC/BIM360 hubs found for this account.")
         return None
-    hub_lookup = {name: (hub_id, region) for hub_id, name, region in hubs}
-    hub_name = forms.SelectFromList.show(sorted(hub_lookup.keys()), title="Select Hub")
-    if not hub_name:
+    display_lookup = {}
+    for hub_id, name, region in hubs:
+        display = "{0}  [{1}]".format(name, region or "?")
+        display_lookup[display] = (hub_id, region, name)
+    picked = forms.SelectFromList.show(sorted(display_lookup.keys()), title="Select Hub")
+    if not picked:
         return None
-    hub_id, region = hub_lookup[hub_name]
-    return hub_id, region, hub_name
+    return display_lookup[picked]
 
 
 def pick_project(hub_id, token):
