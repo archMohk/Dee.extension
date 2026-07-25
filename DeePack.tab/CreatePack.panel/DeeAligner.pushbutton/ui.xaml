@@ -13,7 +13,15 @@
             <TabItem Header="Views">
                 <DockPanel Margin="8">
                     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Check any number of sheets below and Scan Selected Sheets to pool every Viewport on them into one grid (or select Viewports in Revit first and click Use Current Selection). Check which rows to include, then use an alignment button - it batch-aligns across every checked sheet at once (e.g. Align Left moves every checked Viewport, whatever sheet it's on, so its left edge matches the overall minimum). Needs at least 2 checked (3 for Distribute)."/>
+                               Text="Check any number of sheets below and Scan Selected Sheets to pool every Viewport on them into one grid (or select Viewports in Revit first and click Use Current Selection). Check which rows to include, then use an alignment button - it batch-aligns across every checked sheet at once (e.g. Align Left moves every checked Viewport, whatever sheet it's on, so its left edge matches the overall minimum). Needs at least 2 checked (3 for Distribute). Nothing touches Revit until you click Apply to Sheet below - every action just stages a preview first (shown with a yellow outline)."/>
+
+                    <GroupBox DockPanel.Dock="Top" Header="Apply Changes to Sheet" Margin="0,0,0,8">
+                        <StackPanel Orientation="Horizontal" Margin="6">
+                            <Button x:Name="views_apply_b" Content="Apply to Sheet" Click="views_apply_click" Width="130" Height="28" FontWeight="Bold"/>
+                            <Button x:Name="views_discard_b" Content="Discard Changes" Click="views_discard_click" Width="130" Height="28" Margin="8,0,0,0"/>
+                            <TextBlock x:Name="views_pending_status_tb" Text="No pending changes." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
+                        </StackPanel>
+                    </GroupBox>
 
                     <GroupBox DockPanel.Dock="Top" Header="Sheets" Margin="0,0,0,8">
                         <DockPanel Margin="6">
@@ -109,7 +117,15 @@
             <TabItem Header="Images">
                 <DockPanel Margin="8">
                     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Pick one sheet and Load Sheet to list every Image on it (or select Images in Revit first and click Use Current Selection). Check which rows to include, then use an alignment button (needs at least 2 checked, 3 for Distribute), Scale Images, or Auto-Arrange - all scoped to this one sheet, and all aware of its Viewports as obstacles to avoid even though Viewports aren't listed as rows here."/>
+                               Text="Pick one sheet and Load Sheet to list every Image on it (or select Images in Revit first and click Use Current Selection). Check which rows to include, then use an alignment button (needs at least 2 checked, 3 for Distribute), Scale Images, or Auto-Arrange - all scoped to this one sheet, and all aware of its Viewports as obstacles to avoid even though Viewports aren't listed as rows here. Nothing touches Revit until you click Apply to Sheet below - every action just stages a preview first (shown with a yellow outline)."/>
+
+                    <GroupBox DockPanel.Dock="Top" Header="Apply Changes to Sheet" Margin="0,0,0,10">
+                        <StackPanel Orientation="Horizontal" Margin="6">
+                            <Button x:Name="images_apply_b" Content="Apply to Sheet" Click="images_apply_click" Width="130" Height="28" FontWeight="Bold"/>
+                            <Button x:Name="images_discard_b" Content="Discard Changes" Click="images_discard_click" Width="130" Height="28" Margin="8,0,0,0"/>
+                            <TextBlock x:Name="images_pending_status_tb" Text="No pending changes." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
+                        </StackPanel>
+                    </GroupBox>
 
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
                         <TextBlock Text="Sheet:" VerticalAlignment="Center" Margin="0,0,8,0"/>

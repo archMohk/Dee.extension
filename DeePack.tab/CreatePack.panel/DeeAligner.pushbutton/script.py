@@ -27,10 +27,27 @@ area inside a title block's info strip) - Offset X/Y fields (in the
 project's display unit) let you nudge the result away from one if
 needed. A simple preview Canvas next to each grid draws the sheet
 outline plus a rectangle per Viewport/Image (checked ones highlighted
-in orange), refreshed after every scan, selection change, or alignment
-operation - on the Views tab it previews whichever sheet the currently
-highlighted row belongs to (or the first loaded sheet if none is
-highlighted).
+in orange, staged-but-unapplied ones in yellow), refreshed after every
+scan, selection change, or staged action - on the Views tab it previews
+whichever sheet the currently highlighted row belongs to (or the first
+loaded sheet if none is highlighted).
+
+--------------------------------------------------------------------
+Stage-then-apply: NO button here touches Revit except Apply to Sheet
+--------------------------------------------------------------------
+Every align/distribute/Center in Sheet/Scale/Match Size/Auto-Arrange
+button only STAGES its result (AlignableRow.pending_dx/dy/w/h) - the
+grid's Center/Width/Height columns and the preview canvas both read the
+row's EFFECTIVE position (live + pending, via AlignableRow.bbox), so
+you see the outcome before anything actually happens in the model.
+Staged actions compose: doing Align Left then Center in Sheet computes
+the second one from the first one's staged result, not from Revit's
+live state. Nothing is written to the model until the "Apply to Sheet"
+button (top of each tab's action area) is clicked, which opens the one
+and only Transaction per tab and really moves/resizes the checked-and-
+staged elements; "Discard Changes" clears all staged state with no
+Revit call at all. A rescan/new selection replaces the row objects
+entirely, so it also implicitly discards anything staged but unapplied.
 
 Load a sheet/sheets, or use Use Current Selection on either tab, to
 populate that tab's grid. The Include checkbox controls which rows an
@@ -238,6 +255,7 @@ _VIEWPORT_STROKE = SolidColorBrush(Color.FromRgb(33, 150, 243))
 _IMAGE_FILL = SolidColorBrush(Color.FromArgb(70, 76, 175, 80))
 _CHECKED_STROKE = SolidColorBrush(Color.FromRgb(255, 152, 0))
 _UNCHECKED_STROKE = SolidColorBrush(Color.FromRgb(120, 120, 120))
+_PENDING_STROKE = SolidColorBrush(Color.FromRgb(255, 235, 59))
 
 
 def _fit_scale(bounds, canvas_w, canvas_h, margin=_PREVIEW_MARGIN):
@@ -301,6 +319,17 @@ def _scan_images_on_sheet(doc, sheet):
 
 
 class AlignableRow(object):
+    """min_x/max_x/min_y/max_y always hold the LIVE Revit bbox (refreshed
+    only after an actual Apply, or a rescan). pending_dx/dy/w/h hold a
+    staged-but-not-yet-applied change - set by an alignment/offset/scale
+    button, cleared by Apply (after really moving the element) or Discard.
+    Every other part of this tool (grid columns, the preview canvas,
+    further staged actions) reads the EFFECTIVE position via `bbox`
+    below, which folds pending on top of live - so staged actions compose
+    naturally (e.g. stage Align Left, then stage Center in Sheet, and the
+    second one computes from the first one's staged result) without ever
+    touching Revit until Apply to Sheet is clicked."""
+
     def __init__(self, element, kind, name, min_x, max_x, min_y, max_y, sheet=None):
         self.element = element
         self.kind = kind
@@ -312,10 +341,37 @@ class AlignableRow(object):
         self.max_y = max_y
         self.is_selected = True
         self.sheet = sheet
+        self.pending_dx = 0.0
+        self.pending_dy = 0.0
+        self.pending_w = None
+        self.pending_h = None
+
+    @property
+    def has_pending(self):
+        return (abs(self.pending_dx) > 1e-9 or abs(self.pending_dy) > 1e-9
+                or self.pending_w is not None or self.pending_h is not None)
+
+    def clear_pending(self):
+        self.pending_dx = 0.0
+        self.pending_dy = 0.0
+        self.pending_w = None
+        self.pending_h = None
 
     @property
     def bbox(self):
-        return (self.min_x, self.max_x, self.min_y, self.max_y)
+        """Effective bbox for display and for further staged actions to
+        build on - live position/size shifted by pending_dx/dy and
+        resized to pending_w/h if a resize is staged, keeping the same
+        effective center a resize alone would (mirrors what Apply
+        actually does: resize in place, then translate)."""
+        cx = (self.min_x + self.max_x) / 2.0 + self.pending_dx
+        cy = (self.min_y + self.max_y) / 2.0 + self.pending_dy
+        if self.pending_w is not None and self.pending_h is not None:
+            return (cx - self.pending_w / 2.0, cx + self.pending_w / 2.0,
+                    cy - self.pending_h / 2.0, cy + self.pending_h / 2.0)
+        w = self.max_x - self.min_x
+        h = self.max_y - self.min_y
+        return (cx - w / 2.0, cx + w / 2.0, cy - h / 2.0, cy + h / 2.0)
 
     @property
     def sheet_text(self):
@@ -323,19 +379,23 @@ class AlignableRow(object):
 
     @property
     def center_x_text(self):
-        return "{0:.3f}".format((self.min_x + self.max_x) / 2.0)
+        b = self.bbox
+        return "{0:.3f}".format((b[0] + b[1]) / 2.0)
 
     @property
     def center_y_text(self):
-        return "{0:.3f}".format((self.min_y + self.max_y) / 2.0)
+        b = self.bbox
+        return "{0:.3f}".format((b[2] + b[3]) / 2.0)
 
     @property
     def width_text(self):
-        return "{0:.3f}".format(self.max_x - self.min_x)
+        b = self.bbox
+        return "{0:.3f}".format(b[1] - b[0])
 
     @property
     def height_text(self):
-        return "{0:.3f}".format(self.max_y - self.min_y)
+        b = self.bbox
+        return "{0:.3f}".format(b[3] - b[2])
 
 
 class SheetRow(object):
@@ -474,6 +534,7 @@ class DeeAlignerWindow(forms.WPFWindow):
         sheet_count = len(set(r.sheet.Id for r in self._view_items if r.sheet is not None))
         self.views_status_tb.Text = "{0} view(s) loaded across {1} sheet(s).".format(
             len(self._view_items), sheet_count)
+        self._update_views_pending_status()
         self._refresh_views_preview()
 
     def views_grid_selection_changed(self, sender, args):
@@ -503,7 +564,11 @@ class DeeAlignerWindow(forms.WPFWindow):
             if r.sheet is None or r.sheet.Id != sheet.Id:
                 continue
             stroke = _CHECKED_STROKE if r.is_selected else _UNCHECKED_STROKE
-            entries.append((r.bbox, _VIEWPORT_FILL, stroke, 2.0 if r.is_selected else 1.0))
+            thickness = 2.0 if r.is_selected else 1.0
+            if r.has_pending:
+                stroke = _PENDING_STROKE
+                thickness = 3.0
+            entries.append((r.bbox, _VIEWPORT_FILL, stroke, thickness))
         self._draw_preview(self.views_preview_canvas, bounds, entries)
         self.views_preview_status_tb.Text = "Previewing '{0}'.".format(_sheet_label(sheet))
 
@@ -516,22 +581,21 @@ class DeeAlignerWindow(forms.WPFWindow):
         offset_y = _display_to_internal(self.doc, self._safe_float(self.views_offset_y_tb.Text, 0.0))
 
         results = []
-        t = Transaction(self.doc, "DeeAligner - Center Views in Sheet")
-        t.Start()
         for row in selected:
             if row.sheet is None:
                 results.append((False, self._row_label(row), "No sheet reference for this row"))
                 continue
             try:
-                dx, dy = self._center_in_sheet(row, row.sheet, offset_x, offset_y)
+                dx, dy = self._stage_center_in_sheet(row, row.sheet, offset_x, offset_y)
                 results.append((True, self._row_label(row),
-                                 "Centered in sheet (moved by {0:.3f}, {1:.3f})".format(dx, dy)))
+                                 "Staged: will move by ({0:.3f}, {1:.3f})".format(dx, dy)))
             except Exception as e:
                 results.append((False, self._row_label(row), "FAILED: {0}".format(e)))
-        t.Commit()
 
-        self._refresh_views_grid()
-        self._report_results("Center Views in Sheet", results)
+        self._refresh_views_preview()
+        self.views_grid.Items.Refresh()
+        self._update_views_pending_status()
+        self._report_results("Center Views in Sheet (staged - click Apply to Sheet)", results)
 
     def _get_selected_views(self):
         return [r for r in self._view_items if r.is_selected]
@@ -673,6 +737,7 @@ class DeeAlignerWindow(forms.WPFWindow):
         if self._image_sheet is not None:
             sheet_label = " on '{0}'".format(_sheet_label(self._image_sheet))
         self.images_status_tb.Text = "{0} image(s) loaded{1}.".format(len(self._image_items), sheet_label)
+        self._update_images_pending_status()
         self._refresh_images_preview()
 
     def _refresh_images_preview(self):
@@ -691,7 +756,11 @@ class DeeAlignerWindow(forms.WPFWindow):
         entries = [(r.bbox, _VIEWPORT_FILL, _VIEWPORT_STROKE, 1.0) for r in self._image_sheet_viewports]
         for r in self._image_items:
             stroke = _CHECKED_STROKE if r.is_selected else _UNCHECKED_STROKE
-            entries.append((r.bbox, _IMAGE_FILL, stroke, 2.0 if r.is_selected else 1.0))
+            thickness = 2.0 if r.is_selected else 1.0
+            if r.has_pending:
+                stroke = _PENDING_STROKE
+                thickness = 3.0
+            entries.append((r.bbox, _IMAGE_FILL, stroke, thickness))
         self._draw_preview(self.images_preview_canvas, bounds, entries)
         self.images_preview_status_tb.Text = "Previewing '{0}'.".format(_sheet_label(self._image_sheet))
 
@@ -707,18 +776,17 @@ class DeeAlignerWindow(forms.WPFWindow):
         offset_y = _display_to_internal(self.doc, self._safe_float(self.images_offset_y_tb.Text, 0.0))
 
         results = []
-        t = Transaction(self.doc, "DeeAligner - Center Images in Sheet")
-        t.Start()
         for row in selected:
             try:
-                dx, dy = self._center_in_sheet(row, self._image_sheet, offset_x, offset_y)
-                results.append((True, row.name, "Centered in sheet (moved by {0:.3f}, {1:.3f})".format(dx, dy)))
+                dx, dy = self._stage_center_in_sheet(row, self._image_sheet, offset_x, offset_y)
+                results.append((True, row.name, "Staged: will move by ({0:.3f}, {1:.3f})".format(dx, dy)))
             except Exception as e:
                 results.append((False, row.name, "FAILED: {0}".format(e)))
-        t.Commit()
 
-        self._refresh_images_grid()
-        self._report_results("Center Images in Sheet", results)
+        self._refresh_images_preview()
+        self.images_grid.Items.Refresh()
+        self._update_images_pending_status()
+        self._report_results("Center Images in Sheet (staged - click Apply to Sheet)", results)
 
     def _get_selected_images(self):
         return [r for r in self._image_items if r.is_selected]
@@ -805,27 +873,28 @@ class DeeAlignerWindow(forms.WPFWindow):
         except Exception:
             return default
 
-    def _center_in_sheet(self, row, sheet, offset_x_internal, offset_y_internal):
-        """Moves `row` so its own bbox center matches the center of `sheet`'s
-        title block bounds (the same bounds Auto-Arrange uses), plus a
-        caller-supplied offset - the title block's own bounding box is used
-        as a stand-in for the sheet's usable "white space" since there's no
-        generic way to detect the actual empty area inside a title block's
-        info strip; the offset exists to nudge away from one if needed."""
+    def _stage_center_in_sheet(self, row, sheet, offset_x_internal, offset_y_internal):
+        """Stages a move so `row`'s EFFECTIVE (staged-aware) bbox center
+        would match the center of `sheet`'s title block bounds (the same
+        bounds Auto-Arrange uses), plus a caller-supplied offset - the
+        title block's own bounding box is used as a stand-in for the
+        sheet's usable "white space" since there's no generic way to
+        detect the actual empty area inside a title block's info strip;
+        the offset exists to nudge away from one if needed. Does NOT
+        touch Revit - only updates row.pending_dx/dy, previewed via
+        row.bbox until Apply to Sheet actually moves the element."""
         bounds = _get_sheet_bounds(self.doc, sheet)
         if bounds is None:
             raise Exception("No title block found on this sheet")
         target_cx = (bounds[0] + bounds[1]) / 2.0 + offset_x_internal
         target_cy = (bounds[2] + bounds[3]) / 2.0 + offset_y_internal
-        cur_cx = (row.min_x + row.max_x) / 2.0
-        cur_cy = (row.min_y + row.max_y) / 2.0
+        cur_bbox = row.bbox
+        cur_cx = (cur_bbox[0] + cur_bbox[1]) / 2.0
+        cur_cy = (cur_bbox[2] + cur_bbox[3]) / 2.0
         dx = target_cx - cur_cx
         dy = target_cy - cur_cy
-        if row.kind == "Viewport":
-            _move_viewport(row.element, dx, dy)
-        else:
-            _move_image(self.doc, row.element, dx, dy)
-        self._refresh_row_bbox(row)
+        row.pending_dx += dx
+        row.pending_dy += dy
         return dx, dy
 
     def _draw_preview(self, canvas, sheet_bounds, entries):
@@ -883,7 +952,94 @@ class DeeAlignerWindow(forms.WPFWindow):
             _move_image(self.doc, row.element, dx, dy)
             self._refresh_row_bbox(row)
 
+    # ======================================================================
+    # Apply / Discard staged changes - the only place any of the alignment/
+    # offset/scale/auto-arrange actions above actually touch Revit
+    # ======================================================================
+    def _pending_count(self, items):
+        return sum(1 for r in items if r.has_pending)
+
+    def _update_views_pending_status(self):
+        n = self._pending_count(self._view_items)
+        self.views_pending_status_tb.Text = (
+            "{0} pending change(s) - not yet applied to Revit. Click Apply to Sheet.".format(n)
+            if n else "No pending changes.")
+
+    def _update_images_pending_status(self):
+        n = self._pending_count(self._image_items)
+        self.images_pending_status_tb.Text = (
+            "{0} pending change(s) - not yet applied to Revit. Click Apply to Sheet.".format(n)
+            if n else "No pending changes.")
+
+    def _apply_pending(self, items, sheet_for_images=None):
+        """Commits every row's staged pending_dx/dy/w/h to Revit in one
+        Transaction - a resize (if staged) is applied first, since
+        _apply_image_size self-corrects back to the row's LIVE center,
+        then the staged translation is applied on top, landing exactly on
+        the effective position row.bbox already predicted in the preview.
+        Rows with no pending change are skipped entirely."""
+        pending_rows = [r for r in items if r.has_pending]
+        if not pending_rows:
+            forms.alert("Nothing staged yet - use an alignment/offset/scale action first, then Apply to Sheet.")
+            return None
+        results = []
+        t = Transaction(self.doc, "DeeAligner - Apply to Sheet")
+        t.Start()
+        for row in pending_rows:
+            try:
+                if row.pending_w is not None and row.pending_h is not None:
+                    self._apply_image_size(row, row.pending_w, row.pending_h)
+                if abs(row.pending_dx) > 1e-9 or abs(row.pending_dy) > 1e-9:
+                    if row.kind == "Viewport":
+                        _move_viewport(row.element, row.pending_dx, row.pending_dy)
+                    else:
+                        _move_image(self.doc, row.element, row.pending_dx, row.pending_dy)
+                self._refresh_row_bbox(row)
+                row.clear_pending()
+                results.append((True, self._row_label(row), "Applied to sheet"))
+            except Exception as e:
+                results.append((False, self._row_label(row), "FAILED: {0}".format(e)))
+        t.Commit()
+        return results
+
+    def views_apply_click(self, sender, args):
+        results = self._apply_pending(self._view_items)
+        if results is None:
+            return
+        self._refresh_views_preview()
+        self.views_grid.Items.Refresh()
+        self._update_views_pending_status()
+        self._report_results("Apply to Sheet (Views)", results)
+
+    def views_discard_click(self, sender, args):
+        for r in self._view_items:
+            r.clear_pending()
+        self._refresh_views_preview()
+        self.views_grid.Items.Refresh()
+        self._update_views_pending_status()
+
+    def images_apply_click(self, sender, args):
+        results = self._apply_pending(self._image_items)
+        if results is None:
+            return
+        self._refresh_images_preview()
+        self.images_grid.Items.Refresh()
+        self._update_images_pending_status()
+        self._report_results("Apply to Sheet (Images)", results)
+
+    def images_discard_click(self, sender, args):
+        for r in self._image_items:
+            r.clear_pending()
+        self._refresh_images_preview()
+        self.images_grid.Items.Refresh()
+        self._update_images_pending_status()
+
     def _apply_alignment(self, op_name, align_fn, items, grid, min_count=2):
+        """Despite the name (kept as-is - 16 call sites reference it),
+        this only STAGES the result now: computes deltas from each row's
+        current effective (staged-aware) bbox and adds them to
+        pending_dx/dy, previewed via row.bbox. Nothing touches Revit
+        until Apply to Sheet is clicked."""
         selected = [r for r in items if r.is_selected]
         if len(selected) < min_count:
             forms.alert("Check at least {0} item(s) to {1}.".format(min_count, op_name.lower()))
@@ -892,29 +1048,22 @@ class DeeAlignerWindow(forms.WPFWindow):
         deltas = align_fn(boxes)
 
         results = []
-        t = Transaction(self.doc, "DeeAligner - {0}".format(op_name))
-        t.Start()
         for row, (dx, dy) in zip(selected, deltas):
-            try:
-                if abs(dx) < 1e-9 and abs(dy) < 1e-9:
-                    results.append((True, self._row_label(row), "Already aligned"))
-                    continue
-                if row.kind == "Viewport":
-                    _move_viewport(row.element, dx, dy)
-                else:
-                    _move_image(self.doc, row.element, dx, dy)
-                self._refresh_row_bbox(row)
-                results.append((True, self._row_label(row), "Moved by ({0:.3f}, {1:.3f})".format(dx, dy)))
-            except Exception as e:
-                results.append((False, self._row_label(row), "FAILED: {0}".format(e)))
-        t.Commit()
+            if abs(dx) < 1e-9 and abs(dy) < 1e-9:
+                results.append((True, self._row_label(row), "Already aligned"))
+                continue
+            row.pending_dx += dx
+            row.pending_dy += dy
+            results.append((True, self._row_label(row), "Staged: will move by ({0:.3f}, {1:.3f})".format(dx, dy)))
 
         if grid is self.views_grid:
             self._refresh_views_preview()
+            self._update_views_pending_status()
         elif grid is self.images_grid:
             self._refresh_images_preview()
+            self._update_images_pending_status()
         grid.Items.Refresh()
-        self._report_results(op_name, results)
+        self._report_results("{0} (staged - click Apply to Sheet)".format(op_name), results)
 
     def _report_results(self, op_name, results):
         ok_count = sum(1 for ok, _, _ in results if ok)
@@ -948,49 +1097,43 @@ class DeeAlignerWindow(forms.WPFWindow):
             return
 
         results = []
-        t = Transaction(self.doc, "DeeAligner - Scale Images")
-        t.Start()
         for row in images:
-            try:
-                cur_w = row.max_x - row.min_x
-                cur_h = row.max_y - row.min_y
-                self._apply_image_size(row, cur_w * factor, cur_h * factor)
-                results.append((True, row.name, "Scaled by {0:.2f}x".format(factor)))
-            except Exception as e:
-                results.append((False, row.name, "FAILED: {0}".format(e)))
-        t.Commit()
+            b = row.bbox
+            cur_w = b[1] - b[0]
+            cur_h = b[3] - b[2]
+            row.pending_w = cur_w * factor
+            row.pending_h = cur_h * factor
+            results.append((True, row.name, "Staged: scaled by {0:.2f}x".format(factor)))
 
         self.images_grid.Items.Refresh()
         self._refresh_images_preview()
-        self._report_results("Scale Images", results)
+        self._update_images_pending_status()
+        self._report_results("Scale Images (staged - click Apply to Sheet)", results)
 
     def _match_size(self, mode):
         images = self._get_selected_images()
         if len(images) < 2:
             forms.alert("Check at least 2 Images to match sizes.")
             return
-        by_area = sorted(images, key=lambda r: (r.max_x - r.min_x) * (r.max_y - r.min_y))
+        by_area = sorted(images, key=lambda r: (r.bbox[1] - r.bbox[0]) * (r.bbox[3] - r.bbox[2]))
         reference = by_area[0] if mode == "smallest" else by_area[-1]
-        target_w = reference.max_x - reference.min_x
-        target_h = reference.max_y - reference.min_y
+        ref_b = reference.bbox
+        target_w = ref_b[1] - ref_b[0]
+        target_h = ref_b[3] - ref_b[2]
 
         results = []
-        t = Transaction(self.doc, "DeeAligner - Match Image Size")
-        t.Start()
         for row in images:
             if row.id == reference.id:
                 results.append((True, row.name, "Reference size ({0:.3f} x {1:.3f})".format(target_w, target_h)))
                 continue
-            try:
-                self._apply_image_size(row, target_w, target_h)
-                results.append((True, row.name, "Matched to {0:.3f} x {1:.3f}".format(target_w, target_h)))
-            except Exception as e:
-                results.append((False, row.name, "FAILED: {0}".format(e)))
-        t.Commit()
+            row.pending_w = target_w
+            row.pending_h = target_h
+            results.append((True, row.name, "Staged: matched to {0:.3f} x {1:.3f}".format(target_w, target_h)))
 
         self.images_grid.Items.Refresh()
         self._refresh_images_preview()
-        self._report_results("Match Image Size ({0})".format(mode), results)
+        self._update_images_pending_status()
+        self._report_results("Match Image Size ({0}, staged - click Apply to Sheet)".format(mode), results)
 
     def match_largest_click(self, sender, args):
         self._match_size("largest")
@@ -1037,31 +1180,27 @@ class DeeAlignerWindow(forms.WPFWindow):
         image_ids = set(r.id for r in images)
         obstacles = [r.bbox for r in self._image_items if r.id not in image_ids]
         obstacles.extend(r.bbox for r in self._image_sheet_viewports)
-        sizes = [(r.max_x - r.min_x, r.max_y - r.min_y) for r in images]
+        sizes = [(r.bbox[1] - r.bbox[0], r.bbox[3] - r.bbox[2]) for r in images]
         placements = align_tools.shelf_pack(sizes, bounds, obstacles=obstacles, spacing=0.1)
 
         results = []
-        t = Transaction(self.doc, "DeeAligner - Auto-Arrange Images")
-        t.Start()
         for row, placement in zip(images, placements):
             if placement is None:
                 results.append((False, row.name, "No overlap-free spot found - left in place"))
                 continue
-            try:
-                target_cx = (placement[0] + placement[1]) / 2.0
-                target_cy = (placement[2] + placement[3]) / 2.0
-                cur_cx = (row.min_x + row.max_x) / 2.0
-                cur_cy = (row.min_y + row.max_y) / 2.0
-                _move_image(self.doc, row.element, target_cx - cur_cx, target_cy - cur_cy)
-                self._refresh_row_bbox(row)
-                results.append((True, row.name, "Arranged into grid, avoiding existing content"))
-            except Exception as e:
-                results.append((False, row.name, "FAILED: {0}".format(e)))
-        t.Commit()
+            target_cx = (placement[0] + placement[1]) / 2.0
+            target_cy = (placement[2] + placement[3]) / 2.0
+            cur_b = row.bbox
+            cur_cx = (cur_b[0] + cur_b[1]) / 2.0
+            cur_cy = (cur_b[2] + cur_b[3]) / 2.0
+            row.pending_dx += target_cx - cur_cx
+            row.pending_dy += target_cy - cur_cy
+            results.append((True, row.name, "Staged: arranged into grid, avoiding existing content"))
 
         self.images_grid.Items.Refresh()
         self._refresh_images_preview()
-        self._report_results("Auto-Arrange Images", results)
+        self._update_images_pending_status()
+        self._report_results("Auto-Arrange Images (staged - click Apply to Sheet)", results)
 
     def close_click(self, sender, args):
         self.Close()

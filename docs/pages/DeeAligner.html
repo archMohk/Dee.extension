@@ -13,7 +13,7 @@
   <h1 class="tool-title">DeeAligner</h1>
   <p class="tagline">Align/distribute Viewports and Images on a sheet, or auto-arrange Images into a grid.</p>
 
-  <div class="callout ok"><strong>Risk level: Low</strong> Everything happens inside a Transaction in the current document. Nothing is synced or published, and every move can be undone (Ctrl+Z) like any normal edit.</div>
+  <div class="callout ok"><strong>Risk level: Low</strong> Nothing touches Revit until you click <strong>Apply to Sheet</strong> - every alignment/offset/scale/auto-arrange button only stages a preview first (shown with a yellow outline in the canvas). Applying happens inside a single Transaction in the current document, isn't synced or published, and can still be undone (Ctrl+Z) like any normal edit.</div>
 
   <div class="card">
     <h2>What it does</h2>
@@ -23,6 +23,7 @@
       <li><strong>Images tab</strong> &mdash; pick one sheet (or use your current Revit selection) and work on the Images placed on it: align/distribute them relative to each other, scale them, check for overlaps, or auto-arrange them into a tidy grid inside the sheet's title block bounds.</li>
     </ul>
     <p>Both tabs also have a <strong>Center in Sheet</strong> option with an Offset X/Y so you can drop an item dead-center in the sheet's title block bounds (nudging away from a title strip if needed), and a live preview canvas that draws the sheet outline plus a box per item so you can see what's about to move before you click anything.</p>
+    <p>Every alignment/offset/scale/auto-arrange button only <strong>stages</strong> its result - the grid's Center/Width/Height columns and the preview canvas immediately update to show the outcome (staged items get a yellow outline), but nothing actually changes in the model. Staged actions compose: doing Align Left, then Center in Sheet, computes the second one from the first one's staged result. Click <strong>Apply to Sheet</strong> (top of each tab) to actually commit every staged change to Revit in one go, or <strong>Discard Changes</strong> to clear the staged preview without touching anything.</p>
   </div>
 
   <div class="card">
@@ -31,13 +32,15 @@
     <ol>
       <li>Check the sheets you want in the list, then click <strong>Scan Selected Sheets</strong> (or select Viewports in Revit first and click <strong>Use Current Selection</strong>).</li>
       <li>Check which rows in the grid you want an operation to act on (Include column).</li>
-      <li>Click an align/distribute button, or set an Offset and click <strong>Center Checked in Sheet</strong>.</li>
+      <li>Click an align/distribute button, or set an Offset and click <strong>Center Checked in Sheet</strong> - this stages the result (yellow outline in the preview), it doesn't move anything yet.</li>
+      <li>Happy with the preview? Click <strong>Apply to Sheet</strong> to actually move the checked Viewports. Click <strong>Discard Changes</strong> instead to back out.</li>
     </ol>
     <p><strong>Images tab:</strong></p>
     <ol>
       <li>Pick a sheet from the dropdown and click <strong>Load Sheet</strong> (or Use Current Selection).</li>
       <li>Check which Images to act on.</li>
-      <li>Use Align/Distribute, Scale Images, Check for Overlaps, Auto-Arrange, or Center Checked in Sheet.</li>
+      <li>Use Align/Distribute, Scale Images, Auto-Arrange, or Center Checked in Sheet - each one stages a preview only.</li>
+      <li>Click <strong>Apply to Sheet</strong> to commit, or <strong>Discard Changes</strong> to back out. Check for Overlaps is unaffected - it only reports, so it isn't part of the stage/apply flow.</li>
     </ol>
   </div>
 
@@ -58,6 +61,8 @@
     <ul>
       <li>Align/Center needs at least 2 checked items; Distribute needs at least 3.</li>
       <li>"Center in Sheet" uses the sheet's title block bounding box as a stand-in for its usable white space &mdash; if your title block has a wide info panel along one edge, use the Offset fields to compensate.</li>
+      <li>A rescan, a fresh Use Current Selection, or loading a different sheet replaces the grid's rows entirely, which also silently discards anything staged but not yet applied &mdash; click Apply to Sheet first if you want to keep it.</li>
+      <li>A staged change stays staged even if you later uncheck that row's Include box &mdash; unchecking only controls what NEW actions operate on, it doesn't cancel something already staged. Use Discard Changes to clear everything.</li>
     </ul>
   </div>
 
