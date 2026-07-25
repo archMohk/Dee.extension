@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 DeeAligner (CreatePack)
-Two separate tabs, one per content type:
+Three tabs:
 
 - Views: check any number of sheets in the list, Scan Selected Sheets
   pools every Viewport found on them into one grid (each row shows which
@@ -18,6 +18,26 @@ Two separate tabs, one per content type:
   that one sheet, and all still aware of the sheet's Viewports as
   obstacles to avoid (for Overlap Check and Auto-Arrange) even though
   Viewports aren't listed as rows here anymore.
+- Super Image: pick one or more image FILES from the local PC (not yet
+  placed in the model at all), pick a target sheet, then Preview
+  Arrangement computes a grid that fills that sheet's title block
+  bounds - each image is CONTAIN-fit into its own grid cell (scaled to
+  preserve its own aspect ratio, never cropped/distorted) via
+  align_tools.grid_fit_pack, which tries every column count and keeps
+  whichever covers the most total area (so a batch of mostly-landscape
+  images naturally gets a wide grid, mostly-portrait a tall one, rather
+  than forcing a fixed square grid regardless of shape). Move Up/Move
+  Down let you reorder images before arranging (same pattern as
+  DeeSheet's Super Sheet grid). Nothing is created in the model until
+  Insert into Sheet, which imports each file as a new ImageType
+  (Autodesk.Revit.DB.ImageType.Create/ImageTypeOptions - verified
+  against revitapidocs.com before writing, not guessed - only *.bmp/
+  *.jpg/*.jpeg/*.png/*.tif/*.tiff are supported by Revit's own
+  ImageType loader) and places an ImageInstance sized/centered to
+  match the previewed cell (ImageInstance.Create/ImagePlacementOptions,
+  likewise verified). This is genuinely new Revit API surface for this
+  extension - never used by any other tool here - so it needs a live
+  Revit check before trusting it on real projects.
 
 Both tabs also have Center in Sheet, which moves each checked item so
 its own center matches the center of its sheet's title block bounds
@@ -92,16 +112,21 @@ import clr
 clr.AddReference("WindowsBase")
 clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
+clr.AddReference("System.Windows.Forms")
+clr.AddReference("System.Drawing")
 
 from pyrevit import forms, script
 from Autodesk.Revit.DB import (
     FilteredElementCollector, ViewSheet, Viewport, ImageInstance, Transaction,
     ElementTransformUtils, BuiltInCategory, BuiltInParameter, XYZ,
     UnitUtils, UnitTypeId, SpecTypeId,
+    ImageType, ImageTypeOptions, ImageTypeSource, ImagePlacementOptions, BoxPlacement,
 )
 from System.Windows.Controls import Canvas
 from System.Windows.Shapes import Rectangle
 from System.Windows.Media import SolidColorBrush, Color, Brushes
+from System.Windows.Forms import OpenFileDialog, DialogResult
+from System.Drawing import Image as DrawingImage
 
 import align_tools
 
@@ -398,6 +423,53 @@ class AlignableRow(object):
         return "{0:.3f}".format(b[3] - b[2])
 
 
+class SuperImageRow(object):
+    """One row per local image file picked for the Super Image tab -
+    not yet an ImageInstance until Insert into Sheet actually creates
+    one. pixel_width/height come straight from the file (via
+    System.Drawing.Image, no Revit involvement) so the grid-fit preview
+    can compute a real aspect ratio before anything touches the model.
+    staged_box holds the last computed (min_x, max_x, min_y, max_y)
+    placement in sheet space once Preview Arrangement has run."""
+
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self.file_name = os.path.basename(file_path)
+        self.is_selected = True
+        self.pixel_width = 0
+        self.pixel_height = 0
+        try:
+            img = DrawingImage.FromFile(file_path)
+            try:
+                self.pixel_width = img.Width
+                self.pixel_height = img.Height
+            finally:
+                img.Dispose()
+        except Exception:
+            pass
+        self.staged_box = None
+
+    @property
+    def is_readable(self):
+        return self.pixel_width > 0 and self.pixel_height > 0
+
+    @property
+    def aspect_ratio(self):
+        if self.pixel_height <= 0:
+            return 1.0
+        return float(self.pixel_width) / float(self.pixel_height)
+
+    @property
+    def size_text(self):
+        if not self.is_readable:
+            return "(could not read image)"
+        return "{0} x {1} px".format(self.pixel_width, self.pixel_height)
+
+    @property
+    def status_text(self):
+        return "Arranged - ready to insert" if self.staged_box is not None else "Not arranged yet"
+
+
 class SheetRow(object):
     def __init__(self, sheet):
         self.sheet = sheet
@@ -421,6 +493,11 @@ class DeeAlignerWindow(forms.WPFWindow):
         self._image_items = []
         self._image_sheet_viewports = []
 
+        # Super Image tab
+        self._super_sheet_by_label = {}
+        self._super_sheet = None
+        self._super_items = []
+
         unit_abbr = _unit_abbreviation(doc)
         self.views_offset_x_unit_tb.Text = unit_abbr
         self.views_offset_y_unit_tb.Text = unit_abbr
@@ -429,6 +506,7 @@ class DeeAlignerWindow(forms.WPFWindow):
 
         self._scan_all_sheets()
         self._refresh_image_sheet_dropdown()
+        self._refresh_super_sheet_dropdown()
 
     # ======================================================================
     # Views tab - sheet checklist
@@ -661,19 +739,22 @@ class DeeAlignerWindow(forms.WPFWindow):
     # ======================================================================
     # Images tab - sheet dropdown + scan + grid
     # ======================================================================
-    def _refresh_image_sheet_dropdown(self):
-        labels = []
-        self._image_sheet_by_label = {}
+    def _all_sheet_labels(self):
+        """{label: sheet} for every ViewSheet in the document - shared by
+        the Images tab's sheet dropdown and the Super Image tab's, so
+        both stay in sync without duplicating the scan."""
+        by_label = {}
         for sheet in FilteredElementCollector(self.doc).OfClass(ViewSheet):
             try:
-                label = _sheet_label(sheet)
-                self._image_sheet_by_label[label] = sheet
-                labels.append(label)
+                by_label[_sheet_label(sheet)] = sheet
             except Exception:
                 continue
-        labels.sort()
+        return by_label
+
+    def _refresh_image_sheet_dropdown(self):
+        self._image_sheet_by_label = self._all_sheet_labels()
         self.image_sheet_cb.ItemsSource = None
-        self.image_sheet_cb.ItemsSource = labels
+        self.image_sheet_cb.ItemsSource = sorted(self._image_sheet_by_label.keys())
 
     def refresh_image_sheets_click(self, sender, args):
         self._refresh_image_sheet_dropdown()
@@ -1201,6 +1282,214 @@ class DeeAlignerWindow(forms.WPFWindow):
         self._refresh_images_preview()
         self._update_images_pending_status()
         self._report_results("Auto-Arrange Images (staged - click Apply to Sheet)", results)
+
+    # ======================================================================
+    # Super Image tab - import local image files, arrange to fill a
+    # sheet, insert as new ImageInstance elements
+    # ======================================================================
+    def _refresh_super_sheet_dropdown(self):
+        self._super_sheet_by_label = self._all_sheet_labels()
+        self.super_sheet_cb.ItemsSource = None
+        self.super_sheet_cb.ItemsSource = sorted(self._super_sheet_by_label.keys())
+
+    def refresh_super_sheets_click(self, sender, args):
+        self._refresh_super_sheet_dropdown()
+
+    def super_pick_sheet_click(self, sender, args):
+        label = self.super_sheet_cb.SelectedItem
+        sheet = self._super_sheet_by_label.get(label)
+        if sheet is None:
+            forms.alert("Pick a sheet first.")
+            return
+        self._super_sheet = sheet
+        for r in self._super_items:
+            r.staged_box = None
+        self._update_super_status()
+        self._refresh_super_preview()
+
+    def add_super_images_click(self, sender, args):
+        dlg = OpenFileDialog()
+        dlg.Filter = ("Image Files (*.bmp;*.jpg;*.jpeg;*.png;*.tif;*.tiff)"
+                      "|*.bmp;*.jpg;*.jpeg;*.png;*.tif;*.tiff")
+        dlg.Multiselect = True
+        dlg.Title = "Add images to insert"
+        if dlg.ShowDialog() != DialogResult.OK:
+            return
+        existing_paths = set(r.file_path for r in self._super_items)
+        added = 0
+        unreadable = 0
+        for path in dlg.FileNames:
+            if path in existing_paths:
+                continue
+            row = SuperImageRow(path)
+            if not row.is_readable:
+                unreadable += 1
+                continue
+            self._super_items.append(row)
+            existing_paths.add(path)
+            added += 1
+        self._refresh_super_grid()
+        if unreadable:
+            forms.alert("{0} file(s) could not be read as images and were skipped.".format(unreadable))
+
+    def super_select_all_click(self, sender, args):
+        for r in self._super_items:
+            r.is_selected = True
+        self._refresh_super_grid()
+
+    def super_select_none_click(self, sender, args):
+        for r in self._super_items:
+            r.is_selected = False
+        self._refresh_super_grid()
+
+    def super_move_up_click(self, sender, args):
+        row = self.super_grid.SelectedItem
+        if not row:
+            return
+        idx = self._super_items.index(row)
+        if idx > 0:
+            self._super_items[idx - 1], self._super_items[idx] = self._super_items[idx], self._super_items[idx - 1]
+            self._refresh_super_grid()
+            self.super_grid.SelectedItem = row
+
+    def super_move_down_click(self, sender, args):
+        row = self.super_grid.SelectedItem
+        if not row:
+            return
+        idx = self._super_items.index(row)
+        if idx < len(self._super_items) - 1:
+            self._super_items[idx + 1], self._super_items[idx] = self._super_items[idx], self._super_items[idx + 1]
+            self._refresh_super_grid()
+            self.super_grid.SelectedItem = row
+
+    def super_remove_selected_click(self, sender, args):
+        highlighted = list(self.super_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        remove_ids = set(id(r) for r in highlighted)
+        self._super_items = [r for r in self._super_items if id(r) not in remove_ids]
+        self._refresh_super_grid()
+
+    def _refresh_super_grid(self):
+        self.super_grid.ItemsSource = None
+        self.super_grid.ItemsSource = self._super_items
+        self._update_super_status()
+        self._refresh_super_preview()
+
+    def _update_super_status(self):
+        n = len(self._super_items)
+        arranged = sum(1 for r in self._super_items if r.staged_box is not None)
+        sheet_text = _sheet_label(self._super_sheet) if self._super_sheet is not None else "(no sheet picked)"
+        self.super_status_tb.Text = "{0} image(s) added, {1} arranged. Target sheet: {2}.".format(
+            n, arranged, sheet_text)
+
+    def super_preview_arrange_click(self, sender, args):
+        selected = [r for r in self._super_items if r.is_selected]
+        if not selected:
+            forms.alert("Add and check at least one image first.")
+            return
+        if self._super_sheet is None:
+            forms.alert("Pick a target sheet first.")
+            return
+        bounds = _get_sheet_bounds(self.doc, self._super_sheet)
+        if bounds is None:
+            forms.alert("No title block found on '{0}' - cannot determine usable sheet area.".format(
+                _sheet_label(self._super_sheet)))
+            return
+
+        aspect_ratios = [r.aspect_ratio for r in selected]
+        boxes = align_tools.grid_fit_pack(aspect_ratios, bounds)
+        for r in self._super_items:
+            r.staged_box = None
+        for row, box in zip(selected, boxes):
+            row.staged_box = box
+
+        self._update_super_status()
+        self._refresh_super_preview()
+
+    def _refresh_super_preview(self):
+        if self._super_sheet is None:
+            self.super_preview_canvas.Children.Clear()
+            self.super_preview_status_tb.Text = "Pick a sheet to preview against."
+            return
+        bounds = _get_sheet_bounds(self.doc, self._super_sheet)
+        if bounds is None:
+            self.super_preview_canvas.Children.Clear()
+            self.super_preview_status_tb.Text = "No title block found on '{0}'.".format(
+                _sheet_label(self._super_sheet))
+            return
+
+        entries = [(r.bbox, _VIEWPORT_FILL, _VIEWPORT_STROKE, 1.0)
+                   for r in _scan_viewports_on_sheet(self.doc, self._super_sheet)]
+        for r in self._super_items:
+            if r.staged_box is None:
+                continue
+            stroke = _PENDING_STROKE if r.is_selected else _UNCHECKED_STROKE
+            entries.append((r.staged_box, _IMAGE_FILL, stroke, 2.0 if r.is_selected else 1.0))
+        self._draw_preview(self.super_preview_canvas, bounds, entries)
+        arranged = sum(1 for r in self._super_items if r.staged_box is not None)
+        self.super_preview_status_tb.Text = "Previewing '{0}' - {1} image(s) arranged.".format(
+            _sheet_label(self._super_sheet), arranged)
+
+    def _insert_image_on_sheet(self, sheet, file_path, target_box):
+        """Imports `file_path` as a new ImageType and places an
+        ImageInstance on `sheet`, resized/re-centered to exactly match
+        `target_box` - the initial Revit-derived insert size (from the
+        file's own resolution/DPI) won't generally match our staged
+        size, so this reuses the same resize-then-recenter approach as
+        _apply_image_size (Revit's resize anchor point isn't
+        documented, so re-centering afterward is anchor-agnostic)."""
+        options = ImageTypeOptions(file_path, False, ImageTypeSource.Import)
+        image_type = ImageType.Create(self.doc, options)
+        cx = (target_box[0] + target_box[1]) / 2.0
+        cy = (target_box[2] + target_box[3]) / 2.0
+        placement = ImagePlacementOptions(XYZ(cx, cy, 0.0), BoxPlacement.Center)
+        instance = ImageInstance.Create(self.doc, sheet, image_type.Id, placement)
+
+        target_w = target_box[1] - target_box[0]
+        target_h = target_box[3] - target_box[2]
+        w_param, h_param = _image_size_params(instance)
+        if w_param is not None and not w_param.IsReadOnly:
+            w_param.Set(target_w)
+        if h_param is not None and not h_param.IsReadOnly:
+            h_param.Set(target_h)
+        self.doc.Regenerate()
+
+        bbox = _image_bbox(instance, sheet)
+        if bbox is not None:
+            new_cx = (bbox[0] + bbox[1]) / 2.0
+            new_cy = (bbox[2] + bbox[3]) / 2.0
+            dx = cx - new_cx
+            dy = cy - new_cy
+            if abs(dx) > 1e-9 or abs(dy) > 1e-9:
+                _move_image(self.doc, instance, dx, dy)
+        return instance
+
+    def super_insert_click(self, sender, args):
+        ready = [r for r in self._super_items if r.is_selected and r.staged_box is not None]
+        if not ready:
+            forms.alert("Nothing arranged yet - click Preview Arrangement first, then Insert into Sheet.")
+            return
+        if self._super_sheet is None:
+            forms.alert("Pick a target sheet first.")
+            return
+
+        results = []
+        t = Transaction(self.doc, "DeeAligner - Insert Super Images")
+        t.Start()
+        for row in ready:
+            try:
+                self._insert_image_on_sheet(self._super_sheet, row.file_path, row.staged_box)
+                results.append((True, row.file_name, "Inserted into '{0}'".format(_sheet_label(self._super_sheet))))
+            except Exception as e:
+                results.append((False, row.file_name, "FAILED: {0}".format(e)))
+        t.Commit()
+
+        inserted_ids = set(id(r) for r, (ok, _n, _d) in zip(ready, results) if ok)
+        self._super_items = [r for r in self._super_items if id(r) not in inserted_ids]
+        self._refresh_super_grid()
+        self._report_results("Insert Super Images", results)
 
     def close_click(self, sender, args):
         self.Close()

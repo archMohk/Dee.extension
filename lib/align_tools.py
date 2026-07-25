@@ -185,6 +185,75 @@ def shelf_pack(sizes, bounds, obstacles=None, spacing=0.0):
     return results
 
 
+def grid_fit_pack(aspect_ratios, bounds, spacing_frac=0.04):
+    """Arranges `aspect_ratios` (one width/height ratio per item, e.g.
+    from an image file's own pixel size) into a grid that fills `bounds`
+    = (min_x, max_x, min_y, max_y) as fully as possible - used by
+    DeeAligner's Super Image tab to lay out freshly-inserted images
+    ("scale all the selected images to fit the sheet", per spec).
+
+    Tries every column count from 1 to len(aspect_ratios) and keeps
+    whichever grid covers the most total area once each item is
+    CONTAIN-fit into its own cell (scaled to fit inside the cell without
+    cropping or distorting its own aspect ratio, then centered in that
+    cell) - a simple, deterministic, testable "best fit" heuristic. Not
+    a global optimum, but it naturally prefers wide grids for mostly-
+    landscape images and tall grids for mostly-portrait ones, rather
+    than forcing every image into a fixed square grid regardless of
+    shape (which is what a naive ceil(sqrt(count)) grid would do and
+    would leave large gaps in most cells).
+
+    Returns a same-length list of (min_x, max_x, min_y, max_y) boxes.
+    An empty input or degenerate bounds (zero/negative width or height)
+    returns an empty list / a list of None respectively."""
+    import math
+    n = len(aspect_ratios)
+    if n <= 0:
+        return []
+    min_x, max_x, min_y, max_y = bounds
+    total_w = max_x - min_x
+    total_h = max_y - min_y
+    if total_w <= 0 or total_h <= 0:
+        return [None] * n
+
+    best_boxes = None
+    best_coverage = -1.0
+    for cols in range(1, n + 1):
+        rows = int(math.ceil(n / float(cols)))
+        spacing_x = spacing_frac * total_w / cols
+        spacing_y = spacing_frac * total_h / rows
+        cell_w = (total_w - spacing_x * (cols - 1)) / cols
+        cell_h = (total_h - spacing_y * (rows - 1)) / rows
+        if cell_w <= 0 or cell_h <= 0:
+            continue
+
+        boxes = []
+        coverage = 0.0
+        for i, ar in enumerate(aspect_ratios):
+            col = i % cols
+            row = i // cols
+            cell_min_x = min_x + col * (cell_w + spacing_x)
+            cell_max_y = max_y - row * (cell_h + spacing_y)
+            cell_min_y = cell_max_y - cell_h
+            safe_ar = ar if ar > 0 else 1.0
+            if cell_w / cell_h > safe_ar:
+                h = cell_h
+                w = h * safe_ar
+            else:
+                w = cell_w
+                h = w / safe_ar
+            cx = cell_min_x + cell_w / 2.0
+            cy = cell_min_y + cell_h / 2.0
+            boxes.append((cx - w / 2.0, cx + w / 2.0, cy - h / 2.0, cy + h / 2.0))
+            coverage += w * h
+
+        if coverage > best_coverage:
+            best_coverage = coverage
+            best_boxes = boxes
+
+    return best_boxes
+
+
 def grid_layout_centers(count, bounds, margin_frac=0.05):
     """bounds: (min_x, max_x, min_y, max_y) of the available space.
     Returns `count` (center_x, center_y) positions arranged in a roughly
@@ -212,3 +281,43 @@ def grid_layout_centers(count, bounds, margin_frac=0.05):
         cy = max_y - margin_y - cell_h * (row + 0.5)
         centers.append((cx, cy))
     return centers
+
+
+if __name__ == "__main__":
+    import unittest
+
+    class GridFitPackTests(unittest.TestCase):
+        def test_empty_input(self):
+            self.assertEqual(grid_fit_pack([], (0, 10, 0, 10)), [])
+
+        def test_degenerate_bounds(self):
+            self.assertEqual(grid_fit_pack([1.0, 1.0], (0, 0, 0, 10)), [None, None])
+
+        def test_count_and_containment(self):
+            bounds = (0.0, 100.0, 0.0, 60.0)
+            boxes = grid_fit_pack([1.5, 1.0, 0.75, 2.0, 1.0], bounds)
+            self.assertEqual(len(boxes), 5)
+            for b in boxes:
+                self.assertIsNotNone(b)
+                min_x, max_x, min_y, max_y = b
+                self.assertGreaterEqual(min_x, bounds[0] - 1e-6)
+                self.assertLessEqual(max_x, bounds[1] + 1e-6)
+                self.assertGreaterEqual(min_y, bounds[2] - 1e-6)
+                self.assertLessEqual(max_y, bounds[3] + 1e-6)
+
+        def test_preserves_aspect_ratio(self):
+            bounds = (0.0, 100.0, 0.0, 100.0)
+            boxes = grid_fit_pack([2.0], bounds, spacing_frac=0.0)
+            min_x, max_x, min_y, max_y = boxes[0]
+            w = max_x - min_x
+            h = max_y - min_y
+            self.assertAlmostEqual(w / h, 2.0, places=6)
+
+        def test_no_overlap_within_grid(self):
+            bounds = (0.0, 100.0, 0.0, 100.0)
+            boxes = grid_fit_pack([1.0, 1.0, 1.0, 1.0], bounds)
+            for i in range(len(boxes)):
+                for j in range(i + 1, len(boxes)):
+                    self.assertFalse(boxes_overlap(boxes[i], boxes[j]))
+
+    unittest.main()

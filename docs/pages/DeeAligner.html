@@ -11,18 +11,19 @@
   <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; CreatePack panel</div>
   <span class="panel-chip">CreatePack</span>
   <h1 class="tool-title">DeeAligner</h1>
-  <p class="tagline">Align/distribute Viewports and Images on a sheet, or auto-arrange Images into a grid.</p>
+  <p class="tagline">Align/distribute Viewports and Images on a sheet, auto-arrange Images into a grid, or import local image files straight onto a sheet.</p>
 
-  <div class="callout ok"><strong>Risk level: Low</strong> Nothing touches Revit until you click <strong>Apply to Sheet</strong> - every alignment/offset/scale/auto-arrange button only stages a preview first (shown with a yellow outline in the canvas). Applying happens inside a single Transaction in the current document, isn't synced or published, and can still be undone (Ctrl+Z) like any normal edit.</div>
+  <div class="callout ok"><strong>Risk level: Low</strong> Nothing touches Revit until you click <strong>Apply to Sheet</strong> (Views/Images tabs) or <strong>Insert into Sheet</strong> (Super Image tab) - every action before that only stages a preview first (shown with a yellow outline in the canvas). Applying happens inside a single Transaction in the current document, isn't synced or published, and can still be undone (Ctrl+Z) like any normal edit.</div>
 
   <div class="card">
     <h2>What it does</h2>
-    <p>DeeAligner has two tabs for two different jobs:</p>
+    <p>DeeAligner has three tabs:</p>
     <ul>
       <li><strong>Views tab</strong> &mdash; check any number of sheets in a checklist, then Scan Selected Sheets pools every Viewport on all of them into one grid (each row shows which sheet it came from). The align/distribute buttons then batch-align across that whole pooled set &mdash; e.g. Align Left moves every checked Viewport, whatever sheet it's on, so its left edge matches the overall minimum. This works because two sheets of the same paper size share the same sheet-space coordinate system, so it's genuinely useful for putting the main view in the same spot on every sheet in a set.</li>
-      <li><strong>Images tab</strong> &mdash; pick one sheet (or use your current Revit selection) and work on the Images placed on it: align/distribute them relative to each other, scale them, check for overlaps, or auto-arrange them into a tidy grid inside the sheet's title block bounds.</li>
+      <li><strong>Images tab</strong> &mdash; pick one sheet (or use your current Revit selection) and work on the Images already placed on it: align/distribute them relative to each other, scale them, check for overlaps, or auto-arrange them into a tidy grid inside the sheet's title block bounds.</li>
+      <li><strong>Super Image tab</strong> &mdash; pick image files straight from your PC (not yet in the model at all), pick a target sheet, and Preview Arrangement computes a grid that fills the sheet's title block bounds, scaling each image to fit its own cell while preserving its native proportions (a batch of mostly-landscape photos naturally gets a wide grid, mostly-portrait a tall one). Move Up/Move Down reorder images before arranging. Insert into Sheet then actually imports and places them.</li>
     </ul>
-    <p>Both tabs also have a <strong>Center in Sheet</strong> option with an Offset X/Y so you can drop an item dead-center in the sheet's title block bounds (nudging away from a title strip if needed), and a live preview canvas that draws the sheet outline plus a box per item so you can see what's about to move before you click anything.</p>
+    <p>Views and Images tabs also have a <strong>Center in Sheet</strong> option with an Offset X/Y so you can drop an item dead-center in the sheet's title block bounds (nudging away from a title strip if needed), and a live preview canvas that draws the sheet outline plus a box per item so you can see what's about to move before you click anything.</p>
     <p>Every alignment/offset/scale/auto-arrange button only <strong>stages</strong> its result - the grid's Center/Width/Height columns and the preview canvas immediately update to show the outcome (staged items get a yellow outline), but nothing actually changes in the model. Staged actions compose: doing Align Left, then Center in Sheet, computes the second one from the first one's staged result. Click <strong>Apply to Sheet</strong> (top of each tab) to actually commit every staged change to Revit in one go, or <strong>Discard Changes</strong> to clear the staged preview without touching anything.</p>
   </div>
 
@@ -42,6 +43,14 @@
       <li>Use Align/Distribute, Scale Images, Auto-Arrange, or Center Checked in Sheet - each one stages a preview only.</li>
       <li>Click <strong>Apply to Sheet</strong> to commit, or <strong>Discard Changes</strong> to back out. Check for Overlaps is unaffected - it only reports, so it isn't part of the stage/apply flow.</li>
     </ol>
+    <p><strong>Super Image tab:</strong></p>
+    <ol>
+      <li>Pick a sheet from the dropdown and click <strong>Use This Sheet</strong>.</li>
+      <li>Click <strong>Add Images from PC...</strong> and pick one or more image files (bmp/jpg/jpeg/png/tif/tiff).</li>
+      <li>Reorder with Move Up/Move Down if you care which order they get packed in, then check the ones you want.</li>
+      <li>Click <strong>Preview Arrangement</strong> to see the grid-fit layout in the preview canvas - nothing in the model changes yet.</li>
+      <li>Happy with it? Click <strong>Insert into Sheet</strong> to actually import and place them. Inserted rows drop off the list once placed.</li>
+    </ol>
   </div>
 
   <div class="card">
@@ -53,6 +62,8 @@
       <tr><th>Center in Sheet + Offset X/Y</th><td>Moves each checked item to its sheet's title-block-bounds center, then nudges it by the offset (shown in your project's display unit).</td></tr>
       <tr><th>Scale Factor / Match Size to Largest/Smallest</th><td>Images tab only &mdash; resizes checked Images by a multiplier, or matches every checked Image to whichever one is largest/smallest by area.</td></tr>
       <tr><th>Auto-Arrange</th><td>Images tab only &mdash; packs checked Images into a grid, sliding around unchecked Images and Viewports so it doesn't overlap them (best-effort, not guaranteed on a crowded sheet).</td></tr>
+      <tr><th>Preview Arrangement / Insert into Sheet</th><td>Super Image tab only &mdash; Preview Arrangement computes (but doesn't apply) a grid-fit layout for the checked images against the target sheet's title block bounds; Insert into Sheet actually imports each as a new Revit Image and places it at its previewed position/size.</td></tr>
+      <tr><th>Move Up / Move Down</th><td>Super Image tab only &mdash; manually reorders the highlighted row, which changes packing order in the next Preview Arrangement (earlier rows get earlier/left-to-right/top-to-bottom grid cells).</td></tr>
     </table>
   </div>
 
@@ -63,6 +74,8 @@
       <li>"Center in Sheet" uses the sheet's title block bounding box as a stand-in for its usable white space &mdash; if your title block has a wide info panel along one edge, use the Offset fields to compensate.</li>
       <li>A rescan, a fresh Use Current Selection, or loading a different sheet replaces the grid's rows entirely, which also silently discards anything staged but not yet applied &mdash; click Apply to Sheet first if you want to keep it.</li>
       <li>A staged change stays staged even if you later uncheck that row's Include box &mdash; unchecking only controls what NEW actions operate on, it doesn't cancel something already staged. Use Discard Changes to clear everything.</li>
+      <li>The Super Image tab uses Revit API calls (<code>ImageType.Create</code>, <code>ImageInstance.Create</code>) that no other tool in this extension has ever used before &mdash; verified against the official API docs before building, but not yet exercised live. Try it on a backup/non-production sheet first.</li>
+      <li>Super Image's grid-fit layout also uses the sheet's title block bounding box as a stand-in for usable white space, same caveat as Center in Sheet &mdash; a busy title block can eat into the area it tries to fill.</li>
     </ul>
   </div>
 

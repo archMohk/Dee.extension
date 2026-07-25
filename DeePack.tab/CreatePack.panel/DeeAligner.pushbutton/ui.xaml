@@ -215,6 +215,63 @@
                     </Grid>
                 </DockPanel>
             </TabItem>
+
+            <!-- TAB 3: Super Image -->
+            <TabItem Header="Super Image">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Pick images from your PC, choose a target sheet, then Preview Arrangement to see them scaled and packed to fill the sheet's usable area, each keeping its own proportions. Nothing is created in the model until you click Insert into Sheet."/>
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Target Sheet:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="super_sheet_cb" Width="300" Height="24"/>
+                        <Button x:Name="refresh_super_sheets_b" Content="Refresh Sheet List" Click="refresh_super_sheets_click" Width="130" Height="24" Margin="8,0,0,0"/>
+                        <Button x:Name="super_pick_sheet_b" Content="Use This Sheet" Click="super_pick_sheet_click" Width="120" Height="24" Margin="8,0,0,0"/>
+                    </StackPanel>
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="add_super_images_b" Content="Add Images from PC..." Click="add_super_images_click" Width="160" Height="26"/>
+                        <Button x:Name="super_select_all_b" Content="Select All" Click="super_select_all_click" Width="90" Height="24" Margin="14,0,0,0"/>
+                        <Button x:Name="super_select_none_b" Content="Select None" Click="super_select_none_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="super_move_up_b" Content="Move Up" Click="super_move_up_click" Width="90" Height="24" Margin="14,0,0,0"/>
+                        <Button x:Name="super_move_down_b" Content="Move Down" Click="super_move_down_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="super_remove_selected_b" Content="Remove Selected" Click="super_remove_selected_click" Width="120" Height="24" Margin="14,0,0,0"/>
+                    </StackPanel>
+                    <TextBlock DockPanel.Dock="Top" x:Name="super_status_tb" Text="No images added yet." Margin="0,0,0,8" FontStyle="Italic"/>
+
+                    <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                        <GroupBox Header="Arrange &amp; Insert">
+                            <StackPanel Orientation="Horizontal" Margin="6">
+                                <Button x:Name="super_preview_arrange_b" Content="Preview Arrangement" Click="super_preview_arrange_click" Width="150" Height="28"/>
+                                <Button x:Name="super_insert_b" Content="Insert into Sheet" Click="super_insert_click" Width="140" Height="28" Margin="8,0,0,0" FontWeight="Bold"/>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="300"/>
+                        </Grid.ColumnDefinitions>
+                        <DataGrid x:Name="super_grid" Grid.Column="0" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="Select" Binding="{Binding is_selected, UpdateSourceTrigger=PropertyChanged}" Width="55"/>
+                                <DataGridTextColumn Header="File Name" Binding="{Binding file_name}" Width="*" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Pixel Size" Binding="{Binding size_text}" Width="140" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Status" Binding="{Binding status_text}" Width="160" IsReadOnly="True"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <DockPanel Grid.Column="2">
+                            <TextBlock DockPanel.Dock="Top" Text="Preview (blue = existing Viewport, yellow border = staged image)" FontWeight="Bold" Margin="0,0,0,4" TextWrapping="Wrap"/>
+                            <TextBlock DockPanel.Dock="Bottom" x:Name="super_preview_status_tb" Text="Nothing to preview yet." FontStyle="Italic" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                            <Border BorderBrush="#888" BorderThickness="1">
+                                <Canvas x:Name="super_preview_canvas" Background="#1a1a1a"/>
+                            </Border>
+                        </DockPanel>
+                    </Grid>
+                </DockPanel>
+            </TabItem>
         </TabControl>
     </DockPanel>
 </Window>
