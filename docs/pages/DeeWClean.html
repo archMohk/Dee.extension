@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeW.Clean — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; LazyPack panel &rsaquo; DeeW.Cloud dropdown</div>
+  <span class="panel-chip">LazyPack</span>
+  <h1 class="tool-title">DeeW.Clean</h1>
+  <p class="tagline">Batch-cleans local and cloud Revit models: purges unused elements, deletes zero-area rooms and unused groups, flags in-place families for review &mdash; then saves or Synchronizes With Central so the cleanup reaches the real shared model, not a disconnected copy.</p>
+
+  <div class="callout danger"><strong>Risk level: High</strong> Unlike DeeW.Sharing/Batch Save to Cloud (which always detach and only ever create a NEW, separate Cloud Model), DeeW.Clean deliberately opens the REAL central or cloud model without detaching, deletes elements in it, and pushes those changes back via Synchronize With Central &mdash; including on live ACC Cloud Models other people may have open. Test on a backup/non-production project first.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>For every selected local file or cloud model, runs whichever checks you enabled and then saves the result back:</p>
+    <ul>
+      <li><strong>Purge Unused Elements</strong> &mdash; uses Revit's own <code>Document.GetUnusedElements</code> API (the same set the "Purge Unused" dialog shows), run iteratively until nothing more can be purged. Needs Revit 2024 or later; on older Revit this step is skipped with a clear note rather than failing the file.</li>
+      <li><strong>Delete Zero-Area Rooms</strong> &mdash; rooms with Area &le; 0 (Unplaced or Not Enclosed), same detection rule as <a href="DeeCleaner.html">DeeCleaner</a>'s interactive scan.</li>
+      <li><strong>Delete Unused Groups</strong> &mdash; Model/Detail Group types with zero placed instances anywhere in the project, same rule as DeeCleaner.</li>
+      <li><strong>Flag In-Place Families</strong> &mdash; counted and reported, <strong>never deleted automatically</strong>. An in-place family is real modeled geometry, not an "unused" element by any Revit definition &mdash; this is intentionally the one check that stays report-only, matching DeeCleaner's own restraint.</li>
+    </ul>
+    <p>Local Standalone files are simply saved in place. Local workshared files and ACC Cloud Models are opened <strong>without detaching</strong> and pushed back to their real central via <code>Document.SynchronizeWithCentral</code> &mdash; the whole point is cleaning the actual shared model, not a disconnected copy.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Under <strong>Local Files</strong>: browse to a folder and click Scan Folder, or Add Files... for specific files.</li>
+      <li>Under <strong>Cloud Models</strong>: click Add Cloud Models... to browse ACC by Hub/Project and pick which cloud models to include.</li>
+      <li>Tick the files/models you want to process.</li>
+      <li>Switch to <strong>Options</strong>: choose which checks to run, set a Synchronize Comment, and review the other settings.</li>
+      <li>Click <strong>Run</strong> &mdash; the Log &amp; Report tab shows live progress (current file, elapsed/ETA).</li>
+      <li>Use <strong>Export Report</strong> for a full Excel/CSV/TXT record of what was purged/deleted per file.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>Purge Unused Elements</th><td>Requires Revit 2024+; older Revit sessions skip this step per file with a clear warning rather than failing.</td></tr>
+      <tr><th>Delete Zero-Area Rooms / Delete Unused Groups</th><td>Same detection rules as DeeCleaner's interactive scans.</td></tr>
+      <tr><th>Flag In-Place Families</th><td>Report-only &mdash; counts them in the report so you can review and remove manually if wanted; never auto-deleted.</td></tr>
+      <tr><th>Synchronize Comment</th><td>The comment written to the model's Synchronize With Central history, so teammates can see what a run changed.</td></tr>
+      <tr><th>Compact Central File on Synchronize</th><td>Off by default &mdash; reduces central file size but increases sync time.</td></tr>
+      <tr><th>Audit on Open</th><td>Runs Revit's file audit when opening local files.</td></tr>
+      <tr><th>Automatically Resolve Dialogs</th><td>Auto-dismisses Revit's native dialogs so a batch never blocks on a modal prompt.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>This is a brand-new button in the existing DeeW.Cloud dropdown, so a plain pyRevit Reload is enough &mdash; no restart or cache-clear needed.</li>
+      <li>Runs on pyRevit's default IronPython 2 engine from the start, same as every other tool in Dee.extension.</li>
+      <li><code>Document.GetUnusedElements</code> needs live verification on a real Revit 2024+ session &mdash; check the report's Warnings column after your first run for a "needs Revit 2024+" note if it was skipped unexpectedly.</li>
+      <li>Opening a file the scanner classifies as "Central" (vs. "Local Copy of Central") directly and Synchronizing from it is unusual &mdash; a closed file's header can't always reliably tell the two apart, so both are treated the same way here. Best practice is always working from a local copy.</li>
+      <li>Cloud models are opened via <code>OpenAndActivateDocument</code>, which switches Revit's visible active tab to each file in turn while the batch runs &mdash; expected behavior (same as DeeOpener/DeeNWCs), not a bug.</li>
+      <li>Make sure Revit itself is signed in to your Autodesk account for cloud models, separately from the ACC browsing sign-in.</li>
+      <li>Test on a backup/non-production copy of a project first &mdash; this tool deletes elements and synchronizes automatically, with no per-file confirmation.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

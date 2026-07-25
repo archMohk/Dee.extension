@@ -121,32 +121,100 @@ def _csv_escape(value):
     return text
 
 
-def export_csv(path, rows):
+def export_csv(path, rows, headers=None):
+    headers = headers if headers is not None else REPORT_HEADERS
     with open(path, "w") as f:
-        f.write(",".join(_csv_escape(h) for h in REPORT_HEADERS) + "\r\n")
+        f.write(",".join(_csv_escape(h) for h in headers) + "\r\n")
         for row in rows:
             f.write(",".join(_csv_escape(v) for v in row.to_list()) + "\r\n")
 
 
-def export_txt(path, rows):
+def export_txt(path, rows, headers=None):
+    headers = headers if headers is not None else REPORT_HEADERS
     with open(path, "w") as f:
-        f.write("\t".join(REPORT_HEADERS) + "\n")
+        f.write("\t".join(headers) + "\n")
         for row in rows:
             f.write("\t".join(str(v) for v in row.to_list()) + "\n")
 
 
-def export_excel(path, title, rows):
+def export_excel(path, title, rows, headers=None, col_widths=None):
+    headers = headers if headers is not None else REPORT_HEADERS
+    col_widths = col_widths if col_widths is not None else _EXCEL_COL_WIDTHS
     xlsx_rows = [(row.to_list(), row.status_tag()) for row in rows]
-    xlsx_writer.write_themed_xlsx(path, title, REPORT_HEADERS, _EXCEL_COL_WIDTHS, xlsx_rows)
+    xlsx_writer.write_themed_xlsx(path, title, headers, col_widths, xlsx_rows)
 
 
-def export(path, title, rows):
+def export(path, title, rows, headers=None, col_widths=None):
     """Picks the export format from the file extension - one entry
-    point for every DeeW.Cloud tool's Export Report button."""
+    point for every DeeW.Cloud tool's Export Report button.
+    headers/col_widths let a caller with a different row schema
+    (e.g. CleanReportRow below) reuse this same export logic instead
+    of duplicating it - defaults match the original upload-oriented
+    ReportRow schema for full backward compatibility with existing
+    callers (DeeW.Sharing, DeeW.Batch Save to Cloud)."""
     lower = path.lower()
     if lower.endswith(".csv"):
-        export_csv(path, rows)
+        export_csv(path, rows, headers=headers)
     elif lower.endswith(".txt"):
-        export_txt(path, rows)
+        export_txt(path, rows, headers=headers)
     else:
-        export_excel(path, title, rows)
+        export_excel(path, title, rows, headers=headers, col_widths=col_widths)
+
+
+CLEAN_REPORT_HEADERS = [
+    "File Name", "Location", "Source", "Model Type",
+    "Unused Elements Purged", "Zero-Area Rooms Deleted", "Unused Groups Deleted",
+    "In-Place Families Found", "Save/Sync Status", "Warnings", "Errors",
+    "Processing Time", "Date", "Revit Version", "User",
+]
+
+CLEAN_EXCEL_COL_WIDTHS = [28, 34, 10, 16, 18, 20, 18, 18, 20, 30, 30, 14, 18, 12, 16]
+
+
+class CleanReportRow(object):
+    """One row per file processed by DeeW.Clean - a separate schema
+    from ReportRow above rather than repurposing its upload-oriented
+    fields ("Cloud Model Name", "Upload Status"), since DeeW.Clean
+    never uploads anything - it purges/deletes elements in place and
+    then saves or synchronizes the SAME file. Shares the same to_list()
+    / status_tag() duck-typed interface as ReportRow so export() above
+    works unchanged for either schema."""
+
+    def __init__(self, file_name, location, source, model_type, revit_version):
+        self.file_name = file_name
+        self.location = location
+        self.source = source  # "Local" or "Cloud"
+        self.model_type = model_type
+        self.purged_count = 0
+        self.zero_area_rooms_deleted = 0
+        self.unused_groups_deleted = 0
+        self.inplace_families_found = 0
+        self.save_status = "Pending"
+        self.warnings = ""
+        self.errors = ""
+        self.processing_time_seconds = 0.0
+        self.date_text = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.revit_version = revit_version
+        try:
+            self.user = os.environ.get("USERNAME", "Unknown")
+        except Exception:
+            self.user = "Unknown"
+
+    def to_list(self):
+        return [
+            self.file_name, self.location, self.source, self.model_type,
+            self.purged_count, self.zero_area_rooms_deleted, self.unused_groups_deleted,
+            self.inplace_families_found, self.save_status, self.warnings, self.errors,
+            "{0:.1f}s".format(self.processing_time_seconds), self.date_text, self.revit_version,
+            self.user,
+        ]
+
+    def status_tag(self):
+        status = (self.save_status or "").lower()
+        if "fail" in status or "error" in status:
+            return "fail"
+        if "skip" in status:
+            return "skip"
+        if "saved" in status or "synchron" in status or "success" in status:
+            return "ok"
+        return None
