@@ -48,6 +48,7 @@
       <li>Pick a sheet from the dropdown and click <strong>Use This Sheet</strong>.</li>
       <li>Click <strong>Add Images from PC...</strong> and pick one or more image files (bmp/jpg/jpeg/png/tif/tiff).</li>
       <li>Reorder with Move Up/Move Down if you care which order they get packed in, then check the ones you want.</li>
+      <li>Set a <strong>Safe Offset from Border</strong> if you want the arrangement inset from the sheet's title block bounds (0 by default - flush to those bounds).</li>
       <li>Click <strong>Preview Arrangement</strong> to see the grid-fit layout in the preview canvas - nothing in the model changes yet.</li>
       <li>Happy with it? Click <strong>Insert into Sheet</strong> to actually import and place them. Inserted rows drop off the list once placed.</li>
     </ol>
@@ -64,6 +65,7 @@
       <tr><th>Auto-Arrange</th><td>Images tab only &mdash; packs checked Images into a grid, sliding around unchecked Images and Viewports so it doesn't overlap them (best-effort, not guaranteed on a crowded sheet).</td></tr>
       <tr><th>Preview Arrangement / Insert into Sheet</th><td>Super Image tab only &mdash; Preview Arrangement computes (but doesn't apply) a grid-fit layout for the checked images against the target sheet's title block bounds; Insert into Sheet actually imports each as a new Revit Image and places it at its previewed position/size.</td></tr>
       <tr><th>Move Up / Move Down</th><td>Super Image tab only &mdash; manually reorders the highlighted row, which changes packing order in the next Preview Arrangement (earlier rows get earlier/left-to-right/top-to-bottom grid cells).</td></tr>
+      <tr><th>Safe Offset from Border</th><td>Super Image tab only &mdash; insets the sheet's title block bounds on all four sides by this amount (your project's display unit) before Preview Arrangement lays out the grid, so images never sit flush against the border. 0 by default.</td></tr>
     </table>
   </div>
 

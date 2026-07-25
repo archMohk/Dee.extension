@@ -185,12 +185,18 @@ def shelf_pack(sizes, bounds, obstacles=None, spacing=0.0):
     return results
 
 
-def grid_fit_pack(aspect_ratios, bounds, spacing_frac=0.04):
+def grid_fit_pack(aspect_ratios, bounds, spacing_frac=0.04, margin=0.0):
     """Arranges `aspect_ratios` (one width/height ratio per item, e.g.
     from an image file's own pixel size) into a grid that fills `bounds`
     = (min_x, max_x, min_y, max_y) as fully as possible - used by
     DeeAligner's Super Image tab to lay out freshly-inserted images
     ("scale all the selected images to fit the sheet", per spec).
+
+    `margin` (same unit as `bounds`) insets the usable area on all four
+    sides BEFORE laying out the grid - a "safe offset from the border"
+    so images never sit flush against the sheet's title block bounds,
+    per spec. Applied once to the whole area, not per-cell (spacing_frac
+    still controls the gaps BETWEEN cells, inside that inset area).
 
     Tries every column count from 1 to len(aspect_ratios) and keeps
     whichever grid covers the most total area once each item is
@@ -204,13 +210,18 @@ def grid_fit_pack(aspect_ratios, bounds, spacing_frac=0.04):
     would leave large gaps in most cells).
 
     Returns a same-length list of (min_x, max_x, min_y, max_y) boxes.
-    An empty input or degenerate bounds (zero/negative width or height)
-    returns an empty list / a list of None respectively."""
+    An empty input or degenerate bounds (zero/negative width or height
+    once the margin is applied) returns an empty list / a list of None
+    respectively."""
     import math
     n = len(aspect_ratios)
     if n <= 0:
         return []
     min_x, max_x, min_y, max_y = bounds
+    min_x += margin
+    max_x -= margin
+    min_y += margin
+    max_y -= margin
     total_w = max_x - min_x
     total_h = max_y - min_y
     if total_w <= 0 or total_h <= 0:
@@ -319,5 +330,22 @@ if __name__ == "__main__":
             for i in range(len(boxes)):
                 for j in range(i + 1, len(boxes)):
                     self.assertFalse(boxes_overlap(boxes[i], boxes[j]))
+
+        def test_margin_insets_every_box(self):
+            bounds = (0.0, 100.0, 0.0, 100.0)
+            margin = 10.0
+            boxes = grid_fit_pack([1.0, 1.0, 1.0], bounds, margin=margin)
+            for b in boxes:
+                self.assertIsNotNone(b)
+                min_x, max_x, min_y, max_y = b
+                self.assertGreaterEqual(min_x, bounds[0] + margin - 1e-6)
+                self.assertLessEqual(max_x, bounds[1] - margin + 1e-6)
+                self.assertGreaterEqual(min_y, bounds[2] + margin - 1e-6)
+                self.assertLessEqual(max_y, bounds[3] - margin + 1e-6)
+
+        def test_margin_too_large_returns_none(self):
+            bounds = (0.0, 10.0, 0.0, 10.0)
+            boxes = grid_fit_pack([1.0, 1.0], bounds, margin=6.0)
+            self.assertEqual(boxes, [None, None])
 
     unittest.main()

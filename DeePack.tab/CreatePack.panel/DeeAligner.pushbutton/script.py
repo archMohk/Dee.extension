@@ -503,6 +503,7 @@ class DeeAlignerWindow(forms.WPFWindow):
         self.views_offset_y_unit_tb.Text = unit_abbr
         self.images_offset_x_unit_tb.Text = unit_abbr
         self.images_offset_y_unit_tb.Text = unit_abbr
+        self.super_margin_unit_tb.Text = unit_abbr
 
         self._scan_all_sheets()
         self._refresh_image_sheet_dropdown()
@@ -1398,8 +1399,12 @@ class DeeAlignerWindow(forms.WPFWindow):
                 _sheet_label(self._super_sheet)))
             return
 
+        margin = _display_to_internal(self.doc, self._safe_float(self.super_margin_tb.Text, 0.0))
         aspect_ratios = [r.aspect_ratio for r in selected]
-        boxes = align_tools.grid_fit_pack(aspect_ratios, bounds)
+        boxes = align_tools.grid_fit_pack(aspect_ratios, bounds, margin=margin)
+        if boxes and all(b is None for b in boxes):
+            forms.alert("Safe Offset from Border is too large for this sheet's usable area - reduce it and try again.")
+            return
         for r in self._super_items:
             r.staged_box = None
         for row, box in zip(selected, boxes):

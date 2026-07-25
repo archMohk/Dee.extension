@@ -241,10 +241,14 @@
 
                     <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
                         <GroupBox Header="Arrange &amp; Insert">
-                            <StackPanel Orientation="Horizontal" Margin="6">
-                                <Button x:Name="super_preview_arrange_b" Content="Preview Arrangement" Click="super_preview_arrange_click" Width="150" Height="28"/>
-                                <Button x:Name="super_insert_b" Content="Insert into Sheet" Click="super_insert_click" Width="140" Height="28" Margin="8,0,0,0" FontWeight="Bold"/>
-                            </StackPanel>
+                            <WrapPanel Margin="6">
+                                <TextBlock Text="Safe Offset from Border:" VerticalAlignment="Center" Margin="0,0,4,6"/>
+                                <TextBox x:Name="super_margin_tb" Text="0" Width="60" Height="24" Margin="0,0,4,6" VerticalContentAlignment="Center"
+                                         ToolTip="Inset applied on all four sides of the sheet's title block bounds before arranging - keeps images from sitting flush against the border."/>
+                                <TextBlock x:Name="super_margin_unit_tb" Text="mm" VerticalAlignment="Center" Margin="0,0,14,6"/>
+                                <Button x:Name="super_preview_arrange_b" Content="Preview Arrangement" Click="super_preview_arrange_click" Width="150" Height="28" Margin="0,0,6,6"/>
+                                <Button x:Name="super_insert_b" Content="Insert into Sheet" Click="super_insert_click" Width="140" Height="28" Margin="8,0,0,6" FontWeight="Bold"/>
+                            </WrapPanel>
                         </GroupBox>
                     </StackPanel>
 
