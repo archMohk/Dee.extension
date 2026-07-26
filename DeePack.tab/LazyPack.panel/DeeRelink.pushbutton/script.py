@@ -56,12 +56,34 @@ the actual community-documented workaround before writing, not guessed)
   a link inside another open document.
 - Reuses this repo's existing, already-proven ACC infrastructure
   (acc_auth.get_access_token, acc_file_browser.pick_hub/pick_project/
-  list_project_files/get_cloud_path_guids - the same modules DeeOpener/
-  DeeNWCs/DeeW.Cloud already use) for the "Pick from ACC Cloud..."
-  button, rather than re-deriving hub/project/model browsing. The APS
-  OAuth login only triggers when that button is actually clicked, not
-  during the automatic scan-on-open, so opening this tool never forces
-  a surprise sign-in prompt just to look at the link list.
+  get_cloud_path_guids - the same modules DeeOpener/DeeNWCs/DeeW.Cloud
+  already use) for the "Pick from ACC Cloud..." button, rather than
+  re-deriving hub/project/model browsing. The APS OAuth login only
+  triggers when that button is actually clicked, not during the
+  automatic scan-on-open, so opening this tool never forces a surprise
+  sign-in prompt just to look at the link list.
+- The ACC Hub/Project is picked ONCE and remembered (via deew_settings,
+  the same gitignored per-tool JSON persistence DeeW.Cloud's tools
+  already use) rather than re-prompted on every "Pick from ACC
+  Cloud..." click - per explicit user request ("no need to open the
+  full ACC every time, just open the project I work on"). A "Change
+  ACC Project..." button lets you switch it deliberately. This is
+  shared window-wide state (one Autodesk/ACC project context, not
+  per-document-tab), since it's the same real-world ACC project
+  regardless of which open Revit document's links you're fixing.
+- Browsing WITHIN that remembered project uses a folder-by-folder
+  drill-down (acc_file_browser.browse_and_pick_cloud_file - a new
+  sibling to that module's existing pick_folder(), reusing the exact
+  same acc_api.get_top_folders/list_folder_contents primitives) with
+  an explicit "Scan This Folder for Revit Files" action at whatever
+  level you navigate to, INSTEAD OF the old list_project_files() call
+  (a full recursive BFS scan of the entire project's folder tree) -
+  per explicit user request ("do not scan all the Revit files, just
+  let me navigate between folders until I reach the requested folder,
+  then let me click scan"). Each folder's scan result is cached per
+  the same request ("save the scan, not every time scan all the
+  files") - revisiting the same folder offers "Use Cached" instead of
+  hitting the API again.
 
 --------------------------------------------------------------------
 NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct)
@@ -115,12 +137,48 @@ from System.Windows.Forms import FolderBrowserDialog, DialogResult
 
 import acc_auth
 import acc_file_browser as afb
+import deew_settings
 
 output = script.get_output()
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 _ACC_CACHE_FILE = os.path.join(_THIS_DIR, ".acc_file_cache.json")
+
+_ACC_SETTINGS_TOOL = "DeeRelink"
+_ACC_SETTINGS_DEFAULTS = {
+    "hub_id": None, "hub_name": None, "region": None,
+    "project_id": None, "project_name": None,
+}
+
+
+def _pick_new_acc_project(acc_context):
+    """Prompts Hub then Project (the two ACC pickers, only ever shown
+    here - never re-shown just to browse folders/files within an
+    already-remembered project) and saves the choice to disk so future
+    DeeRelink sessions start with it already set. Mutates `acc_context`
+    in place (a plain dict shared by the window and every tab's
+    controller) and returns True on success, False if cancelled or
+    failed."""
+    try:
+        token = acc_auth.get_access_token()
+        hub = afb.pick_hub(token)
+        if not hub:
+            return False
+        hub_id, region, hub_name = hub
+        project = afb.pick_project(hub_id, token)
+        if not project:
+            return False
+        project_id, project_name = project
+    except Exception as e:
+        forms.alert("Could not load ACC hubs/projects: {0}".format(e))
+        return False
+    acc_context.update({
+        "hub_id": hub_id, "hub_name": hub_name, "region": region,
+        "project_id": project_id, "project_name": project_name,
+    })
+    deew_settings.save(_ACC_SETTINGS_TOOL, acc_context)
+    return True
 
 
 def _read_name(element):
@@ -286,11 +344,13 @@ class DocTabController(object):
     tab's WPF controls are built in code (no XAML Click= binding is
     possible here since the number of tabs varies at runtime)."""
 
-    def __init__(self, document):
+    def __init__(self, document, acc_context, on_acc_context_changed=None):
         self.document = document
         self.rows = []
         self.grid = None
         self.status_tb = None
+        self.acc_context = acc_context  # shared dict - same ACC project across all tabs
+        self.on_acc_context_changed = on_acc_context_changed
 
     def scan(self):
         self.rows = _scan_revit_links(self.document)
@@ -324,40 +384,39 @@ class DocTabController(object):
         self.grid.Items.Refresh()
 
     def pick_cloud_click(self, sender, args):
-        """ACC cloud relink target: browse Hub -> Project -> Model by
-        name (reusing this repo's existing, already-proven acc_auth/
-        acc_file_browser modules) and apply the ONE picked model to
-        every highlighted row. The APS sign-in only happens here, on
-        explicit user action - never during the automatic scan-on-open."""
+        """ACC cloud relink target: reuses whatever Hub/Project is
+        already remembered (self.acc_context) - only prompts Hub/
+        Project pickers the very first time ever, or after "Change ACC
+        Project..." - then browses INTO that project folder-by-folder
+        (acc_file_browser.browse_and_pick_cloud_file), scanning only
+        the one folder you navigate to and explicitly ask to scan, not
+        the whole project. Applies the ONE picked model to every
+        highlighted row. The APS sign-in only happens here, on explicit
+        user action - never during the automatic scan-on-open."""
         highlighted = list(self.grid.SelectedItems)
         if not highlighted:
             forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
             return
+        if not self.acc_context.get("project_id"):
+            if not _pick_new_acc_project(self.acc_context):
+                return
+            if self.on_acc_context_changed:
+                self.on_acc_context_changed()
+
+        ctx = self.acc_context
         try:
             token = acc_auth.get_access_token()
-            hub = afb.pick_hub(token)
-            if not hub:
+            picked = afb.browse_and_pick_cloud_file(ctx["hub_id"], ctx["project_id"], token, _ACC_CACHE_FILE)
+            if not picked:
                 return
-            hub_id, region, hub_name = hub
-            project = afb.pick_project(hub_id, token)
-            if not project:
-                return
-            project_id, project_name = project
-            all_items = afb.list_project_files(hub_id, project_id, token, _ACC_CACHE_FILE)
-            if not all_items:
-                return
-            picked_name = forms.SelectFromList.show(
-                sorted(all_items.keys()), title="Pick ACC Cloud Model", button_name="Select")
-            if not picked_name:
-                return
-            item_id = all_items[picked_name]
+            item_id, picked_name = picked
         except Exception as e:
-            forms.alert("Could not load ACC cloud models: {0}".format(e))
+            forms.alert("Could not browse ACC folders: {0}".format(e))
             return
 
-        label = "[ACC] {0} / {1} / {2}".format(hub_name, project_name, picked_name)
+        label = "[ACC] {0} / {1} / {2}".format(ctx["hub_name"], ctx["project_name"], picked_name)
         for row in highlighted:
-            row.cloud_target = (region, project_id, item_id, token, label)
+            row.cloud_target = (ctx["region"], ctx["project_id"], item_id, token, label)
             row.new_path = label
         self.grid.Items.Refresh()
 
@@ -380,7 +439,21 @@ class DeeRelinkWindow(forms.WPFWindow):
         forms.WPFWindow.__init__(self, xaml_file)
         self.uiapp = uiapp
         self._controllers = []
+        self._acc_context = deew_settings.load(_ACC_SETTINGS_TOOL, _ACC_SETTINGS_DEFAULTS)
+        self._refresh_acc_status()
         self._build_tabs()
+
+    def _refresh_acc_status(self):
+        ctx = self._acc_context
+        if ctx.get("project_id"):
+            self.acc_status_tb.Text = "ACC Project: {0} / {1}".format(
+                ctx.get("hub_name", "?"), ctx.get("project_name", "?"))
+        else:
+            self.acc_status_tb.Text = "ACC Project: (none set yet - picked on first cloud use)"
+
+    def change_project_click(self, sender, args):
+        if _pick_new_acc_project(self._acc_context):
+            self._refresh_acc_status()
 
     def _open_project_documents(self):
         docs = []
@@ -402,7 +475,7 @@ class DeeRelinkWindow(forms.WPFWindow):
             forms.alert("No open Revit documents found.")
             return
         for doc in documents:
-            controller = DocTabController(doc)
+            controller = DocTabController(doc, self._acc_context, self._refresh_acc_status)
             tab_item = self._build_tab_item(doc, controller)
             self.main_tabs.Items.Add(tab_item)
             self._controllers.append(controller)

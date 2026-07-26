@@ -347,6 +347,119 @@ def pick_folder(hub_id, project_id, token):
             return folder_id, " / ".join(breadcrumb)
 
 
+def browse_and_pick_cloud_file(hub_id, project_id, token, cache_file):
+    """Folder-by-folder navigation (reusing the exact same drill-down
+    primitives as pick_folder() above - acc_api.get_top_folders/
+    list_folder_contents) instead of list_project_files()'s full
+    recursive whole-project BFS scan, which is slow/heavy on large
+    projects and scans far more than the user usually needs. The user
+    navigates into subfolders one level at a time; at ANY level they
+    can pick "[Scan This Folder for Revit Files]" to explicitly list
+    just that folder's own Revit files (optionally including its
+    subfolders), rather than the tool scanning everything up front.
+
+    Each folder's scan result is cached (reusing _load_cache/
+    _save_cache, keyed by "project_id::folder_id[:r]" so a recursive
+    and non-recursive scan of the same folder don't collide) -
+    revisiting the same folder later offers "Use Cached" instead of
+    re-hitting the API, mirroring list_project_files()'s own cache-or-
+    rescan prompt.
+
+    Returns (item_id, display_name), or None if the user cancelled at
+    any point."""
+    breadcrumb = []
+    folder_id = None
+    try:
+        subfolders = acc_api.get_top_folders(hub_id, project_id, token)
+    except Exception:
+        subfolders = []
+    if not subfolders:
+        forms.alert("No folders found in that project.")
+        return None
+
+    scan_option = "[Scan This Folder for Revit Files]"
+    while True:
+        options = [scan_option] + sorted(name for _fid, name in subfolders)
+        title = "Browse ACC Folders"
+        if breadcrumb:
+            title = "Browse ACC Folders  -  {0}".format(" / ".join(breadcrumb))
+        picked = forms.SelectFromList.show(options, title=title, button_name="Open / Scan")
+        if not picked:
+            return None
+
+        if picked == scan_option:
+            choice = forms.CommandSwitchWindow.show(
+                ["This Folder Only", "Include Subfolders"],
+                message="Scan '{0}' for Revit files:".format(" / ".join(breadcrumb) or "(project root)")
+            )
+            if not choice:
+                continue
+            recursive = choice == "Include Subfolders"
+            items = _scan_one_folder(project_id, folder_id, token, recursive, cache_file)
+            if not items:
+                forms.alert("No Revit (.rvt) files found in that folder{0}.".format(
+                    " or its subfolders" if recursive else ""))
+                continue
+            picked_name = forms.SelectFromList.show(
+                sorted(items.keys()), title="Select Revit File", button_name="Select")
+            if not picked_name:
+                continue
+            return items[picked_name], picked_name
+
+        picked_id = dict((name, fid) for fid, name in subfolders)[picked]
+        breadcrumb.append(picked)
+        folder_id = picked_id
+        try:
+            subfolders, _items = acc_api.list_folder_contents(project_id, folder_id, token)
+        except Exception:
+            subfolders = []
+
+
+def _scan_one_folder(project_id, folder_id, token, recursive, cache_file):
+    """Returns {display_name: item_id} for one folder (optionally its
+    subfolders too), using a cached result if one exists for this exact
+    folder+recursive-flag combination."""
+    cache_key = "{0}::{1}{2}".format(project_id, folder_id, ":r" if recursive else "")
+    cache_ts, cached_files, _pub = _load_cache(cache_file, cache_key)
+    if cached_files is not None:
+        age_str = datetime.datetime.fromtimestamp(cache_ts).strftime("%Y-%m-%d %H:%M")
+        choice = forms.CommandSwitchWindow.show(
+            ["Use Cached List ({0} file(s), saved {1})".format(len(cached_files), age_str),
+             "Rescan This Folder"],
+            message="A cached file list exists for this folder."
+        )
+        if not choice:
+            return None
+        if "Use Cached" in choice:
+            return {str(k): str(v) for k, v in cached_files.items()}
+
+    items = {}
+
+    def _add(iid, iname):
+        key = iname
+        if key in items and items[key] != iid:
+            key = "{0}  [{1}]".format(iname, iid.split(":")[-1][:8])
+        items[key] = iid
+
+    if recursive:
+        level = [folder_id]
+        while level:
+            next_level, found_items = scan_level(level, project_id, token)
+            for iid, iname in found_items:
+                _add(iid, iname)
+            level = next_level
+    else:
+        try:
+            _subfolders, found_items = acc_api.list_folder_contents(project_id, folder_id, token)
+        except Exception:
+            found_items = []
+        for iid, iname in found_items:
+            _add(iid, iname)
+
+    _save_cache(cache_file, cache_key, items)
+    return items
+
+
 def list_project_files(hub_id, project_id, token, cache_file):
     """Full 'use cache or rescan' flow (same prompts/behavior as DeeOpener).
     Returns a dict {display_name: item_id}, or None if the user cancelled or
