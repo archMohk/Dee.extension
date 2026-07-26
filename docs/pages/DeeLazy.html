@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeLazy — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; LazyPack panel</div>
+  <span class="panel-chip">LazyPack</span>
+  <h1 class="tool-title">DeeLazy</h1>
+  <p class="tagline">A growing collection of bulk productivity tools, opened from one card-based launcher window. Each tool is its own self-contained module - adding a future one never touches the existing ones. First tool: <strong>View Cropping</strong>.</p>
+
+  <div class="callout danger"><strong>Risk level: Medium</strong> Every Crop Action inside View Cropping applies immediately once you click it - after a confirmation dialog showing how many views will be affected, but with no separate staged preview/Apply step. Double-check your checked rows and offset values before clicking an action button.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Opening DeeLazy shows a launcher window with one card per available tool. Clicking <strong>Open</strong> on a card opens that tool's own window - the launcher itself does nothing else. This first release ships with one tool:</p>
+    <h3>View Cropping</h3>
+    <p>Batch-edits Crop Region settings across many views at once: <strong>Crop Region Active</strong>, <strong>Crop Region Visibility</strong> (Show/Hide/Toggle), <strong>Annotation Crop</strong> (Yes/No), <strong>Crop Offset</strong> (Top/Bottom/Left/Right or a single Uniform value, in your project's display units), and <strong>Scope Box</strong> assignment/removal. Supports Floor Plans, Ceiling Plans, Sections, Elevations, Detail Views, Drafting Views, and 3D Views (Schedules, Legends, Renderings, and Sheets themselves are not views with a crop region and are excluded).</p>
+    <p>Load views via <strong>Current Sheet</strong>, <strong>Selected Sheets...</strong>, <strong>Entire Project</strong>, or <strong>Current Selection</strong> (Project Browser or a viewport on a sheet - Revit's Selection API doesn't distinguish the two, so there is only one button for both). Narrow the list with <strong>Filters</strong> (View Type, Discipline, View Template, Name/Sheet text search, Dependent/Primary, current Crop Active/Annotation Crop state), then check the rows you want and click a Crop Action on the right. Each action shows a Yes/No confirmation naming how many views are affected, then runs immediately inside one Transaction with a progress bar, and lists every view's result in the Report grid at the bottom right - export it to Excel any time with <strong>Export Report...</strong>.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Open DeeLazy from the LazyPack panel, then click <strong>Open</strong> on the View Cropping card.</li>
+      <li>Load views with one of the four buttons on the left (Current Sheet / Selected Sheets / Entire Project / Current Selection).</li>
+      <li>Optionally set Filters and click <strong>Apply Filters</strong> to narrow the list, and/or type in the Search box above the grid.</li>
+      <li>Check the views you want in the middle grid - use <strong>Select All</strong>, <strong>Select None</strong>, or <strong>Invert Selection</strong> to speed this up. Checked rows stay checked even if a later filter/search hides them.</li>
+      <li>Click a Crop Action on the right (Enable/Disable Crop Region, Show/Hide/Toggle Visibility, Enable/Disable Annotation Crop, Apply Crop Offset, Assign/Remove Scope Box) - confirm the view count in the dialog that appears.</li>
+      <li>Check the Report grid (or the printed HTML report) for what succeeded and what was skipped/failed and why, and use <strong>Export Report...</strong> to save an Excel copy if needed.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>Crop Offset - Uniform</th><td>When checked, one value is applied to all four sides instead of separate Top/Bottom/Left/Right values.</td></tr>
+      <tr><th>Crop Offset sign</th><td>Positive values expand the existing crop box outward on that side; negative values shrink it inward. This is a relative nudge to whatever crop each view already has, not an absolute size.</td></tr>
+      <tr><th>Assign Scope Box...</th><td>Lists every Scope Box in the project by name and assigns the one you pick to every checked view.</td></tr>
+      <tr><th>Remove Scope Box</th><td>Clears the Scope Box assignment (sets it to none) on every checked view.</td></tr>
+      <tr><th>Filters</th><td>Narrow the loaded list before selecting - View Type, Discipline, View Template, Name/Sheet text, Dependent-only/Primary-only, and current Crop Active/Annotation Crop state. Filters only hide rows; they don't change what's checked.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>This is a brand-new button in an existing panel, so it needs a full Revit restart + <code>pyrevit caches clear --all</code> to appear the first time.</li>
+      <li>Crop Region Shape (non-rectangular shapes, matching/duplicating a shape between views), split-crop regions, Far Clip Offset, and View Depth are intentionally not included in this first release - only the core crop properties above are.</li>
+      <li>"Annotation Crop" is read/written by parameter NAME ("Annotation Crop"), not a fixed internal enum - if a view doesn't expose a parameter by that exact name, its row shows "(n/a)" and any action on it reports "not found" rather than guessing.</li>
+      <li>Each action runs inside one Transaction across all checked views - if you Undo in Revit afterward, it undoes the whole batch at once, not one view at a time.</li>
+      <li>Try it on a handful of views first, especially for Crop Offset, to confirm the direction/units match what you expect before running it across an entire project.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

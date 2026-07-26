@@ -1,0 +1,84 @@
+# -*- coding: utf-8 -*-
+"""
+DeeLazy.controller
+Card-based launcher window. Builds one card per entry in
+modules.REGISTERED_MODULES via plain WPF constructors (the number of
+modules grows over time, so the card list is built in code rather than
+static XAML - the same "build it in code because the count varies"
+pattern already used by DeeRelink's per-document tabs). This file
+never needs to change to add a future module - see modules/__init__.py.
+"""
+import clr
+
+clr.AddReference("PresentationFramework")
+clr.AddReference("PresentationCore")
+clr.AddReference("System.Windows.Forms")
+
+from System.Windows import Thickness, TextWrapping, HorizontalAlignment, FontWeights, CornerRadius
+from System.Windows.Controls import Border, StackPanel, TextBlock, Button, Orientation
+from System.Windows.Media import Brushes
+
+from pyrevit import forms
+
+from modules import REGISTERED_MODULES
+
+
+class DeeLazyHomeWindow(forms.WPFWindow):
+    def __init__(self, xaml_file, uiapp):
+        forms.WPFWindow.__init__(self, xaml_file)
+        self.uiapp = uiapp
+        self._build_cards()
+
+    def _build_cards(self):
+        for tool_info in REGISTERED_MODULES:
+            card = self._make_card(tool_info)
+            self.cards_panel.Children.Add(card)
+
+    def _make_card(self, tool_info):
+        border = Border()
+        border.Width = 220
+        border.Height = 140
+        border.Margin = Thickness(6)
+        border.Padding = Thickness(10)
+        border.BorderBrush = Brushes.Gray
+        border.BorderThickness = Thickness(1)
+        border.CornerRadius = CornerRadius(6)
+
+        panel = StackPanel()
+        panel.Orientation = Orientation.Vertical
+
+        title_tb = TextBlock()
+        title_tb.Text = tool_info.get("title", tool_info.get("id", "Tool"))
+        title_tb.FontWeight = FontWeights.Bold
+        title_tb.FontSize = 15
+        title_tb.Margin = Thickness(0, 0, 0, 6)
+        title_tb.TextWrapping = TextWrapping.Wrap
+        panel.Children.Add(title_tb)
+
+        desc_tb = TextBlock()
+        desc_tb.Text = tool_info.get("description", "")
+        desc_tb.TextWrapping = TextWrapping.Wrap
+        desc_tb.Margin = Thickness(0, 0, 0, 10)
+        panel.Children.Add(desc_tb)
+
+        launch_b = Button()
+        launch_b.Content = "Open"
+        launch_b.Height = 28
+        launch_b.Width = 90
+        launch_b.HorizontalAlignment = HorizontalAlignment.Left
+        launch_b.Click += self._make_launch_handler(tool_info)
+        panel.Children.Add(launch_b)
+
+        border.Child = panel
+        return border
+
+    def _make_launch_handler(self, tool_info):
+        def handler(sender, args):
+            try:
+                tool_info["launch"](self.uiapp)
+            except Exception as e:
+                forms.alert("Could not open '{0}':\n{1}".format(tool_info.get("title", "Tool"), e))
+        return handler
+
+    def close_click(self, sender, args):
+        self.Close()
