@@ -1,0 +1,3 @@
+title: DeeRelink
+tooltip: Scan every Revit Link in each open document and batch-update their file paths - one tab per open document, edit New Path per row, then Apply
+context: zero-doc

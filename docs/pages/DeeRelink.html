@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeRelink — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; LazyPack panel</div>
+  <span class="panel-chip">LazyPack</span>
+  <h1 class="tool-title">DeeRelink</h1>
+  <p class="tagline">Scans every Revit Link in each currently-open document and lets you batch-update their file paths - one tab per open document, since more than one project can be open in the same Revit session.</p>
+
+  <div class="callout danger"><strong>Risk level: Medium</strong> Clicking Apply actually reloads/relinks the checked links from their new paths right away - there's no separate preview/confirm step per row, only the New Path text itself. Double-check paths before clicking Apply, especially if you typed them by hand.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>For every open, non-linked document, one tab (named after that document) lists every Revit Link (<code>RevitLinkType</code>) found in it: <strong>File Name</strong>, <strong>Current Path</strong> (resolved via the link's own external file reference), and an editable <strong>New Path</strong> column. Type a new path directly, or highlight one or more rows and click <strong>Browse for New Folder (Highlighted)...</strong> to pick one folder and apply it to all of them at once (matching each link's own file name inside that folder). Click <strong>Apply</strong> to actually relink every row with a New Path filled in - this is the same operation as Revit's own "Manage Links &gt; Reload From..." command, run via the API.</p>
+    <p>Cloud-hosted linked models are listed (so you can see they're there) but marked not editable here - relinking a cloud model isn't a plain file-path operation.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Open DeeRelink - it scans every currently-open document automatically and gives each one its own tab.</li>
+      <li>Switch to the tab for the project you want to fix.</li>
+      <li>Type a New Path for a broken/moved link, or highlight several rows and use <strong>Browse for New Folder (Highlighted)...</strong> if they all moved to the same new folder.</li>
+      <li>Click <strong>Apply</strong> - the tab rescans itself afterward so the grid always reflects Revit's actual current state, and a report window shows exactly what succeeded or failed per link.</li>
+      <li>Use <strong>Rescan</strong> any time to refresh the list without applying anything (e.g. after fixing something outside DeeRelink).</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>New Path</th><td>Free-text, editable per row. Empty means "no change" for that row - Apply only acts on rows with something typed here.</td></tr>
+      <tr><th>Browse for New Folder (Highlighted)...</th><td>Picks one folder and sets New Path for every highlighted row to "that folder + the link's own file name" - useful when a whole batch of links moved together.</td></tr>
+      <tr><th>Apply</th><td>Relinks every row with a New Path filled in, via Revit's own link-reload API. Rows are unaffected if New Path is left blank.</td></tr>
+      <tr><th>Rescan</th><td>Re-reads the document's links from scratch, discarding any unapplied New Path text you've typed.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>This is a brand-new button in a panel that also got its icon size changed (see below), so it needs a full Revit restart + <code>pyrevit caches clear --all</code> to appear the first time.</li>
+      <li>Relinking uses <code>RevitLinkType.LoadFrom</code>, the same API behind Revit's "Reload From..." command - it needs no Transaction (deliberately not wrapped in one here, unlike everything else in this extension), but it still really changes the document the moment you click Apply.</li>
+      <li>Whether a relinked link keeps the same internal element id afterward isn't fully documented - DeeRelink rescans the whole tab after every Apply rather than assuming, so the grid always reflects Revit's real current state either way.</li>
+      <li>Cloud-hosted links are shown but not editable here.</li>
+      <li>Try it on a backup/non-production project first, especially for links you're not sure about the exact intended new path.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>
