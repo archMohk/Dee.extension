@@ -10,47 +10,67 @@ Status) and its own Rescan / Browse for New Folder (Highlighted) /
 Apply buttons - Apply only ever touches THAT tab's document.
 
 --------------------------------------------------------------------
-Revit API facts relied on here (verified against revitapidocs.com
-before writing, not guessed)
+Revit API facts relied on here (verified against revitapidocs.com and
+the actual community-documented workaround before writing, not guessed)
 --------------------------------------------------------------------
 - RevitLinkType.GetExternalFileReference() -> ExternalFileReference;
   .GetAbsolutePath() -> ModelPath (the resolved absolute path, per its
-  own docs - "ExternalFileReferences taken from a closed document
-  report absolute path as of the last save").
+  own docs) works ONLY for LOCAL-file-hosted links.
+- CLOUD-hosted (ACC/BIM 360) links deliberately throw "This Element
+  does not represent an external file reference" from
+  GetExternalFileReference() - this is documented, by-design Autodesk
+  behavior (confirmed via the Autodesk API forum before assuming it
+  was a bug in this code), not something fixable by calling it
+  differently. The real API for those is a completely different path:
+  RevitLinkType.GetExternalResourceReferences() -> a map of
+  ExternalResourceReference objects; each one's
+  GetReferenceInformation() exposes a dictionary of Forge/ACC info
+  (documented to include the ACC Project GUID and Model GUID, exact
+  key names unconfirmed - see NEEDS LIVE VERIFICATION below, handled
+  defensively by trying several plausible key spellings).
 - ModelPathUtils.ConvertModelPathToUserVisiblePath(ModelPath) -> str,
   and the reverse ConvertUserVisiblePathToModelPath(str) -> ModelPath,
-  already used elsewhere in this extension (deew_document_manager.py
-  etc.) for local files.
+  already used elsewhere in this extension for local files.
+- ModelPathUtils.ConvertCloudGUIDsToCloudPath(region, projectGuid,
+  modelGuid) -> ModelPath - already proven in this extension's
+  acc_file_browser.open_cloud_file(), reused here unchanged (via
+  acc_file_browser.get_cloud_path_guids()) to build the ModelPath for
+  a cloud relink target picked through the ACC browser.
 - RevitLinkType.LoadFrom(ModelPath, WorksetConfiguration) -> the exact
-  API behind Revit's own "Manage Links > Reload From..." command.
-  Passing None for the WorksetConfiguration is explicitly documented as
-  valid ("loads the previously-used worksets"). Returns a
-  RevitLinkLoadResult whose .LoadResult property (a LinkLoadResultType)
-  equals LinkLoadResultType.LinkLoaded on success.
+  API behind Revit's own "Manage Links > Reload From..." command,
+  accepting EITHER a local/server ModelPath or a cloud one built via
+  ConvertCloudGUIDsToCloudPath - same call either way. Passing None for
+  the WorksetConfiguration is explicitly documented as valid ("loads
+  the previously-used worksets"). Returns a RevitLinkLoadResult whose
+  .LoadResult property (a LinkLoadResultType) equals
+  LinkLoadResultType.LinkLoaded on success.
 - CRITICAL, DIFFERENT FROM EVERY OTHER TOOL IN THIS EXTENSION:
   LoadFrom must be called OUTSIDE any open Transaction - "all
   transaction phases... must be finished prior to calling this
   method" (documented explicitly). So unlike every other Revit-
   mutating call in Dee.extension, _apply_relinks() below deliberately
   does NOT wrap anything in a Transaction.
-- ModelPathUtils has no "IsCloudPath" helper (checked the documented
-  method list before assuming one existed - only
-  ConvertCloudGUIDsToCloudPath / ConvertModelPathToUserVisiblePath /
-  ConvertUserVisiblePathToModelPath / IsValidUserVisibleFullServerPath
-  are documented). ModelPath's cloud-hosted derived type is named
-  "CloudPath" (per its own docs: "To create a ModelPath, use the
-  derived classes FilePath, ServerPath and CloudPath") - detected here
-  via .NET reflection (GetType().Name == "CloudPath") rather than
-  importing that derived class directly, so this degrades gracefully
-  if the exact type name ever differs by Revit version.
 - Document.IsLinked (bool) / Document.Title (str) - used to build one
   tab per genuinely-open project document, excluding Document objects
   that only exist in Application.Documents because they're loaded AS
   a link inside another open document.
+- Reuses this repo's existing, already-proven ACC infrastructure
+  (acc_auth.get_access_token, acc_file_browser.pick_hub/pick_project/
+  list_project_files/get_cloud_path_guids - the same modules DeeOpener/
+  DeeNWCs/DeeW.Cloud already use) for the "Pick from ACC Cloud..."
+  button, rather than re-deriving hub/project/model browsing. The APS
+  OAuth login only triggers when that button is actually clicked, not
+  during the automatic scan-on-open, so opening this tool never forces
+  a surprise sign-in prompt just to look at the link list.
 
 --------------------------------------------------------------------
 NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct)
 --------------------------------------------------------------------
+- The exact key names GetReferenceInformation() uses for the ACC
+  Project GUID / Model GUID / display name are not fully documented -
+  several plausible spellings are tried defensively (_dict_lookup),
+  falling back to a generic "(Cloud Model)" label if none match,
+  rather than crashing or showing a raw exception to the user.
 - Whether a successful LoadFrom keeps the same RevitLinkType ElementId
   or creates a new one - unclear from documentation alone. Handled
   defensively: after Apply, the whole tab is rescanned from Revit's
@@ -59,7 +79,7 @@ NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct)
   which way this actually behaves. The apply run's own result (per-row
   success/failure and detail) is still shown via the report output
   before the rescan replaces the rows.
-- GetAbsolutePath() behavior on a currently-UNLOADED link (a very
+- GetAbsolutePath() behavior on a currently-UNLOADED local link (a
   common real case - exactly the "broken/moved link" scenario this
   tool targets) is expected to still report the last-known path (that
   metadata should persist independent of load state) but hasn't been
@@ -82,6 +102,7 @@ clr.AddReference("System.Windows.Forms")
 from pyrevit import forms, script
 from Autodesk.Revit.DB import (
     FilteredElementCollector, RevitLinkType, ModelPathUtils, LinkLoadResultType,
+    BuiltInParameter,
 )
 from System.Windows import Thickness, FontWeights, FontStyles
 from System.Windows.Controls import (
@@ -92,13 +113,21 @@ from System.Windows.Controls import (
 from System.Windows.Data import Binding, BindingMode, UpdateSourceTrigger
 from System.Windows.Forms import FolderBrowserDialog, DialogResult
 
+import acc_auth
+import acc_file_browser as afb
+
 output = script.get_output()
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
+_ACC_CACHE_FILE = os.path.join(_THIS_DIR, ".acc_file_cache.json")
 
 
 def _read_name(element):
+    """Same defensive Name-then-BuiltInParameter-fallback pattern used
+    throughout this extension (e.g. DeeAligner) - a plain .Name getter
+    can come back empty for some element types/states, so the fallback
+    parameters matter, not just a nicety."""
     if element is None:
         return None
     try:
@@ -107,25 +136,42 @@ def _read_name(element):
             return n
     except Exception:
         pass
+    for bip in (BuiltInParameter.SYMBOL_NAME_PARAM, BuiltInParameter.ALL_MODEL_TYPE_NAME,
+                BuiltInParameter.DATUM_TEXT):
+        try:
+            p = element.get_Parameter(bip)
+            if p is not None:
+                val = p.AsString()
+                if val:
+                    return val
+        except Exception:
+            continue
     return None
 
 
-def _is_cloud_model_path(model_path):
-    """See module docstring - ModelPathUtils has no IsCloudPath helper;
-    detected via .NET reflection on ModelPath's derived-type name
-    instead of assuming an API surface that doesn't exist."""
-    try:
-        return model_path.GetType().Name == "CloudPath"
-    except Exception:
-        return False
+def _dict_lookup(net_dict, keys):
+    """Best-effort read from a .NET IDictionary<string,string> (as
+    returned by ExternalResourceReference.GetReferenceInformation())
+    trying several plausible key spellings, since the exact keys aren't
+    fully documented - see module docstring."""
+    if net_dict is None:
+        return None
+    for k in keys:
+        try:
+            if net_dict.ContainsKey(k):
+                return net_dict[k]
+        except Exception:
+            continue
+    return None
 
 
 class LinkRow(object):
     """One row per RevitLinkType in a document. current_path/file_name
     are read once at scan time (never mutated afterward - a fresh scan
     replaces the whole row list instead, see module docstring re: why).
-    new_path is the only field the user edits; empty means "no change
-    requested" for that row."""
+    new_path is what's shown/typed in the grid; cloud_target (set only
+    via "Pick from ACC Cloud...") takes priority over new_path's text
+    at Apply time if both are somehow set."""
 
     def __init__(self, link_type):
         self.link_type = link_type
@@ -134,22 +180,47 @@ class LinkRow(object):
         self.current_path = ""
         self.new_path = ""
         self.status = "Not Applied"
+        self.cloud_target = None  # (region, project_id, item_id, token, label) once picked from ACC
+        self.file_name = ""
 
-        file_name = None
         try:
             ext_ref = link_type.GetExternalFileReference()
             model_path = ext_ref.GetAbsolutePath()
-            if _is_cloud_model_path(model_path):
-                self.is_cloud = True
-                self.current_path = "(Cloud Model - not editable here)"
-            else:
-                self.current_path = ModelPathUtils.ConvertModelPathToUserVisiblePath(model_path)
-                if self.current_path:
-                    file_name = os.path.basename(self.current_path)
-        except Exception as e:
-            self.current_path = "(Could not read path: {0})".format(e)
+            self.current_path = ModelPathUtils.ConvertModelPathToUserVisiblePath(model_path)
+            if self.current_path:
+                self.file_name = os.path.basename(self.current_path)
+        except Exception:
+            # Cloud-hosted links throw here BY DESIGN (verified, not a
+            # bug) - GetExternalFileReference() only works for local/
+            # server-hosted links. Fall back to the cloud-specific path.
+            self._read_cloud_info()
 
-        self.file_name = file_name or _read_name(link_type) or "(unnamed link)"
+        if not self.file_name:
+            self.file_name = _read_name(link_type) or "(unnamed link)"
+
+    def _read_cloud_info(self):
+        self.is_cloud = True
+        try:
+            ref_map = self.link_type.GetExternalResourceReferences()
+            for key in ref_map.Keys:
+                ref = ref_map[key]
+                try:
+                    info = ref.GetReferenceInformation()
+                except Exception:
+                    continue
+                project_guid = _dict_lookup(info, ("ProjectGUID", "ProjectId", "projectGuid", "project_guid"))
+                model_guid = _dict_lookup(info, ("ModelGUID", "ModelId", "modelGuid", "model_guid"))
+                model_name = _dict_lookup(info, ("ModelName", "DisplayName", "FileName", "Name"))
+                if model_name:
+                    self.file_name = model_name
+                if project_guid and model_guid:
+                    self.current_path = "[ACC Cloud Model] Project {0} / Model {1}".format(
+                        project_guid, model_guid)
+                    return
+        except Exception:
+            pass
+        if not self.current_path:
+            self.current_path = "(Cloud Model - path not resolvable here; see Revit's Manage Links dialog)"
 
 
 def _scan_revit_links(doc):
@@ -164,23 +235,28 @@ def _scan_revit_links(doc):
 
 
 def _apply_relinks(pending_rows):
-    """Calls RevitLinkType.LoadFrom for every row with a non-empty
-    New Path - deliberately NOT wrapped in a Transaction (see module
-    docstring: LoadFrom requires no open transaction). Returns a list
-    of (success, file_name, detail) for reporting; never raises."""
+    """Calls RevitLinkType.LoadFrom for every row with a cloud_target or
+    a non-empty New Path - deliberately NOT wrapped in a Transaction
+    (see module docstring: LoadFrom requires no open transaction).
+    Returns a list of (success, file_name, detail) for reporting;
+    never raises."""
     results = []
     for row in pending_rows:
         new_text = (row.new_path or "").strip()
-        if not new_text:
-            continue
-        if row.is_cloud:
-            results.append((False, row.file_name, "Cloud-hosted link - not supported here"))
+        if row.cloud_target is None and not new_text:
             continue
         try:
-            new_model_path = ModelPathUtils.ConvertUserVisiblePathToModelPath(new_text)
+            if row.cloud_target is not None:
+                region, project_id, item_id, token, label = row.cloud_target
+                project_guid, model_guid, _src = afb.get_cloud_path_guids(project_id, item_id, token)
+                new_model_path = ModelPathUtils.ConvertCloudGUIDsToCloudPath(region, project_guid, model_guid)
+                target_desc = label
+            else:
+                new_model_path = ModelPathUtils.ConvertUserVisiblePathToModelPath(new_text)
+                target_desc = new_text
             result = row.link_type.LoadFrom(new_model_path, None)
             if result is not None and result.LoadResult == LinkLoadResultType.LinkLoaded:
-                results.append((True, row.file_name, "Relinked to '{0}'".format(new_text)))
+                results.append((True, row.file_name, "Relinked to '{0}'".format(target_desc)))
             else:
                 load_result_text = str(result.LoadResult) if result is not None else "Unknown"
                 results.append((False, row.file_name, "LoadFrom result: {0}".format(load_result_text)))
@@ -229,6 +305,10 @@ class DocTabController(object):
         self.scan()
 
     def browse_folder_click(self, sender, args):
+        """Local-file relink target: applies to ANY highlighted row
+        (regardless of whether it's currently cloud-hosted or local -
+        relinking a cloud-sourced link to a new local file is just as
+        valid a scenario as the reverse)."""
         highlighted = list(self.grid.SelectedItems)
         if not highlighted:
             forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
@@ -238,15 +318,48 @@ class DocTabController(object):
         if dlg.ShowDialog() != DialogResult.OK:
             return
         folder = dlg.SelectedPath
-        changed = 0
         for row in highlighted:
-            if row.is_cloud:
-                continue
             row.new_path = os.path.join(folder, row.file_name)
-            changed += 1
+            row.cloud_target = None
         self.grid.Items.Refresh()
-        if changed == 0:
-            forms.alert("None of the highlighted rows can be relinked here (all cloud-hosted).")
+
+    def pick_cloud_click(self, sender, args):
+        """ACC cloud relink target: browse Hub -> Project -> Model by
+        name (reusing this repo's existing, already-proven acc_auth/
+        acc_file_browser modules) and apply the ONE picked model to
+        every highlighted row. The APS sign-in only happens here, on
+        explicit user action - never during the automatic scan-on-open."""
+        highlighted = list(self.grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        try:
+            token = acc_auth.get_access_token()
+            hub = afb.pick_hub(token)
+            if not hub:
+                return
+            hub_id, region, hub_name = hub
+            project = afb.pick_project(hub_id, token)
+            if not project:
+                return
+            project_id, project_name = project
+            all_items = afb.list_project_files(hub_id, project_id, token, _ACC_CACHE_FILE)
+            if not all_items:
+                return
+            picked_name = forms.SelectFromList.show(
+                sorted(all_items.keys()), title="Pick ACC Cloud Model", button_name="Select")
+            if not picked_name:
+                return
+            item_id = all_items[picked_name]
+        except Exception as e:
+            forms.alert("Could not load ACC cloud models: {0}".format(e))
+            return
+
+        label = "[ACC] {0} / {1} / {2}".format(hub_name, project_name, picked_name)
+        for row in highlighted:
+            row.cloud_target = (region, project_id, item_id, token, label)
+            row.new_path = label
+        self.grid.Items.Refresh()
 
     def apply_click(self, sender, args):
         pending = [r for r in self.rows if (r.new_path or "").strip()]
@@ -324,6 +437,14 @@ class DeeRelinkWindow(forms.WPFWindow):
         browse_b.Margin = Thickness(8, 0, 0, 0)
         browse_b.Click += controller.browse_folder_click
         toolbar.Children.Add(browse_b)
+
+        pick_cloud_b = Button()
+        pick_cloud_b.Content = "Pick from ACC Cloud (Highlighted)..."
+        pick_cloud_b.Width = 230
+        pick_cloud_b.Height = 24
+        pick_cloud_b.Margin = Thickness(8, 0, 0, 0)
+        pick_cloud_b.Click += controller.pick_cloud_click
+        toolbar.Children.Add(pick_cloud_b)
 
         apply_b = Button()
         apply_b.Content = "Apply"
