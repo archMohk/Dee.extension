@@ -1,0 +1,2 @@
+title: Align Bottom
+tooltip: Align the selected elements' bottom edges to the first selected element's bottom edge (BoundingBox Min.Y). Select the reference element first, then the elements to move.

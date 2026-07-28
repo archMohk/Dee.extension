@@ -1,0 +1,2 @@
+title: Align Left
+tooltip: Align the selected elements' left edges to the first selected element's left edge (BoundingBox Min.X). Select the reference element first, then the elements to move.

@@ -1,0 +1,2 @@
+title: Align Right
+tooltip: Align the selected elements' right edges to the first selected element's right edge (BoundingBox Max.X). Select the reference element first, then the elements to move.

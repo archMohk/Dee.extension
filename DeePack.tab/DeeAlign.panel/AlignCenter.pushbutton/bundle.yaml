@@ -1,0 +1,2 @@
+title: Align Center
+tooltip: Align the selected elements' horizontal centers to the first selected element's horizontal center (BoundingBox center X). Select the reference element first, then the elements to move.
