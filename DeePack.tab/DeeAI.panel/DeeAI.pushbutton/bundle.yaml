@@ -1,0 +1,2 @@
+title: DeeAI
+tooltip: Chat with a Claude-powered assistant that can read and directly modify the active Revit document - it writes and immediately runs IronPython code, with no per-action confirmation. Requires your own Anthropic API key, entered fresh each time (never saved to disk).

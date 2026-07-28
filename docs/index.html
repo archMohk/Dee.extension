@@ -10,6 +10,11 @@
 <div class="wrap">
   <p class="tagline">One page per button on the <strong>DeePack</strong> ribbon tab &mdash; what it does, how to use it, and what to watch out for. Grouped by panel, in the same order they appear on the ribbon.</p>
 
+  <div class="callout danger">
+    <strong>Read this first: <a href="pages/DeeAI.html">DeeAI</a> is the highest-risk tool in this handbook</strong>
+    DeeAI lets an AI chat assistant write and immediately run code against your open document - by explicit design, with no per-action confirmation dialog. Every other tool below asks first, or at least tells you exactly what it's about to do before it does it; DeeAI does not. Only the Undo stack protects you. Read its page before trying it.
+  </div>
+
   <div class="callout warn">
     <strong>Read this first if you're new to the BatchPack tools</strong>
     Several BatchPack tools can Synchronize With Central or Publish across many files in one run, with little or no per-file confirmation. Ranked by blast radius: <a href="pages/DeeSPublish.html">DeeS.Publish</a> (publishes every file in whole projects) &gt; <a href="pages/DeeSYNC.html">DeeSYNC</a> (syncs every open model, no file picker) &gt; <a href="pages/DeeCoord.html">DeeCoord</a> and <a href="pages/DeeCloseAll.html">DeeCloseAll</a>'s Relinquish mode &gt; <a href="pages/DeePublisher.html">DeePublisher</a> &gt; everything else (opens/links/reads only).
@@ -24,6 +29,13 @@
       <a class="tool-card" href="pages/DeeSheet.html"><div class="name">DeeSheet</div><div class="desc">Paste-from-Excel sheet creation, plus a Super Sheet tab to edit/add/remove every sheet.</div><span class="risk-badge risk-low">Low</span></a>
       <a class="tool-card" href="pages/DeeVTemplate.html"><div class="name">DeeV.Template</div><div class="desc">Transfer View Templates to other open Revit documents.</div><span class="risk-badge risk-medium">Medium</span></a>
       <a class="tool-card" href="pages/DeeView.html"><div class="name">DeeView</div><div class="desc">Batch-create views with templates, scales, naming, and sheet placement.</div><span class="risk-badge risk-low">Low</span></a>
+    </div>
+  </div>
+
+  <div class="panel-group">
+    <h2>DeeAI panel</h2>
+    <div class="tool-grid">
+      <a class="tool-card" href="pages/DeeAI.html"><div class="name">DeeAI</div><div class="desc">Chat with a Claude-powered assistant that writes and immediately runs IronPython code against the active document - no per-action confirmation. Needs your own Anthropic API key (session-only, never saved).</div><span class="risk-badge risk-high">Highest</span></a>
     </div>
   </div>
 

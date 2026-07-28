@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeAI — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; DeeAI panel</div>
+  <span class="panel-chip">DeeAI</span>
+  <h1 class="tool-title">DeeAI</h1>
+  <p class="tagline">A chat window, embedded in Revit, backed by Claude. It writes IronPython code and runs it directly against the active document to answer questions or make changes - there is no separate "review the code first" step.</p>
+
+  <div class="callout danger"><strong>Risk level: Highest</strong> By explicit design choice, DeeAI has no per-action confirmation dialog - every response can immediately create, modify, or delete elements the moment Claude decides to. The only safety net is that each message you send is wrapped in one Transaction, so a single Undo (Ctrl+Z) in Revit reverts everything from that message at once. Treat this the same way you'd treat handing someone the keyboard - don't point it at a project you can't afford to have changed, and keep an eye on the transcript.</p>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>DeeAI is a two-way chat: you type a message, it calls the Claude API (Anthropic's <code>claude-opus-5</code> by default, others selectable), and Claude responds either with plain text or by calling its one and only tool - <code>execute_revit_python</code> - to run IronPython code against the open document. Code runs with <code>doc</code>, <code>uidoc</code>, and <code>uiapp</code> already available; whatever the code <code>print()</code>s is what Claude "sees" as the result, so it can read data back (element counts, parameter values, ids) and use that to decide what to do next, in the same message or a later one. Variables set in one call are still there in a later call in the same conversation - like a notebook, not a fresh script every time.</p>
+    <p>Every message is one Transaction; every individual tool call inside that message is its own nested SubTransaction, so if one step fails partway through, only that step's change is rolled back - earlier successful steps in the same message are kept.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Open DeeAI, paste your own Anthropic API key into the field at the top (it is never written to disk - you'll need to re-enter it next time you open the window), and pick a Model/Effort if you want something other than the default.</li>
+      <li>Type a request in the box at the bottom and click Send - anything from a question ("how many doors are on Level 2?") to a change ("rename all sheets starting with 'A-' to start with 'ARCH-'").</li>
+      <li>Watch the transcript: it shows your message, every piece of code DeeAI ran, that code's result (or error), and DeeAI's final reply.</li>
+      <li>Click <strong>New Conversation</strong> to clear the chat history and any variables it had set up - useful before switching to an unrelated task, since old context can otherwise influence later answers.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>Anthropic API Key</th><td>Your own key, from your own Anthropic account - DeeAI calls the API directly and is billed to whatever account the key belongs to. Session-only: cleared the moment the window closes.</td></tr>
+      <tr><th>Model</th><td><code>claude-opus-5</code> (default, most capable), <code>claude-sonnet-5</code>, or <code>claude-haiku-4-5</code> (fastest/cheapest). Can be changed mid-conversation - it applies to the next message you send.</td></tr>
+      <tr><th>Effort</th><td>Low/Medium/High (default)/Extra High/Max - trades latency and cost for how thoroughly Claude reasons before acting. Higher effort tends to be more careful on complex, multi-step requests.</td></tr>
+      <tr><th>New Conversation</th><td>Clears chat history and every variable DeeAI had defined - the next message starts completely fresh.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>This is a brand-new panel, so it needs a full Revit restart + <code>pyrevit caches clear --all</code> to appear the first time.</li>
+      <li>There is genuinely no confirmation step - this was an explicit, informed choice (curated tool-calling and a propose-then-approve gate were both considered and declined) in favor of the AI being able to act freely. If that ever feels too open-ended for a particular task, don't send that request - or work in a backup/non-production copy of the file first.</li>
+      <li>DeeAI can only act through <code>execute_revit_python</code> - it cannot open other files, reach the network, or do anything outside the currently active Revit document's API surface.</li>
+      <li>Each message is one Transaction - a long back-and-forth "conversation" about one task can mean a long chain of Undos to fully back out of, one message at a time, not one Undo for the whole conversation.</li>
+      <li>The API key is requested fresh every time because it is never saved anywhere - if you close and reopen DeeAI, you'll need to paste it in again.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>
