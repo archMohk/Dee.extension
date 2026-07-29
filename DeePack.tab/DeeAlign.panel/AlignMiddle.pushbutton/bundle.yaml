@@ -1,0 +1,2 @@
+title: Align Middle
+tooltip: Align the selected elements' vertical centers to the first selected element's vertical center (BoundingBox center Y). Select the reference element first, then the elements to move.

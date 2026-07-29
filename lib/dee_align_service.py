@@ -217,32 +217,25 @@ def _is_distribute(action_title):
 
 
 def show_summary(result):
-    """Shows the required summary dialog, then (if anything was
-    skipped) a detailed HTML report naming each skipped element and
-    why - the dialog alone can't fit hundreds of skip reasons."""
+    """Logs the outcome to the pyRevit output console - no popup
+    dialog after a successful run, per explicit user request (the
+    action should just happen, not interrupt with a message to
+    dismiss). Pre-condition failures (nothing selected, not enough
+    elements) still use forms.alert since those happen BEFORE any
+    action runs and the user would otherwise get no feedback at all
+    about why nothing happened."""
     if result.error:
         forms.alert(result.error, title="DeeAlign - {0}".format(result.action_title))
         return
+    _print_report(result)
 
+
+def _print_report(result):
     header = "Distribution Completed" if _is_distribute(result.action_title) else "Alignment Completed"
-    lines = [
-        header,
-        "",
-        "Moved: {0}".format(result.moved_count),
-        "Skipped: {0}".format(len(result.skipped)),
-        "Execution time: {0:.2f}s".format(result.elapsed_seconds),
-    ]
-    forms.alert("\n".join(lines), title="DeeAlign - {0}".format(result.action_title))
-
-    if result.skipped:
-        _print_skip_report(result)
-
-
-def _print_skip_report(result):
     html = [
         '<h2 style="font-family:sans-serif;color:#ddd;">DeeAlign - {0}</h2>'.format(result.action_title),
-        '<p style="color:#ddd;">Moved {0} - Skipped {1} - {2:.2f}s.</p>'.format(
-            result.moved_count, len(result.skipped), result.elapsed_seconds),
+        '<p style="color:#ddd;">{0} - Moved {1} - Skipped {2} - {3:.2f}s.</p>'.format(
+            header, result.moved_count, len(result.skipped), result.elapsed_seconds),
     ]
     for label, reason in result.skipped:
         html.append(
@@ -282,7 +275,7 @@ def _collect_valid(doc, sel_ids, result):
 # ==========================================================================
 _ALIGN_AXIS = {
     "left": "x", "right": "x", "center_x": "x",
-    "top": "y", "bottom": "y",
+    "top": "y", "bottom": "y", "middle": "y",
 }
 
 
@@ -297,6 +290,8 @@ def _bbox_metric(bbox, mode):
         return bbox.Max.Y
     if mode == "bottom":
         return bbox.Min.Y
+    if mode == "middle":
+        return (bbox.Min.Y + bbox.Max.Y) / 2.0
     raise ValueError("Unknown align mode: {0}".format(mode))
 
 

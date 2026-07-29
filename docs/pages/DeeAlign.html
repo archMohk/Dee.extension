@@ -11,18 +11,19 @@
   <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; DeeAlign panel</div>
   <span class="panel-chip">DeeAlign</span>
   <h1 class="tool-title">DeeAlign</h1>
-  <p class="tagline">AutoCAD-style Align/Distribute for ordinary Revit model and annotation elements - not sheets or viewports (that's <a href="DeeAligner.html">DeeAligner</a>). Select elements in any view, then click one of the 7 buttons below.</p>
+  <p class="tagline">AutoCAD-style Align/Distribute for ordinary Revit model and annotation elements - not sheets or viewports (that's <a href="DeeAligner.html">DeeAligner</a>). Select elements in any view, then click one of the 8 buttons below.</p>
 
   <div class="callout danger"><strong>Risk level: Medium</strong> Every button acts immediately on the current selection, in one Transaction, with no preview step - a single Undo reverts the whole batch. There is no separate Apply/confirm dialog before the move (only Distribute warns you if you haven't selected enough elements).</div>
 
   <div class="card">
-    <h2>The 7 buttons</h2>
+    <h2>The 8 buttons</h2>
     <table class="opts">
       <tr><th>Align Left</th><td>Moves every other selected element so its BoundingBox <code>Min.X</code> matches the reference element's <code>Min.X</code>.</td></tr>
       <tr><th>Align Right</th><td>Same, using <code>Max.X</code>.</td></tr>
-      <tr><th>Align Center</th><td>Same, using each element's horizontal BoundingBox center.</td></tr>
+      <tr><th>Align Center</th><td>Same, using each element's horizontal BoundingBox center (moves elements left/right).</td></tr>
       <tr><th>Align Top</th><td>Same, using <code>Max.Y</code>.</td></tr>
       <tr><th>Align Bottom</th><td>Same, using <code>Min.Y</code>.</td></tr>
+      <tr><th>Align Middle</th><td>Same, using each element's vertical BoundingBox center (moves elements up/down) - completes the standard Left/Center/Right + Top/Middle/Bottom set.</td></tr>
       <tr><th>Distribute Horizontal</th><td>Requires 3+ elements. Sorts by X center, keeps the leftmost and rightmost fixed, and spaces everything in between equally by center X.</td></tr>
       <tr><th>Distribute Vertical</th><td>Same as above, sorted/spaced by Y center instead.</td></tr>
     </table>
@@ -31,10 +32,9 @@
   <div class="card">
     <h2>How to use it</h2>
     <ol>
-      <li>Select the elements to align/distribute in any view - <strong>the first element you select is always the reference</strong> that the others move to match (for Align Left/Right/Center/Top/Bottom). For Distribute, the selection order doesn't matter - the tool sorts by position itself and keeps the outermost two fixed.</li>
-      <li>Click the matching button in the DeeAlign panel.</li>
-      <li>Read the summary dialog: elements moved, elements skipped, and how long it took.</li>
-      <li>If anything was skipped, a detailed report opens listing each skipped element and why (pinned, in a group, owned by another user, no bounding box, etc.) - nothing ever stops the batch, unsupported elements are simply skipped and reported.</li>
+      <li>Select the elements to align/distribute in any view - <strong>the first element you select is always the reference</strong> that the others move to match (for every Align button). For Distribute, the selection order doesn't matter - the tool sorts by position itself and keeps the outermost two fixed.</li>
+      <li>Click the matching button in the DeeAlign panel - it runs immediately, with no confirmation dialog and no "done" popup to dismiss.</li>
+      <li>If you need to see what happened, check the pyRevit output window: it always logs how many elements moved, how many were skipped, and how long it took - and lists each skipped element with a reason if anything was skipped. Nothing ever stops the batch; unsupported elements are simply skipped and reported.</li>
     </ol>
   </div>
 
@@ -48,7 +48,7 @@
     <h2>Options / behavior notes</h2>
     <table class="opts">
       <tr><th>Reference element</th><td>Always the first element you selected, for every Align button. (The underlying engine is built so a future version could offer Last Selected / Largest / Smallest / Manually Picked instead - not exposed yet.)</td></tr>
-      <tr><th>Align axis</th><td>Left/Right/Center only ever move elements along X; Top/Bottom only ever move them along Y. Elevation (Z) is never changed.</td></tr>
+      <tr><th>Align axis</th><td>Left/Right/Center only ever move elements along X; Top/Bottom/Middle only ever move them along Y. Elevation (Z) is never changed.</td></tr>
       <tr><th>Distribute minimum</th><td>Needs at least 3 selected elements - fewer shows "Please select at least 3 elements." and does nothing.</td></tr>
       <tr><th>Annotation elements</th><td>Text Notes, Tags, Filled Regions, and other view-specific elements only report a bounding box relative to the view they're placed in - DeeAlign reads it from your current active view, so make sure you're working in the view where they're actually placed.</td></tr>
     </table>
@@ -58,7 +58,8 @@
     <h2>Before you run it</h2>
     <ul>
       <li>This is a brand-new panel, so it needs a full Revit restart + <code>pyrevit caches clear --all</code> to appear the first time.</li>
-      <li>Only the core 5 Align + 2 Distribute commands are implemented so far. Align to View Center/Level/Grid/Work Plane/Reference Plane, Match Rotation/Elevation/Offset, Equal Edge/Gap Distribution, Circular/Polar Distribution, Align Along Curve/Path, Arrange in Grid/Matrix, Auto Stack, Mirror and Align, and the by-Origin/Insertion-Point/Geometry-Center align variants are on the roadmap but not built yet - the shared engine (<code>lib/dee_align_service.py</code>) is structured so each can be added later as one function, without touching the buttons already built.</li>
+      <li>Only the core 6 Align + 2 Distribute commands are implemented so far. Align to View Center/Level/Grid/Work Plane/Reference Plane, Match Rotation/Elevation/Offset, Equal Edge/Gap Distribution, Circular/Polar Distribution, Align Along Curve/Path, Arrange in Grid/Matrix, Auto Stack, Mirror and Align, and the by-Origin/Insertion-Point/Geometry-Center align variants are on the roadmap but not built yet - the shared engine (<code>lib/dee_align_service.py</code>) is structured so each can be added later as one function, without touching the buttons already built.</li>
+      <li>Actions run silently on success (a log line in the pyRevit output window, no popup) - if you're not sure something happened, check that window or just look at the model.</li>
       <li>Each command runs in one Transaction across the whole selection - Undo reverts everything from that click at once, not element-by-element.</li>
       <li>Try it on a handful of elements first to confirm which axis moves which way before running it on a large selection.</li>
     </ul>
