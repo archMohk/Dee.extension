@@ -1,0 +1,2 @@
+title: DeeGetDWG
+tooltip: Find CAD Imports/Links (DWG, DXF, etc.) placed far from the Internal Origin and bring the checked ones back to (0,0,0) - unpins them if needed, then moves them (rotation/scale preserved). Fixes Revit's "very far from the origin" warning and the view/performance problems it causes.

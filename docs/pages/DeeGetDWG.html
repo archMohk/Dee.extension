@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeGetDWG — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; HealthPack panel</div>
+  <span class="panel-chip">HealthPack</span>
+  <h1 class="tool-title">DeeGetDWG</h1>
+  <p class="tagline">Finds every CAD Import/Link (DWG, DXF, etc.) in the document and shows how far its placement point is from the Internal Origin - the usual cause of Revit's "very far from the origin" warning and the view-navigation/performance problems that go with it. Check the far ones, click one button, and they're back at (0,0,0).</p>
+
+  <div class="callout danger"><strong>Risk level: Medium</strong> Moving a CAD file this far changes its position relative to everything else in the model - if other elements were placed relative to that CAD file's old location, they'll now look wrong relative to it and may need repositioning too. It also unpins the file automatically if it was pinned. There's no separate confirm step beyond checking the row and clicking Apply - review the list before moving anything.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>Scans the active document for every <code>ImportInstance</code> - Revit's element type for both "Import CAD" and "Link CAD" - and reads each one's placement point (its Transform's Origin) in the model's internal coordinate system. The Internal Origin is always exactly <code>(0,0,0)</code> in that system, so the distance shown for each row is a direct, reliable measurement, not an estimate.</p>
+    <p>Checked rows get two things done, in one Transaction: if the file is <strong>Pinned</strong>, it's unpinned; then it's <strong>translated</strong> (moved, never rotated or rescaled) so its placement point lands exactly on <code>(0,0,0)</code>. Everything else about the file - its rotation, its scale, its layers - is untouched.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Open DeeGetDWG - it scans automatically and lists every CAD Import/Link, farthest first.</li>
+      <li>Rows farther than the threshold field (1000 by default, in your project's display units) are pre-checked for you. Adjust the number and click <strong>Apply Threshold</strong> to re-check based on a different distance, or use <strong>Select All</strong> / <strong>Select None</strong> to override manually - any row can be checked or unchecked by hand regardless of the threshold.</li>
+      <li>Click <strong>Move Selected to Internal Origin</strong>. There's no confirmation dialog - review your checkboxes before clicking.</li>
+      <li>Check the pyRevit output window for the result: how many moved, how many were skipped, and why (pinned-but-owned-by-another-user, group membership, etc.) - nothing ever stops the batch, a problem row is simply skipped and reported.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>Auto-check items farther than</th><td>A distance in your project's display units (feet, meters, etc. - whatever the project is set to). Rows beyond it are pre-checked whenever you scan or click Apply Threshold; this is just a starting point, not a filter - every row is always listed and can be checked by hand.</td></tr>
+      <tr><th>Rescan</th><td>Re-reads every CAD Import/Link from scratch - useful after moving something outside DeeGetDWG, or after Undo.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>This is a brand-new button in an existing panel, so it needs a full Revit restart + <code>pyrevit caches clear --all</code> to appear the first time.</li>
+      <li>Only affects CAD Imports/Links that are direct children of the currently active document - a DWG linked into a separate linked Revit model isn't reached from here.</li>
+      <li>Skipped automatically, with a reason shown in the report: CAD instances that are members of a Group, and (in workshared models) ones currently owned by another user.</li>
+      <li>Everything runs in one Transaction - Undo (Ctrl+Z) reverts every unpin/move from one click at once.</li>
+      <li>If elements elsewhere in the model were positioned relative to the CAD file's old far-away location, moving the file will make that relationship look wrong until you also fix those elements.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>
