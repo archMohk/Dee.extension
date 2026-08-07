@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeRoomXYD — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; LazyPack panel</div>
+  <span class="panel-chip">LazyPack</span>
+  <h1 class="tool-title">DeeRoomXYD</h1>
+  <p class="tagline">Scans every Room and reports its longest boundary edge along the X axis and its longest along the Y axis - a read-only report, nothing in the model is ever touched.</p>
+
+  <div class="callout ok"><strong>Risk level: None</strong> Read-only - it only scans and reports. No Transaction, no element is ever moved, created, or deleted.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <p>For every Room, DeeRoomXYD reads its real boundary segments (<code>Room.GetBoundarySegments</code>) rather than its bounding box. Each segment is measured by its true length and classified as running mainly along the model's X axis or its Y axis (by comparing how much its endpoints differ in X versus Y). The longest X-axis segment and the longest Y-axis segment found anywhere on the room's boundary - including any inner loops, like around a shaft or column - become that room's "Longest X Edge" and "Longest Y Edge".</p>
+    <p>This matters most for L-shaped or otherwise irregular rooms: a bounding box would report the full extent including the notch, while the longest real edge in each direction gives a more honest sense of the room's actual usable width and depth.</p>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Open DeeRoomXYD - it scans automatically and lists every room with its longest X and Y edge lengths, in your project's display units.</li>
+      <li>Click column headers to sort - e.g. by Longest X Edge to find your widest rooms.</li>
+      <li>Use <strong>Rescan</strong> any time after editing room boundaries elsewhere.</li>
+      <li><strong>Export to Excel...</strong> saves the full table, including any flagged rooms, for use outside Revit.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Options</h2>
+    <table class="opts">
+      <tr><th>Status column</th><td>"OK" for rooms with a usable boundary; "Not Placed / Not Enclosed (zero area)" for rooms with no valid boundary at all (their Longest X/Y Edge show as "-"); "No usable boundary segments" in the rare case a room has area but no measurable straight/curved edges.</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>This is a brand-new button in an existing panel, so it needs a full Revit restart + <code>pyrevit caches clear --all</code> to appear the first time.</li>
+      <li>X/Y here means the model's own internal X/Y axes (Project North), the same coordinate system every other geometry-reading tool in this extension uses - not True North and not a per-room rotated frame.</li>
+      <li>This reports lengths only - it does not create Dimension annotations in any view.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>
