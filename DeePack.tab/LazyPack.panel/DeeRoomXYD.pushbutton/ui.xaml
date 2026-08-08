@@ -2,31 +2,38 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeRoomXYD — Longest X/Y Room Edges"
         ShowInTaskbar="False"
-        MinHeight="480" MinWidth="820" Height="560" Width="920"
+        MinHeight="520" MinWidth="900" Height="600" Width="980"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Scans every Room and reads its real boundary geometry: for each room, the longest boundary edge running predominantly along the model's X axis, and the longest running along the Y axis - a more honest width/depth reading than the bounding box for L-shaped or irregular rooms. Read-only - nothing in the model is ever changed."/>
+                   Text="Scans every Room visible in the ACTIVE VIEW and reads its real boundary geometry: for each room, the longest boundary edge along the model's X axis, and the longest along the Y axis - a more honest width/depth reading than the bounding box for L-shaped or irregular rooms. Check rooms and click Place Dimensions to add real Dimension elements for those two edges to the active view (only works in a Floor Plan / Ceiling Plan / Area Plan)."/>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-            <Button x:Name="scan_b" Content="Rescan" Click="scan_click" Width="100" Height="26"/>
+            <Button x:Name="scan_b" Content="Rescan Active View" Click="scan_click" Width="140" Height="26"/>
             <Button x:Name="export_b" Content="Export to Excel..." Click="export_click" Width="140" Height="26" Margin="8,0,0,0"/>
             <TextBlock x:Name="status_tb" Text="Nothing scanned yet." VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button x:Name="select_all_b" Content="Select All" Click="select_all_click" Width="90" Height="24"/>
+            <Button x:Name="select_none_b" Content="Select None" Click="select_none_click" Width="90" Height="24" Margin="6,0,0,0"/>
+            <Button x:Name="place_dimensions_b" Content="Place Dimensions in Active View" Click="place_dimensions_click" Width="220" Height="24" Margin="20,0,0,0"/>
         </StackPanel>
 
         <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
                 Width="100" Height="26" HorizontalAlignment="Right" Margin="0,10,0,0"/>
 
         <DataGrid x:Name="rooms_grid" AutoGenerateColumns="False" CanUserAddRows="False"
-                  CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0" IsReadOnly="True">
+                  CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Number" Binding="{Binding number}" Width="80"/>
-                <DataGridTextColumn Header="Name" Binding="{Binding name}" Width="*"/>
-                <DataGridTextColumn Header="Level" Binding="{Binding level_name}" Width="140"/>
-                <DataGridTextColumn Header="Area" Binding="{Binding area_text}" Width="90"/>
-                <DataGridTextColumn Header="Longest X Edge" Binding="{Binding longest_x_text}" Width="130"/>
-                <DataGridTextColumn Header="Longest Y Edge" Binding="{Binding longest_y_text}" Width="130"/>
-                <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="200"/>
+                <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
+                <DataGridTextColumn Header="Number" Binding="{Binding number}" Width="80" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Level" Binding="{Binding level_name}" Width="140" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Area" Binding="{Binding area_text}" Width="90" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Longest X Edge" Binding="{Binding longest_x_text}" Width="130" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Longest Y Edge" Binding="{Binding longest_y_text}" Width="130" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="200" IsReadOnly="True"/>
             </DataGrid.Columns>
         </DataGrid>
     </DockPanel>
