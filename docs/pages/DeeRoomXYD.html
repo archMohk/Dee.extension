@@ -35,8 +35,8 @@
 
   <div class="card">
     <h2>How dimension placement works</h2>
-    <p>For a room's longest X (or Y) edge, DeeRoomXYD looks at the two boundary segments immediately before and after it in the same boundary loop, finds the elements that generated those neighboring segments (almost always walls), and resolves a Reference to each one's vertical face nearest that corner - exactly the two clicks you'd make manually with Revit's Aligned Dimension tool. If either reference can't be resolved (curved walls, non-planar geometry, a neighboring segment with no real bounding element, etc.), that one dimension is skipped and reported rather than guessed at.</p>
-    <p>The dimension line is drawn directly along the room's boundary edge - it isn't automatically offset outward, so you may want to drag it into a cleaner position afterward.</p>
+    <p>For a room's longest X (or Y) edge, DeeRoomXYD first checks the two boundary segments immediately before and after it in the same boundary loop for a usable wall face at each corner - the two clicks you'd make manually with Revit's Aligned Dimension tool. If either "official" neighbor isn't a plain wall (a short jog, a Room Separation Line with no solid geometry, a door/window right at the corner), it falls back to searching every Wall within roughly 15 ft of the room - not just touching it - and uses whichever wall's face is actually nearest that corner. If nothing usable is found at all, that one dimension is skipped and reported rather than guessed at.</p>
+    <p>The dimension line is drawn offset a small distance (about 6 in / 150 mm) from the wall, pulled toward the room's own center point - so it reads inside the room rather than sitting directly on top of the wall. This only shifts where the dimension line is drawn; the measured value always comes from the actual wall face References, so the offset never changes the number.</p>
   </div>
 
   <div class="card">

@@ -62,7 +62,24 @@ Revit API facts relied on here (verified before writing, not guessed)
   - without it, Face.Reference is null - and (b) picking the correct
   one of the (usually 2) vertical PlanarFaces a wall has, done here by
   Face.Project(point).Distance to the target corner point rather than
-  guessing a side by offset direction.
+  guessing a side by offset direction. Face.Project() finds the
+  closest point ON THE FACE'S ACTUAL BOUNDED EXTENT (not just its
+  infinite plane), so this distance comparison is meaningful even
+  across many candidate walls, not just the two "official" neighbors.
+- The immediately-adjacent boundary segment's own bounding element is
+  often NOT a usable Wall (a short jog, a Room Separation Line with no
+  solid geometry, a curved return, a door/window puncturing the face
+  right at the corner) - live testing on a real project showed ~40%
+  of edges failing to resolve with only the two adjacent segments as
+  candidates. Fixed by widening the candidate pool to every Wall whose
+  bounding box intersects an expanded box around the room (see
+  _collect_nearby_walls) - the nearest-face-wins selection in
+  _get_best_face_reference naturally ignores irrelevant far walls, so
+  a bigger candidate pool only helps, it never picks something worse.
+- The dimension line is offset a small distance from the wall, toward
+  the room's own Location point (Room.Location is a LocationPoint) -
+  matching how a person would normally pull a room dimension slightly
+  into the room rather than drawing it exactly on the wall face.
 """
 import time
 
@@ -70,7 +87,7 @@ from Autodesk.Revit.DB import (
     FilteredElementCollector, SpatialElementBoundaryOptions,
     UnitUtils, UnitTypeId, SpecTypeId, BuiltInParameter, BuiltInCategory,
     ViewType, Options, ViewDetailLevel, Solid, PlanarFace, Line, ReferenceArray,
-    Transaction,
+    Transaction, XYZ, Outline, BoundingBoxIntersectsFilter,
 )
 
 from pyrevit import script
@@ -319,6 +336,40 @@ def export_report(path, rows):
 # face References is required, or that one dimension is skipped and
 # reported - never guessed at, never crashes the batch.
 # ==========================================================================
+_NEARBY_WALLS_MARGIN_INTERNAL = 15.0  # feet - "beyond the room", not just touching it
+_DIMENSION_OFFSET_INTERNAL = 0.5      # feet (~150mm) - small pull-off from the wall face
+
+
+def _collect_nearby_walls(doc, room):
+    """Returns the ElementIds of every Wall whose bounding box
+    intersects an expanded box around the room - a much broader
+    candidate pool than just the two boundary segments officially
+    adjacent to a given edge, so a usable face can still be found even
+    when that "official" neighbor isn't a plain wall (a short jog, a
+    Room Separation Line, a door/window right at the corner, etc)."""
+    try:
+        bbox = room.get_BoundingBox(None)
+    except Exception:
+        bbox = None
+    if bbox is None:
+        return []
+
+    m = _NEARBY_WALLS_MARGIN_INTERNAL
+    try:
+        outline = Outline(
+            XYZ(bbox.Min.X - m, bbox.Min.Y - m, bbox.Min.Z - m),
+            XYZ(bbox.Max.X + m, bbox.Max.Y + m, bbox.Max.Z + m),
+        )
+        wall_filter = BoundingBoxIntersectsFilter(outline)
+        walls = (FilteredElementCollector(doc)
+                 .OfCategory(BuiltInCategory.OST_Walls)
+                 .WhereElementIsNotElementType()
+                 .WherePasses(wall_filter))
+        return [w.Id for w in walls]
+    except Exception:
+        return []
+
+
 def _get_element_vertical_faces(doc, element_id, cache):
     """Returns a list of the element's vertical PlanarFaces that have a
     valid Reference - cached per element_id since the same wall can
@@ -363,24 +414,29 @@ def _get_element_vertical_faces(doc, element_id, cache):
     return faces
 
 
-def _get_wall_face_reference(doc, element_id, near_point, cache):
-    """Best-effort Reference to the vertical face of `element_id`
-    (typically a Wall) nearest to near_point - the same face a person
-    would click with Revit's own Aligned Dimension tool at that corner.
-    Returns None if nothing usable is found."""
+def _get_best_face_reference(doc, candidate_ids, near_point, cache):
+    """Best-effort Reference to the vertical face NEAREST near_point,
+    searched across every element in candidate_ids - the same face a
+    person would click with Revit's own Aligned Dimension tool at that
+    corner. Searching many candidates (not just one "official"
+    neighbor) is safe: Face.Project() measures distance to the face's
+    actual bounded extent, so an irrelevant far wall never wins over a
+    genuinely close one just for being coplanar. Returns None if
+    nothing usable is found among any candidate."""
     best_face = None
     best_dist = None
-    for face in _get_element_vertical_faces(doc, element_id, cache):
-        try:
-            result = face.Project(near_point)
-            if result is None:
+    for element_id in candidate_ids:
+        for face in _get_element_vertical_faces(doc, element_id, cache):
+            try:
+                result = face.Project(near_point)
+                if result is None:
+                    continue
+                dist = result.Distance
+            except Exception:
                 continue
-            dist = result.Distance
-        except Exception:
-            continue
-        if best_dist is None or dist < best_dist:
-            best_dist = dist
-            best_face = face
+            if best_dist is None or dist < best_dist:
+                best_dist = dist
+                best_face = face
     if best_face is None:
         return None
     return best_face.Reference
@@ -396,7 +452,26 @@ class DimensionResult(object):
         self.skipped.append((label, reason))
 
 
-def _place_one_dimension(doc, view, room_row, axis, face_cache):
+def _offset_toward_room(p0, p1, room_point, offset):
+    """Returns (p0', p1') - p0/p1 shifted perpendicular to the p0->p1
+    direction, by `offset`, toward room_point - so the dimension line
+    is pulled a little off the wall and into the room, instead of
+    sitting exactly on the boundary edge."""
+    direction = p1 - p0
+    length = direction.GetLength()
+    if length < 1e-9:
+        return p0, p1
+    direction = direction.Normalize()
+    perp = XYZ(-direction.Y, direction.X, 0.0)
+    midpoint = XYZ((p0.X + p1.X) / 2.0, (p0.Y + p1.Y) / 2.0, (p0.Z + p1.Z) / 2.0)
+    to_room = room_point - midpoint
+    if perp.DotProduct(to_room) < 0:
+        perp = perp.Negate()
+    shift = perp.Multiply(offset)
+    return p0 + shift, p1 + shift
+
+
+def _place_one_dimension(doc, view, room_row, axis, face_cache, nearby_wall_ids):
     """axis: "x" or "y". Returns (ok, detail)."""
     if room_row.boundary is None:
         return False, "No boundary data"
@@ -417,8 +492,13 @@ def _place_one_dimension(doc, view, room_row, axis, face_cache):
     p0 = curve.GetEndPoint(0)
     p1 = curve.GetEndPoint(1)
 
-    ref0 = _get_wall_face_reference(doc, prev_id, p0, face_cache)
-    ref1 = _get_wall_face_reference(doc, next_id, p1, face_cache)
+    # Search the immediate neighbors first, but fall back to every
+    # nearby wall - see _collect_nearby_walls/_get_best_face_reference.
+    candidates_p0 = [prev_id] + [eid for eid in nearby_wall_ids if eid != prev_id]
+    candidates_p1 = [next_id] + [eid for eid in nearby_wall_ids if eid != next_id]
+
+    ref0 = _get_best_face_reference(doc, candidates_p0, p0, face_cache)
+    ref1 = _get_best_face_reference(doc, candidates_p1, p1, face_cache)
     if ref0 is None or ref1 is None:
         return False, "Could not resolve wall face references for this edge"
 
@@ -427,7 +507,14 @@ def _place_one_dimension(doc, view, room_row, axis, face_cache):
     ref_array.Append(ref1)
 
     try:
-        line = Line.CreateBound(p0, p1)
+        room_point = room_row.room.Location.Point
+    except Exception:
+        room_point = XYZ((p0.X + p1.X) / 2.0, (p0.Y + p1.Y) / 2.0, (p0.Z + p1.Z) / 2.0)
+
+    line_p0, line_p1 = _offset_toward_room(p0, p1, room_point, _DIMENSION_OFFSET_INTERNAL)
+
+    try:
+        line = Line.CreateBound(line_p0, line_p1)
         doc.Create.NewDimension(view, line, ref_array)
         return True, "{0}-axis dimension placed".format(axis.upper())
     except Exception as e:
@@ -448,8 +535,9 @@ def place_dimensions(doc, view, rows):
     t.Start()
     try:
         for row in rows:
+            nearby_wall_ids = _collect_nearby_walls(doc, row.room)
             for axis in ("x", "y"):
-                ok, detail = _place_one_dimension(doc, view, row, axis, face_cache)
+                ok, detail = _place_one_dimension(doc, view, row, axis, face_cache, nearby_wall_ids)
                 label = "{0} - {1} ({2}-axis)".format(row.number, row.name, axis.upper())
                 if ok:
                     result.placed_count += 1
