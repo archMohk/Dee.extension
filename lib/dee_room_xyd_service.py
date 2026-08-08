@@ -16,7 +16,17 @@ used anywhere here.
 Revit API facts relied on here (verified before writing, not guessed)
 --------------------------------------------------------------------
 - Room lives in Autodesk.Revit.DB.Architecture, not the main DB
-  namespace like most other element classes.
+  namespace like most other element classes - but FilteredElementCollector.
+  OfClass(Room) does NOT work: Revit's collector only filters by types
+  that exist in Revit's native object model, and Room is a .NET-API-only
+  wrapper over that native model (confirmed live: it throws
+  "Input type(...Room) is of an element type that exists in the API,
+  but not in Revit's native object model"). The correct, idiomatic
+  collection is by category - OfCategory(BuiltInCategory.OST_Rooms)
+  .WhereElementIsNotElementType() - which returns the same Room
+  instances (IronPython's dynamic typing means no explicit Room import/
+  cast is even needed to call .Number/.Area/.GetBoundarySegments() on
+  what it returns).
 - Room.GetBoundarySegments(SpatialElementBoundaryOptions) returns one
   list of BoundarySegment per loop (the outer perimeter, plus one per
   island/inner loop such as a shaft or column). A room with no valid
@@ -36,9 +46,8 @@ Revit API facts relied on here (verified before writing, not guessed)
 """
 from Autodesk.Revit.DB import (
     FilteredElementCollector, SpatialElementBoundaryOptions,
-    UnitUtils, UnitTypeId, SpecTypeId, BuiltInParameter,
+    UnitUtils, UnitTypeId, SpecTypeId, BuiltInParameter, BuiltInCategory,
 )
-from Autodesk.Revit.DB.Architecture import Room
 
 import xlsx_writer
 
@@ -231,7 +240,8 @@ class RoomRow(object):
 
 def scan(doc):
     rows = []
-    for room in FilteredElementCollector(doc).OfClass(Room):
+    collector = FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms).WhereElementIsNotElementType()
+    for room in collector:
         try:
             rows.append(RoomRow(doc, room))
         except Exception:
