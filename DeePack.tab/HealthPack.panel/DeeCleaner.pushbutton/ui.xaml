@@ -142,6 +142,34 @@
                     </DataGrid>
                 </DockPanel>
             </TabItem>
+
+            <!-- TAB 6: Rooms on Same Placement -->
+            <TabItem Header="Rooms on Same Placement">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Rooms grouped by Level + boundary extents + Area - a group of 2+ almost always means the same room was placed twice in the same enclosed space (e.g. clicking Room twice, or a copy-paste that was never moved). Select All But First In Each Group is a shortcut to keep one room per group and check the rest. Check the ones to remove, then Delete Selected."/>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="dup_select_all_b" Content="Select All" Click="dup_select_all_click" Width="90" Height="24"/>
+                        <Button x:Name="dup_deselect_all_b" Content="Deselect All" Click="dup_deselect_all_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="dup_select_highlighted_b" Content="Select Highlighted" Click="dup_select_highlighted_click" Width="130" Height="24" Margin="16,0,0,0"
+                                ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                        <Button x:Name="dup_deselect_highlighted_b" Content="Deselect Highlighted" Click="dup_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="dup_select_all_but_first_b" Content="Select All But First In Each Group" Click="dup_select_all_but_first_click" Width="220" Height="24" Margin="16,0,0,0"/>
+                        <Button x:Name="dup_delete_b" Content="Delete Selected" Click="dup_delete_click" Width="120" Height="24" Margin="16,0,0,0"/>
+                        <TextBlock x:Name="dup_count_tb" Text="0 room(s) in 0 group(s)" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+                    <DataGrid x:Name="dup_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="60"/>
+                            <DataGridTextColumn Header="Group" Binding="{Binding group_text}" IsReadOnly="True" Width="140"/>
+                            <DataGridTextColumn Header="Number" Binding="{Binding number}" IsReadOnly="True" Width="90"/>
+                            <DataGridTextColumn Header="Name" Binding="{Binding name}" IsReadOnly="True" Width="200"/>
+                            <DataGridTextColumn Header="Level" Binding="{Binding level_name}" IsReadOnly="True" Width="140"/>
+                            <DataGridTextColumn Header="Area" Binding="{Binding area_text}" IsReadOnly="True" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
         </TabControl>
     </DockPanel>
 </Window>

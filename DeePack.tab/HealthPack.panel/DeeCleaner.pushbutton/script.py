@@ -18,6 +18,12 @@ Five independent cleanup scans over the whole project:
 5. Sheets - every Sheet, flagged whether it contains any View (Viewport
    or placed Schedule) - list + delete, with a convenience button to
    check every empty sheet.
+6. Rooms on Same Placement - Rooms grouped by Level + BoundingBox X/Y
+   extents + Area; any group of 2+ is almost certainly the same room
+   placed twice in the same enclosed boundary (e.g. clicking Room
+   twice in the same space, or a copy-paste that was never moved) -
+   list grouped, with a convenience button to check every room except
+   the first (lowest Element Id) in each group, then delete.
 
 Needs live-Revit verification: View.IsolateElementsTemporary /
 TemporaryViewMode enum usage for the isolate-view feature (the same
@@ -355,6 +361,70 @@ def _scan_sheets(doc):
     return rows
 
 
+def _room_bbox_key(room):
+    """Groups rooms that occupy the same physical placement: same
+    Level, same BoundingBox X/Y extents (rounded to ~3mm to absorb any
+    floating-point jitter), same Area. A room placed twice in the
+    exact same enclosed boundary is computed from the same bounding
+    walls, so two truly-duplicate rooms get an identical key here -
+    this is a simpler, cheap proxy for "same border" than comparing
+    full boundary polygons, and is not expected to false-positive
+    between two genuinely different rooms of similar size (X, Y, AND
+    area would all have to coincide). Z is deliberately excluded -
+    two rooms with different Upper Limit/height settings but the same
+    footprint are still "the same placement" for this purpose."""
+    try:
+        bbox = room.get_BoundingBox(None)
+    except Exception:
+        bbox = None
+    if bbox is None:
+        return None
+    try:
+        level_id = room.LevelId.IntegerValue
+    except Exception:
+        level_id = -1
+    try:
+        area = round(room.Area, 1)
+    except Exception:
+        area = 0.0
+    return (level_id,
+            round(bbox.Min.X, 2), round(bbox.Min.Y, 2),
+            round(bbox.Max.X, 2), round(bbox.Max.Y, 2),
+            area)
+
+
+def _scan_duplicate_rooms(doc):
+    """Rooms with zero area (Unplaced/Not Enclosed - see the Zero-Area
+    Rooms tab instead) are skipped, since they have no boundary to
+    compare. Only groups of 2+ rooms sharing a key are returned -
+    unique rooms aren't listed at all."""
+    buckets = {}
+    for r in FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms):
+        if not isinstance(r, Room):
+            continue
+        if _room_area_internal(r) <= 0:
+            continue
+        key = _room_bbox_key(r)
+        if key is None:
+            continue
+        buckets.setdefault(key, []).append(r)
+
+    rows = []
+    group_index = 0
+    for rooms_in_group in buckets.values():
+        if len(rooms_in_group) < 2:
+            continue
+        group_index += 1
+        group_size = len(rooms_in_group)
+        # Lowest Element Id first within a group, so "Select All But
+        # First in Each Group" deterministically keeps the oldest one.
+        rooms_in_group.sort(key=lambda rm: rm.Id.IntegerValue)
+        for r in rooms_in_group:
+            rows.append(DuplicateRoomRow(r, doc, group_index, group_size))
+    rows.sort(key=lambda row: (row.group_index, row.element_id_int))
+    return rows
+
+
 # --------------------------------------------------------------------------
 # Data model
 # --------------------------------------------------------------------------
@@ -418,6 +488,28 @@ class SheetRow(object):
         return "Yes" if self.has_views else "No"
 
 
+class DuplicateRoomRow(object):
+    def __init__(self, room, doc, group_index, group_size):
+        self.room = room
+        self.selected = False
+        self.element_id_int = room.Id.IntegerValue
+        self.group_index = group_index
+        self.group_size = group_size
+        self.number = _read_room_number(room)
+        self.name = _read_room_name(room)
+        level = None
+        try:
+            level = room.Level
+        except Exception:
+            level = None
+        self.level_name = _read_name(level) or "(no level)"
+        self.area_text = _format_area(doc, _room_area_internal(room))
+
+    @property
+    def group_text(self):
+        return "Group {0} ({1} rooms)".format(self.group_index, self.group_size)
+
+
 # --------------------------------------------------------------------------
 # Window
 # --------------------------------------------------------------------------
@@ -430,6 +522,7 @@ class DeeCleanerWindow(forms.WPFWindow):
         self._group_rows = []
         self._view_rows = []
         self._sheet_rows = []
+        self._dup_rows = []
 
     def scan_click(self, sender, args):
         with forms.ProgressBar(title="DeeCleaner — scanning project...", cancellable=True):
@@ -438,6 +531,7 @@ class DeeCleanerWindow(forms.WPFWindow):
             self._group_rows = _scan_unused_groups(self.doc)
             self._view_rows = _scan_views(self.doc)
             self._sheet_rows = _scan_sheets(self.doc)
+            self._dup_rows = _scan_duplicate_rooms(self.doc)
 
         self.rooms_grid.ItemsSource = None
         self.rooms_grid.ItemsSource = self._room_rows
@@ -461,11 +555,16 @@ class DeeCleanerWindow(forms.WPFWindow):
         empty_sheets = sum(1 for r in self._sheet_rows if not r.has_views)
         self.sheets_count_tb.Text = "{0} sheet(s) ({1} empty)".format(len(self._sheet_rows), empty_sheets)
 
+        self.dup_grid.ItemsSource = None
+        self.dup_grid.ItemsSource = self._dup_rows
+        dup_group_count = len(set(r.group_index for r in self._dup_rows))
+        self.dup_count_tb.Text = "{0} room(s) in {1} group(s)".format(len(self._dup_rows), dup_group_count)
+
         self.status_tb.Text = (
             "Scanned {0} zero-area room(s), {1} in-place familie(s), {2} unused group(s), "
-            "{3} view(s), {4} sheet(s).".format(
+            "{3} view(s), {4} sheet(s), {5} room(s) on the same placement.".format(
                 len(self._room_rows), len(self._inplace_rows), len(self._group_rows),
-                len(self._view_rows), len(self._sheet_rows)))
+                len(self._view_rows), len(self._sheet_rows), len(self._dup_rows)))
 
     def _refresh(self, grid, rows):
         grid.ItemsSource = None
@@ -780,6 +879,77 @@ class DeeCleanerWindow(forms.WPFWindow):
         self.sheets_count_tb.Text = "{0} sheet(s) ({1} empty)".format(len(self._sheet_rows), empty_sheets)
         self._refresh(self.sheets_grid, self._sheet_rows)
         self._report("Delete Sheets Results", results)
+
+    # ---- Tab 6: Rooms on Same Placement ----
+    def dup_select_all_click(self, sender, args):
+        for r in self._dup_rows:
+            r.selected = True
+        self._refresh(self.dup_grid, self._dup_rows)
+
+    def dup_deselect_all_click(self, sender, args):
+        for r in self._dup_rows:
+            r.selected = False
+        self._refresh(self.dup_grid, self._dup_rows)
+
+    def dup_select_highlighted_click(self, sender, args):
+        highlighted = list(self.dup_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = True
+        self._refresh(self.dup_grid, self._dup_rows)
+
+    def dup_deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.dup_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = False
+        self._refresh(self.dup_grid, self._dup_rows)
+
+    def dup_select_all_but_first_click(self, sender, args):
+        """Checks every room in each group except the first (lowest
+        Element Id, i.e. the oldest) - the rows are already sorted
+        that way by _scan_duplicate_rooms, so this just skips the
+        first row seen per group_index."""
+        seen_groups = set()
+        for r in self._dup_rows:
+            if r.group_index in seen_groups:
+                r.selected = True
+            else:
+                seen_groups.add(r.group_index)
+        self._refresh(self.dup_grid, self._dup_rows)
+
+    def dup_delete_click(self, sender, args):
+        selected = [r for r in self._dup_rows if r.selected]
+        if not selected:
+            forms.alert("Check at least one room to delete.")
+            return
+        if not forms.alert(
+                "Delete {0} room(s)? This cannot be undone from this dialog.".format(len(selected)),
+                title="DeeCleaner - Confirm", yes=True, no=True):
+            return
+
+        results = []
+        t = Transaction(self.doc, "DeeCleaner - Delete Rooms on Same Placement")
+        t.Start()
+        for r in selected:
+            try:
+                self.doc.Delete(r.room.Id)
+                results.append((True, "{0} - {1} (Group {2})".format(r.number, r.name, r.group_index), "Deleted"))
+            except Exception as e:
+                results.append((False, "{0} - {1} (Group {2})".format(r.number, r.name, r.group_index),
+                                 "FAILED: {0}".format(e)))
+        t.Commit()
+
+        deleted_set = set(r for r, res in zip(selected, results) if res[0])
+        self._dup_rows = [r for r in self._dup_rows if r not in deleted_set]
+        dup_group_count = len(set(r.group_index for r in self._dup_rows))
+        self.dup_count_tb.Text = "{0} room(s) in {1} group(s)".format(len(self._dup_rows), dup_group_count)
+        self._refresh(self.dup_grid, self._dup_rows)
+        self._report("Delete Rooms on Same Placement Results", results)
 
     def close_click(self, sender, args):
         self.Close()
