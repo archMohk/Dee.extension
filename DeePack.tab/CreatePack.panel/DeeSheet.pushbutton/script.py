@@ -544,20 +544,18 @@ class DeeSheetWindow(forms.WPFWindow):
 
     def _recompute_rn_statuses(self):
         renamer.compute_statuses(self._rename_rows)
-        self.rn_grid.Items.Refresh()
+        self._refresh_rename_grid()
 
     # ---------------- selection ----------------
     def rn_select_all_click(self, sender, args):
         for r in self._rename_view_rows:
             r.selected = True
-        self.rn_grid.Items.Refresh()
-        self._update_rn_status()
+        self._refresh_rename_grid()
 
     def rn_select_none_click(self, sender, args):
         for r in self._rename_view_rows:
             r.selected = False
-        self.rn_grid.Items.Refresh()
-        self._update_rn_status()
+        self._refresh_rename_grid()
 
     def rn_select_highlighted_click(self, sender, args):
         highlighted = list(self.rn_grid.SelectedItems)
@@ -566,8 +564,7 @@ class DeeSheetWindow(forms.WPFWindow):
             return
         for r in highlighted:
             r.selected = True
-        self.rn_grid.Items.Refresh()
-        self._update_rn_status()
+        self._refresh_rename_grid()
 
     def rn_deselect_highlighted_click(self, sender, args):
         highlighted = list(self.rn_grid.SelectedItems)
@@ -576,8 +573,7 @@ class DeeSheetWindow(forms.WPFWindow):
             return
         for r in highlighted:
             r.selected = False
-        self.rn_grid.Items.Refresh()
-        self._update_rn_status()
+        self._refresh_rename_grid()
 
     # ---------------- rule builder ----------------
     def _insert_into(self, textbox, token_text):
@@ -625,13 +621,12 @@ class DeeSheetWindow(forms.WPFWindow):
         renamer.generate_preview(self._rename_rows, self.number_rule_tb.Text, self.name_rule_tb.Text,
                                   start, step, reset_key, sort_key)
         renamer.compute_statuses(self._rename_rows)
-        self.rn_grid.Items.Refresh()
-        self._update_rn_status()
+        self._refresh_rename_grid()
 
     def reset_preview_click(self, sender, args):
         renamer.reset_preview(self._rename_rows)
         renamer.compute_statuses(self._rename_rows)
-        self.rn_grid.Items.Refresh()
+        self._refresh_rename_grid()
 
     def _rn_target_value(self, combo):
         label = combo.SelectedItem or "Both"
@@ -648,7 +643,7 @@ class DeeSheetWindow(forms.WPFWindow):
                               self._rn_target_value(self.fr_target_cb),
                               bool(self.fr_case_cb.IsChecked), bool(self.fr_word_cb.IsChecked))
         renamer.compute_statuses(self._rename_rows)
-        self.rn_grid.Items.Refresh()
+        self._refresh_rename_grid()
 
     def add_text_click(self, sender, args):
         if not any(r.selected for r in self._rename_rows):
@@ -660,7 +655,7 @@ class DeeSheetWindow(forms.WPFWindow):
         position = "prefix" if (self.add_position_cb.SelectedItem or "Prefix") == "Prefix" else "suffix"
         renamer.add_text(self._rename_rows, self.add_text_tb.Text, self._rn_target_value(self.add_target_cb), position)
         renamer.compute_statuses(self._rename_rows)
-        self.rn_grid.Items.Refresh()
+        self._refresh_rename_grid()
 
     def extract_segment_click(self, sender, args):
         if not any(r.selected for r in self._rename_rows):
@@ -673,7 +668,7 @@ class DeeSheetWindow(forms.WPFWindow):
         renamer.extract_segment(self._rename_rows, self.seg_delim_tb.Text, direction,
                                  self.seg_number_tb.Text or "1", self._rn_target_value(self.seg_target_cb))
         renamer.compute_statuses(self._rename_rows)
-        self.rn_grid.Items.Refresh()
+        self._refresh_rename_grid()
 
     def _apply_case(self, mode):
         if not any(r.selected for r in self._rename_rows):
@@ -681,7 +676,7 @@ class DeeSheetWindow(forms.WPFWindow):
             return
         renamer.convert_case(self._rename_rows, mode, self._rn_target_value(self.case_target_cb))
         renamer.compute_statuses(self._rename_rows)
-        self.rn_grid.Items.Refresh()
+        self._refresh_rename_grid()
 
     def case_upper_click(self, sender, args):
         self._apply_case("upper")
@@ -749,7 +744,7 @@ class DeeSheetWindow(forms.WPFWindow):
     # ---------------- apply ----------------
     def rn_apply_click(self, sender, args):
         renamer.compute_statuses(self._rename_rows)
-        self.rn_grid.Items.Refresh()
+        self._refresh_rename_grid()
         ready = [r for r in self._rename_rows if r.selected and r.status == renamer.STATUS_READY]
         blocked = [r for r in self._rename_rows if r.selected and
                    r.status in (renamer.STATUS_DUPLICATE, renamer.STATUS_EMPTY)]
@@ -767,8 +762,7 @@ class DeeSheetWindow(forms.WPFWindow):
         result = renamer.apply_renames(self.doc, self._rename_rows)
         renamer.print_report(result)
         renamer.compute_statuses(self._rename_rows)
-        self.rn_grid.Items.Refresh()
-        self._update_rn_status()
+        self._refresh_rename_grid()
         self._scan_super_sheets()
 
     def close_click(self, sender, args):
