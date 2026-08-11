@@ -93,6 +93,7 @@ import math
 import distribution_patterns
 
 from pyrevit import forms, script
+import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, BuiltInCategory, ElementId, Transaction,
     BuiltInParameter, SpatialElementBoundaryOptions, SpatialElementBoundaryLocation,
@@ -1504,9 +1505,9 @@ def _save_user_presets(data):
 # --------------------------------------------------------------------------
 # Window
 # --------------------------------------------------------------------------
-class DeeDistributorWindow(forms.WPFWindow):
+class DeeDistributorWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc, uidoc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self.uidoc = uidoc
         self._rows = []

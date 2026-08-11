@@ -41,6 +41,7 @@ import os
 import csv
 import System
 from pyrevit import forms, script
+import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, Grid, Line, Transaction, BuiltInParameter,
     ElementTransformUtils, UnitUtils, SpecTypeId, UnitTypeId, XYZ
@@ -239,9 +240,9 @@ class GridRow(object):
         return "Existing"
 
 
-class DeeGridWindow(forms.WPFWindow):
+class DeeGridWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self._v_rows = []
         self._h_rows = []

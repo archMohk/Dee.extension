@@ -16,14 +16,15 @@ story - so the whole package now uses IronPython 2 instead.
 import os
 
 from pyrevit import forms
+import dee_branding
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "deew_coming_soon.xaml")
 
 
-class _ComingSoonWindow(forms.WPFWindow):
+class _ComingSoonWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, tool_name, description):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.tool_name_tb.Text = tool_name
         if description:
             self.description_tb.Text = description

@@ -53,6 +53,7 @@ clr.AddReference("System.Windows.Forms")
 from System.Windows.Forms import FolderBrowserDialog, OpenFileDialog, SaveFileDialog, DialogResult, MessageBox
 
 from pyrevit import forms, script
+import dee_branding
 
 import deew_logger
 import deew_settings
@@ -245,9 +246,9 @@ class BatchPipeline(object):
             row.processing_time_seconds = time.time() - start
 
 
-class DeeWBatchWindow(forms.WPFWindow):
+class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, uiapp):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.uiapp = uiapp
         self.application = uiapp.Application
         self.logger = deew_logger.DeeWLogger(_TOOL_NAME)

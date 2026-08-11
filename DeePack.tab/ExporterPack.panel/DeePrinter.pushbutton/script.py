@@ -25,6 +25,7 @@ import os
 import json
 import datetime
 from pyrevit import forms, script, framework
+import dee_branding
 from pyrevit.framework import Controls
 from Autodesk.Revit.DB import (
     FilteredElementCollector, ViewSheet, ExportDWGSettings, PDFExportOptions,
@@ -259,9 +260,9 @@ class SheetOption(BaseCheckBoxItem):
 
 # ── combined sheet-picker + settings window ─────────────────────────────────
 
-class DeePrinterWindow(forms.WPFWindow):
+class DeePrinterWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, context, doc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self._context = context
         self.doc = doc
         self.response = None

@@ -122,6 +122,7 @@ clr.AddReference("PresentationFramework")
 clr.AddReference("System.Windows.Forms")
 
 from pyrevit import forms, script
+import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, RevitLinkType, ModelPathUtils, LinkLoadResultType,
     BuiltInParameter,
@@ -434,9 +435,9 @@ class DocTabController(object):
         _report_results(self.document.Title, results)
 
 
-class DeeRelinkWindow(forms.WPFWindow):
+class DeeRelinkWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, uiapp):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.uiapp = uiapp
         self._controllers = []
         self._acc_context = deew_settings.load(_ACC_SETTINGS_TOOL, _ACC_SETTINGS_DEFAULTS)

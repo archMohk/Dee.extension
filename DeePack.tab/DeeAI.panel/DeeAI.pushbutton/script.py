@@ -7,6 +7,7 @@ lives in lib/dee_ai_service.py + lib/dee_ai_sandbox.py.
 import os
 
 from pyrevit import forms
+import dee_branding
 
 import dee_ai_service as ai
 
@@ -14,9 +15,9 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 
 
-class DeeAIWindow(forms.WPFWindow):
+class DeeAIWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, uiapp):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.uiapp = uiapp
         self.uidoc = uiapp.ActiveUIDocument
         self.doc = self.uidoc.Document

@@ -49,6 +49,7 @@ import os
 import csv
 import System
 from pyrevit import forms, script
+import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, Level, Transaction, BuiltInParameter,
     UnitUtils, SpecTypeId, UnitTypeId, BuiltInCategory, ElementId, BasePoint
@@ -365,9 +366,9 @@ class LevelRow(object):
         return "Existing" + suffix
 
 
-class DeeLevelsWindow(forms.WPFWindow):
+class DeeLevelsWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self._initializing = True
         self._rows = []

@@ -25,6 +25,7 @@ up duplicates.
 import os
 import csv
 from pyrevit import forms, script
+import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, BuiltInCategory, ElementId, Transaction,
     BuiltInParameter, SpatialElementBoundaryOptions, SpatialElementBoundaryLocation,
@@ -552,9 +553,9 @@ class RoomRow(object):
 # --------------------------------------------------------------------------
 # Window
 # --------------------------------------------------------------------------
-class DeeFinisherWindow(forms.WPFWindow):
+class DeeFinisherWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self._rows = []
         self._floor_types = {}

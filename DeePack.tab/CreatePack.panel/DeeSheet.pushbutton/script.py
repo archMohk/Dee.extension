@@ -34,6 +34,7 @@ sheet) for placing a title block on a sheet that doesn't have one.
 import os
 import System
 from pyrevit import forms, script
+import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, BuiltInCategory, ViewSheet, ElementId, Transaction,
     BuiltInParameter, XYZ,
@@ -176,9 +177,9 @@ def _scan_all_sheets(doc):
     return rows
 
 
-class DeeSheetWindow(forms.WPFWindow):
+class DeeSheetWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self._titleblock_types = _collect_titleblock_types(doc)
         self._super_rows = []

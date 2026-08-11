@@ -33,6 +33,7 @@ here, only the isolate call itself is new).
 import os
 
 from pyrevit import forms, script
+import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, BuiltInCategory, BuiltInParameter, ElementId,
     Transaction, View3D, ViewFamilyType, ViewFamily, TemporaryViewMode,
@@ -513,9 +514,9 @@ class DuplicateRoomRow(object):
 # --------------------------------------------------------------------------
 # Window
 # --------------------------------------------------------------------------
-class DeeCleanerWindow(forms.WPFWindow):
+class DeeCleanerWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self._room_rows = []
         self._inplace_rows = []

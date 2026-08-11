@@ -8,6 +8,7 @@ file only wires the WPF window to it.
 import os
 
 from pyrevit import forms
+import dee_branding
 
 import dee_getdwg_service as core
 
@@ -15,9 +16,9 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 
 
-class DeeGetDWGWindow(forms.WPFWindow):
+class DeeGetDWGWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self._rows = []
         self.threshold_unit_tb.Text = core.unit_abbreviation(doc)

@@ -21,6 +21,7 @@ from the target list.
 import os
 
 from pyrevit import forms, script
+import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, View, ElementId, Transaction,
     ElementTransformUtils, CopyPasteOptions, Transform,
@@ -161,9 +162,9 @@ def _transfer_to_document(source_doc, dest_doc_row, template_rows, dup_mode):
 # --------------------------------------------------------------------------
 # Window
 # --------------------------------------------------------------------------
-class DeeVTemplateWindow(forms.WPFWindow):
+class DeeVTemplateWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self._template_rows = []
         self._doc_rows = []

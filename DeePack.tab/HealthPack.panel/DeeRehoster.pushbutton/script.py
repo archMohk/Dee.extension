@@ -64,6 +64,7 @@ from System.Windows.Media import SolidColorBrush, Color as MediaColor, Brushes
 from System.Collections.Generic import List
 
 from pyrevit import forms, script
+import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, Level, Transaction, BuiltInParameter, CategoryType,
     ElementId, StorageType, View3D, ViewFamilyType, ViewFamily,
@@ -479,9 +480,9 @@ class ElementRow(object):
         self.level_name = level_name or ""
 
 
-class DeeRehosterWindow(forms.WPFWindow):
+class DeeRehosterWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self._levels = []
         self._elements = []

@@ -161,6 +161,7 @@ import time
 import datetime
 
 from pyrevit import forms, script
+import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, BuiltInCategory, BuiltInParameter, ElementId,
     Level, Transaction, TransactionGroup, TransactionStatus, SubTransaction,
@@ -1113,9 +1114,9 @@ class LogEntryRow(object):
 # Window (the UI controller - see the module docstring's note on why this
 # is a forms.WPFWindow code-behind rather than literal C# MVVM/DI)
 # ==========================================================================
-class DeeReLevelWindow(forms.WPFWindow):
+class DeeReLevelWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc, uidoc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self.uidoc = uidoc
         # Design Option filtering is wired end-to-end (build_relationship_index

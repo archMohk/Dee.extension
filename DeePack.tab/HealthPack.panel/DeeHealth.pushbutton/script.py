@@ -48,6 +48,7 @@ from System.Windows.Controls import CheckBox
 from System.Windows.Media import SolidColorBrush, Color as MediaColor
 
 from pyrevit import forms, script
+import dee_branding
 
 import xlsx_reader
 import xlsx_writer
@@ -77,9 +78,9 @@ def _status_for_score(score):
     return "fail"
 
 
-class DeeHealthWindow(forms.WPFWindow):
+class DeeHealthWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self._tests = []
         self._last_overall = None

@@ -13,6 +13,7 @@ clr.AddReference("System.Windows.Forms")
 from System.Windows.Forms import SaveFileDialog, DialogResult, MessageBox
 
 from pyrevit import forms
+import dee_branding
 
 import dee_room_xyd_service as core
 
@@ -20,9 +21,9 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 
 
-class DeeRoomXYDWindow(forms.WPFWindow):
+class DeeRoomXYDWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc, view):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self.view = view
         self._rows = []

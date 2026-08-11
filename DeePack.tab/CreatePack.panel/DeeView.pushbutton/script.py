@@ -55,6 +55,7 @@ import json
 import csv
 import System
 from pyrevit import forms, script
+import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, Level, Transaction, BuiltInParameter, BuiltInCategory,
     View, ViewFamily, ViewFamilyType, ViewPlan, ViewType, AreaScheme,
@@ -431,9 +432,9 @@ class PlannedView(object):
 
 # ── main window ──────────────────────────────────────────────────────────────
 
-class DeeViewWindow(forms.WPFWindow):
+class DeeViewWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
 
         self._levels = _collect_levels(doc)

@@ -13,6 +13,7 @@ from System import Uri
 from System.Windows.Media.Imaging import BitmapImage
 
 from pyrevit import forms
+import dee_branding
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
@@ -20,9 +21,9 @@ _LOGO_FILE = os.path.abspath(os.path.join(_THIS_DIR, "..", "..", "..", "..", "ic
 _WEBSITE_URL = "https://www.archmkd.com"
 
 
-class AboutWindow(forms.WPFWindow):
+class AboutWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         try:
             if os.path.exists(_LOGO_FILE):
                 bmp = BitmapImage()

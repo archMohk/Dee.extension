@@ -116,6 +116,7 @@ clr.AddReference("System.Windows.Forms")
 clr.AddReference("System.Drawing")
 
 from pyrevit import forms, script
+import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, ViewSheet, Viewport, ImageInstance, Transaction,
     ElementTransformUtils, BuiltInCategory, BuiltInParameter, XYZ,
@@ -478,9 +479,9 @@ class SheetRow(object):
         self.name = _read_name(sheet) or "(unnamed)"
 
 
-class DeeAlignerWindow(forms.WPFWindow):
+class DeeAlignerWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
 
         # Views tab

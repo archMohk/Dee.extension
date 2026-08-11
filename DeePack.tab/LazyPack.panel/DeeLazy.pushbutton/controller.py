@@ -19,13 +19,14 @@ from System.Windows.Controls import Border, StackPanel, TextBlock, Button, Orien
 from System.Windows.Media import Brushes
 
 from pyrevit import forms
+import dee_branding
 
 from modules import REGISTERED_MODULES
 
 
-class DeeLazyHomeWindow(forms.WPFWindow):
+class DeeLazyHomeWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, uiapp):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.uiapp = uiapp
         self._build_cards()
 

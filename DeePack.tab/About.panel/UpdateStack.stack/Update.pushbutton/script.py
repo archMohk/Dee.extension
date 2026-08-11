@@ -36,6 +36,7 @@ from System.Windows.Media.Imaging import BitmapImage
 from System.Diagnostics import Process, ProcessStartInfo
 
 from pyrevit import forms
+import dee_branding
 from pyrevit.loader import sessionmgr
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -62,9 +63,9 @@ def _run_pyrevit_update():
         return False, str(ex)
 
 
-class UpdateWindow(forms.WPFWindow):
+class UpdateWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.confirmed = False
         try:
             if os.path.exists(_LOGO_FILE):

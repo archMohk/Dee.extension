@@ -78,6 +78,7 @@ clr.AddReference("PresentationFramework")
 clr.AddReference("System.Windows.Forms")
 
 from pyrevit import forms, script
+import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, View, ViewType, ViewSheet, Viewport,
     Transaction, ElementId, BoundingBoxXYZ, XYZ, BuiltInParameter, BuiltInCategory,
@@ -384,9 +385,9 @@ def export_report(path, title, rows):
 # Window - UI wiring only; all real work happens in the plain functions
 # above (separate business logic from UI, per spec's code requirements)
 # ==========================================================================
-class ViewCroppingWindow(forms.WPFWindow):
+class ViewCroppingWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, uiapp):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.uiapp = uiapp
         self.uidoc = uiapp.ActiveUIDocument
         self.doc = self.uidoc.Document

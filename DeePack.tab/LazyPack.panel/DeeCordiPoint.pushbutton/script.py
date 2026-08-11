@@ -48,6 +48,7 @@ import os
 import math
 
 from pyrevit import forms, script
+import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, BuiltInCategory, Category, ElementId, Transaction,
     View3D, ViewFamilyType, ViewFamily, TemporaryViewMode, XYZ, ElementTransformUtils,
@@ -486,9 +487,9 @@ class LinkRow(object):
 # --------------------------------------------------------------------------
 # Window
 # --------------------------------------------------------------------------
-class DeeCordiPointWindow(forms.WPFWindow):
+class DeeCordiPointWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self._points = []
         self._pbp_points = []

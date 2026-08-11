@@ -48,6 +48,7 @@ from System.Windows.Data import Binding
 from System.Windows.Input import Key, Keyboard, ModifierKeys
 
 from pyrevit import forms, script
+import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, ViewSchedule, Transaction, ElementId, StorageType,
     Category, UnitFormatUtils, BuiltInParameter
@@ -425,9 +426,9 @@ def _build_editor_rows(doc, schedule_row):
     return rows, fields, field_headers, locked_indices, "\n".join(diag_lines)
 
 
-class DeeScheduleXLWindow(forms.WPFWindow):
+class DeeScheduleXLWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
-        forms.WPFWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self._schedule_rows = []
         self._import_compatible = []
