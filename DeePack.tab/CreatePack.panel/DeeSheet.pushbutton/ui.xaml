@@ -217,6 +217,25 @@
                                 </StackPanel>
                             </GroupBox>
 
+                            <GroupBox Header="Extract Segment" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock Text="Split by:" Margin="0,0,0,2"/>
+                                    <TextBox x:Name="seg_delim_tb" Height="22" Margin="0,0,0,4" ToolTip="The delimiter to split on, e.g. a dash -"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                        <TextBlock Text="Count from:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <ComboBox x:Name="seg_direction_cb" Width="80" Height="24"/>
+                                        <TextBlock Text="Segment #:" VerticalAlignment="Center" Margin="10,0,6,0"/>
+                                        <TextBox x:Name="seg_number_tb" Text="1" Width="40" Height="22"/>
+                                    </StackPanel>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,0,0,4"
+                                               Text="E.g. Split by &quot;-&quot;, Right, Segment 1 keeps whatever comes after the last dash."/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <ComboBox x:Name="seg_target_cb" Width="100" Height="24"/>
+                                        <Button x:Name="seg_extract_b" Content="Apply" Width="90" Height="24" Margin="8,0,0,0" Click="extract_segment_click"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </GroupBox>
+
                             <GroupBox Header="Case" Padding="6" Margin="0,0,0,8">
                                 <StackPanel>
                                     <ComboBox x:Name="case_target_cb" Height="24" Margin="0,0,0,4"/>

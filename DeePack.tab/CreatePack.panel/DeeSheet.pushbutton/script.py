@@ -481,6 +481,10 @@ class DeeSheetWindow(forms.WPFWindow):
         self.add_target_cb.SelectedIndex = 0
         self.add_position_cb.ItemsSource = _RN_POSITION_CHOICES
         self.add_position_cb.SelectedIndex = 0
+        self.seg_direction_cb.ItemsSource = ["Left", "Right"]
+        self.seg_direction_cb.SelectedIndex = 0
+        self.seg_target_cb.ItemsSource = _RN_TARGET_CHOICES
+        self.seg_target_cb.SelectedIndex = 2
         self.case_target_cb.ItemsSource = _RN_TARGET_CHOICES
         self.case_target_cb.SelectedIndex = 2
         self._refresh_preset_list()
@@ -655,6 +659,19 @@ class DeeSheetWindow(forms.WPFWindow):
             return
         position = "prefix" if (self.add_position_cb.SelectedItem or "Prefix") == "Prefix" else "suffix"
         renamer.add_text(self._rename_rows, self.add_text_tb.Text, self._rn_target_value(self.add_target_cb), position)
+        renamer.compute_statuses(self._rename_rows)
+        self.rn_grid.Items.Refresh()
+
+    def extract_segment_click(self, sender, args):
+        if not any(r.selected for r in self._rename_rows):
+            forms.alert("Check at least one sheet first.")
+            return
+        if not self.seg_delim_tb.Text:
+            forms.alert("Enter a delimiter to split on first.")
+            return
+        direction = "right" if (self.seg_direction_cb.SelectedItem or "Left") == "Right" else "left"
+        renamer.extract_segment(self._rename_rows, self.seg_delim_tb.Text, direction,
+                                 self.seg_number_tb.Text or "1", self._rn_target_value(self.seg_target_cb))
         renamer.compute_statuses(self._rename_rows)
         self.rn_grid.Items.Refresh()
 

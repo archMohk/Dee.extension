@@ -28,7 +28,9 @@ Modifiers (chainable with |, applied left to right):
     MID:start:len          start is 1-based
     BEFORE:x / AFTER:x     text before/after the first occurrence of x
     BETWEEN:x:y             text between the first x and the following y
-    SPLIT:delim:n           split on delim, take the n-th part (1-based)
+    SPLIT:delim:n           split on delim, take the n-th part - positive
+                            n counts from the left (1 = first), negative
+                            n counts from the right (-1 = last)
     NUM / ALPHA             keep only digits / only letters
     REPLACE:old:new
     DEFAULT:fallback        use fallback if the value so far is blank
@@ -162,6 +164,25 @@ def _to_alpha(n):
     return letters
 
 
+def _split_pick(value, delim, index):
+    """Splits value on delim and returns the piece at index (1-based,
+    counting from the left for a positive index, or from the right for
+    a negative one - -1 is the last piece, -2 the second-to-last, same
+    convention as Python's own negative list indexing). Out-of-range or
+    a zero index returns value unchanged rather than raising, since this
+    also backs the free-typed {..|SPLIT:delim:n} token modifier where a
+    bad index shouldn't blow up the whole rule."""
+    try:
+        bits = value.split(delim)
+        if index > 0:
+            return bits[index - 1] if index <= len(bits) else value
+        if index < 0:
+            return bits[index] if abs(index) <= len(bits) else value
+        return value
+    except Exception:
+        return value
+
+
 def _apply_modifier(value, mod):
     if not mod:
         return value
@@ -204,9 +225,7 @@ def _apply_modifier(value, mod):
             return value
         if upper_mod.startswith("SPLIT:"):
             _, delim, idx = mod.split(":", 2)
-            bits = value.split(delim)
-            i = int(idx)
-            return bits[i - 1] if 1 <= i <= len(bits) else value
+            return _split_pick(value, delim, int(idx))
         if upper_mod == "NUM":
             return "".join(c for c in value if c.isdigit())
         if upper_mod == "ALPHA":
@@ -389,6 +408,29 @@ def add_text(rows, text, target, position):
             r.new_number = (text + r.new_number) if position == "prefix" else (r.new_number + text)
         if target in ("name", "both"):
             r.new_name = (text + r.new_name) if position == "prefix" else (r.new_name + text)
+
+
+def extract_segment(rows, delimiter, direction, segment_number, target):
+    """Splits the staged value on delimiter and keeps one piece,
+    counted from the Left (1st, 2nd, ...) or from the Right (1st,
+    2nd, ... counting backward from the end) - the UI-friendly
+    equivalent of hand-typing {..|SPLIT:delim:n} / {..|SPLIT:delim:-n}."""
+    if not delimiter:
+        return
+    try:
+        n = int(segment_number)
+    except Exception:
+        return
+    if n <= 0:
+        return
+    signed_index = -n if direction == "right" else n
+    for r in rows:
+        if not r.selected:
+            continue
+        if target in ("number", "both"):
+            r.new_number = _split_pick(r.new_number, delimiter, signed_index)
+        if target in ("name", "both"):
+            r.new_name = _split_pick(r.new_name, delimiter, signed_index)
 
 
 def convert_case(rows, mode, target):
