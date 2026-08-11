@@ -39,6 +39,7 @@ from Autodesk.Revit.DB import (
     BuiltInParameter, XYZ,
 )
 import xlsx_writer
+import dee_sheet_renamer_service as renamer
 
 import clr
 clr.AddReference("System.Windows.Forms")
@@ -48,6 +49,14 @@ output = script.get_output()
 
 _XAML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui.xaml")
 _NONE_TITLEBLOCK_LABEL = "(None - no title block)"
+
+_RN_TOKEN_CHOICES = [
+    "{SheetNumber}", "{SheetName}", "{Serial}", "{Serial|PAD3}", "{Alpha}",
+    "{Date}", "{Date:yyyyMMdd}",
+]
+_RN_TARGET_CHOICES = ["Number", "Name", "Both"]
+_RN_POSITION_CHOICES = ["Prefix", "Suffix"]
+_RN_NO_RESET_LABEL = "(No reset)"
 
 
 def _read_name(element):
@@ -175,6 +184,8 @@ class DeeSheetWindow(forms.WPFWindow):
         self._super_rows = []
         self._last_results = []
         self._last_rows = []
+        self._rename_rows = []
+        self._rename_view_rows = []
 
         tb_names = [_NONE_TITLEBLOCK_LABEL] + sorted(self._titleblock_types.keys())
         self.titleblock_cb.ItemsSource = tb_names
@@ -183,6 +194,8 @@ class DeeSheetWindow(forms.WPFWindow):
         self.super_titleblock_cb.SelectedIndex = 0
 
         self._scan_super_sheets()
+        self._init_renamer_tab()
+        self._scan_renamer()
 
     def _selected_titleblock_id(self, combo):
         label = combo.SelectedItem
@@ -455,6 +468,291 @@ class DeeSheetWindow(forms.WPFWindow):
         self._super_rows = [r for r in self._super_rows if r not in deleted_set]
         self._refresh_super_grid()
         self._report("DeeSheet - Apply Super Sheet Changes Results", results)
+
+    # ======================================================================
+    # Tab 3: Sheet Renamer
+    # ======================================================================
+    def _init_renamer_tab(self):
+        self.token_cb.ItemsSource = _RN_TOKEN_CHOICES
+        self.token_cb.SelectedIndex = 0
+        self.fr_target_cb.ItemsSource = _RN_TARGET_CHOICES
+        self.fr_target_cb.SelectedIndex = 2
+        self.add_target_cb.ItemsSource = _RN_TARGET_CHOICES
+        self.add_target_cb.SelectedIndex = 0
+        self.add_position_cb.ItemsSource = _RN_POSITION_CHOICES
+        self.add_position_cb.SelectedIndex = 0
+        self.case_target_cb.ItemsSource = _RN_TARGET_CHOICES
+        self.case_target_cb.SelectedIndex = 2
+        self._refresh_preset_list()
+
+    def _scan_renamer(self):
+        with forms.ProgressBar(title="DeeSheet - scanning sheets...", indeterminate=True):
+            self._rename_rows = renamer.scan(self.doc)
+            param_names = renamer.list_common_parameter_names(self._rename_rows)
+        self.param_token_cb.ItemsSource = param_names
+        if param_names:
+            self.param_token_cb.SelectedIndex = 0
+        self.sort_by_cb.ItemsSource = ["Sheet Number", "Sheet Name"] + param_names
+        self.sort_by_cb.SelectedIndex = 0
+        self.reset_by_cb.ItemsSource = [_RN_NO_RESET_LABEL] + param_names
+        self.reset_by_cb.SelectedIndex = 0
+        self._rename_view_rows = list(self._rename_rows)
+        self._refresh_rename_grid()
+
+    def rn_refresh_click(self, sender, args):
+        self._scan_renamer()
+
+    def _refresh_rename_grid(self):
+        self.rn_grid.ItemsSource = None
+        self.rn_grid.ItemsSource = self._rename_view_rows
+        self._update_rn_status()
+
+    def _update_rn_status(self):
+        sel_count = sum(1 for r in self._rename_rows if r.selected)
+        self.rn_status_tb.Text = "{0} sheet(s) total, {1} selected, {2} shown.".format(
+            len(self._rename_rows), sel_count, len(self._rename_view_rows))
+
+    def rn_filter_click(self, sender, args):
+        q = (self.rn_search_tb.Text or "").strip().lower()
+        if not q:
+            self._rename_view_rows = list(self._rename_rows)
+        else:
+            self._rename_view_rows = [
+                r for r in self._rename_rows
+                if q in r.original_number.lower() or q in r.original_name.lower()
+                or q in (r.new_number or "").lower() or q in (r.new_name or "").lower()]
+        self._refresh_rename_grid()
+
+    def rn_clear_filter_click(self, sender, args):
+        self.rn_search_tb.Text = ""
+        self._rename_view_rows = list(self._rename_rows)
+        self._refresh_rename_grid()
+
+    def rn_grid_row_edit_ending(self, sender, args):
+        # Same WPF constraint as super_grid_row_edit_ending above -
+        # CollectionView.Refresh() can't run while a row edit is still
+        # committing, so the status recompute is deferred one dispatcher
+        # cycle.
+        try:
+            self.Dispatcher.BeginInvoke(System.Action(self._recompute_rn_statuses))
+        except Exception:
+            pass
+
+    def _recompute_rn_statuses(self):
+        renamer.compute_statuses(self._rename_rows)
+        self.rn_grid.Items.Refresh()
+
+    # ---------------- selection ----------------
+    def rn_select_all_click(self, sender, args):
+        for r in self._rename_view_rows:
+            r.selected = True
+        self.rn_grid.Items.Refresh()
+        self._update_rn_status()
+
+    def rn_select_none_click(self, sender, args):
+        for r in self._rename_view_rows:
+            r.selected = False
+        self.rn_grid.Items.Refresh()
+        self._update_rn_status()
+
+    def rn_select_highlighted_click(self, sender, args):
+        highlighted = list(self.rn_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = True
+        self.rn_grid.Items.Refresh()
+        self._update_rn_status()
+
+    def rn_deselect_highlighted_click(self, sender, args):
+        highlighted = list(self.rn_grid.SelectedItems)
+        if not highlighted:
+            forms.alert("Click a row (Shift-click or Ctrl-click for more) to highlight rows first.")
+            return
+        for r in highlighted:
+            r.selected = False
+        self.rn_grid.Items.Refresh()
+        self._update_rn_status()
+
+    # ---------------- rule builder ----------------
+    def _insert_into(self, textbox, token_text):
+        if not token_text:
+            return
+        textbox.Text = (textbox.Text or "") + token_text
+        try:
+            textbox.CaretIndex = len(textbox.Text)
+            textbox.Focus()
+        except Exception:
+            pass
+
+    def insert_number_token_click(self, sender, args):
+        self._insert_into(self.number_rule_tb, self.token_cb.SelectedItem)
+
+    def insert_name_token_click(self, sender, args):
+        self._insert_into(self.name_rule_tb, self.token_cb.SelectedItem)
+
+    def insert_number_param_click(self, sender, args):
+        name = self.param_token_cb.SelectedItem
+        if name:
+            self._insert_into(self.number_rule_tb, "{Parameter:%s}" % name)
+
+    def insert_name_param_click(self, sender, args):
+        name = self.param_token_cb.SelectedItem
+        if name:
+            self._insert_into(self.name_rule_tb, "{Parameter:%s}" % name)
+
+    def generate_preview_click(self, sender, args):
+        if not any(r.selected for r in self._rename_rows):
+            forms.alert("Check at least one sheet first.")
+            return
+        try:
+            start = int(self.seq_start_tb.Text or "1")
+        except Exception:
+            start = 1
+        try:
+            step = int(self.seq_step_tb.Text or "1")
+        except Exception:
+            step = 1
+        sort_key = self.sort_by_cb.SelectedItem or "Sheet Number"
+        reset_key = self.reset_by_cb.SelectedItem
+        if reset_key == _RN_NO_RESET_LABEL:
+            reset_key = None
+        renamer.generate_preview(self._rename_rows, self.number_rule_tb.Text, self.name_rule_tb.Text,
+                                  start, step, reset_key, sort_key)
+        renamer.compute_statuses(self._rename_rows)
+        self.rn_grid.Items.Refresh()
+        self._update_rn_status()
+
+    def reset_preview_click(self, sender, args):
+        renamer.reset_preview(self._rename_rows)
+        renamer.compute_statuses(self._rename_rows)
+        self.rn_grid.Items.Refresh()
+
+    def _rn_target_value(self, combo):
+        label = combo.SelectedItem or "Both"
+        return label.lower()
+
+    def find_replace_click(self, sender, args):
+        if not any(r.selected for r in self._rename_rows):
+            forms.alert("Check at least one sheet first.")
+            return
+        if not self.find_tb.Text:
+            forms.alert("Enter text to find first.")
+            return
+        renamer.find_replace(self._rename_rows, self.find_tb.Text, self.replace_tb.Text or "",
+                              self._rn_target_value(self.fr_target_cb),
+                              bool(self.fr_case_cb.IsChecked), bool(self.fr_word_cb.IsChecked))
+        renamer.compute_statuses(self._rename_rows)
+        self.rn_grid.Items.Refresh()
+
+    def add_text_click(self, sender, args):
+        if not any(r.selected for r in self._rename_rows):
+            forms.alert("Check at least one sheet first.")
+            return
+        if not self.add_text_tb.Text:
+            forms.alert("Enter text to add first.")
+            return
+        position = "prefix" if (self.add_position_cb.SelectedItem or "Prefix") == "Prefix" else "suffix"
+        renamer.add_text(self._rename_rows, self.add_text_tb.Text, self._rn_target_value(self.add_target_cb), position)
+        renamer.compute_statuses(self._rename_rows)
+        self.rn_grid.Items.Refresh()
+
+    def _apply_case(self, mode):
+        if not any(r.selected for r in self._rename_rows):
+            forms.alert("Check at least one sheet first.")
+            return
+        renamer.convert_case(self._rename_rows, mode, self._rn_target_value(self.case_target_cb))
+        renamer.compute_statuses(self._rename_rows)
+        self.rn_grid.Items.Refresh()
+
+    def case_upper_click(self, sender, args):
+        self._apply_case("upper")
+
+    def case_lower_click(self, sender, args):
+        self._apply_case("lower")
+
+    def case_title_click(self, sender, args):
+        self._apply_case("title")
+
+    # ---------------- presets ----------------
+    def _current_rule_settings(self):
+        return {
+            "number_rule": self.number_rule_tb.Text or "",
+            "name_rule": self.name_rule_tb.Text or "",
+            "seq_start": self.seq_start_tb.Text or "1",
+            "seq_step": self.seq_step_tb.Text or "1",
+            "sort_by": self.sort_by_cb.SelectedItem or "Sheet Number",
+            "reset_by": self.reset_by_cb.SelectedItem or _RN_NO_RESET_LABEL,
+        }
+
+    def _refresh_preset_list(self, select_name=None):
+        names = renamer.list_presets()
+        self.preset_cb.ItemsSource = names
+        if select_name and select_name in names:
+            self.preset_cb.SelectedItem = select_name
+        elif names:
+            self.preset_cb.SelectedIndex = 0
+
+    def preset_save_click(self, sender, args):
+        name = forms.ask_for_string(default="", prompt="Preset name:", title="DeeSheet - Save Preset")
+        if not name:
+            return
+        renamer.save_preset(name, self._current_rule_settings())
+        self._refresh_preset_list(select_name=name)
+
+    def preset_load_click(self, sender, args):
+        name = self.preset_cb.SelectedItem
+        if not name:
+            forms.alert("Pick a preset first.")
+            return
+        data = renamer.load_preset(name)
+        if not data:
+            forms.alert("Could not load preset '{0}'.".format(name))
+            return
+        self.number_rule_tb.Text = data.get("number_rule", "")
+        self.name_rule_tb.Text = data.get("name_rule", "")
+        self.seq_start_tb.Text = data.get("seq_start", "1")
+        self.seq_step_tb.Text = data.get("seq_step", "1")
+        if data.get("sort_by") in list(self.sort_by_cb.ItemsSource or []):
+            self.sort_by_cb.SelectedItem = data.get("sort_by")
+        if data.get("reset_by") in list(self.reset_by_cb.ItemsSource or []):
+            self.reset_by_cb.SelectedItem = data.get("reset_by")
+
+    def preset_delete_click(self, sender, args):
+        name = self.preset_cb.SelectedItem
+        if not name:
+            forms.alert("Pick a preset first.")
+            return
+        if not forms.alert("Delete preset '{0}'?".format(name), title="DeeSheet - Confirm", yes=True, no=True):
+            return
+        renamer.delete_preset(name)
+        self._refresh_preset_list()
+
+    # ---------------- apply ----------------
+    def rn_apply_click(self, sender, args):
+        renamer.compute_statuses(self._rename_rows)
+        self.rn_grid.Items.Refresh()
+        ready = [r for r in self._rename_rows if r.selected and r.status == renamer.STATUS_READY]
+        blocked = [r for r in self._rename_rows if r.selected and
+                   r.status in (renamer.STATUS_DUPLICATE, renamer.STATUS_EMPTY)]
+        if not ready:
+            forms.alert("Nothing Ready to apply. Generate a Preview first (or edit New Number/New Name "
+                         "directly), and check the Status column - Duplicate/Empty rows must be fixed "
+                         "before they can be applied.")
+            return
+        msg = "Apply {0} sheet rename(s)?".format(len(ready))
+        if blocked:
+            msg += ("\n\n{0} checked sheet(s) will be SKIPPED (Duplicate or Empty Status) - fix the rule "
+                    "or edit those rows directly if you want them included.").format(len(blocked))
+        if not forms.alert(msg, title="DeeSheet - Confirm", yes=True, no=True):
+            return
+        result = renamer.apply_renames(self.doc, self._rename_rows)
+        renamer.print_report(result)
+        renamer.compute_statuses(self._rename_rows)
+        self.rn_grid.Items.Refresh()
+        self._update_rn_status()
+        self._scan_super_sheets()
 
     def close_click(self, sender, args):
         self.Close()
