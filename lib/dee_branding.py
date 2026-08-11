@@ -45,9 +45,9 @@ from System import Uri, IntPtr
 from System.Diagnostics import Process
 from System.Windows import (
     Thickness, HorizontalAlignment, VerticalAlignment, WindowStyle,
-    CornerRadius, Rect
+    CornerRadius, Rect, FontWeights, TextTrimming
 )
-from System.Windows.Controls import DockPanel, Dock, TextBlock, Border, Button, Grid
+from System.Windows.Controls import DockPanel, Dock, TextBlock, Border, Grid
 from System.Windows.Documents import Hyperlink, Run
 from System.Windows.Media import SolidColorBrush, Color, Brushes, RectangleGeometry
 from System.Windows.Input import Cursors
@@ -67,7 +67,7 @@ except Exception:
 
 _SITE_URL = "http://www.archMKD.com"
 _SITE_LABEL = "www.archMKD.com"
-_BAR_HEIGHT = 26.0
+_BAR_HEIGHT = 22.0
 _BAR_BG = Color.FromRgb(0xF2, 0x99, 0x4D)
 _LINK_FG = Color.FromRgb(0xFF, 0xFF, 0xFF)
 
@@ -110,13 +110,15 @@ def _round_corners_dwm(window):
 def _build_bar():
     bar = Border()
     bar.Background = SolidColorBrush(_BAR_BG)
-    bar.Padding = Thickness(8, 4, 8, 4)
+    bar.Padding = Thickness(8, 2, 8, 2)
     bar.Height = _BAR_HEIGHT
     DockPanel.SetDock(bar, Dock.Bottom)
 
     text = TextBlock()
     text.HorizontalAlignment = HorizontalAlignment.Center
-    text.FontSize = 11
+    text.VerticalAlignment = VerticalAlignment.Center
+    text.FontSize = 14
+    text.FontWeight = FontWeights.SemiBold
 
     link = Hyperlink(Run(_SITE_LABEL))
     try:
@@ -138,8 +140,7 @@ def _try_drag(window):
         pass
 
 
-def _mark_handled(sender, args):
-    args.Handled = True
+_CLOSE_HOVER_BG = Color.FromRgb(0xC0, 0x39, 0x2B)
 
 
 def _build_title_bar(window):
@@ -154,30 +155,64 @@ def _build_title_bar(window):
     title.FontSize = 12
     title.VerticalAlignment = VerticalAlignment.Center
     title.HorizontalAlignment = HorizontalAlignment.Left
-    title.Margin = Thickness(10, 0, 0, 0)
+    title.Margin = Thickness(10, 0, 40, 0)
+    title.TextTrimming = TextTrimming.CharacterEllipsis
     bar.Children.Add(title)
 
-    close_btn = Button()
-    close_btn.Content = "X"
-    close_btn.Width = 34
-    close_btn.HorizontalAlignment = HorizontalAlignment.Right
-    close_btn.VerticalAlignment = VerticalAlignment.Stretch
-    close_btn.Background = Brushes.Transparent
-    close_btn.BorderThickness = Thickness(0)
-    close_btn.Foreground = SolidColorBrush(_TITLE_BAR_FG)
-    close_btn.FontSize = 12
-    close_btn.Cursor = Cursors.Hand
-    WindowChrome.SetIsHitTestVisibleInChrome(close_btn, True)
-    close_btn.Click += lambda sender, args: window.Close()
-    # Marks the mouse-down Handled during the tunneling (Preview) phase
-    # so it never reaches the title bar's own MouseLeftButtonDown
-    # handler below and starts a drag - ButtonBase listens for its own
-    # mouse events with handledEventsToo=True internally, so the button
-    # still clicks normally despite this.
-    close_btn.PreviewMouseLeftButtonDown += _mark_handled
-    bar.Children.Add(close_btn)
+    # A plain Border+TextBlock, not a Button - avoids depending on
+    # ButtonBase's own press/release/Click state machine playing nicely
+    # with WindowChrome's non-client hit-testing right at the
+    # top-right corner (where the resize-border zone overlaps this
+    # area); a direct MouseLeftButtonUp on a simple element is more
+    # predictable. The 4px right margin keeps it clearly clear of the
+    # window's actual edge, and IsHitTestVisibleInChrome tells
+    # WindowChrome to treat its full bounds as normal client area
+    # regardless.
+    close_area = Border()
+    close_area.Width = 32
+    close_area.Height = _TITLE_BAR_HEIGHT
+    close_area.HorizontalAlignment = HorizontalAlignment.Right
+    close_area.VerticalAlignment = VerticalAlignment.Top
+    close_area.Margin = Thickness(0, 0, 4, 0)
+    close_area.Background = Brushes.Transparent
+    close_area.Cursor = Cursors.Hand
 
-    bar.MouseLeftButtonDown += lambda sender, args: _try_drag(window)
+    close_text = TextBlock()
+    close_text.Text = "X"
+    close_text.Foreground = SolidColorBrush(_TITLE_BAR_FG)
+    close_text.FontSize = 12
+    close_text.HorizontalAlignment = HorizontalAlignment.Center
+    close_text.VerticalAlignment = VerticalAlignment.Center
+    close_area.Child = close_text
+
+    def _close_enter(sender, args):
+        close_area.Background = SolidColorBrush(_CLOSE_HOVER_BG)
+
+    def _close_leave(sender, args):
+        close_area.Background = Brushes.Transparent
+
+    def _close_click(sender, args):
+        args.Handled = True
+        try:
+            window.Close()
+        except Exception:
+            pass
+
+    close_area.MouseEnter += _close_enter
+    close_area.MouseLeave += _close_leave
+    close_area.MouseLeftButtonUp += _close_click
+    WindowChrome.SetIsHitTestVisibleInChrome(close_area, True)
+    bar.Children.Add(close_area)
+
+    def _bar_mouse_down(sender, args):
+        # Skip if the press originated on the close button itself, so
+        # closing never also arms a drag.
+        source = args.OriginalSource
+        if source is close_area or source is close_text:
+            return
+        _try_drag(window)
+
+    bar.MouseLeftButtonDown += _bar_mouse_down
 
     return bar
 
