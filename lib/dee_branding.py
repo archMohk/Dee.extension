@@ -22,20 +22,44 @@ import clr
 clr.AddReference("PresentationFramework")
 clr.AddReference("PresentationCore")
 clr.AddReference("System")
-from System import Uri
+from System import Uri, IntPtr
 from System.Diagnostics import Process
 from System.Windows import Thickness, HorizontalAlignment
 from System.Windows.Controls import DockPanel, Dock, TextBlock, Border
 from System.Windows.Documents import Hyperlink, Run
 from System.Windows.Media import SolidColorBrush, Color
+from System.Windows.Interop import WindowInteropHelper
 
 from pyrevit import forms
+
+try:
+    import ctypes
+    _dwmapi = ctypes.windll.dwmapi
+    _dwmapi.DwmSetWindowAttribute.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]
+    _dwmapi.DwmSetWindowAttribute.restype = ctypes.c_long
+except Exception:
+    _dwmapi = None
 
 _SITE_URL = "http://www.archMKD.com"
 _SITE_LABEL = "www.archMKD.com"
 _BAR_HEIGHT = 26.0
-_BAR_BG = Color.FromRgb(0xE0, 0x7A, 0x1E)
-_LINK_FG = Color.FromRgb(0xF0, 0xF0, 0xF0)
+_BAR_BG = Color.FromRgb(0xF2, 0x99, 0x4D)
+_LINK_FG = Color.FromRgb(0xFF, 0xFF, 0xFF)
+
+# DWMWA_WINDOW_CORNER_PREFERENCE / DWMWCP_ROUNDSMALL - a Windows 11 DWM
+# attribute (added in the Windows 11 update to dwmapi.dll) that asks
+# the OS compositor to draw small-radius rounded corners on a normal
+# top-level window, keeping the native title bar / drag / resize /
+# minimize-maximize-close chrome completely intact - unlike the classic
+# WindowStyle="None" + AllowsTransparency trick, which replaces that
+# chrome with hand-built XAML (dragging, resizing, min/max would all
+# need to be reimplemented per window). On Windows 10 this attribute
+# doesn't exist - DwmSetWindowAttribute just returns a failure HRESULT,
+# which this module never checks, so corners silently stay square there
+# rather than erroring.
+_DWMWA_WINDOW_CORNER_PREFERENCE = 33
+_DWMWCP_ROUNDSMALL = 3
 
 
 def _open_site(sender, args):
@@ -44,6 +68,21 @@ def _open_site(sender, args):
     except Exception:
         pass
     args.Handled = True
+
+
+def _round_corners(window):
+    if _dwmapi is None:
+        return
+    try:
+        hwnd = WindowInteropHelper(window).Handle
+        if hwnd == IntPtr.Zero:
+            return
+        pref = ctypes.c_int(_DWMWCP_ROUNDSMALL)
+        _dwmapi.DwmSetWindowAttribute(
+            hwnd.ToInt64(), _DWMWA_WINDOW_CORNER_PREFERENCE,
+            ctypes.byref(pref), ctypes.sizeof(pref))
+    except Exception:
+        pass
 
 
 def _build_bar():
@@ -80,6 +119,13 @@ class DeeBrandedWindow(forms.WPFWindow):
             # opening - worst case the window just looks like it did
             # before this module existed.
             pass
+        try:
+            self.SourceInitialized += self._on_source_initialized
+        except Exception:
+            pass
+
+    def _on_source_initialized(self, sender, args):
+        _round_corners(self)
 
     def _add_footer_bar(self):
         original_content = self.Content
