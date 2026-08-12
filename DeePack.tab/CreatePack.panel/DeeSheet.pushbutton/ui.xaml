@@ -180,7 +180,19 @@
                                     <TextBlock Text="Order rows by:" Margin="0,4,0,2"/>
                                     <ComboBox x:Name="sort_by_cb" Height="24" Margin="0,0,0,4"/>
                                     <TextBlock Text="Reset sequence when this changes:" Margin="0,4,0,2"/>
-                                    <ComboBox x:Name="reset_by_cb" Height="24"/>
+                                    <ComboBox x:Name="reset_by_cb" Height="24" Margin="0,0,0,4"/>
+
+                                    <TextBlock Text="Format:" Margin="0,4,0,2"/>
+                                    <ComboBox x:Name="seq_format_cb" Height="24" Margin="0,0,0,4"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                        <TextBlock Text="Pad width:" VerticalAlignment="Center" Width="70"
+                                                   ToolTip="Only used by Padded Number, e.g. width 2 = 01, 02, 03..."/>
+                                        <TextBox x:Name="seq_pad_tb" Text="2" Width="40" Height="22"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button x:Name="insert_seq_number_b" Content="Insert -&gt; Number" Width="120" Height="24" Click="insert_seq_number_click"/>
+                                        <Button x:Name="insert_seq_name_b" Content="Insert -&gt; Name" Width="120" Height="24" Margin="6,0,0,0" Click="insert_seq_name_click"/>
+                                    </StackPanel>
                                 </StackPanel>
                             </GroupBox>
 

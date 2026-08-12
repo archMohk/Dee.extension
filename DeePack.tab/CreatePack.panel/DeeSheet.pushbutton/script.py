@@ -58,6 +58,10 @@ _RN_TOKEN_CHOICES = [
 _RN_TARGET_CHOICES = ["Number", "Name", "Both"]
 _RN_POSITION_CHOICES = ["Prefix", "Suffix"]
 _RN_NO_RESET_LABEL = "(No reset)"
+_RN_SEQ_FORMAT_NUMBER = "Number (1, 2, 3...)"
+_RN_SEQ_FORMAT_PADDED = "Padded Number (01, 02, 03...)"
+_RN_SEQ_FORMAT_LETTERS = "Letters (A, B, C...)"
+_RN_SEQ_FORMAT_CHOICES = [_RN_SEQ_FORMAT_NUMBER, _RN_SEQ_FORMAT_PADDED, _RN_SEQ_FORMAT_LETTERS]
 
 
 def _read_name(element):
@@ -476,6 +480,8 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
     def _init_renamer_tab(self):
         self.token_cb.ItemsSource = _RN_TOKEN_CHOICES
         self.token_cb.SelectedIndex = 0
+        self.seq_format_cb.ItemsSource = _RN_SEQ_FORMAT_CHOICES
+        self.seq_format_cb.SelectedIndex = 0
         self.fr_target_cb.ItemsSource = _RN_TARGET_CHOICES
         self.fr_target_cb.SelectedIndex = 2
         self.add_target_cb.ItemsSource = _RN_TARGET_CHOICES
@@ -610,6 +616,25 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
 
     def insert_number_token_click(self, sender, args):
         self._insert_into(self.number_rule_tb, self.token_cb.SelectedItem)
+
+    def _seq_token_text(self):
+        fmt = self.seq_format_cb.SelectedItem or _RN_SEQ_FORMAT_NUMBER
+        if fmt == _RN_SEQ_FORMAT_PADDED:
+            try:
+                width = int(self.seq_pad_tb.Text or "2")
+            except Exception:
+                width = 2
+            width = max(1, width)
+            return "{{Serial|PAD{0}}}".format(width)
+        if fmt == _RN_SEQ_FORMAT_LETTERS:
+            return "{Alpha}"
+        return "{Serial}"
+
+    def insert_seq_number_click(self, sender, args):
+        self._insert_into(self.number_rule_tb, self._seq_token_text())
+
+    def insert_seq_name_click(self, sender, args):
+        self._insert_into(self.name_rule_tb, self._seq_token_text())
 
     def insert_name_token_click(self, sender, args):
         self._insert_into(self.name_rule_tb, self.token_cb.SelectedItem)
