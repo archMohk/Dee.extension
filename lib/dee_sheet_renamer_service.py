@@ -73,11 +73,22 @@ STATUS_READY = "Ready"
 STATUS_UNCHANGED = "Unchanged"
 STATUS_EMPTY = "Empty"
 STATUS_DUPLICATE = "Duplicate"
+STATUS_INVALID = "Invalid"
 
 _NOISE_PARAM_NAMES = set([
     "Sheet Number", "Sheet Name", "Sheet Issue Date", "Approved By",
     "Checked By", "Designed By", "Drawn By",
 ])
+
+# Revit rejects these characters in Sheet Number/Sheet Name (and most
+# other named elements) with a runtime exception - checked here so a
+# bad rule shows up as an Invalid row in Preview instead of failing
+# Apply partway through a batch.
+_INVALID_NAME_CHARS = set("\\:{}[]|;<>?`~")
+
+
+def _has_invalid_chars(text):
+    return any(c in _INVALID_NAME_CHARS for c in (text or ""))
 
 
 # --------------------------------------------------------------------------
@@ -478,7 +489,13 @@ def compute_statuses(rows):
     inverse) is naturally NOT flagged for a clean swap like
     A101<->A102, since after Apply each number still has exactly one
     owner - Apply itself stages through a temporary unique number per
-    sheet first so Revit never sees the transient collision either."""
+    sheet first so Revit never sees the transient collision either.
+
+    A row whose New Number or New Name contains a character Revit
+    rejects outright ("\\:{}[]|;<>?`~") is marked Invalid rather than
+    Ready - this is caught here, before Apply, specifically so a bad
+    rule shows up red in Preview instead of failing partway through a
+    real Transaction."""
     final_number_to_rows = {}
     for r in rows:
         held_number = r.new_number if r.selected else r.original_number
@@ -490,6 +507,9 @@ def compute_statuses(rows):
             continue
         if not (r.new_number or "").strip() or not (r.new_name or "").strip():
             r.status = STATUS_EMPTY
+            continue
+        if _has_invalid_chars(r.new_number) or _has_invalid_chars(r.new_name):
+            r.status = STATUS_INVALID
             continue
         if r.new_number == r.original_number and r.new_name == r.original_name:
             r.status = STATUS_UNCHANGED
@@ -512,11 +532,14 @@ class RenameResult(object):
 def apply_renames(doc, rows):
     """Renames every selected, Ready, actually-changed row in one
     Transaction. Sheet Number changes go through a temporary unique
-    placeholder first (~DeeSheetTMP~<ElementId>) so a circular batch
-    like A101->A102, A102->A101 never hits Revit's "duplicate Sheet
-    Number" error no matter what order the loop processes rows in -
-    every temp value is unique by construction (it's the element id),
-    so phase 1 can never collide with itself or with any final value."""
+    placeholder first (ZZDeeSheetTMP<ElementId> - letters and digits
+    only, since Revit rejects "\\:{}[]|;<>?`~" in Sheet Number/Name and
+    an earlier version of this placeholder used "~", which broke Apply
+    outright) so a circular batch like A101->A102, A102->A101 never
+    hits Revit's "duplicate Sheet Number" error no matter what order
+    the loop processes rows in - every temp value is unique by
+    construction (it's the element id), so phase 1 can never collide
+    with itself or with any final value."""
     to_apply = [r for r in rows if r.selected and r.status == STATUS_READY]
     results = []
     if not to_apply:
@@ -529,7 +552,7 @@ def apply_renames(doc, rows):
         for r in to_apply:
             if r.new_number == r.original_number:
                 continue
-            temp_number = "~DeeSheetTMP~{0}".format(r.sheet.Id.IntegerValue)
+            temp_number = "ZZDeeSheetTMP{0}".format(r.sheet.Id.IntegerValue)
             try:
                 r.sheet.SheetNumber = temp_number
             except Exception as e:

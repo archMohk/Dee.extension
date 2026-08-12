@@ -39,6 +39,9 @@
                 <DataTrigger Binding="{Binding status}" Value="Duplicate">
                     <Setter Property="Background" Value="#F4C7C3"/>
                 </DataTrigger>
+                <DataTrigger Binding="{Binding status}" Value="Invalid">
+                    <Setter Property="Background" Value="#F1948A"/>
+                </DataTrigger>
             </Style.Triggers>
         </Style>
     </Window.Resources>

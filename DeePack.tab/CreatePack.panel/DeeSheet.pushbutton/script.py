@@ -538,8 +538,9 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         dup = sum(1 for r in selected if r.status == renamer.STATUS_DUPLICATE)
         unchanged = sum(1 for r in selected if r.status == renamer.STATUS_UNCHANGED)
         empty = sum(1 for r in selected if r.status == renamer.STATUS_EMPTY)
-        self.rn_preview_counts_tb.Text = "{0} Ready    {1} Duplicate    {2} Unchanged    {3} Empty".format(
-            ready, dup, unchanged, empty)
+        invalid = sum(1 for r in selected if r.status == renamer.STATUS_INVALID)
+        self.rn_preview_counts_tb.Text = "{0} Ready    {1} Duplicate    {2} Unchanged    {3} Empty    {4} Invalid".format(
+            ready, dup, unchanged, empty, invalid)
         example = next((r for r in selected if r.status in (renamer.STATUS_READY, renamer.STATUS_DUPLICATE)), selected[0])
         self.rn_preview_example_tb.Text = "Example: {0} - {1}  ->  {2} - {3}".format(
             example.original_number, example.original_name, example.new_number, example.new_name)
@@ -821,16 +822,18 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         self._refresh_rename_grid()
         ready = [r for r in self._rename_rows if r.selected and r.status == renamer.STATUS_READY]
         blocked = [r for r in self._rename_rows if r.selected and
-                   r.status in (renamer.STATUS_DUPLICATE, renamer.STATUS_EMPTY)]
+                   r.status in (renamer.STATUS_DUPLICATE, renamer.STATUS_EMPTY, renamer.STATUS_INVALID)]
         if not ready:
             forms.alert("Nothing Ready to apply. Generate a Preview first (or edit New Number/New Name "
-                         "directly), and check the Status column - Duplicate/Empty rows must be fixed "
-                         "before they can be applied.")
+                         "directly), and check the Status column - Duplicate/Empty/Invalid rows must be "
+                         "fixed before they can be applied.")
             return
         msg = "Apply {0} sheet rename(s)?".format(len(ready))
         if blocked:
-            msg += ("\n\n{0} checked sheet(s) will be SKIPPED (Duplicate or Empty Status) - fix the rule "
-                    "or edit those rows directly if you want them included.").format(len(blocked))
+            msg += ("\n\n{0} checked sheet(s) will be SKIPPED (Duplicate, Empty, or Invalid Status - "
+                    "Invalid means the text contains a character Revit doesn't allow in a Sheet "
+                    "Number/Name) - fix the rule or edit those rows directly if you want them "
+                    "included.").format(len(blocked))
         if not forms.alert(msg, title="DeeSheet - Confirm", yes=True, no=True):
             return
         result = renamer.apply_renames(self.doc, self._rename_rows)
