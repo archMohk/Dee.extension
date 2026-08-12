@@ -91,7 +91,7 @@ import xlsx_writer
 
 output = script.get_output()
 
-_THIS_DIR = utils.module_dir()
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ViewCropping.xaml")
 
 _SUPPORTED_VIEW_TYPES = set([

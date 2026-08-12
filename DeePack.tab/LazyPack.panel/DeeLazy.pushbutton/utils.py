@@ -11,8 +11,6 @@ Kept deliberately small: only things more than one module is expected
 to need. Module-specific logic belongs in that module's own file under
 modules/, not here.
 """
-import os
-
 from Autodesk.Revit.DB import (
     FilteredElementCollector, ViewSheet, View, Viewport, ScheduleSheetInstance,
     UnitUtils, UnitTypeId, SpecTypeId,
@@ -216,7 +214,3 @@ def get_primary_view_id(view):
 
 def is_dependent_view(view):
     return get_primary_view_id(view) is not None
-
-
-def module_dir():
-    return os.path.dirname(os.path.abspath(__file__))
