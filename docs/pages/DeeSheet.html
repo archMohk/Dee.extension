@@ -76,6 +76,7 @@
       <li>Sheet Renamer skips placeholder sheets entirely (not scanned, not renamed) in this version.</li>
       <li>Circular renames (e.g. A101&rarr;A102 and A102&rarr;A101 in the same batch) are handled safely &mdash; every Sheet Number change is staged through a temporary unique value first, so Revit never sees a mid-batch collision.</li>
       <li>A Duplicate status blocks that row from Apply; it never overwrites the sheet already holding that number. Fix the rule, or edit the row's New Number directly, then re-check Status before applying.</li>
+      <li>An Invalid status means the New Number/New Name contains a character Revit doesn't allow (<code>\ : { } [ ] | ; &lt; &gt; ? ` ~</code>) &mdash; also blocks that row from Apply, same as Duplicate/Empty.</li>
       <li>Not built in this version (kept out to stay maintainable): Roman-numeral sequences, a parameter-name aliasing layer (use <code>{Parameter:ActualName}</code> directly), a different rule per group in one pass (filter, apply, change the filter, apply again covers this), a grid right-click menu, a standalone Parameter Inspector panel, and file-based logging (the pyRevit output window already gives a full per-row report every run).</li>
     </ul>
   </div>
