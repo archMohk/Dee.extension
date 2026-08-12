@@ -196,11 +196,6 @@
                                 </StackPanel>
                             </GroupBox>
 
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                                <Button x:Name="generate_preview_b" Content="Generate Preview" Width="170" Height="30" FontWeight="Bold" Click="generate_preview_click"/>
-                                <Button x:Name="reset_preview_b" Content="Reset Preview" Width="120" Height="30" Margin="8,0,0,0" Click="reset_preview_click"/>
-                            </StackPanel>
-
                             <GroupBox Header="Find &amp; Replace" Padding="6" Margin="0,0,0,8">
                                 <StackPanel>
                                     <TextBlock Text="Find:" Margin="0,0,0,2"/>
@@ -293,7 +288,10 @@
                         </StackPanel>
 
                         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
-                            <Button x:Name="rn_apply_b" Content="Apply Renumbering" Width="170" Height="32" FontWeight="Bold" Click="rn_apply_click"/>
+                            <Button x:Name="generate_preview_b" Content="Generate Preview" Width="150" Height="32" FontWeight="Bold" Click="generate_preview_click"
+                                    ToolTip="Run this once you're done building the rule and adjusting Sequence/Find &amp; Replace/etc."/>
+                            <Button x:Name="reset_preview_b" Content="Reset Preview" Width="110" Height="32" Margin="6,0,0,0" Click="reset_preview_click"/>
+                            <Button x:Name="rn_apply_b" Content="Apply Renumbering" Width="170" Height="32" FontWeight="Bold" Margin="16,0,0,0" Click="rn_apply_click"/>
                             <TextBlock x:Name="rn_status_tb" Text="0 sheet(s)." VerticalAlignment="Center" Margin="16,0,0,0" FontStyle="Italic"/>
                         </StackPanel>
 
