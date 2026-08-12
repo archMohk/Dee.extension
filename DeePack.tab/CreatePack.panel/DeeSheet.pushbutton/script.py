@@ -511,11 +511,32 @@ class DeeSheetWindow(dee_branding.DeeBrandedWindow):
         self.rn_grid.ItemsSource = None
         self.rn_grid.ItemsSource = self._rename_view_rows
         self._update_rn_status()
+        self._update_rn_preview_summary()
 
     def _update_rn_status(self):
         sel_count = sum(1 for r in self._rename_rows if r.selected)
         self.rn_status_tb.Text = "{0} sheet(s) total, {1} selected, {2} shown.".format(
             len(self._rename_rows), sel_count, len(self._rename_view_rows))
+
+    def _update_rn_preview_summary(self):
+        selected = [r for r in self._rename_rows if r.selected]
+        if not selected:
+            self.rn_preview_counts_tb.Text = "Check sheets and click Generate Preview to see Ready/Duplicate/Empty counts here."
+            self.rn_preview_example_tb.Text = ""
+            return
+        if not any(r.status for r in selected):
+            self.rn_preview_counts_tb.Text = "{0} sheet(s) selected - click Generate Preview to see results here.".format(len(selected))
+            self.rn_preview_example_tb.Text = ""
+            return
+        ready = sum(1 for r in selected if r.status == renamer.STATUS_READY)
+        dup = sum(1 for r in selected if r.status == renamer.STATUS_DUPLICATE)
+        unchanged = sum(1 for r in selected if r.status == renamer.STATUS_UNCHANGED)
+        empty = sum(1 for r in selected if r.status == renamer.STATUS_EMPTY)
+        self.rn_preview_counts_tb.Text = "{0} Ready    {1} Duplicate    {2} Unchanged    {3} Empty".format(
+            ready, dup, unchanged, empty)
+        example = next((r for r in selected if r.status in (renamer.STATUS_READY, renamer.STATUS_DUPLICATE)), selected[0])
+        self.rn_preview_example_tb.Text = "Example: {0} - {1}  ->  {2} - {3}".format(
+            example.original_number, example.original_name, example.new_number, example.new_name)
 
     def rn_filter_click(self, sender, args):
         q = (self.rn_search_tb.Text or "").strip().lower()

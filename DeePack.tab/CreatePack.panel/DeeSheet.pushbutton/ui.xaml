@@ -285,6 +285,16 @@
                             <TextBlock x:Name="rn_status_tb" Text="0 sheet(s)." VerticalAlignment="Center" Margin="16,0,0,0" FontStyle="Italic"/>
                         </StackPanel>
 
+                        <Border DockPanel.Dock="Top" Background="#F5F5F5" BorderBrush="#CCCCCC" BorderThickness="0,1,0,1"
+                                Padding="8,6,8,6" Margin="0,0,0,6">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock x:Name="rn_preview_counts_tb" HorizontalAlignment="Center" FontWeight="Bold" FontSize="12"
+                                           Text="Check sheets and click Generate Preview to see Ready/Duplicate/Empty counts here."/>
+                                <TextBlock x:Name="rn_preview_example_tb" HorizontalAlignment="Center" FontSize="11" Foreground="#555555"
+                                           Margin="0,2,0,0" TextTrimming="CharacterEllipsis" Text=""/>
+                            </StackPanel>
+                        </Border>
+
                         <DataGrid x:Name="rn_grid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserSortColumns="True"
                                   SelectionMode="Extended" SelectionUnit="FullRow" RowEditEnding="rn_grid_row_edit_ending"
                                   RowStyle="{StaticResource renameRowStyle}">

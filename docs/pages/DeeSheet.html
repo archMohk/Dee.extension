@@ -47,6 +47,7 @@
       <li>Build a rule: type a template into New Sheet Number rule / New Sheet Name rule, using the Insert Token / Insert Parameter Token buttons if you don't want to type the <code>{ }</code> syntax by hand.</li>
       <li>Set Start/Step, Order rows by, and (optionally) Reset sequence when this changes for a per-group running number.</li>
       <li>Click Generate Preview. Optionally layer on Find &amp; Replace, Add Text, or a case-convert button &mdash; each one edits the same staged New Number/New Name values, so they combine with the rule and with each other.</li>
+      <li>Check the Ready/Duplicate/Unchanged/Empty counts and the example row shown in the strip above the table &mdash; a quick sanity check before scrolling the full grid (e.g. if everything comes back Duplicate, it usually means the rule doesn't actually use <code>{Serial}</code>/<code>{Alpha}</code>, so every selected row is computing the same value).</li>
       <li>Review the Status column (Ready / Unchanged / Empty / Duplicate) &mdash; New Number/New Name cells are also directly editable for a one-off tweak.</li>
       <li>Click Apply Renumbering and confirm. Duplicate/Empty rows are skipped automatically, never overwritten.</li>
       <li>Save a rule as a Preset to reuse it next time (Presets group, bottom left).</li>
