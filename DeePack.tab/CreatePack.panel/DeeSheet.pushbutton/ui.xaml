@@ -236,6 +236,12 @@
                                     </StackPanel>
                                     <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,0,0,4"
                                                Text="E.g. Split by &quot;-&quot;, Right, Segment 1 keeps whatever comes after the last dash."/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                        <Button x:Name="insert_seg_number_b" Content="Insert -&gt; Number" Width="120" Height="24" Click="insert_seg_number_click"/>
+                                        <Button x:Name="insert_seg_name_b" Content="Insert -&gt; Name" Width="120" Height="24" Margin="6,0,0,0" Click="insert_seg_name_click"/>
+                                    </StackPanel>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,0,0,4"
+                                               Text="Insert adds this as a token in the rule above (Number uses {SheetNumber}, Name uses {SheetName}) so it combines with Sequence/other tokens in one Generate Preview - use this instead of Apply below if you're also using {Serial}/{Alpha}, since Apply overwrites whatever the current New Number/New Name already is."/>
                                     <StackPanel Orientation="Horizontal">
                                         <ComboBox x:Name="seg_target_cb" Width="100" Height="24"/>
                                         <Button x:Name="seg_extract_b" Content="Apply" Width="90" Height="24" Margin="8,0,0,0" Click="extract_segment_click"/>

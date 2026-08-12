@@ -709,6 +709,28 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         renamer.compute_statuses(self._rename_rows)
         self._refresh_rename_grid()
 
+    def _seg_signed_index(self):
+        try:
+            n = int(self.seg_number_tb.Text or "1")
+        except Exception:
+            n = 1
+        n = max(1, n)
+        direction = "right" if (self.seg_direction_cb.SelectedItem or "Left") == "Right" else "left"
+        return -n if direction == "right" else n
+
+    def _insert_seg_token(self, textbox, source_kind):
+        if not self.seg_delim_tb.Text:
+            forms.alert("Enter a delimiter to split on first.")
+            return
+        token = "{" + source_kind + "|SPLIT:" + self.seg_delim_tb.Text + ":" + str(self._seg_signed_index()) + "}"
+        self._insert_into(textbox, token)
+
+    def insert_seg_number_click(self, sender, args):
+        self._insert_seg_token(self.number_rule_tb, "SheetNumber")
+
+    def insert_seg_name_click(self, sender, args):
+        self._insert_seg_token(self.name_rule_tb, "SheetName")
+
     def extract_segment_click(self, sender, args):
         if not any(r.selected for r in self._rename_rows):
             forms.alert("Check at least one sheet first.")
