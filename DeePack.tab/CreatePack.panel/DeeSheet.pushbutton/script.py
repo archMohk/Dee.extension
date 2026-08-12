@@ -177,9 +177,9 @@ def _scan_all_sheets(doc):
     return rows
 
 
-class DeeSheetWindow(dee_branding.DeeBrandedWindow):
+class DeeSheetWindow(dee_branding.DeeRoundedWindow):
     def __init__(self, xaml_file, doc):
-        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        dee_branding.DeeRoundedWindow.__init__(self, xaml_file)
         self.doc = doc
         self._titleblock_types = _collect_titleblock_types(doc)
         self._super_rows = []
