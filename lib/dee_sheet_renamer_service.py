@@ -326,19 +326,31 @@ def compute_serials(rows, start, step, reset_param_name, sort_key_name):
     of once per group (e.g. Architectural/Structural sheets
     interleaved by Sheet Number would each flip the group back and
     forth). Grouping first guarantees one contiguous block per group
-    regardless of how the sheets are numbered today."""
+    regardless of how the sheets are numbered today.
+
+    Each row's group value and sort key are read from the Revit
+    parameter exactly once and cached here - the previous version read
+    them twice per row (once to sort, once to detect a group change),
+    doubling the Element.LookupParameter calls for no reason when
+    either field is a real parameter rather than Sheet Number/Name."""
+    group_cache = {}
+    sort_cache = {}
+    for r in rows:
+        group_cache[r] = _read_param_value(r.sheet, reset_param_name) if reset_param_name else None
+        sort_cache[r] = _sort_key(r, sort_key_name)
+
     if reset_param_name:
-        ordered = sorted(rows, key=lambda r: (
-            _read_param_value(r.sheet, reset_param_name), _sort_key(r, sort_key_name)))
+        ordered = sorted(rows, key=lambda r: (group_cache[r], sort_cache[r]))
     else:
-        ordered = sorted(rows, key=lambda r: _sort_key(r, sort_key_name))
+        ordered = sorted(rows, key=lambda r: sort_cache[r])
+
     serials = {}
     counter = start
     last_group = None
     first = True
     for r in ordered:
         if reset_param_name:
-            group_val = _read_param_value(r.sheet, reset_param_name)
+            group_val = group_cache[r]
             if first or group_val != last_group:
                 counter = start
                 last_group = group_val

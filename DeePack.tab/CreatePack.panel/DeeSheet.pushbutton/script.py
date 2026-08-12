@@ -619,9 +619,14 @@ class DeeSheetWindow(dee_branding.DeeBrandedWindow):
         reset_key = self.reset_by_cb.SelectedItem
         if reset_key == _RN_NO_RESET_LABEL:
             reset_key = None
-        renamer.generate_preview(self._rename_rows, self.number_rule_tb.Text, self.name_rule_tb.Text,
-                                  start, step, reset_key, sort_key)
-        renamer.compute_statuses(self._rename_rows)
+        # Reading a parameter (sort/reset field) touches the Revit API
+        # once per selected sheet - on a large project this can take a
+        # few seconds, during which the window would otherwise show no
+        # feedback at all and look hung. Same pattern as _scan_renamer.
+        with forms.ProgressBar(title="DeeSheet - generating preview...", indeterminate=True):
+            renamer.generate_preview(self._rename_rows, self.number_rule_tb.Text, self.name_rule_tb.Text,
+                                      start, step, reset_key, sort_key)
+            renamer.compute_statuses(self._rename_rows)
         self._refresh_rename_grid()
 
     def reset_preview_click(self, sender, args):
