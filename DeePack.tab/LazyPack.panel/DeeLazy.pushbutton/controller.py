@@ -14,8 +14,8 @@ clr.AddReference("PresentationFramework")
 clr.AddReference("PresentationCore")
 clr.AddReference("System.Windows.Forms")
 
-from System.Windows import Thickness, TextWrapping, HorizontalAlignment, FontWeights, CornerRadius
-from System.Windows.Controls import Border, StackPanel, TextBlock, Button, Orientation
+from System.Windows import Thickness, TextWrapping, HorizontalAlignment, VerticalAlignment, FontWeights, CornerRadius
+from System.Windows.Controls import Border, DockPanel, Dock, TextBlock, Button
 from System.Windows.Media import Brushes
 
 from pyrevit import forms
@@ -36,17 +36,24 @@ class DeeLazyHomeWindow(dee_branding.DeeBrandedWindow):
             self.cards_panel.Children.Add(card)
 
     def _make_card(self, tool_info):
+        """A DockPanel, not a plain vertical StackPanel, specifically so
+        the Open button always stays anchored at the bottom of the card
+        regardless of how long a module's description is - a
+        StackPanel's total content height isn't clamped to the Border's
+        fixed Height, so a longer description (a later module's, not
+        necessarily this first one's) can silently push the button
+        past the card's visible area instead of wrapping/clipping in
+        its own space."""
         border = Border()
         border.Width = 220
-        border.Height = 140
+        border.Height = 150
         border.Margin = Thickness(6)
         border.Padding = Thickness(10)
         border.BorderBrush = Brushes.Gray
         border.BorderThickness = Thickness(1)
         border.CornerRadius = CornerRadius(6)
 
-        panel = StackPanel()
-        panel.Orientation = Orientation.Vertical
+        panel = DockPanel()
 
         title_tb = TextBlock()
         title_tb.Text = tool_info.get("title", tool_info.get("id", "Tool"))
@@ -54,13 +61,8 @@ class DeeLazyHomeWindow(dee_branding.DeeBrandedWindow):
         title_tb.FontSize = 15
         title_tb.Margin = Thickness(0, 0, 0, 6)
         title_tb.TextWrapping = TextWrapping.Wrap
+        DockPanel.SetDock(title_tb, Dock.Top)
         panel.Children.Add(title_tb)
-
-        desc_tb = TextBlock()
-        desc_tb.Text = tool_info.get("description", "")
-        desc_tb.TextWrapping = TextWrapping.Wrap
-        desc_tb.Margin = Thickness(0, 0, 0, 10)
-        panel.Children.Add(desc_tb)
 
         launch_b = Button()
         launch_b.Content = "Open"
@@ -68,7 +70,19 @@ class DeeLazyHomeWindow(dee_branding.DeeBrandedWindow):
         launch_b.Width = 90
         launch_b.HorizontalAlignment = HorizontalAlignment.Left
         launch_b.Click += self._make_launch_handler(tool_info)
+        DockPanel.SetDock(launch_b, Dock.Bottom)
         panel.Children.Add(launch_b)
+
+        # Last child - DockPanel.LastChildFill (default True) gives this
+        # whatever space is left between the title and the button, so a
+        # long description clips/scrolls within that space instead of
+        # displacing the button.
+        desc_tb = TextBlock()
+        desc_tb.Text = tool_info.get("description", "")
+        desc_tb.TextWrapping = TextWrapping.Wrap
+        desc_tb.VerticalAlignment = VerticalAlignment.Top
+        desc_tb.Margin = Thickness(0, 0, 0, 10)
+        panel.Children.Add(desc_tb)
 
         border.Child = panel
         return border

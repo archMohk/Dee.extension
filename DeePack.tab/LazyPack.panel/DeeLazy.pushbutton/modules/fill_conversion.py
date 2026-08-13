@@ -350,6 +350,6 @@ def launch(uiapp):
 TOOL_INFO = {
     "id": "fill_conversion",
     "title": "Fill Pattern Conversion",
-    "description": "Convert Fill Patterns between Model and Drafting Target - creates a new, geometry-scaled pattern at a reference scale you choose; originals are never touched.",
+    "description": "Convert Fill Patterns between Model and Drafting Target - creates a new, scaled pattern; originals are never touched.",
     "launch": launch,
 }
