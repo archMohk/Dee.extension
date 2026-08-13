@@ -11,20 +11,23 @@
   <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; LazyPack panel</div>
   <span class="panel-chip">LazyPack</span>
   <h1 class="tool-title">DeeLazy</h1>
-  <p class="tagline">A growing collection of bulk productivity tools, opened from one card-based launcher window. Each tool is its own self-contained module - adding a future one never touches the existing ones. First tool: <strong>View Cropping</strong>.</p>
+  <p class="tagline">A growing collection of bulk productivity tools, opened from one card-based launcher window. Each tool is its own self-contained module - adding a future one never touches the existing ones. Tools so far: <strong>View Cropping</strong>, <strong>Fill Pattern Conversion</strong>.</p>
 
-  <div class="callout danger"><strong>Risk level: Medium</strong> Every Crop Action inside View Cropping applies immediately once you click it - after a confirmation dialog showing how many views will be affected, but with no separate staged preview/Apply step. Double-check your checked rows and offset values before clicking an action button.</div>
+  <div class="callout danger"><strong>Risk level: Medium</strong> Every Crop Action inside View Cropping applies immediately once you click it - after a confirmation dialog showing how many views will be affected, but with no separate staged preview/Apply step. Double-check your checked rows and offset values before clicking an action button. Fill Pattern Conversion is lower-risk by comparison - it only ever creates new elements, never edits or deletes an existing pattern.</div>
 
   <div class="card">
     <h2>What it does</h2>
-    <p>Opening DeeLazy shows a launcher window with one card per available tool. Clicking <strong>Open</strong> on a card opens that tool's own window - the launcher itself does nothing else. This first release ships with one tool:</p>
+    <p>Opening DeeLazy shows a launcher window with one card per available tool. Clicking <strong>Open</strong> on a card opens that tool's own window - the launcher itself does nothing else.</p>
     <h3>View Cropping</h3>
     <p>Batch-edits Crop Region settings across many views at once: <strong>Crop Region Active</strong>, <strong>Crop Region Visibility</strong> (Show/Hide/Toggle), <strong>Annotation Crop</strong> (Yes/No), <strong>Crop Offset</strong> (Top/Bottom/Left/Right or a single Uniform value, in your project's display units), and <strong>Scope Box</strong> assignment/removal. Supports Floor Plans, Ceiling Plans, Sections, Elevations, Detail Views, Drafting Views, and 3D Views (Schedules, Legends, Renderings, and Sheets themselves are not views with a crop region and are excluded).</p>
     <p>Load views via <strong>Current Sheet</strong>, <strong>Selected Sheets...</strong>, <strong>Entire Project</strong>, or <strong>Current Selection</strong> (Project Browser or a viewport on a sheet - Revit's Selection API doesn't distinguish the two, so there is only one button for both). Narrow the list with <strong>Filters</strong> (View Type, Discipline, View Template, Name/Sheet text search, Dependent/Primary, current Crop Active/Annotation Crop state), then check the rows you want and click a Crop Action on the right. Each action shows a Yes/No confirmation naming how many views are affected, then runs immediately inside one Transaction with a progress bar, and lists every view's result in the Report grid at the bottom right - export it to Excel any time with <strong>Export Report...</strong>.</p>
+    <h3>Fill Pattern Conversion</h3>
+    <p>Converts Fill Patterns between the two Revit pattern Targets: a <strong>Model</strong> pattern's line spacing is a real-world size that scales with the view (denser at a coarser scale, sparser at a finer one); a <strong>Drafting</strong> pattern's spacing is a fixed paper size, the same at any view scale. For each checked pattern, this creates a <strong>brand-new</strong> pattern with the opposite Target and its grid geometry (line spacing, dash/gap lengths) scaled by a Reference Scale you set per row - e.g. converting a Model pattern at Reference Scale 100 "locks in" what it would look like on paper at 1:100. The original pattern is never edited or deleted, so anything already using it (a Material's surface pattern, a Filled Region Type, ...) is completely unaffected.</p>
   </div>
 
   <div class="card">
     <h2>How to use it</h2>
+    <p><strong>View Cropping:</strong></p>
     <ol>
       <li>Open DeeLazy from the LazyPack panel, then click <strong>Open</strong> on the View Cropping card.</li>
       <li>Load views with one of the four buttons on the left (Current Sheet / Selected Sheets / Entire Project / Current Selection).</li>
@@ -32,6 +35,14 @@
       <li>Check the views you want in the middle grid - use <strong>Select All</strong>, <strong>Select None</strong>, or <strong>Invert Selection</strong> to speed this up. Checked rows stay checked even if a later filter/search hides them.</li>
       <li>Click a Crop Action on the right (Enable/Disable Crop Region, Show/Hide/Toggle Visibility, Enable/Disable Annotation Crop, Apply Crop Offset, Assign/Remove Scope Box) - confirm the view count in the dialog that appears.</li>
       <li>Check the Report grid (or the printed HTML report) for what succeeded and what was skipped/failed and why, and use <strong>Export Report...</strong> to save an Excel copy if needed.</li>
+    </ol>
+    <p><strong>Fill Pattern Conversion:</strong></p>
+    <ol>
+      <li>Open DeeLazy, then click <strong>Open</strong> on the Fill Pattern Conversion card - it scans every fill pattern in the project automatically.</li>
+      <li>Check the pattern(s) you want to convert (Select All / Select None / Invert Selection help with a long list). Solid Fill patterns can't be converted (no grid geometry to scale) and are always skipped even if checked.</li>
+      <li>Set each checked row's <strong>Reference Scale</strong> (default 100, meaning 1:100) - edit it directly in the grid, per pattern, since different patterns may need different reference scales.</li>
+      <li>Optionally change the Model/Drafting Suffix fields - the New Name column updates live as you type.</li>
+      <li>Click <strong>Convert Selected</strong> and confirm the count. Check the pyRevit output window for what was created and what was skipped (and why - usually a duplicate name).</li>
     </ol>
   </div>
 
@@ -42,7 +53,9 @@
       <tr><th>Crop Offset sign</th><td>Positive values expand the existing crop box outward on that side; negative values shrink it inward. This is a relative nudge to whatever crop each view already has, not an absolute size.</td></tr>
       <tr><th>Assign Scope Box...</th><td>Lists every Scope Box in the project by name and assigns the one you pick to every checked view.</td></tr>
       <tr><th>Remove Scope Box</th><td>Clears the Scope Box assignment (sets it to none) on every checked view.</td></tr>
-      <tr><th>Filters</th><td>Narrow the loaded list before selecting - View Type, Discipline, View Template, Name/Sheet text, Dependent-only/Primary-only, and current Crop Active/Annotation Crop state. Filters only hide rows; they don't change what's checked.</td></tr>
+      <tr><th>Filters (View Cropping)</th><td>Narrow the loaded list before selecting - View Type, Discipline, View Template, Name/Sheet text, Dependent-only/Primary-only, and current Crop Active/Annotation Crop state. Filters only hide rows; they don't change what's checked.</td></tr>
+      <tr><th>Reference Scale (Fill Pattern Conversion)</th><td>Per-row, e.g. 100 for 1:100. Model&rarr;Drafting divides the pattern's line spacing by this number; Drafting&rarr;Model multiplies by it.</td></tr>
+      <tr><th>Model / Drafting Suffix</th><td>Appended to the original pattern's name to build the new pattern's name (default " (Model)" / " (Drafting)"). If a pattern with that exact name already exists, the row is skipped rather than overwritten.</td></tr>
     </table>
   </div>
 
@@ -50,10 +63,11 @@
     <h2>Before you run it</h2>
     <ul>
       <li>This is a brand-new button in an existing panel, so it needs a full Revit restart + <code>pyrevit caches clear --all</code> to appear the first time.</li>
-      <li>Crop Region Shape (non-rectangular shapes, matching/duplicating a shape between views), split-crop regions, Far Clip Offset, and View Depth are intentionally not included in this first release - only the core crop properties above are.</li>
+      <li>Crop Region Shape (non-rectangular shapes, matching/duplicating a shape between views), split-crop regions, Far Clip Offset, and View Depth are intentionally not included in View Cropping's first release - only the core crop properties above are.</li>
       <li>"Annotation Crop" is read/written by parameter NAME ("Annotation Crop"), not a fixed internal enum - if a view doesn't expose a parameter by that exact name, its row shows "(n/a)" and any action on it reports "not found" rather than guessing.</li>
-      <li>Each action runs inside one Transaction across all checked views - if you Undo in Revit afterward, it undoes the whole batch at once, not one view at a time.</li>
-      <li>Try it on a handful of views first, especially for Crop Offset, to confirm the direction/units match what you expect before running it across an entire project.</li>
+      <li>Each View Cropping action runs inside one Transaction across all checked views - if you Undo in Revit afterward, it undoes the whole batch at once, not one view at a time. Same for a Fill Pattern Conversion run - Undo removes every newly-created pattern from that run in one step.</li>
+      <li>Try View Cropping on a handful of views first, especially for Crop Offset, to confirm the direction/units match what you expect before running it across an entire project.</li>
+      <li>Fill Pattern Conversion is brand-new and unverified against a live project - in particular, whether a converted pattern's line ORIGIN (not just spacing) needs adjusting hasn't been confirmed. If a converted pattern's lines look offset/misaligned compared to the original, that's the first thing to check.</li>
     </ul>
   </div>
 

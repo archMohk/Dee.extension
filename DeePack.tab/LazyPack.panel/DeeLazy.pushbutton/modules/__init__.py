@@ -22,7 +22,9 @@ single seam the whole framework is built around, per the requirement
 that future modules must not require modifying existing code.
 """
 from modules import view_cropping
+from modules import fill_conversion
 
 REGISTERED_MODULES = [
     view_cropping.TOOL_INFO,
+    fill_conversion.TOOL_INFO,
 ]
