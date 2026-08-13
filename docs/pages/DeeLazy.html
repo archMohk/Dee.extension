@@ -67,7 +67,7 @@
       <li>"Annotation Crop" is read/written by parameter NAME ("Annotation Crop"), not a fixed internal enum - if a view doesn't expose a parameter by that exact name, its row shows "(n/a)" and any action on it reports "not found" rather than guessing.</li>
       <li>Each View Cropping action runs inside one Transaction across all checked views - if you Undo in Revit afterward, it undoes the whole batch at once, not one view at a time. Same for a Fill Pattern Conversion run - Undo removes every newly-created pattern from that run in one step.</li>
       <li>Try View Cropping on a handful of views first, especially for Crop Offset, to confirm the direction/units match what you expect before running it across an entire project.</li>
-      <li>Fill Pattern Conversion is brand-new and unverified against a live project - in particular, whether a converted pattern's line ORIGIN (not just spacing) needs adjusting hasn't been confirmed. If a converted pattern's lines look offset/misaligned compared to the original, that's the first thing to check.</li>
+      <li>Fill Pattern Conversion is new and lightly tested - a live test on a complex many-grid pattern caught a real bug (each grid's line ORIGIN wasn't being scaled along with the spacing, which showed up as a chaotic, exploded-looking result on dense patterns) that's since been fixed. If a converted pattern still looks visibly wrong, please report it with a screenshot comparing the original and converted pattern side by side, same as before.</li>
     </ul>
   </div>
 

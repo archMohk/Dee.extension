@@ -32,11 +32,15 @@ Autodesk help before writing, not guessed)
 NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct -
 same policy as this module's sibling, view_cropping.py)
 --------------------------------------------------------------------
-- FillGrid.Origin is left UNSCALED here. If a live test shows a
-  converted pattern's lines are offset/misaligned relative to the
-  un-converted original, Origin likely needs the same scale factor
-  applied - see _build_new_pattern's `factor` parameter, a single
-  change point. STILL OPEN as of the fix below.
+- (FIXED - confirmed live) FillGrid.Origin needed the same scale
+  factor as Offset/Shift/segments, not left unscaled. A live test on a
+  complex many-grid pattern (a Contour-style hatch) showed exactly the
+  symptom this would predict: most repeat tiles nearly empty, with a
+  chaotic "explosion" of misplaced short lines at periodic intervals -
+  each grid's absolute Origin position was staying at the OLD
+  real-world scale while Offset (the repeat spacing around it) shrank
+  ~100x, so most origins landed outside their new, much smaller tile.
+  _build_new_pattern now scales Origin.U/Origin.V by `factor` too.
 - (FIXED - was open, a live test showed the converted pattern coming
   out wrong) Whether FillPattern.SetFillGrids() fully replaces the
   seed grid list from the angle+spacing constructor, or appends to
@@ -68,7 +72,7 @@ from pyrevit import forms, script
 import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, FillPatternElement, FillPattern, FillGrid,
-    FillPatternTarget, Transaction,
+    FillPatternTarget, Transaction, UV,
 )
 from System.Collections.Generic import List
 
@@ -180,7 +184,7 @@ def _build_new_pattern(old_pattern, new_target, new_name, factor):
     for g in old_grids:
         ng = FillGrid()
         ng.Angle = g.Angle
-        ng.Origin = g.Origin  # NOT scaled - see module docstring's "NEEDS LIVE VERIFICATION"
+        ng.Origin = UV(g.Origin.U * factor, g.Origin.V * factor)
         ng.Offset = g.Offset * factor
         ng.Shift = g.Shift * factor
         segs = list(g.GetSegments())
