@@ -36,10 +36,14 @@ same policy as this module's sibling, view_cropping.py)
   converted pattern's lines are offset/misaligned relative to the
   un-converted original, Origin likely needs the same scale factor
   applied - see _build_new_pattern's `factor` parameter, a single
-  change point.
-- Whether FillPattern.SetFillGrids() fully replaces the seed grid list
-  from the constructor (rather than appending to it), and whether
-  GridCount reflects the new list immediately afterward.
+  change point. STILL OPEN as of the fix below.
+- (FIXED - was open, a live test showed the converted pattern coming
+  out wrong) Whether FillPattern.SetFillGrids() fully replaces the
+  seed grid list from the angle+spacing constructor, or appends to
+  it - _build_new_pattern no longer uses that constructor at all, so
+  the question is moot: it now seeds from FillPattern(name, target,
+  hostOrientation), which has no angle/spacing to build an implicit
+  grid from in the first place.
 - Whether fill pattern name uniqueness is scoped per-Target or global
   across both targets - this module conservatively assumes GLOBAL
   (one shared name set for the duplicate check), which can only ever
@@ -156,15 +160,21 @@ def _new_target(old_target):
 
 def _build_new_pattern(old_pattern, new_target, new_name, factor):
     """Builds an in-memory FillPattern with the same grid geometry as
-    old_pattern, scaled by `factor`, under new_target/new_name. The
-    5-arg constructor is only used to obtain a valid seed FillPattern
-    instance (there is no parameterless "just give me an empty
-    pattern" constructor) - its angle/spacing are placeholders,
-    entirely superseded by the SetFillGrids() call below."""
+    old_pattern, scaled by `factor`, under new_target/new_name. Uses
+    the 3-arg FillPattern(name, target, hostOrientation) constructor -
+    NOT the 5-arg angle+spacing overload used in an earlier version of
+    this function - specifically because that overload implicitly
+    seeds one FillGrid from the angle/spacing it's given, and whether
+    the later SetFillGrids() call REPLACES that seed grid or APPENDS
+    to it was an open, unverified question (flagged in this module's
+    own docstring). A live test showed the converted pattern coming
+    out visibly wrong, consistent with an extra, undesired grid line
+    being left in place. The 3-arg constructor takes no angle/spacing,
+    so it has nothing to seed a grid from - starting from zero grids
+    removes the whole question, since replacing-or-appending onto an
+    empty list gives the same result either way."""
     old_grids = list(old_pattern.GetFillGrids())
-    seed_angle = old_grids[0].Angle if old_grids else 0.0
-    seed_spacing = old_grids[0].Offset if (old_grids and old_grids[0].Offset > 1e-9) else (1.0 / 12.0)
-    new_pattern = FillPattern(new_name, new_target, old_pattern.HostOrientation, seed_angle, seed_spacing)
+    new_pattern = FillPattern(new_name, new_target, old_pattern.HostOrientation)
 
     new_grids = List[FillGrid]()
     for g in old_grids:
