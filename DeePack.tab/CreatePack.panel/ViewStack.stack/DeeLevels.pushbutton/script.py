@@ -889,73 +889,74 @@ class DeeLevelsWindow(dee_branding.DeeBrandedWindow):
         results = []
         deleted_ids = set()
 
-        t = Transaction(self.doc, "DeeLevels - Apply Level Changes")
-        t.Start()
+        with forms.ProgressBar(title="DeeLevels - applying changes...", indeterminate=True):
+            t = Transaction(self.doc, "DeeLevels - Apply Level Changes")
+            t.Start()
 
-        if base_point_changed:
-            try:
-                self._base_point.Clipped = bool(self.base_point_fixed_cb.IsChecked)
-                self._base_point_original_clipped = bool(self.base_point_fixed_cb.IsChecked)
-                results.append((True, "Project Base Point",
-                                "Fixed" if self._base_point_original_clipped else "Unfixed"))
-            except Exception as e:
-                results.append((False, "Project Base Point", "Could not change Fixed state: {0}".format(e)))
+            if base_point_changed:
+                try:
+                    self._base_point.Clipped = bool(self.base_point_fixed_cb.IsChecked)
+                    self._base_point_original_clipped = bool(self.base_point_fixed_cb.IsChecked)
+                    results.append((True, "Project Base Point",
+                                    "Fixed" if self._base_point_original_clipped else "Unfixed"))
+                except Exception as e:
+                    results.append((False, "Project Base Point", "Could not change Fixed state: {0}".format(e)))
 
-        if survey_point_changed:
-            try:
-                self._survey_point.Clipped = bool(self.survey_point_fixed_cb.IsChecked)
-                self._survey_point_original_clipped = bool(self.survey_point_fixed_cb.IsChecked)
-                results.append((True, "Survey Point",
-                                "Fixed" if self._survey_point_original_clipped else "Unfixed"))
-            except Exception as e:
-                results.append((False, "Survey Point", "Could not change Fixed state: {0}".format(e)))
+            if survey_point_changed:
+                try:
+                    self._survey_point.Clipped = bool(self.survey_point_fixed_cb.IsChecked)
+                    self._survey_point_original_clipped = bool(self.survey_point_fixed_cb.IsChecked)
+                    results.append((True, "Survey Point",
+                                    "Fixed" if self._survey_point_original_clipped else "Unfixed"))
+                except Exception as e:
+                    results.append((False, "Survey Point", "Could not change Fixed state: {0}".format(e)))
 
-        for row in delete_rows:
-            try:
-                self.doc.Delete(row.existing_id)
-                deleted_ids.add(row.existing_id)
-                results.append((True, row.name, "Deleted"))
-            except Exception as e:
-                results.append((False, row.name, "Delete FAILED: {0}".format(e)))
+            for row in delete_rows:
+                try:
+                    self.doc.Delete(row.existing_id)
+                    deleted_ids.add(row.existing_id)
+                    results.append((True, row.name, "Deleted"))
+                except Exception as e:
+                    results.append((False, row.name, "Delete FAILED: {0}".format(e)))
 
-        for row in modified_rows:
-            elem = self.doc.GetElement(row.existing_id)
-            if elem is None:
-                results.append((False, row.name, "Element no longer exists"))
-                continue
-            try:
-                if abs(row.elevation_internal - row._original_elevation_internal) > 1e-9:
-                    elem.get_Parameter(BuiltInParameter.LEVEL_ELEV).Set(row.elevation_internal)
-                if row.name != row._original_name:
-                    elem.Name = row.name
-                if row.scope_box_id != row._original_scope_box_id:
-                    elem.get_Parameter(BuiltInParameter.DATUM_VOLUME_OF_INTEREST).Set(row.scope_box_id)
-                row._original_name = row.name
-                row._original_elevation_internal = row.elevation_internal
-                row._original_scope_box_id = row.scope_box_id
-                results.append((True, row.name, "Updated"))
-            except Exception as e:
-                results.append((False, row.name, "Update FAILED: {0}".format(e)))
+            for row in modified_rows:
+                elem = self.doc.GetElement(row.existing_id)
+                if elem is None:
+                    results.append((False, row.name, "Element no longer exists"))
+                    continue
+                try:
+                    if abs(row.elevation_internal - row._original_elevation_internal) > 1e-9:
+                        elem.get_Parameter(BuiltInParameter.LEVEL_ELEV).Set(row.elevation_internal)
+                    if row.name != row._original_name:
+                        elem.Name = row.name
+                    if row.scope_box_id != row._original_scope_box_id:
+                        elem.get_Parameter(BuiltInParameter.DATUM_VOLUME_OF_INTEREST).Set(row.scope_box_id)
+                    row._original_name = row.name
+                    row._original_elevation_internal = row.elevation_internal
+                    row._original_scope_box_id = row.scope_box_id
+                    results.append((True, row.name, "Updated"))
+                except Exception as e:
+                    results.append((False, row.name, "Update FAILED: {0}".format(e)))
 
-        # Main (non-structural) levels first, so structural levels below
-        # them can rely on an already-created main level existing if ever
-        # needed - not currently required (structural rows only read the
-        # main row's in-memory elevation), but keeps creation order sane.
-        for row in sorted(new_rows, key=lambda r: r.is_structural):
-            try:
-                new_level = Level.Create(self.doc, row.elevation_internal)
-                new_level.Name = row.name
-                if row.scope_box_id != ElementId.InvalidElementId:
-                    new_level.get_Parameter(BuiltInParameter.DATUM_VOLUME_OF_INTEREST).Set(row.scope_box_id)
-                row.existing_id = new_level.Id
-                row._original_name = row.name
-                row._original_elevation_internal = row.elevation_internal
-                row._original_scope_box_id = row.scope_box_id
-                results.append((True, row.name, "Created"))
-            except Exception as e:
-                results.append((False, row.name, "Create FAILED: {0}".format(e)))
+            # Main (non-structural) levels first, so structural levels below
+            # them can rely on an already-created main level existing if ever
+            # needed - not currently required (structural rows only read the
+            # main row's in-memory elevation), but keeps creation order sane.
+            for row in sorted(new_rows, key=lambda r: r.is_structural):
+                try:
+                    new_level = Level.Create(self.doc, row.elevation_internal)
+                    new_level.Name = row.name
+                    if row.scope_box_id != ElementId.InvalidElementId:
+                        new_level.get_Parameter(BuiltInParameter.DATUM_VOLUME_OF_INTEREST).Set(row.scope_box_id)
+                    row.existing_id = new_level.Id
+                    row._original_name = row.name
+                    row._original_elevation_internal = row.elevation_internal
+                    row._original_scope_box_id = row.scope_box_id
+                    results.append((True, row.name, "Created"))
+                except Exception as e:
+                    results.append((False, row.name, "Create FAILED: {0}".format(e)))
 
-        t.Commit()
+            t.Commit()
 
         self._rows = [r for r in self._rows if r.existing_id not in deleted_ids]
         self._recompute_refresh_and_redraw()

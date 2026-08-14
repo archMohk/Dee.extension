@@ -475,7 +475,9 @@ def main():
         item_id = all_items[host_choice]
         before_count = len(dismissed_log)
         try:
-            _open_file(uiapp, region, project_id, item_id, token)
+            with forms.ProgressBar(title="DeeLinkReview - opening '{0}'...".format(host_choice),
+                                    indeterminate=True):
+                _open_file(uiapp, region, project_id, item_id, token)
         except Exception as e:
             forms.alert("Could not open '{0}':\n{1}".format(host_choice, e))
             return

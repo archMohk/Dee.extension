@@ -380,24 +380,26 @@ def main():
 
     results = []
     try:
-        for name in selected_names:
-            item_id = all_items[name]
-            proj_guid, model_guid, guid_src = get_cloud_path_guids(project_id, item_id, token)
-            before_count = len(dismissed_log)
-            try:
-                cloud_path = ModelPathUtils.ConvertCloudGUIDsToCloudPath(
-                    region, proj_guid, model_guid
-                )
-                open_options = OpenOptions()
-                wc_option = (WorksetConfigurationOption.CloseAllWorksets if close_worksets
-                             else WorksetConfigurationOption.OpenAllWorksets)
-                open_options.SetOpenWorksetsConfiguration(WorksetConfiguration(wc_option))
-                uiapp.OpenAndActivateDocument(cloud_path, open_options, False)
-                results.append((True, name, "Opened"))
-            except Exception as e:
-                results.append((False, name, str(e)))
-            for msg, _sev in dismissed_log[before_count:]:
-                results.append((True, name, msg))
+        with forms.ProgressBar(title="DeeOpener - opening {value} of {max_value}...", cancellable=False) as pb:
+            for i, name in enumerate(selected_names):
+                pb.update_progress(i, len(selected_names))
+                item_id = all_items[name]
+                proj_guid, model_guid, guid_src = get_cloud_path_guids(project_id, item_id, token)
+                before_count = len(dismissed_log)
+                try:
+                    cloud_path = ModelPathUtils.ConvertCloudGUIDsToCloudPath(
+                        region, proj_guid, model_guid
+                    )
+                    open_options = OpenOptions()
+                    wc_option = (WorksetConfigurationOption.CloseAllWorksets if close_worksets
+                                 else WorksetConfigurationOption.OpenAllWorksets)
+                    open_options.SetOpenWorksetsConfiguration(WorksetConfiguration(wc_option))
+                    uiapp.OpenAndActivateDocument(cloud_path, open_options, False)
+                    results.append((True, name, "Opened"))
+                except Exception as e:
+                    results.append((False, name, str(e)))
+                for msg, _sev in dismissed_log[before_count:]:
+                    results.append((True, name, msg))
     finally:
         uiapp.DialogBoxShowing -= dialog_handler
 

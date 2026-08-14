@@ -738,60 +738,61 @@ class DeeGridWindow(dee_branding.DeeBrandedWindow):
         results = []
         deleted_ids = set()
 
-        t = Transaction(self.doc, "DeeGrid - Apply Grid Changes")
-        t.Start()
+        with forms.ProgressBar(title="DeeGrid - applying changes...", indeterminate=True):
+            t = Transaction(self.doc, "DeeGrid - Apply Grid Changes")
+            t.Start()
 
-        for row in delete_rows:
-            try:
-                self.doc.Delete(row.existing_id)
-                deleted_ids.add(row.existing_id)
-                results.append((True, row.name, "Deleted"))
-            except Exception as e:
-                results.append((False, row.name, "Delete FAILED: {0}".format(e)))
+            for row in delete_rows:
+                try:
+                    self.doc.Delete(row.existing_id)
+                    deleted_ids.add(row.existing_id)
+                    results.append((True, row.name, "Deleted"))
+                except Exception as e:
+                    results.append((False, row.name, "Delete FAILED: {0}".format(e)))
 
-        for row in modified_rows:
-            elem = self.doc.GetElement(row.existing_id)
-            if elem is None:
-                results.append((False, row.name, "Element no longer exists"))
-                continue
-            try:
-                delta = row.position_internal - row._original_position_internal
-                if abs(delta) > 1e-9:
-                    translation = (XYZ(delta, 0, 0) if row.direction == "Vertical"
-                                   else XYZ(0, delta, 0))
-                    ElementTransformUtils.MoveElement(self.doc, row.existing_id, translation)
-                if row.name != row._original_name:
-                    elem.Name = row.name
-                row._original_name = row.name
-                row._original_position_internal = row.position_internal
-                results.append((True, row.name, "Updated"))
-            except Exception as e:
-                results.append((False, row.name, "Update FAILED: {0}".format(e)))
+            for row in modified_rows:
+                elem = self.doc.GetElement(row.existing_id)
+                if elem is None:
+                    results.append((False, row.name, "Element no longer exists"))
+                    continue
+                try:
+                    delta = row.position_internal - row._original_position_internal
+                    if abs(delta) > 1e-9:
+                        translation = (XYZ(delta, 0, 0) if row.direction == "Vertical"
+                                       else XYZ(0, delta, 0))
+                        ElementTransformUtils.MoveElement(self.doc, row.existing_id, translation)
+                    if row.name != row._original_name:
+                        elem.Name = row.name
+                    row._original_name = row.name
+                    row._original_position_internal = row.position_internal
+                    results.append((True, row.name, "Updated"))
+                except Exception as e:
+                    results.append((False, row.name, "Update FAILED: {0}".format(e)))
 
-        for row in new_rows:
-            try:
-                other_min = row.other_min
-                other_max = row.other_max
-                if other_min is None or other_max is None:
-                    other_min, other_max = self._default_extent(row.direction)
-                if row.direction == "Vertical":
-                    line = Line.CreateBound(
-                        XYZ(row.position_internal, other_min, 0),
-                        XYZ(row.position_internal, other_max, 0))
-                else:
-                    line = Line.CreateBound(
-                        XYZ(other_min, row.position_internal, 0),
-                        XYZ(other_max, row.position_internal, 0))
-                new_grid = Grid.Create(self.doc, line)
-                new_grid.Name = row.name
-                row.existing_id = new_grid.Id
-                row._original_name = row.name
-                row._original_position_internal = row.position_internal
-                results.append((True, row.name, "Created"))
-            except Exception as e:
-                results.append((False, row.name, "Create FAILED: {0}".format(e)))
+            for row in new_rows:
+                try:
+                    other_min = row.other_min
+                    other_max = row.other_max
+                    if other_min is None or other_max is None:
+                        other_min, other_max = self._default_extent(row.direction)
+                    if row.direction == "Vertical":
+                        line = Line.CreateBound(
+                            XYZ(row.position_internal, other_min, 0),
+                            XYZ(row.position_internal, other_max, 0))
+                    else:
+                        line = Line.CreateBound(
+                            XYZ(other_min, row.position_internal, 0),
+                            XYZ(other_max, row.position_internal, 0))
+                    new_grid = Grid.Create(self.doc, line)
+                    new_grid.Name = row.name
+                    row.existing_id = new_grid.Id
+                    row._original_name = row.name
+                    row._original_position_internal = row.position_internal
+                    results.append((True, row.name, "Created"))
+                except Exception as e:
+                    results.append((False, row.name, "Create FAILED: {0}".format(e)))
 
-        t.Commit()
+            t.Commit()
 
         self._v_rows = [r for r in self._v_rows if r.existing_id not in deleted_ids]
         self._h_rows = [r for r in self._h_rows if r.existing_id not in deleted_ids]

@@ -17,31 +17,32 @@ close_after_sync = choice == "Sync and Close"
 results = []
 docs_to_close = []
 
-for doc in app.Documents:
+with forms.ProgressBar(title="DeeSYNC - synchronizing open models...", indeterminate=True):
+    for doc in app.Documents:
 
-    # Skip families and non-workshared docs (and links, which appear as documents too)
-    if doc.IsFamilyDocument:
-        continue
+        # Skip families and non-workshared docs (and links, which appear as documents too)
+        if doc.IsFamilyDocument:
+            continue
 
-    if doc.IsLinked:
-        continue
+        if doc.IsLinked:
+            continue
 
-    if not doc.IsWorkshared:
-        results.append("{} - SKIPPED (not workshared)".format(doc.Title))
-        continue
+        if not doc.IsWorkshared:
+            results.append("{} - SKIPPED (not workshared)".format(doc.Title))
+            continue
 
-    try:
-        trans_opts = TransactWithCentralOptions()
-        sync_opts = SynchronizeWithCentralOptions()
-        sync_opts.Comment = "Batch sync - all open models"
-        sync_opts.SetRelinquishOptions(RelinquishOptions(True))
+        try:
+            trans_opts = TransactWithCentralOptions()
+            sync_opts = SynchronizeWithCentralOptions()
+            sync_opts.Comment = "Batch sync - all open models"
+            sync_opts.SetRelinquishOptions(RelinquishOptions(True))
 
-        doc.SynchronizeWithCentral(trans_opts, sync_opts)
-        results.append("{} - OK".format(doc.Title))
-        docs_to_close.append(doc)
+            doc.SynchronizeWithCentral(trans_opts, sync_opts)
+            results.append("{} - OK".format(doc.Title))
+            docs_to_close.append(doc)
 
-    except Exception as e:
-        results.append("{} - FAILED: {}".format(doc.Title, str(e)))
+        except Exception as e:
+            results.append("{} - FAILED: {}".format(doc.Title, str(e)))
 
 print("\n".join(results))
 

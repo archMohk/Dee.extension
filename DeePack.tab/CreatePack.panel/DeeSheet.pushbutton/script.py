@@ -253,30 +253,31 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
                 continue
 
         results = []
-        t = Transaction(self.doc, "DeeSheet - Create Sheets")
-        t.Start()
-        try:
-            for number, name in zip(numbers, names):
-                if not number or not name:
-                    results.append((False, "{0} / {1}".format(number, name),
-                                     "Skipped - empty number or name"))
-                    continue
-                if number in existing_numbers:
-                    results.append((None, number, "Already exists - skipped"))
-                    continue
-                try:
-                    sheet = ViewSheet.Create(self.doc, titleblock_id)
-                    sheet.SheetNumber = number
-                    sheet.Name = name
-                    existing_numbers.add(number)
-                    results.append((True, number, "Created '{0}'".format(name)))
-                except Exception as e:
-                    results.append((False, number, "FAILED: {0}".format(e)))
-            t.Commit()
-        except Exception as e:
-            t.RollBack()
-            forms.alert("Sheet creation aborted: {0}".format(e))
-            return
+        with forms.ProgressBar(title="DeeSheet - creating sheets...", indeterminate=True):
+            t = Transaction(self.doc, "DeeSheet - Create Sheets")
+            t.Start()
+            try:
+                for number, name in zip(numbers, names):
+                    if not number or not name:
+                        results.append((False, "{0} / {1}".format(number, name),
+                                         "Skipped - empty number or name"))
+                        continue
+                    if number in existing_numbers:
+                        results.append((None, number, "Already exists - skipped"))
+                        continue
+                    try:
+                        sheet = ViewSheet.Create(self.doc, titleblock_id)
+                        sheet.SheetNumber = number
+                        sheet.Name = name
+                        existing_numbers.add(number)
+                        results.append((True, number, "Created '{0}'".format(name)))
+                    except Exception as e:
+                        results.append((False, number, "FAILED: {0}".format(e)))
+                t.Commit()
+            except Exception as e:
+                t.RollBack()
+                forms.alert("Sheet creation aborted: {0}".format(e))
+                return
 
         self._last_results = results
         self._last_rows = list(zip(numbers, names))
@@ -374,29 +375,31 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
 
         tb_symbol = self.doc.GetElement(type_id)
         results = []
-        t = Transaction(self.doc, "DeeSheet - Change Title Block on All Sheets")
-        t.Start()
-        try:
-            if tb_symbol is not None and not tb_symbol.IsActive:
-                tb_symbol.Activate()
-                self.doc.Regenerate()
-        except Exception:
-            pass
-        for r in existing_rows:
+        with forms.ProgressBar(title="DeeSheet - changing title blocks {value} of {max_value}...") as pb:
+            t = Transaction(self.doc, "DeeSheet - Change Title Block on All Sheets")
+            t.Start()
             try:
-                existing_tbs = list(FilteredElementCollector(self.doc, r.sheet.Id)
-                                     .OfCategory(BuiltInCategory.OST_TitleBlocks)
-                                     .WhereElementIsNotElementType())
-                if existing_tbs:
-                    for tb in existing_tbs:
-                        tb.ChangeTypeId(type_id)
-                    results.append((True, r.number, "Title Block changed"))
-                else:
-                    self.doc.Create.NewFamilyInstance(XYZ.Zero, tb_symbol, r.sheet)
-                    results.append((True, r.number, "Title Block placed (sheet had none)"))
-            except Exception as e:
-                results.append((False, r.number, "FAILED: {0}".format(e)))
-        t.Commit()
+                if tb_symbol is not None and not tb_symbol.IsActive:
+                    tb_symbol.Activate()
+                    self.doc.Regenerate()
+            except Exception:
+                pass
+            for i, r in enumerate(existing_rows):
+                pb.update_progress(i, len(existing_rows))
+                try:
+                    existing_tbs = list(FilteredElementCollector(self.doc, r.sheet.Id)
+                                         .OfCategory(BuiltInCategory.OST_TitleBlocks)
+                                         .WhereElementIsNotElementType())
+                    if existing_tbs:
+                        for tb in existing_tbs:
+                            tb.ChangeTypeId(type_id)
+                        results.append((True, r.number, "Title Block changed"))
+                    else:
+                        self.doc.Create.NewFamilyInstance(XYZ.Zero, tb_symbol, r.sheet)
+                        results.append((True, r.number, "Title Block placed (sheet had none)"))
+                except Exception as e:
+                    results.append((False, r.number, "FAILED: {0}".format(e)))
+            t.Commit()
 
         self._report("DeeSheet - Change Title Block Results", results)
 
@@ -420,54 +423,55 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         existing_numbers = set(r.number for r in self._super_rows if not r.is_new and not r.marked_delete)
 
         results = []
-        t = Transaction(self.doc, "DeeSheet - Apply Super Sheet Changes")
-        t.Start()
-        try:
-            for r in to_create:
-                if not r.number or not r.name:
-                    results.append((False, "{0} / {1}".format(r.number, r.name),
-                                     "Skipped - empty number or name"))
-                    continue
-                if r.number in existing_numbers:
-                    results.append((False, r.number, "Skipped - duplicate Sheet Number"))
-                    continue
-                try:
-                    sheet = ViewSheet.Create(self.doc, titleblock_id)
-                    sheet.SheetNumber = r.number
-                    sheet.Name = r.name
-                    r.sheet = sheet
-                    r.is_new = False
-                    r.original_number = r.number
-                    r.original_name = r.name
-                    existing_numbers.add(r.number)
-                    results.append((True, r.number, "Created '{0}'".format(r.name)))
-                except Exception as e:
-                    results.append((False, r.number, "FAILED: {0}".format(e)))
+        with forms.ProgressBar(title="DeeSheet - applying Super Sheet changes...", indeterminate=True):
+            t = Transaction(self.doc, "DeeSheet - Apply Super Sheet Changes")
+            t.Start()
+            try:
+                for r in to_create:
+                    if not r.number or not r.name:
+                        results.append((False, "{0} / {1}".format(r.number, r.name),
+                                         "Skipped - empty number or name"))
+                        continue
+                    if r.number in existing_numbers:
+                        results.append((False, r.number, "Skipped - duplicate Sheet Number"))
+                        continue
+                    try:
+                        sheet = ViewSheet.Create(self.doc, titleblock_id)
+                        sheet.SheetNumber = r.number
+                        sheet.Name = r.name
+                        r.sheet = sheet
+                        r.is_new = False
+                        r.original_number = r.number
+                        r.original_name = r.name
+                        existing_numbers.add(r.number)
+                        results.append((True, r.number, "Created '{0}'".format(r.name)))
+                    except Exception as e:
+                        results.append((False, r.number, "FAILED: {0}".format(e)))
 
-            for r in to_update:
-                try:
-                    if r.number != r.original_number:
-                        r.sheet.SheetNumber = r.number
-                    if r.name != r.original_name:
-                        r.sheet.Name = r.name
-                    r.original_number = r.number
-                    r.original_name = r.name
-                    results.append((True, r.number, "Updated"))
-                except Exception as e:
-                    results.append((False, r.original_number, "FAILED: {0}".format(e)))
+                for r in to_update:
+                    try:
+                        if r.number != r.original_number:
+                            r.sheet.SheetNumber = r.number
+                        if r.name != r.original_name:
+                            r.sheet.Name = r.name
+                        r.original_number = r.number
+                        r.original_name = r.name
+                        results.append((True, r.number, "Updated"))
+                    except Exception as e:
+                        results.append((False, r.original_number, "FAILED: {0}".format(e)))
 
-            for r in to_delete:
-                try:
-                    self.doc.Delete(r.sheet.Id)
-                    results.append((True, r.original_number, "Deleted"))
-                except Exception as e:
-                    results.append((False, r.original_number, "FAILED: {0}".format(e)))
+                for r in to_delete:
+                    try:
+                        self.doc.Delete(r.sheet.Id)
+                        results.append((True, r.original_number, "Deleted"))
+                    except Exception as e:
+                        results.append((False, r.original_number, "FAILED: {0}".format(e)))
 
-            t.Commit()
-        except Exception as e:
-            t.RollBack()
-            forms.alert("Apply aborted: {0}".format(e))
-            return
+                t.Commit()
+            except Exception as e:
+                t.RollBack()
+                forms.alert("Apply aborted: {0}".format(e))
+                return
 
         deleted_set = set(to_delete)
         self._super_rows = [r for r in self._super_rows if r not in deleted_set]
@@ -836,7 +840,8 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
                     "included.").format(len(blocked))
         if not forms.alert(msg, title="DeeSheet - Confirm", yes=True, no=True):
             return
-        result = renamer.apply_renames(self.doc, self._rename_rows)
+        with forms.ProgressBar(title="DeeSheet - applying sheet renames...", indeterminate=True):
+            result = renamer.apply_renames(self.doc, self._rename_rows)
         renamer.print_report(result)
         renamer.compute_statuses(self._rename_rows)
         self._refresh_rename_grid()

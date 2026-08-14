@@ -1066,23 +1066,24 @@ class DeeAlignerWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Nothing staged yet - use an alignment/offset/scale action first, then Apply to Sheet.")
             return None
         results = []
-        t = Transaction(self.doc, "DeeAligner - Apply to Sheet")
-        t.Start()
-        for row in pending_rows:
-            try:
-                if row.pending_w is not None and row.pending_h is not None:
-                    self._apply_image_size(row, row.pending_w, row.pending_h)
-                if abs(row.pending_dx) > 1e-9 or abs(row.pending_dy) > 1e-9:
-                    if row.kind == "Viewport":
-                        _move_viewport(row.element, row.pending_dx, row.pending_dy)
-                    else:
-                        _move_image(self.doc, row.element, row.pending_dx, row.pending_dy)
-                self._refresh_row_bbox(row)
-                row.clear_pending()
-                results.append((True, self._row_label(row), "Applied to sheet"))
-            except Exception as e:
-                results.append((False, self._row_label(row), "FAILED: {0}".format(e)))
-        t.Commit()
+        with forms.ProgressBar(title="DeeAligner - applying to sheet...", indeterminate=True):
+            t = Transaction(self.doc, "DeeAligner - Apply to Sheet")
+            t.Start()
+            for row in pending_rows:
+                try:
+                    if row.pending_w is not None and row.pending_h is not None:
+                        self._apply_image_size(row, row.pending_w, row.pending_h)
+                    if abs(row.pending_dx) > 1e-9 or abs(row.pending_dy) > 1e-9:
+                        if row.kind == "Viewport":
+                            _move_viewport(row.element, row.pending_dx, row.pending_dy)
+                        else:
+                            _move_image(self.doc, row.element, row.pending_dx, row.pending_dy)
+                    self._refresh_row_bbox(row)
+                    row.clear_pending()
+                    results.append((True, self._row_label(row), "Applied to sheet"))
+                except Exception as e:
+                    results.append((False, self._row_label(row), "FAILED: {0}".format(e)))
+            t.Commit()
         return results
 
     def views_apply_click(self, sender, args):
@@ -1482,15 +1483,17 @@ class DeeAlignerWindow(dee_branding.DeeBrandedWindow):
             return
 
         results = []
-        t = Transaction(self.doc, "DeeAligner - Insert Super Images")
-        t.Start()
-        for row in ready:
-            try:
-                self._insert_image_on_sheet(self._super_sheet, row.file_path, row.staged_box)
-                results.append((True, row.file_name, "Inserted into '{0}'".format(_sheet_label(self._super_sheet))))
-            except Exception as e:
-                results.append((False, row.file_name, "FAILED: {0}".format(e)))
-        t.Commit()
+        with forms.ProgressBar(title="DeeAligner - inserting {value} of {max_value}...") as pb:
+            t = Transaction(self.doc, "DeeAligner - Insert Super Images")
+            t.Start()
+            for i, row in enumerate(ready):
+                pb.update_progress(i, len(ready))
+                try:
+                    self._insert_image_on_sheet(self._super_sheet, row.file_path, row.staged_box)
+                    results.append((True, row.file_name, "Inserted into '{0}'".format(_sheet_label(self._super_sheet))))
+                except Exception as e:
+                    results.append((False, row.file_name, "FAILED: {0}".format(e)))
+            t.Commit()
 
         inserted_ids = set(id(r) for r, (ok, _n, _d) in zip(ready, results) if ok)
         self._super_items = [r for r in self._super_items if id(r) not in inserted_ids]
