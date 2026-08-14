@@ -973,12 +973,13 @@ class DeeRehosterWindow(dee_branding.DeeBrandedWindow):
         if dlg.ShowDialog() != DialogResult.OK:
             return
         try:
-            with open(dlg.FileName, "w") as f:
-                writer = csv.writer(f)
-                writer.writerow(["Id", "Category", "Family", "Type", "Level"])
-                for row in self._elements:
-                    writer.writerow([row.id_text, row.category_name, row.family_name,
-                                      row.type_name, row.level_name])
+            with forms.ProgressBar(title="DeeRehoster - exporting CSV...", indeterminate=True):
+                with open(dlg.FileName, "w") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["Id", "Category", "Family", "Type", "Level"])
+                    for row in self._elements:
+                        writer.writerow([row.id_text, row.category_name, row.family_name,
+                                          row.type_name, row.level_name])
         except Exception as e:
             forms.alert("Could not export: {0}".format(e))
             return

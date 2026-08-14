@@ -554,15 +554,16 @@ class DeeCordiPointWindow(dee_branding.DeeBrandedWindow):
         pbp = _get_project_base_point(self.doc)
         sp = _get_survey_point(self.doc)
         io = _get_internal_origin(self.doc)
-        t = Transaction(self.doc, "DeeCordiPoint - Build Coordinates View")
-        t.Start()
-        try:
-            _build_coordinates_view(self.doc, pbp, sp, io)
-            t.Commit()
-        except Exception as e:
-            t.RollBack()
-            forms.alert("Could not build the Coordinates view: {0}".format(e))
-            return
+        with forms.ProgressBar(title="DeeCordiPoint - building coordinates view...", indeterminate=True):
+            t = Transaction(self.doc, "DeeCordiPoint - Build Coordinates View")
+            t.Start()
+            try:
+                _build_coordinates_view(self.doc, pbp, sp, io)
+                t.Commit()
+            except Exception as e:
+                t.RollBack()
+                forms.alert("Could not build the Coordinates view: {0}".format(e))
+                return
         self.view_status_tb.Text = (
             "'{0}' is ready - isolated Levels, Site, and the coordinate points "
             "(Revit's Temporary Hide/Isolate).".format(_VIEW_NAME))
@@ -663,7 +664,8 @@ class DeeCordiPointWindow(dee_branding.DeeBrandedWindow):
         self._refresh_points()
 
     def scan_links_click(self, sender, args):
-        rows = _scan_link_points(self.doc)
+        with forms.ProgressBar(title="DeeCordiPoint - scanning linked models...", indeterminate=True):
+            rows = _scan_link_points(self.doc)
         self._links = rows
         self.links_grid.ItemsSource = None
         self.links_grid.ItemsSource = rows

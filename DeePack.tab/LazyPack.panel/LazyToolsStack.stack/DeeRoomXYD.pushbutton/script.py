@@ -77,7 +77,8 @@ class DeeRoomXYDWindow(dee_branding.DeeBrandedWindow):
         if not selected:
             forms.alert("Check at least one room first.")
             return
-        result = core.place_dimensions(self.doc, self.view, selected)
+        with forms.ProgressBar(title="DeeRoomXYD - placing dimensions...", indeterminate=True):
+            result = core.place_dimensions(self.doc, self.view, selected)
         core.print_dimension_report(result)
         self.status_tb.Text = "Placed {0} dimension(s), skipped {1}. See the pyRevit output window for details.".format(
             result.placed_count, len(result.skipped))

@@ -340,7 +340,8 @@ class FillConversionWindow(dee_branding.DeeBrandedWindow):
 
         suffix_model = self.suffix_model_tb.Text or _DEFAULT_SUFFIX_MODEL
         suffix_drafting = self.suffix_drafting_tb.Text or _DEFAULT_SUFFIX_DRAFTING
-        result = convert_selected(self.doc, selected, suffix_model, suffix_drafting)
+        with forms.ProgressBar(title="DeeFill - converting fill patterns...", indeterminate=True):
+            result = convert_selected(self.doc, selected, suffix_model, suffix_drafting)
         print_report(result)
         self.scan_click(None, None)
         self.status_tb.Text = "Created {0}, skipped {1}. See the pyRevit output window for details.".format(

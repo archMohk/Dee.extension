@@ -60,7 +60,8 @@ class DeeGetDWGWindow(dee_branding.DeeBrandedWindow):
         if not selected:
             forms.alert("Check at least one CAD import/link first.")
             return
-        result = core.move_to_origin(self.doc, selected)
+        with forms.ProgressBar(title="DeeGetDWG - moving CAD imports/links...", indeterminate=True):
+            result = core.move_to_origin(self.doc, selected)
         core.print_report(result)
         self._refresh_grid()
         self.status_tb.Text = "Moved {0}, skipped {1}. See the pyRevit output window for details.".format(

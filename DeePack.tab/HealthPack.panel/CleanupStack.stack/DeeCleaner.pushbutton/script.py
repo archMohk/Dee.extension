@@ -625,15 +625,16 @@ class DeeCleanerWindow(dee_branding.DeeBrandedWindow):
             return
 
         results = []
-        t = Transaction(self.doc, "DeeCleaner - Delete Zero-Area Rooms")
-        t.Start()
-        for r in selected:
-            try:
-                self.doc.Delete(r.room.Id)
-                results.append((True, "{0} - {1}".format(r.number, r.name), "Deleted"))
-            except Exception as e:
-                results.append((False, "{0} - {1}".format(r.number, r.name), "FAILED: {0}".format(e)))
-        t.Commit()
+        with forms.ProgressBar(title="DeeCleaner - deleting zero-area rooms...", indeterminate=True):
+            t = Transaction(self.doc, "DeeCleaner - Delete Zero-Area Rooms")
+            t.Start()
+            for r in selected:
+                try:
+                    self.doc.Delete(r.room.Id)
+                    results.append((True, "{0} - {1}".format(r.number, r.name), "Deleted"))
+                except Exception as e:
+                    results.append((False, "{0} - {1}".format(r.number, r.name), "FAILED: {0}".format(e)))
+            t.Commit()
 
         deleted_set = set(r for r, res in zip(selected, results) if res[0])
         self._room_rows = [r for r in self._room_rows if r not in deleted_set]
@@ -739,15 +740,16 @@ class DeeCleanerWindow(dee_branding.DeeBrandedWindow):
             return
 
         results = []
-        t = Transaction(self.doc, "DeeCleaner - Delete Unused Groups")
-        t.Start()
-        for r in selected:
-            try:
-                self.doc.Delete(r.grouptype.Id)
-                results.append((True, r.name, "Deleted"))
-            except Exception as e:
-                results.append((False, r.name, "FAILED: {0}".format(e)))
-        t.Commit()
+        with forms.ProgressBar(title="DeeCleaner - deleting unused groups...", indeterminate=True):
+            t = Transaction(self.doc, "DeeCleaner - Delete Unused Groups")
+            t.Start()
+            for r in selected:
+                try:
+                    self.doc.Delete(r.grouptype.Id)
+                    results.append((True, r.name, "Deleted"))
+                except Exception as e:
+                    results.append((False, r.name, "FAILED: {0}".format(e)))
+            t.Commit()
 
         deleted_set = set(r for r, res in zip(selected, results) if res[0])
         self._group_rows = [r for r in self._group_rows if r not in deleted_set]
@@ -801,15 +803,16 @@ class DeeCleanerWindow(dee_branding.DeeBrandedWindow):
             return
 
         results = []
-        t = Transaction(self.doc, "DeeCleaner - Delete Views")
-        t.Start()
-        for r in selected:
-            try:
-                self.doc.Delete(r.view.Id)
-                results.append((True, r.name, "Deleted"))
-            except Exception as e:
-                results.append((False, r.name, "FAILED: {0}".format(e)))
-        t.Commit()
+        with forms.ProgressBar(title="DeeCleaner - deleting views...", indeterminate=True):
+            t = Transaction(self.doc, "DeeCleaner - Delete Views")
+            t.Start()
+            for r in selected:
+                try:
+                    self.doc.Delete(r.view.Id)
+                    results.append((True, r.name, "Deleted"))
+                except Exception as e:
+                    results.append((False, r.name, "FAILED: {0}".format(e)))
+            t.Commit()
 
         deleted_set = set(r for r, res in zip(selected, results) if res[0])
         self._view_rows = [r for r in self._view_rows if r not in deleted_set]
@@ -864,15 +867,16 @@ class DeeCleanerWindow(dee_branding.DeeBrandedWindow):
             return
 
         results = []
-        t = Transaction(self.doc, "DeeCleaner - Delete Sheets")
-        t.Start()
-        for r in selected:
-            try:
-                self.doc.Delete(r.sheet.Id)
-                results.append((True, "{0} - {1}".format(r.number, r.name), "Deleted"))
-            except Exception as e:
-                results.append((False, "{0} - {1}".format(r.number, r.name), "FAILED: {0}".format(e)))
-        t.Commit()
+        with forms.ProgressBar(title="DeeCleaner - deleting sheets...", indeterminate=True):
+            t = Transaction(self.doc, "DeeCleaner - Delete Sheets")
+            t.Start()
+            for r in selected:
+                try:
+                    self.doc.Delete(r.sheet.Id)
+                    results.append((True, "{0} - {1}".format(r.number, r.name), "Deleted"))
+                except Exception as e:
+                    results.append((False, "{0} - {1}".format(r.number, r.name), "FAILED: {0}".format(e)))
+            t.Commit()
 
         deleted_set = set(r for r, res in zip(selected, results) if res[0])
         self._sheet_rows = [r for r in self._sheet_rows if r not in deleted_set]
@@ -934,16 +938,17 @@ class DeeCleanerWindow(dee_branding.DeeBrandedWindow):
             return
 
         results = []
-        t = Transaction(self.doc, "DeeCleaner - Delete Rooms on Same Placement")
-        t.Start()
-        for r in selected:
-            try:
-                self.doc.Delete(r.room.Id)
-                results.append((True, "{0} - {1} (Group {2})".format(r.number, r.name, r.group_index), "Deleted"))
-            except Exception as e:
-                results.append((False, "{0} - {1} (Group {2})".format(r.number, r.name, r.group_index),
-                                 "FAILED: {0}".format(e)))
-        t.Commit()
+        with forms.ProgressBar(title="DeeCleaner - deleting rooms...", indeterminate=True):
+            t = Transaction(self.doc, "DeeCleaner - Delete Rooms on Same Placement")
+            t.Start()
+            for r in selected:
+                try:
+                    self.doc.Delete(r.room.Id)
+                    results.append((True, "{0} - {1} (Group {2})".format(r.number, r.name, r.group_index), "Deleted"))
+                except Exception as e:
+                    results.append((False, "{0} - {1} (Group {2})".format(r.number, r.name, r.group_index),
+                                     "FAILED: {0}".format(e)))
+            t.Commit()
 
         deleted_set = set(r for r, res in zip(selected, results) if res[0])
         self._dup_rows = [r for r in self._dup_rows if r not in deleted_set]

@@ -426,7 +426,8 @@ class DocTabController(object):
         if not pending:
             forms.alert("Nothing to apply - type or Browse a New Path for at least one row first.")
             return
-        results = _apply_relinks(pending)
+        with forms.ProgressBar(title="DeeRelink - applying relinks...", indeterminate=True):
+            results = _apply_relinks(pending)
         self.scan()
         applied = sum(1 for ok, _n, _d in results if ok)
         failed = len(results) - applied

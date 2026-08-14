@@ -348,12 +348,14 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
             return
         existing_paths = set(m.file_path for m in self._models)
         added = 0
-        for path in dlg.FileNames:
-            if path in existing_paths:
-                continue
-            self._models.append(scanner.scan_file(path))
-            existing_paths.add(path)
-            added += 1
+        with forms.ProgressBar(title="DeeWClean - scanning {value} of {max_value}...") as pb:
+            for i, path in enumerate(dlg.FileNames):
+                pb.update_progress(i, len(dlg.FileNames))
+                if path in existing_paths:
+                    continue
+                self._models.append(scanner.scan_file(path))
+                existing_paths.add(path)
+                added += 1
         scanner.annotate_version_mismatch(self._models, _revit_version_text(self.application))
         self._refresh_models_grid()
         self.scan_status_tb.Text = "{0} local RVT file(s) in list.".format(len(self._models))
@@ -386,7 +388,8 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
                 return
             project_id, project_name = project
             self._log("Loading cloud model list for '{0}'...".format(project_name))
-            all_items = afb.list_project_files(hub_id, project_id, token, _CACHE_FILE)
+            with forms.ProgressBar(title="DeeWClean - loading cloud model list...", indeterminate=True):
+                all_items = afb.list_project_files(hub_id, project_id, token, _CACHE_FILE)
             if not all_items:
                 return
             picked_names = afb.pick_files_to_open(

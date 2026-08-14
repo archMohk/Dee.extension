@@ -348,12 +348,14 @@ class DeeWSharingWindow(dee_branding.DeeBrandedWindow):
             return
         existing_paths = set(m.file_path for m in self._models)
         added = 0
-        for path in dlg.FileNames:
-            if path in existing_paths:
-                continue
-            self._models.append(scanner.scan_file(path))
-            existing_paths.add(path)
-            added += 1
+        with forms.ProgressBar(title="DeeWSharing - scanning {value} of {max_value}...") as pb:
+            for i, path in enumerate(dlg.FileNames):
+                pb.update_progress(i, len(dlg.FileNames))
+                if path in existing_paths:
+                    continue
+                self._models.append(scanner.scan_file(path))
+                existing_paths.add(path)
+                added += 1
         scanner.annotate_version_mismatch(self._models, _revit_version_text(self.application))
         self._refresh_models_grid()
         self.scan_status_tb.Text = "{0} RVT file(s) in list.".format(len(self._models))
