@@ -1641,7 +1641,8 @@ class DeeDistributorWindow(dee_branding.DeeBrandedWindow):
         mode = self._current_source_mode()
         view = self.doc.ActiveView
         try:
-            rows = _collect_spatial_elements(self.doc, mode, self.uidoc, view)
+            with forms.ProgressBar(title="DeeDistributor - scanning rooms/spaces...", indeterminate=True):
+                rows = _collect_spatial_elements(self.doc, mode, self.uidoc, view)
         except Exception as e:
             forms.alert("Could not scan rooms/spaces: {0}".format(e))
             return
@@ -2763,13 +2764,14 @@ class DeeDistributorWindow(dee_branding.DeeBrandedWindow):
         if dlg.ShowDialog() != DialogResult.OK:
             return
         try:
-            with open(dlg.FileName, "wb") as f:
-                writer = csv.writer(f)
-                writer.writerow(["Kind", "Number", "Name", "Level", "Area",
-                                  "Planned Instances", "Created Instances", "Status"])
-                for r in self._rows:
-                    writer.writerow([r.kind, r.number, r.name, r.level_name, r.area_text,
-                                      r.instances_planned, r.instances_created, r.status_text])
+            with forms.ProgressBar(title="DeeDistributor - exporting CSV...", indeterminate=True):
+                with open(dlg.FileName, "wb") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["Kind", "Number", "Name", "Level", "Area",
+                                      "Planned Instances", "Created Instances", "Status"])
+                    for r in self._rows:
+                        writer.writerow([r.kind, r.number, r.name, r.level_name, r.area_text,
+                                          r.instances_planned, r.instances_created, r.status_text])
         except Exception as e:
             forms.alert("Could not export: {0}".format(e))
             return

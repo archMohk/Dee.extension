@@ -610,7 +610,8 @@ class DeeFinisherWindow(dee_branding.DeeBrandedWindow):
         active_view_only = bool(self.scan_active_rb.IsChecked)
         view = self.doc.ActiveView if active_view_only else None
         try:
-            rooms = _collect_rooms(self.doc, active_view_only, view)
+            with forms.ProgressBar(title="DeeFinisher - scanning rooms...", indeterminate=True):
+                rooms = _collect_rooms(self.doc, active_view_only, view)
         except Exception as e:
             forms.alert("Could not scan rooms: {0}".format(e))
             return
@@ -806,52 +807,53 @@ class DeeFinisherWindow(dee_branding.DeeBrandedWindow):
         self._refresh_preview()
 
     def _refresh_preview(self):
-        rows = self._get_selected_rows()
-        total_rooms = len(rows)
-        floors_to_create = sum(1 for r in rows if r.floor_type_name != "(None)")
-        walls_to_create = sum(1 for r in rows if r.wall_type_name != "(None)")
-        ceilings_to_create = sum(1 for r in rows if r.ceiling_type_name != "(None)")
+        with forms.ProgressBar(title="DeeFinisher - refreshing preview...", indeterminate=True):
+            rows = self._get_selected_rows()
+            total_rooms = len(rows)
+            floors_to_create = sum(1 for r in rows if r.floor_type_name != "(None)")
+            walls_to_create = sum(1 for r in rows if r.wall_type_name != "(None)")
+            ceilings_to_create = sum(1 for r in rows if r.ceiling_type_name != "(None)")
 
-        existing_count = 0
-        warnings = []
-        for r in rows:
-            loops = _get_boundary_curve_arrays(r.room)
-            if r.room.Area <= 0 or not loops:
-                warnings.append("Room {0} ({1}): no valid boundary - will be skipped".format(r.number, r.name))
-                continue
-            if r.floor_type_name != "(None)" and _find_existing_by_tag(
-                    self.doc, BuiltInCategory.OST_Floors, r.room.Id, "Floor"):
-                existing_count += 1
-            if r.ceiling_type_name != "(None)" and _find_existing_by_tag(
-                    self.doc, BuiltInCategory.OST_Ceilings, r.room.Id, "Ceiling"):
-                existing_count += 1
-            if r.wall_type_name != "(None)" and _find_existing_by_tag(
-                    self.doc, BuiltInCategory.OST_Walls, r.room.Id, "WallFinish"):
-                existing_count += 1
+            existing_count = 0
+            warnings = []
+            for r in rows:
+                loops = _get_boundary_curve_arrays(r.room)
+                if r.room.Area <= 0 or not loops:
+                    warnings.append("Room {0} ({1}): no valid boundary - will be skipped".format(r.number, r.name))
+                    continue
+                if r.floor_type_name != "(None)" and _find_existing_by_tag(
+                        self.doc, BuiltInCategory.OST_Floors, r.room.Id, "Floor"):
+                    existing_count += 1
+                if r.ceiling_type_name != "(None)" and _find_existing_by_tag(
+                        self.doc, BuiltInCategory.OST_Ceilings, r.room.Id, "Ceiling"):
+                    existing_count += 1
+                if r.wall_type_name != "(None)" and _find_existing_by_tag(
+                        self.doc, BuiltInCategory.OST_Walls, r.room.Id, "WallFinish"):
+                    existing_count += 1
 
-        warnings.extend(_detect_possible_overlaps(rows))
+            warnings.extend(_detect_possible_overlaps(rows))
 
-        missing_types = []
-        if any(r.floor_type_name not in ("(None)",) and r.floor_type_name not in self._floor_types for r in rows):
-            missing_types.append("Floor")
-        if any(r.wall_type_name not in ("(None)",) and r.wall_type_name not in self._wall_types for r in rows):
-            missing_types.append("Wall")
-        if any(r.ceiling_type_name not in ("(None)",) and r.ceiling_type_name not in self._ceiling_types for r in rows):
-            missing_types.append("Ceiling")
+            missing_types = []
+            if any(r.floor_type_name not in ("(None)",) and r.floor_type_name not in self._floor_types for r in rows):
+                missing_types.append("Floor")
+            if any(r.wall_type_name not in ("(None)",) and r.wall_type_name not in self._wall_types for r in rows):
+                missing_types.append("Wall")
+            if any(r.ceiling_type_name not in ("(None)",) and r.ceiling_type_name not in self._ceiling_types for r in rows):
+                missing_types.append("Ceiling")
 
-        lines = [
-            "Total Rooms Selected: {0}".format(total_rooms),
-            "Floors to Create: {0}".format(floors_to_create),
-            "Walls to Create (rooms with a Wall Finish assigned): {0}".format(walls_to_create),
-            "Ceilings to Create: {0}".format(ceilings_to_create),
-            "Existing DeeFinisher Elements Found: {0} (mode: {1})".format(
-                existing_count, self.duplicate_mode_cb.SelectedItem),
-            "",
-            "Missing Finish Types: {0}".format(", ".join(missing_types) if missing_types else "None"),
-            "Warnings / Conflicts: {0}".format(len(warnings)),
-        ]
-        self.summary_tb.Text = "\n".join(lines)
-        self.warnings_lb.ItemsSource = warnings
+            lines = [
+                "Total Rooms Selected: {0}".format(total_rooms),
+                "Floors to Create: {0}".format(floors_to_create),
+                "Walls to Create (rooms with a Wall Finish assigned): {0}".format(walls_to_create),
+                "Ceilings to Create: {0}".format(ceilings_to_create),
+                "Existing DeeFinisher Elements Found: {0} (mode: {1})".format(
+                    existing_count, self.duplicate_mode_cb.SelectedItem),
+                "",
+                "Missing Finish Types: {0}".format(", ".join(missing_types) if missing_types else "None"),
+                "Warnings / Conflicts: {0}".format(len(warnings)),
+            ]
+            self.summary_tb.Text = "\n".join(lines)
+            self.warnings_lb.ItemsSource = warnings
 
     def _room_label(self, row):
         return "{0} - {1}".format(row.number, row.name)
@@ -1123,13 +1125,14 @@ class DeeFinisherWindow(dee_branding.DeeBrandedWindow):
         if dlg.ShowDialog() != DialogResult.OK:
             return
         try:
-            with open(dlg.FileName, "wb") as f:
-                writer = csv.writer(f)
-                writer.writerow(["Room Number", "Room Name", "Level", "Area",
-                                  "Floor Finish", "Wall Finish", "Ceiling Finish", "Status"])
-                for r in self._rows:
-                    writer.writerow([r.number, r.name, r.level_name, r.area_text,
-                                      r.floor_type_name, r.wall_type_name, r.ceiling_type_name, r.status_text])
+            with forms.ProgressBar(title="DeeFinisher - exporting CSV...", indeterminate=True):
+                with open(dlg.FileName, "wb") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["Room Number", "Room Name", "Level", "Area",
+                                      "Floor Finish", "Wall Finish", "Ceiling Finish", "Status"])
+                    for r in self._rows:
+                        writer.writerow([r.number, r.name, r.level_name, r.area_text,
+                                          r.floor_type_name, r.wall_type_name, r.ceiling_type_name, r.status_text])
         except Exception as e:
             forms.alert("Could not export: {0}".format(e))
             return
