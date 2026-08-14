@@ -57,38 +57,39 @@ except Exception as ex:
 
 output.print_md("**Hubs found:** {0}".format(len(all_hubs)))
 
-for hid, hname, hregion in all_hubs:
-    if found_item_id:
-        break
-    output.print_md("Scanning hub `{0}` ({1})…".format(hname, hid))
-    try:
-        projects = acc_api.list_projects(hid, token)
-    except Exception as ex:
-        output.print_md("  list_projects failed: {0}".format(ex))
-        continue
-
-    for pid, pname in projects:
+with forms.ProgressBar(title="DeeGUID - searching hubs/projects...", indeterminate=True):
+    for hid, hname, hregion in all_hubs:
         if found_item_id:
             break
-        output.print_md("  Project `{0}` ({1})".format(pname, pid))
+        output.print_md("Scanning hub `{0}` ({1})…".format(hname, hid))
         try:
-            top    = acc_api.get_top_folders(hid, pid, token)
-            stack  = [fid for fid, _ in top]
-            vis    = 0
-            while stack and not found_item_id and vis < 300:
-                fid = stack.pop()
-                vis += 1
-                sub, items = acc_api.list_folder_contents(pid, fid, token)
-                for sfid, _ in sub:
-                    stack.append(sfid)
-                for iid, iname in items:
-                    if iname == target_name:
-                        found_item_id = iid
-                        found_in_proj = pid
-                        found_hub_id  = hid
-                        break
-        except Exception:
-            pass
+            projects = acc_api.list_projects(hid, token)
+        except Exception as ex:
+            output.print_md("  list_projects failed: {0}".format(ex))
+            continue
+
+        for pid, pname in projects:
+            if found_item_id:
+                break
+            output.print_md("  Project `{0}` ({1})".format(pname, pid))
+            try:
+                top    = acc_api.get_top_folders(hid, pid, token)
+                stack  = [fid for fid, _ in top]
+                vis    = 0
+                while stack and not found_item_id and vis < 300:
+                    fid = stack.pop()
+                    vis += 1
+                    sub, items = acc_api.list_folder_contents(pid, fid, token)
+                    for sfid, _ in sub:
+                        stack.append(sfid)
+                    for iid, iname in items:
+                        if iname == target_name:
+                            found_item_id = iid
+                            found_in_proj = pid
+                            found_hub_id  = hid
+                            break
+            except Exception:
+                pass
 
 if not found_item_id:
     output.print_md("Could not find `{0}` in any accessible project.".format(target_name))

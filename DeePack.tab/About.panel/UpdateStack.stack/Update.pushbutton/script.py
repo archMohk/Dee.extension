@@ -93,11 +93,12 @@ window = UpdateWindow(_XAML_FILE)
 window.ShowDialog()
 
 if window.confirmed:
-    ok, output = _run_pyrevit_update()
-    if not ok and output:
-        forms.alert(
-            "Could not pull the latest update automatically:\n\n{0}\n\n"
-            "Reloading anyway with whatever is already on this PC."
-            .format(output),
-            title="Dee Update")
-    sessionmgr.reload_pyrevit()
+    with forms.ProgressBar(title="Dee Update - updating and reloading...", indeterminate=True):
+        ok, output = _run_pyrevit_update()
+        if not ok and output:
+            forms.alert(
+                "Could not pull the latest update automatically:\n\n{0}\n\n"
+                "Reloading anyway with whatever is already on this PC."
+                .format(output),
+                title="Dee Update")
+        sessionmgr.reload_pyrevit()

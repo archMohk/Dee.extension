@@ -324,23 +324,24 @@ def align_elements(doc, uidoc, action_title, mode, reference_strategy="first"):
         result.elapsed_seconds = time.time() - start
         return result
 
-    t = Transaction(doc, "DeeAlign - {0}".format(action_title))
-    t.Start()
-    try:
-        for el in movers:
-            bbox = bbox_cache[el.Id.IntegerValue]
-            delta = target_value - _bbox_metric(bbox, mode)
-            try:
-                if abs(delta) > _EPSILON:
-                    translation = XYZ(delta, 0, 0) if axis == "x" else XYZ(0, delta, 0)
-                    ElementTransformUtils.MoveElement(doc, el.Id, translation)
-                result.moved_count += 1
-            except Exception as e:
-                result.add_skip(element_label(el), "Move failed: {0}".format(e))
-        t.Commit()
-    except Exception:
-        t.RollBack()
-        raise
+    with forms.ProgressBar(title="DeeAlign - {0}...".format(action_title), indeterminate=True):
+        t = Transaction(doc, "DeeAlign - {0}".format(action_title))
+        t.Start()
+        try:
+            for el in movers:
+                bbox = bbox_cache[el.Id.IntegerValue]
+                delta = target_value - _bbox_metric(bbox, mode)
+                try:
+                    if abs(delta) > _EPSILON:
+                        translation = XYZ(delta, 0, 0) if axis == "x" else XYZ(0, delta, 0)
+                        ElementTransformUtils.MoveElement(doc, el.Id, translation)
+                    result.moved_count += 1
+                except Exception as e:
+                    result.add_skip(element_label(el), "Move failed: {0}".format(e))
+            t.Commit()
+        except Exception:
+            t.RollBack()
+            raise
 
     result.elapsed_seconds = time.time() - start
     return result
@@ -379,24 +380,25 @@ def distribute_elements(doc, uidoc, action_title, axis):
     result.reference_label = "{0} (fixed) .. {1} (fixed)".format(
         element_label(valid[0]), element_label(valid[-1]))
 
-    t = Transaction(doc, "DeeAlign - {0}".format(action_title))
-    t.Start()
-    try:
-        for i in range(1, n - 1):
-            el = valid[i]
-            target = first_center + i * spacing
-            delta = target - _center(bbox_cache[el.Id.IntegerValue], axis)
-            try:
-                if abs(delta) > _EPSILON:
-                    translation = XYZ(delta, 0, 0) if axis == "x" else XYZ(0, delta, 0)
-                    ElementTransformUtils.MoveElement(doc, el.Id, translation)
-                result.moved_count += 1
-            except Exception as e:
-                result.add_skip(element_label(el), "Move failed: {0}".format(e))
-        t.Commit()
-    except Exception:
-        t.RollBack()
-        raise
+    with forms.ProgressBar(title="DeeAlign - {0}...".format(action_title), indeterminate=True):
+        t = Transaction(doc, "DeeAlign - {0}".format(action_title))
+        t.Start()
+        try:
+            for i in range(1, n - 1):
+                el = valid[i]
+                target = first_center + i * spacing
+                delta = target - _center(bbox_cache[el.Id.IntegerValue], axis)
+                try:
+                    if abs(delta) > _EPSILON:
+                        translation = XYZ(delta, 0, 0) if axis == "x" else XYZ(0, delta, 0)
+                        ElementTransformUtils.MoveElement(doc, el.Id, translation)
+                    result.moved_count += 1
+                except Exception as e:
+                    result.add_skip(element_label(el), "Move failed: {0}".format(e))
+            t.Commit()
+        except Exception:
+            t.RollBack()
+            raise
 
     result.elapsed_seconds = time.time() - start
     return result
