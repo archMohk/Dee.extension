@@ -501,7 +501,6 @@ SCRIPT_VERSION = "2026-07-03-v11-elementid-coercion"
 
 
 def main():
-    output.print_md("*DeeCoord script version: {0}*".format(SCRIPT_VERSION))
     try:
         token = acc_auth.get_access_token()
     except Exception as e:
@@ -781,7 +780,12 @@ def main():
         uiapp.DialogBoxShowing -= dialog_handler
 
     # ── coloured HTML results ──────────────────────────────────────────────────
-    html = '<h2 style="font-family:sans-serif;color:#ddd;">DeeCoord Results</h2>'
+    # Version banner moved here (from the very top of main(), before any
+    # ProgressBar or Transaction ran) - it must only show up alongside the
+    # real results, once the run has actually finished, not before.
+    html = ('<h2 style="font-family:sans-serif;color:#ddd;">DeeCoord Results</h2>'
+            '<p style="font-family:sans-serif;color:#888;font-size:11px;">Script version: {0}</p>').format(
+        SCRIPT_VERSION)
     for name, steps in all_results:
         oks = [s[1] for s in steps]
         if any(o is False for o in oks):

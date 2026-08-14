@@ -297,7 +297,12 @@ class DeeGridWindow(dee_branding.DeeBrandedWindow):
                 self._v_rows.append(row)
             else:
                 self._h_rows.append(row)
-        if skipped:
+        if skipped and confirm:
+            # confirm doubles as "this is an interactive, user-initiated
+            # call" here (Refresh button), not just "confirm discarding
+            # pending changes" - the constructor's own silent initial
+            # load (confirm=False) must never pop an alert before any
+            # action has actually run.
             forms.alert(
                 "{0} grid(s) are not straight (Line-based) and were skipped - "
                 "arc grids aren't supported by this tool.".format(skipped),
