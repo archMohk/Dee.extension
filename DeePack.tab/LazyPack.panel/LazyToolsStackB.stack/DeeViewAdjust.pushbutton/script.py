@@ -99,13 +99,13 @@ import time
 from pyrevit import forms
 from pyrevit import script as pyrevit_script
 import dee_branding
-import utils
 
 from Autodesk.Revit.DB import (
     FilteredElementCollector, BuiltInCategory, BuiltInParameter, ElementId,
     Transaction, SpatialElementBoundaryOptions, SpatialElementBoundaryLocation,
     CurveLoop, Line, XYZ, ViewPlan, BoundingBoxXYZ,
     GeometryCreationUtilities, BooleanOperationsUtils, BooleanOperationsType, PlanarFace,
+    UnitUtils, UnitTypeId, SpecTypeId,
 )
 from Autodesk.Revit.DB.Architecture import Room
 from System.Collections.Generic import List
@@ -116,6 +116,66 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 
 _EXTRUSION_HEIGHT = 1.0  # feet - arbitrary, only used as scratch geometry for the union
+
+
+# ==========================================================================
+# Units - kept as LOCAL copies rather than imported.
+# DeeLazy.pushbutton/utils.py has the identical helpers, but that module
+# is only importable from scripts INSIDE DeeLazy.pushbutton/ - pyRevit puts
+# the extension's lib/ on sys.path, not another pushbutton's folder. When
+# this tool moved out of DeeLazy into its own standalone pushbutton, the
+# inherited `import utils` silently became a crash-on-click. Duplicating
+# locally is this codebase's established convention for exactly this
+# situation (DeeGrid, DeeCordiPoint and DeeFinisher each carry their own
+# copy of this same block, for the same reason).
+# ==========================================================================
+def _length_unit_type_id(doc):
+    try:
+        return doc.GetUnits().GetFormatOptions(SpecTypeId.Length).GetUnitTypeId()
+    except Exception:
+        return UnitTypeId.Millimeters
+
+
+def _internal_to_display(doc, value_internal):
+    uid = _length_unit_type_id(doc)
+    try:
+        return UnitUtils.ConvertFromInternalUnits(value_internal, uid)
+    except Exception:
+        return UnitUtils.ConvertFromInternalUnits(value_internal, UnitTypeId.Millimeters)
+
+
+def _display_to_internal(doc, value_display):
+    uid = _length_unit_type_id(doc)
+    try:
+        return UnitUtils.ConvertToInternalUnits(value_display, uid)
+    except Exception:
+        return UnitUtils.ConvertToInternalUnits(value_display, UnitTypeId.Millimeters)
+
+
+_UNIT_ABBR = [
+    (UnitTypeId.Millimeters, "mm"),
+    (UnitTypeId.Centimeters, "cm"),
+    (UnitTypeId.Meters, "m"),
+    (UnitTypeId.Feet, "ft"),
+    (UnitTypeId.FeetFractionalInches, "ft"),
+    (UnitTypeId.FractionalInches, "in"),
+    (UnitTypeId.Inches, "in"),
+]
+
+
+def _unit_abbreviation(doc):
+    uid = _length_unit_type_id(doc)
+    for u, abbr in _UNIT_ABBR:
+        if u == uid:
+            return abbr
+    return "mm"
+
+
+def _safe_float(text, default=0.0):
+    try:
+        return float(text)
+    except Exception:
+        return default
 
 
 def _read_name(element):
@@ -638,7 +698,7 @@ class DeeViewAdjustWindow(dee_branding.DeeBrandedWindow):
         with forms.ProgressBar(title="DeeViewAdjust - scanning rooms...", indeterminate=True):
             self._rows = scan_rooms(self.doc)
         self.rooms_grid.ItemsSource = self._rows
-        self.offset_unit_tb.Text = utils.unit_abbreviation(self.doc)
+        self.offset_unit_tb.Text = _unit_abbreviation(self.doc)
         self.offset_tb.Text = "0"
         self._update_status()
 
@@ -691,12 +751,12 @@ class DeeViewAdjustWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Check at least one room first.")
             return
 
-        offset_display = utils.safe_float(self.offset_tb.Text, 0.0)
+        offset_display = _safe_float(self.offset_tb.Text, 0.0)
         if offset_display < 0:
             forms.alert("Offset must be zero or a positive value.")
             return
-        offset_internal = utils.display_to_internal(self.doc, offset_display)
-        unit_abbr = utils.unit_abbreviation(self.doc)
+        offset_internal = _display_to_internal(self.doc, offset_display)
+        unit_abbr = _unit_abbreviation(self.doc)
 
         if not forms.alert(
                 "Reshape this view's Crop Region to follow {0} room(s), offset outward by {1:.3f} {2}?".format(
