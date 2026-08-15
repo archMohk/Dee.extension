@@ -1,1 +1,12 @@
-title: DeePack
+title: "DeePack"
+layout:
+  - Models
+  - Cloud
+  - Coordination
+  - SheetsExport
+  - ViewsDatums
+  - Rooms
+  - Align
+  - Health
+  - Tools
+  - About

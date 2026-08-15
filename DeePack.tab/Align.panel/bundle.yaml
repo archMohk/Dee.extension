@@ -1,0 +1,5 @@
+title: "Align"
+layout:
+  - AlignHorizStack
+  - AlignVertStack
+  - DistributeStack
