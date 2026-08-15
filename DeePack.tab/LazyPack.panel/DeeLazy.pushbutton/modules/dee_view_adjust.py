@@ -128,6 +128,30 @@ def _read_name(element):
         return None
 
 
+def _read_room_name(room):
+    """Room.Name is unreliable in IronPython for some rooms (returns
+    empty/throws rather than the real name - not specific to any one
+    language, but confirmed live to affect Arabic-named rooms in this
+    project) - falls back to the ROOM_NAME parameter directly, same
+    proven pattern already established in DeeFinisher.pushbutton and
+    DeeCleaner.pushbutton's own _read_room_name helpers."""
+    try:
+        n = room.Name
+        if n:
+            return n
+    except Exception:
+        pass
+    try:
+        p = room.get_Parameter(BuiltInParameter.ROOM_NAME)
+        if p is not None:
+            v = p.AsString()
+            if v:
+                return v
+    except Exception:
+        pass
+    return "(unnamed)"
+
+
 # ==========================================================================
 # Room scanning
 # ==========================================================================
@@ -164,7 +188,7 @@ def scan_rooms(doc):
             number_text = num_param.AsString() if num_param is not None else ""
         except Exception:
             number_text = ""
-        name = _read_name(el) or "(unnamed)"
+        name = _read_room_name(el)
         level_name = ""
         try:
             lvl = doc.GetElement(el.LevelId)
