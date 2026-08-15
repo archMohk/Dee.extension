@@ -1,0 +1,47 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeLazy — DeeViewAdjust"
+        ShowInTaskbar="False"
+        MinHeight="560" MinWidth="760" Height="620" Width="820"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                   Text="Reshapes the ACTIVE VIEW's Crop Region to follow the exact combined boundary of the checked room(s) below - Plan views only. Checking several rooms combines them into ONE crop; if they don't end up connected even with the offset, you'll be offered a rectangular fallback instead."/>
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="status_tb" Text="Ready."/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
+            <Button x:Name="apply_b" Content="Apply Crop" Width="120" Height="30" FontWeight="Bold" Click="apply_click"/>
+            <Button x:Name="reset_crop_b" Content="Reset Crop" Width="110" Height="30" Margin="8,0,0,0" Click="reset_crop_click"/>
+            <Button x:Name="close_b" Content="Close" Width="90" Height="30" Margin="20,0,0,0" Click="close_click"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Outward Offset:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <TextBox x:Name="offset_tb" Width="80" Height="24" Text="0"/>
+            <TextBlock x:Name="offset_unit_tb" VerticalAlignment="Center" Margin="6,0,0,0" Text="mm"/>
+            <TextBlock Text="(0 = follow room boundary exactly)" VerticalAlignment="Center" Margin="16,0,0,0" Foreground="Gray"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button x:Name="check_all_b" Content="Check All" Width="90" Height="24" Click="check_all_click"/>
+            <Button x:Name="check_none_b" Content="Check None" Width="90" Height="24" Margin="6,0,0,0" Click="check_none_click"/>
+            <Button x:Name="invert_selection_b" Content="Invert Selection" Width="110" Height="24" Margin="6,0,0,0" Click="invert_selection_click"/>
+        </StackPanel>
+
+        <DataGrid x:Name="rooms_grid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserSortColumns="True"
+                  SelectionMode="Extended" SelectionUnit="FullRow">
+            <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="Select" Binding="{Binding checked, Mode=TwoWay}" Width="55"/>
+                <DataGridTextColumn Header="Number" Binding="{Binding number}" IsReadOnly="True" Width="90"/>
+                <DataGridTextColumn Header="Name" Binding="{Binding name}" IsReadOnly="True" Width="2*"/>
+                <DataGridTextColumn Header="Level" Binding="{Binding level_name}" IsReadOnly="True" Width="140"/>
+                <DataGridTextColumn Header="Area" Binding="{Binding area_text}" IsReadOnly="True" Width="100"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>
