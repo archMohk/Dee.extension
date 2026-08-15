@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-DeeLazy - DeeViewAdjust module
+DeeViewAdjust
 Scans the project's Rooms, lets you check one or more, and reshapes the
 ACTIVE VIEW's Crop Region to follow the EXACT combined boundary of the
 checked room(s) - not a rectangular box - with an optional uniform
@@ -34,7 +34,7 @@ blog before writing, not guessed)
   transform. (pyRevit's own bundled "Set Crop Region To Selected
   Shape" tool DOES transform its input - but only because that tool's
   polygon is drawn as detail lines on a SHEET and must be mapped into
-  the viewport's model view; not applicable here, since this module
+  the viewport's model view; not applicable here, since this tool
   reads room geometry directly in the active view's own model space.)
 
 --------------------------------------------------------------------
@@ -44,7 +44,7 @@ CreateViaOffset exists (Revit 2015+) but is documented - via Jeremy
 Tammik's own team's findings ("CreateViaOffset and Room Outer
 Outline") - to throw InvalidOperationException ("Curve loop couldn't
 be properly trimmed") on real concave/L-shaped boundaries with small
-segments. This module instead adapts the proven, already-working
+segments. This tool instead adapts the proven, already-working
 mitering approach from DeeFinisher.pushbutton/script.py (used there
 for inward Wall Finish offsets) - offset each straight edge
 perpendicular to itself, then re-miter each corner by intersecting
@@ -58,7 +58,7 @@ Disjoint rooms - what happens when checked rooms don't form one shape
 --------------------------------------------------------------------
 Since SetCropShape only accepts one CurveLoop, if the checked rooms
 (even after the offset) don't overlap/touch, there is no way to
-represent them as a single crop shape. This module does NOT silently
+represent them as a single crop shape. This tool does NOT silently
 substitute a rectangular crop in that case - it aborts the shaped-crop
 path, alerts naming the situation, then offers an explicit Yes/No:
 apply a rectangular bounding-box crop covering all checked rooms +
@@ -71,8 +71,7 @@ rather than guessing).
 
 --------------------------------------------------------------------
 NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct -
-same policy as this module's siblings, fill_conversion.py/
-dee_sselect.py)
+same policy as this extension's other geometry-heavy tools)
 --------------------------------------------------------------------
 - Whether a Boolean union of two fully DISJOINT solids throws vs.
   silently returns a multi-shell Solid - defended both ways (each
@@ -97,12 +96,13 @@ dee_sselect.py)
 import os
 import time
 
-from pyrevit import forms, script
+from pyrevit import forms
+from pyrevit import script as pyrevit_script
 import dee_branding
 import utils
 
 from Autodesk.Revit.DB import (
-    FilteredElementCollector, BuiltInCategory, BuiltInParameter,
+    FilteredElementCollector, BuiltInCategory, BuiltInParameter, ElementId,
     Transaction, SpatialElementBoundaryOptions, SpatialElementBoundaryLocation,
     CurveLoop, Line, XYZ, ViewPlan, BoundingBoxXYZ,
     GeometryCreationUtilities, BooleanOperationsUtils, BooleanOperationsType, PlanarFace,
@@ -110,10 +110,10 @@ from Autodesk.Revit.DB import (
 from Autodesk.Revit.DB.Architecture import Room
 from System.Collections.Generic import List
 
-output = script.get_output()
+output = pyrevit_script.get_output()
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_XAML_FILE = os.path.join(_THIS_DIR, "DeeViewAdjust.xaml")
+_XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 
 _EXTRUSION_HEIGHT = 1.0  # feet - arbitrary, only used as scratch geometry for the union
 
@@ -624,7 +624,7 @@ def print_report(action_title, room_labels, offset_display, unit_abbr, action_re
 
 # ==========================================================================
 # Window - UI wiring only; all real work happens in the plain functions
-# above (same separation as fill_conversion.py/dee_sselect.py)
+# above (same separation as this extension's other geometry-heavy tools)
 # ==========================================================================
 class DeeViewAdjustWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, uiapp, doc, uidoc, view):
@@ -667,6 +667,22 @@ class DeeViewAdjustWindow(dee_branding.DeeBrandedWindow):
 
     def _selected_rows(self):
         return [r for r in self._rows if r.checked]
+
+    # ---------------- see the room(s) in the open view ----------------
+    def show_in_view_click(self, sender, args):
+        selected = self._selected_rows()
+        if not selected:
+            forms.alert("Check at least one room first.")
+            return
+        ids = List[ElementId]([r.id for r in selected])
+        with forms.ProgressBar(title="DeeViewAdjust - showing room(s) in view...", indeterminate=True):
+            self.uidoc.Selection.SetElementIds(ids)
+            try:
+                self.uidoc.ShowElements(ids)
+            except Exception:
+                pass
+            self.uidoc.RefreshActiveView()
+        self.status_tb.Text = "Showing {0} checked room(s) in the active view.".format(len(selected))
 
     # ---------------- main actions ----------------
     def apply_click(self, sender, args):
@@ -773,7 +789,7 @@ class DeeViewAdjustWindow(dee_branding.DeeBrandedWindow):
 
 
 # ==========================================================================
-# Launch entry point (called by the DeeLazy home window)
+# View-type validation and launch
 # ==========================================================================
 def _is_plan_view(view):
     try:
@@ -782,28 +798,20 @@ def _is_plan_view(view):
         return False
 
 
-def launch(uiapp):
-    if uiapp.ActiveUIDocument is None:
-        forms.alert("Open a Revit project first.")
-        return
-    uidoc = uiapp.ActiveUIDocument
-    doc = uidoc.Document
-    view = doc.ActiveView
-    if not _is_plan_view(view):
+uiapp = __revit__
+if uiapp.ActiveUIDocument is None:
+    forms.alert("Open a Revit project first.")
+else:
+    _uidoc = uiapp.ActiveUIDocument
+    _doc = _uidoc.Document
+    _view = _doc.ActiveView
+    if not _is_plan_view(_view):
         forms.alert(
             "DeeViewAdjust only works on Plan-type views (Floor Plan, Ceiling Plan, "
             "Area Plan, Structural Plan) - a room boundary is a horizontal-plane shape, "
             "which can only become a Crop Region Shape in a view whose own plane is also "
             "horizontal. Switch to a plan view and run DeeViewAdjust again.",
             title="DeeViewAdjust")
-        return
-    window = DeeViewAdjustWindow(_XAML_FILE, uiapp, doc, uidoc, view)
-    window.ShowDialog()
-
-
-TOOL_INFO = {
-    "id": "dee_view_adjust",
-    "title": "DeeViewAdjust",
-    "description": "Reshape the active view's Crop Region to follow the exact combined boundary of one or more selected rooms, with an optional outward offset.",
-    "launch": launch,
-}
+    else:
+        window = DeeViewAdjustWindow(_XAML_FILE, uiapp, _doc, _uidoc, _view)
+        window.ShowDialog()

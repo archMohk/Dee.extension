@@ -1,0 +1,2 @@
+title: DeeViewAdjust
+tooltip: Reshape the active view's Crop Region to follow the exact combined boundary of one or more selected rooms, with an optional outward offset. Plan views only.

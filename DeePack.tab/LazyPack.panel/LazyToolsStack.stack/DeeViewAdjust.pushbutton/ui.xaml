@@ -1,12 +1,12 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="DeeLazy — DeeViewAdjust"
+        Title="DeeViewAdjust"
         ShowInTaskbar="False"
-        MinHeight="560" MinWidth="760" Height="620" Width="820"
+        MinHeight="560" MinWidth="800" Height="620" Width="860"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Reshapes the ACTIVE VIEW's Crop Region to follow the exact combined boundary of the checked room(s) below - Plan views only. Checking several rooms combines them into ONE crop; if they don't end up connected even with the offset, you'll be offered a rectangular fallback instead."/>
+                   Text="Reshapes the ACTIVE VIEW's Crop Region to follow the exact combined boundary of the checked room(s) below - Plan views only. Checking several rooms combines them into ONE crop; if they don't end up connected even with the offset, you'll be offered a rectangular fallback instead. Use Show in View to select and scroll to the checked room(s) before applying."/>
 
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem>
@@ -31,6 +31,7 @@
             <Button x:Name="check_all_b" Content="Check All" Width="90" Height="24" Click="check_all_click"/>
             <Button x:Name="check_none_b" Content="Check None" Width="90" Height="24" Margin="6,0,0,0" Click="check_none_click"/>
             <Button x:Name="invert_selection_b" Content="Invert Selection" Width="110" Height="24" Margin="6,0,0,0" Click="invert_selection_click"/>
+            <Button x:Name="show_in_view_b" Content="Show in View" Width="110" Height="24" Margin="20,0,0,0" Click="show_in_view_click"/>
         </StackPanel>
 
         <DataGrid x:Name="rooms_grid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserSortColumns="True"
