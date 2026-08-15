@@ -1,0 +1,71 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeLazy — DeeSSelect"
+        ShowInTaskbar="False"
+        MinHeight="620" MinWidth="1050" Height="700" Width="1150"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                   Text="Groups elements in the ACTIVE VIEW by a chosen category + parameter's unique values (like pyRevit's Color Splasher), auto-assigns a color per value, and lets you Apply Colors, Create View Filters, or Create a Legend from them. Check one or more rows below and use Select Checked to select every matching element in Revit at once."/>
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="status_tb" Text="Pick a category and parameter to begin."/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
+            <Button x:Name="apply_colors_b" Content="Apply Colors" Width="120" Height="30" FontWeight="Bold" Click="apply_colors_click"/>
+            <Button x:Name="reset_colors_b" Content="Reset Colors" Width="110" Height="30" Margin="8,0,0,0" Click="reset_colors_click"/>
+            <Button x:Name="create_filters_b" Content="Create View Filters" Width="150" Height="30" Margin="8,0,0,0" Click="create_filters_click"/>
+            <Button x:Name="create_legend_b" Content="Create Legend" Width="120" Height="30" Margin="8,0,0,0" Click="create_legend_click"/>
+            <Button x:Name="close_b" Content="Close" Width="90" Height="30" Margin="20,0,0,0" Click="close_click"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Category:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <ComboBox x:Name="category_cb" Width="230" Height="24" DisplayMemberPath="name" SelectionChanged="category_changed"/>
+            <TextBlock Text="Parameter:" VerticalAlignment="Center" Margin="16,0,6,0"/>
+            <ComboBox x:Name="param_cb" Width="230" Height="24" DisplayMemberPath="name" SelectionChanged="param_changed"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Apply to:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <CheckBox x:Name="line_color_cb" Content="Line Color" VerticalAlignment="Center" Margin="0,0,16,0"/>
+            <CheckBox x:Name="fg_pattern_cb" Content="Foreground Pattern" VerticalAlignment="Center" Margin="0,0,16,0" IsChecked="True"/>
+            <CheckBox x:Name="bg_pattern_cb" Content="Background Pattern" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button x:Name="random_colors_b" Content="Random Colors" Width="110" Height="24" Click="random_colors_click"/>
+            <Button x:Name="gradient_colors_b" Content="Gradient Colors" Width="110" Height="24" Margin="6,0,0,0" Click="gradient_colors_click"/>
+            <Button x:Name="save_scheme_b" Content="Save Scheme..." Width="110" Height="24" Margin="16,0,0,0" Click="save_scheme_click"/>
+            <Button x:Name="load_scheme_b" Content="Load Scheme..." Width="110" Height="24" Margin="6,0,0,0" Click="load_scheme_click"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button x:Name="grid_check_all_b" Content="Check All" Width="90" Height="24" Click="grid_check_all_click"/>
+            <Button x:Name="grid_check_none_b" Content="Check None" Width="90" Height="24" Margin="6,0,0,0" Click="grid_check_none_click"/>
+            <Button x:Name="select_checked_b" Content="Select Checked" Width="130" Height="24" Margin="20,0,0,0" FontWeight="Bold" Click="select_checked_click"/>
+            <Button x:Name="revit_select_all_b" Content="Select All (Revit)" Width="130" Height="24" Margin="20,0,0,0" Click="revit_select_all_click"/>
+            <Button x:Name="revit_select_none_b" Content="Select None (Revit)" Width="140" Height="24" Margin="6,0,0,0" Click="revit_select_none_click"/>
+        </StackPanel>
+
+        <DataGrid x:Name="values_grid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserSortColumns="True"
+                  SelectionMode="Extended" SelectionUnit="FullRow">
+            <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="Select" Binding="{Binding checked, Mode=TwoWay}" Width="55"/>
+                <DataGridTemplateColumn Header="Color" Width="60">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Width="30" Height="18" Tag="{Binding}" Click="swatch_click"
+                                    Background="{Binding color_brush}" BorderBrush="Black" BorderThickness="1"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Value" Binding="{Binding value_text}" IsReadOnly="True" Width="2*"/>
+                <DataGridTextColumn Header="Count" Binding="{Binding count_text}" IsReadOnly="True" Width="80"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>

@@ -23,8 +23,10 @@ that future modules must not require modifying existing code.
 """
 from modules import view_cropping
 from modules import fill_conversion
+from modules import dee_sselect
 
 REGISTERED_MODULES = [
     view_cropping.TOOL_INFO,
     fill_conversion.TOOL_INFO,
+    dee_sselect.TOOL_INFO,
 ]
