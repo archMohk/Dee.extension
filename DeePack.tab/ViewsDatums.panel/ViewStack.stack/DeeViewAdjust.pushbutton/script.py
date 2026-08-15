@@ -95,6 +95,7 @@ same policy as this extension's other geometry-heavy tools)
 """
 import os
 import time
+import math
 
 from pyrevit import forms
 from pyrevit import script as pyrevit_script
@@ -440,12 +441,88 @@ def _build_offset_loop(lines, centroid, distance):
     return result
 
 
-def _curve_loop_from_lines(lines):
+# ==========================================================================
+# Polygon cleaning - THE critical safety step before any geometry is
+# handed to Revit.
+#
+# Revit rejects (and its geometry kernel can HARD-CRASH the whole
+# application on, rather than raising a catchable exception) any curve
+# shorter than Application.ShortCurveTolerance - roughly 0.8mm. Room
+# boundaries routinely produce such slivers here: curved walls become
+# arcs, arcs get tessellated into short chords, and outward mitering can
+# collapse a corner to near-zero length. An early version of this tool
+# filtered at 1e-6 ft (0.0003mm), which let every one of those slivers
+# straight through - confirmed live by a real crash ("An unrecoverable
+# error has occurred") plus an "invalid crop shape" rejection on an
+# 80m2 room with curved walls.
+#
+# So: every polygon is cleaned through here before becoming a CurveLoop.
+# ==========================================================================
+def _short_curve_tolerance(doc):
+    try:
+        tol = doc.Application.ShortCurveTolerance
+        if tol and tol > 0:
+            return tol
+    except Exception:
+        pass
+    return 0.0026  # Revit's usual default, in feet (~0.8mm)
+
+
+def _clean_polygon_points(points, min_len, flat_tol):
+    """Ordered polygon vertices -> the same ring with (a) vertices closer
+    together than min_len merged away, and (b) vertices that sit on the
+    straight line between their neighbours dropped. Returns [] if what's
+    left can't form a polygon."""
+    if len(points) < 3:
+        return []
+
+    spaced = []
+    for p in points:
+        if not spaced or spaced[-1].DistanceTo(p) >= min_len:
+            spaced.append(p)
+    # the ring closes back on itself - collapse a too-short closing segment
+    while len(spaced) > 3 and spaced[-1].DistanceTo(spaced[0]) < min_len:
+        spaced.pop()
+    if len(spaced) < 3:
+        return []
+
+    simplified = []
+    n = len(spaced)
+    for i in range(n):
+        prev_p = spaced[(i - 1) % n]
+        cur = spaced[i]
+        nxt = spaced[(i + 1) % n]
+        ax, ay = cur.X - prev_p.X, cur.Y - prev_p.Y
+        bx, by = nxt.X - cur.X, nxt.Y - cur.Y
+        cross = ax * by - ay * bx
+        base = math.hypot(ax, ay) + math.hypot(bx, by)
+        # perpendicular deviation of `cur` from the prev->nxt chord
+        if base > 0 and abs(cross) / base < flat_tol:
+            continue
+        simplified.append(cur)
+    # never let simplification itself destroy the polygon
+    if len(simplified) < 3:
+        return spaced
+    return simplified
+
+
+def _curve_loop_from_lines(lines, min_len):
+    """Builds a closed CurveLoop from a chain of Lines, cleaned to
+    Revit's tolerances first. `lines` must already form a closed ring
+    (each line starting where the previous ended)."""
     if len(lines) < 3:
         return None
+    pts = _clean_polygon_points([ln.GetEndPoint(0) for ln in lines],
+                                min_len, min_len * 0.25)
+    if len(pts) < 3:
+        return None
     loop = CurveLoop()
-    for line in lines:
-        loop.Append(line)
+    n = len(pts)
+    try:
+        for i in range(n):
+            loop.Append(Line.CreateBound(pts[i], pts[(i + 1) % n]))
+    except Exception:
+        return None
     return loop
 
 
@@ -454,8 +531,8 @@ def _curve_loop_from_lines(lines):
 # geometry engine correctly handles arbitrary concave-polygon unions
 # this way, avoiding a hand-rolled 2D boolean algorithm)
 # ==========================================================================
-def _build_extrusion_solid(lines, height=_EXTRUSION_HEIGHT):
-    loop = _curve_loop_from_lines(lines)
+def _build_extrusion_solid(lines, min_len, height=_EXTRUSION_HEIGHT):
+    loop = _curve_loop_from_lines(lines, min_len)
     if loop is None:
         return None
     loops = List[CurveLoop]()
@@ -526,7 +603,7 @@ class CropBuildResult(object):
         self.all_points = []  # every offset-loop vertex - used for the bbox fallback when disjoint
 
 
-def build_combined_crop_loop(rows, offset_internal):
+def build_combined_crop_loop(rows, offset_internal, min_len):
     result = CropBuildResult()
     offset_lines_per_room = []
     for row in rows:
@@ -552,13 +629,13 @@ def build_combined_crop_loop(rows, offset_internal):
             result.all_points.append(line.GetEndPoint(1))
 
     if len(offset_lines_per_room) == 1:
-        result.curve_loop = _curve_loop_from_lines(offset_lines_per_room[0])
+        result.curve_loop = _curve_loop_from_lines(offset_lines_per_room[0], min_len)
         result.ok = result.curve_loop is not None
         if not result.ok:
             result.detail = "Could not build a closed crop shape from this room's boundary"
         return result
 
-    solids = [s for s in (_build_extrusion_solid(lines) for lines in offset_lines_per_room) if s is not None]
+    solids = [s for s in (_build_extrusion_solid(lines, min_len) for lines in offset_lines_per_room) if s is not None]
     if len(solids) != len(offset_lines_per_room):
         result.disjoint = True
         result.detail = "Could not build solid geometry for one or more selected rooms"
@@ -577,7 +654,7 @@ def build_combined_crop_loop(rows, offset_internal):
         return result
 
     final_lines = _tessellate_loop_to_lines(top_loops[0])
-    result.curve_loop = _curve_loop_from_lines(final_lines)
+    result.curve_loop = _curve_loop_from_lines(final_lines, min_len)
     result.ok = result.curve_loop is not None
     if not result.ok:
         result.detail = "Could not build a closed crop shape from the combined room outline"
@@ -588,28 +665,52 @@ def build_combined_crop_loop(rows, offset_internal):
 # Applying / resetting the view's crop
 # ==========================================================================
 def apply_view_crop(doc, view, curve_loop):
-    try:
-        crsm = view.GetCropRegionShapeManager()
-    except Exception as e:
-        return False, "Could not access this view's crop region shape manager: {0}".format(e)
-    try:
-        if not crsm.CanHaveShape:
-            return False, "This view does not support a non-rectangular crop shape"
-    except Exception:
-        pass
+    if curve_loop is None:
+        return False, "No crop shape was produced from the selected room(s)"
+
+    # Activate the crop FIRST, then fetch the shape manager. The reverse
+    # order leaves a manager captured against the view's pre-activation
+    # state, which is a documented way to end up operating on stale
+    # geometry state.
     try:
         if not view.CropBoxActive:
             view.CropBoxActive = True
     except Exception:
         pass
+
     try:
-        if not crsm.IsCropRegionShapeValid(curve_loop):
-            return False, "The combined room boundary is not a valid crop shape (self-intersecting or too complex)"
+        crsm = view.GetCropRegionShapeManager()
+    except Exception as e:
+        return False, "Could not access this view's crop region shape manager: {0}".format(e)
+
+    try:
+        if not crsm.CanHaveShape:
+            return False, "This view does not support a non-rectangular crop shape"
     except Exception:
         pass
+
+    # Validation must be treated as a hard gate, not advisory: handing an
+    # invalid loop to SetCropShape can take Revit down entirely rather
+    # than raising. An exception from the validator itself is also treated
+    # as "not safe to proceed" - previously it was swallowed and fell
+    # through to SetCropShape anyway.
+    try:
+        valid = crsm.IsCropRegionShapeValid(curve_loop)
+    except Exception as e:
+        return False, "Could not validate the crop shape ({0}) - not applied".format(e)
+    try:
+        seg_count = len(list(curve_loop))
+    except Exception:
+        seg_count = -1
+
+    if not valid:
+        return False, ("Revit rejected the combined room boundary as a crop shape "
+                       "({0} segments) - self-intersecting, or too complex. Try a "
+                       "smaller offset, or fewer rooms at once.".format(seg_count))
+
     try:
         crsm.SetCropShape(curve_loop)
-        return True, "Crop region set"
+        return True, "Crop region set ({0} segments)".format(seg_count)
     except Exception as e:
         return False, "Could not set the crop shape: {0}".format(e)
 
@@ -768,7 +869,8 @@ class DeeViewAdjustWindow(dee_branding.DeeBrandedWindow):
         start = time.time()
 
         with forms.ProgressBar(title="DeeViewAdjust - building crop shape...", indeterminate=True):
-            build_result = build_combined_crop_loop(selected, offset_internal)
+            build_result = build_combined_crop_loop(
+                selected, offset_internal, _short_curve_tolerance(self.doc) * 2.0)
 
         curve_loop = None
         bbox_points = None
