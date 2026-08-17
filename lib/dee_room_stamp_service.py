@@ -335,20 +335,62 @@ def _test_candidates(pt, rooms):
     return None
 
 
+class MatchDiagnostics(object):
+    """Populated by find_room_for_point on a miss, so a "no room found"
+    row can say WHY instead of leaving it a black box - level
+    resolution failure, an empty narrowed candidate set, and a genuine
+    geometry miss against every room in the project all look identical
+    from the outside otherwise, and each points to a different fix."""
+    def __init__(self):
+        self.point_missing = False
+        self.level_resolved = False
+        self.level_has_nearby_rooms = False
+        self.tier_a_count = 0
+        self.tier_b_count = 0
+        self.used_full_fallback = False
+
+    @property
+    def reason_text(self):
+        if self.point_missing:
+            return "No room found - could not determine this element's location"
+        if not self.level_resolved:
+            return "No room found - element's Level could not be resolved ({0} room(s) checked project-wide)".format(
+                self.tier_b_count)
+        if not self.level_has_nearby_rooms:
+            return "No room found - no Rooms exist near this element's Level ({0} room(s) checked project-wide)".format(
+                self.tier_b_count)
+        if self.used_full_fallback:
+            return "No room found - checked {0} nearby + {1} project-wide room(s), no match".format(
+                self.tier_a_count, self.tier_b_count)
+        return "No room found - checked {0} nearby room(s), no match".format(self.tier_a_count)
+
+
 def find_room_for_point(pt, element_level_id, room_index):
-    """Returns the matched Room, or None. See module docstring for the
-    Tier A/B narrowing and Tier 1/2 Z-retry rationale."""
+    """Returns (room_or_None, MatchDiagnostics). See module docstring
+    for the Tier A/B narrowing and Tier 1/2 Z-retry rationale."""
+    diag = MatchDiagnostics()
     if pt is None:
-        return None
+        diag.point_missing = True
+        return None, diag
+
+    key = _element_id_value(element_level_id) if element_level_id is not None else None
+    diag.level_resolved = key is not None
     candidates = _tier_a_candidates(element_level_id, room_index)
+    diag.tier_a_count = len(candidates)
+    diag.level_has_nearby_rooms = len(candidates) > 0
+
     if candidates:
         match = _test_candidates(pt, candidates)
         if match is not None:
-            return match
+            return match, diag
+
     # Tier B - element level unresolved, Tier A had no candidates, or
     # Tier A's candidates didn't match - a narrowing miss must never
     # cost correctness, only performance for this one element.
-    return _test_candidates(pt, room_index.all_rooms)
+    diag.used_full_fallback = True
+    diag.tier_b_count = len(room_index.all_rooms)
+    match = _test_candidates(pt, room_index.all_rooms)
+    return match, diag
 
 
 # ==========================================================================
@@ -446,7 +488,8 @@ class PreviewRow(object):
         "read_only": "Parameter is read-only",
     }
 
-    def __init__(self, cached, status_key, current_value, found_room_label, new_value, level_label):
+    def __init__(self, cached, status_key, current_value, found_room_label, new_value, level_label,
+                 status_detail=None):
         self.element = cached.element
         self.id_text = str(_element_id_value(cached.element.Id))
         self.checked = status_key == "will_update"
@@ -456,9 +499,12 @@ class PreviewRow(object):
         self.found_room_label = found_room_label or ""
         self.new_value = new_value or ""
         self.status_key = status_key
+        self._status_detail = status_detail
 
     @property
     def status_text(self):
+        if self._status_detail:
+            return self._status_detail
         return self._STATUS_TEXT.get(self.status_key, self.status_key)
 
 
@@ -490,9 +536,10 @@ def scan_for_parameter(param_name, cached_elements, room_index, progress_cb=None
             rows.append(PreviewRow(cached, "read_only", current_value, "", current_value, level_label))
             continue
 
-        room = find_room_for_point(cached.point, cached.level_id, room_index)
+        room, diag = find_room_for_point(cached.point, cached.level_id, room_index)
         if room is None:
-            rows.append(PreviewRow(cached, "no_room", current_value, "", current_value, level_label))
+            rows.append(PreviewRow(cached, "no_room", current_value, "", current_value, level_label,
+                                   status_detail=diag.reason_text))
             continue
 
         room_label = _room_label(room)
