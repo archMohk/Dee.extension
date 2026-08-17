@@ -1,0 +1,2 @@
+title: DeeRoomStamp
+tooltip: Scan every model element in the project and set a chosen text parameter to the Name of the Room each element physically sits in. Elements with no room match are left untouched.

@@ -1,0 +1,55 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeRoomStamp"
+        ShowInTaskbar="False"
+        MinHeight="600" MinWidth="900" Height="680" Width="1000"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                   Text="Scans every model element in the project. Pick a text parameter below, then Scan - every element that has that parameter gets a preview row showing which Room it's physically located in. Elements with no room match are left unchecked and untouched by Apply."/>
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="status_tb" Text="Ready."/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
+            <Button x:Name="apply_b" Content="Apply" Width="110" Height="30" FontWeight="Bold" Click="apply_click"/>
+            <Button x:Name="close_b" Content="Close" Width="90" Height="30" Margin="20,0,0,0" Click="close_click"/>
+        </StackPanel>
+
+        <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="Parameter to set:" Margin="0,0,0,4"/>
+                <TextBox x:Name="param_search_tb" Height="24" TextChanged="param_search_changed"/>
+                <ListBox x:Name="param_suggestions_lb" Height="90" Margin="0,4,0,0"
+                         SelectionChanged="param_suggestion_selected"/>
+            </StackPanel>
+            <Button Grid.Column="1" x:Name="scan_b" Content="Scan" Width="110" Height="30"
+                    VerticalAlignment="Bottom" Margin="16,0,0,4" Click="scan_click"/>
+        </Grid>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button x:Name="check_all_b" Content="Check All" Width="90" Height="24" Click="check_all_click"/>
+            <Button x:Name="check_none_b" Content="Check None" Width="90" Height="24" Margin="6,0,0,0" Click="check_none_click"/>
+        </StackPanel>
+
+        <DataGrid x:Name="preview_grid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserSortColumns="True"
+                  SelectionMode="Extended" SelectionUnit="FullRow">
+            <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="Apply" Binding="{Binding checked, Mode=TwoWay}" Width="55"/>
+                <DataGridTextColumn Header="Category" Binding="{Binding category_name}" IsReadOnly="True" Width="140"/>
+                <DataGridTextColumn Header="Level" Binding="{Binding level_label}" IsReadOnly="True" Width="110"/>
+                <DataGridTextColumn Header="Current Value" Binding="{Binding current_value}" IsReadOnly="True" Width="*"/>
+                <DataGridTextColumn Header="Found Room" Binding="{Binding found_room_label}" IsReadOnly="True" Width="*"/>
+                <DataGridTextColumn Header="New Value" Binding="{Binding new_value}" IsReadOnly="True" Width="*"/>
+                <DataGridTextColumn Header="Status" Binding="{Binding status_text}" IsReadOnly="True" Width="160"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>
