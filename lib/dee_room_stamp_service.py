@@ -49,6 +49,42 @@ Tier B retries against EVERY room in the project before concluding
 never correctness.
 
 --------------------------------------------------------------------
+Why boundary-defining elements (walls) are matched directly, not by
+point testing
+--------------------------------------------------------------------
+A wall that separates two rooms has its LocationCurve midpoint sitting
+ON the line between them - an inherently ambiguous case for a point-
+in-polygon test (IsPointInRoom can miss it on both sides, or behave
+inconsistently right on the boundary). Revit already computes exactly
+which elements bound each room's boundary via
+Room.GetBoundarySegments() - each returned BoundarySegment carries the
+ElementId of whatever bounds it (a Wall, a room separation line,
+another room; already used the same way in
+DeeFinisher.pushbutton/DeeViewAdjust.pushbutton's own boundary-curve
+extraction). find_room_by_boundary() looks an element's Id up in an
+index built from this once per scan and, if it bounds a Room, returns
+that Room directly - skipping point-testing entirely for exactly the
+element type where a point test is least reliable. Only elements not
+found in this index (interior partitions with a room on just one side
+they don't bound, unrelated categories, etc.) fall through to the
+point-based Tier A/B matching.
+
+--------------------------------------------------------------------
+Why some elements get several candidate points, not just one
+--------------------------------------------------------------------
+A Floor/Ceiling/Roof (or any element with neither a LocationPoint nor
+a LocationCurve) falls back to its bounding-box center as a single
+representative point. For a non-convex plan shape - an L-shaped or
+Y-shaped room's floor is a completely ordinary, common case - the
+bbox center can land in the "notch" outside the actual room/floor
+material entirely, even though the element is unambiguously "in" that
+room. get_representative_points() samples the bbox center plus its
+four quarter-points instead of just the center; find_room_for_points()
+tries each in turn (full Tier A/B narrowing per point) and returns the
+first match. LocationPoint/LocationCurve-based elements are unaffected
+- they still get exactly their own one, authoritative point.
+
+--------------------------------------------------------------------
 NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct -
 same policy as this extension's other geometry-heavy tools)
 --------------------------------------------------------------------
@@ -71,13 +107,22 @@ same policy as this extension's other geometry-heavy tools)
 - Multiple room matches (overlapping rooms, a real condition per
   health_checks.overlapping_rooms) - first match wins, documented,
   not yet validated as the expected tie-break by an actual user.
+- A wall bounding two rooms picks whichever room's GetBoundarySegments
+  happens to be processed first while building the index - same
+  first-match-wins policy as the point-based path, not yet validated
+  as the expected tie-break for a shared wall specifically.
+- Room.GetBoundarySegments() reflects Revit's LAST-COMPUTED boundary
+  for that room - if a room's boundary is stale (walls moved since it
+  was last redrawn, a known, ordinary Revit modeling situation), the
+  boundary-element index built here will be stale in exactly the same
+  way and in the same places Revit's own room boundary already is.
 """
 import time
 
 from Autodesk.Revit.DB import (
     FilteredElementCollector, BuiltInCategory, BuiltInParameter, CategoryType,
     LocationPoint, LocationCurve, RevitLinkInstance, Transaction, StorageType,
-    XYZ, Level, ElementId,
+    XYZ, Level, ElementId, SpatialElementBoundaryOptions, SpatialElementBoundaryLocation,
 )
 from Autodesk.Revit.DB.Architecture import Room
 
@@ -183,28 +228,59 @@ def _get_model_bounding_box(doc, element):
     return None
 
 
-def get_representative_point(doc, element):
+def _sample_bbox_points(bbox):
+    """Center plus the four quarter-points of a bounding box's
+    footprint, all at the bbox's own mid-height - see module docstring
+    ("Why some elements get several candidate points"). Z barely
+    matters here: whichever candidate room ends up tested against
+    these points gets its Z corrected by the Tier-2 retry regardless -
+    what matters is giving XY more than one chance to land on actual
+    material for a non-convex plan shape."""
+    try:
+        minp, maxp = bbox.Min, bbox.Max
+    except Exception:
+        return []
+    midz = (minp.Z + maxp.Z) * 0.5
+    fractions = ((0.5, 0.5), (0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75))
+    pts = []
+    for fx, fy in fractions:
+        try:
+            pts.append(XYZ(
+                minp.X + (maxp.X - minp.X) * fx,
+                minp.Y + (maxp.Y - minp.Y) * fy,
+                midz))
+        except Exception:
+            continue
+    return pts
+
+
+def get_representative_points(doc, element):
+    """Returns a list of candidate XYZ points to test this element
+    against room boundaries. LocationPoint/LocationCurve-based
+    elements get exactly their own one, authoritative point;
+    everything else (Floors, Ceilings, Roofs, and any element with
+    neither location type) gets several bbox samples instead of just
+    the center - see module docstring."""
     try:
         loc = element.Location
     except Exception:
         loc = None
     if isinstance(loc, LocationPoint):
         try:
-            return loc.Point
+            return [loc.Point]
         except Exception:
             pass
     if isinstance(loc, LocationCurve):
         try:
-            return loc.Curve.Evaluate(0.5, True)
+            return [loc.Curve.Evaluate(0.5, True)]
         except Exception:
             pass
     bbox = _get_model_bounding_box(doc, element)
     if bbox is not None:
-        try:
-            return (bbox.Min + bbox.Max) * 0.5
-        except Exception:
-            pass
-    return None
+        pts = _sample_bbox_points(bbox)
+        if pts:
+            return pts
+    return []
 
 
 # ==========================================================================
@@ -238,10 +314,11 @@ def _resolve_element_level_id(el):
 # ==========================================================================
 class RoomIndex(object):
     def __init__(self):
-        self.rooms_by_level_id = {}    # {level_id_value: [Room, ...]}
-        self.sorted_level_ids = []     # level id values, sorted by elevation
-        self.level_name_by_id = {}     # {level_id_value: level name}
+        self.rooms_by_level_id = {}      # {level_id_value: [Room, ...]}
+        self.sorted_level_ids = []       # level id values, sorted by elevation
+        self.level_name_by_id = {}       # {level_id_value: level name}
         self.all_rooms = []
+        self.boundary_element_to_rooms = {}   # {element_id_value: [Room, ...]}
 
 
 def _room_safe_z(room):
@@ -283,6 +360,12 @@ def build_room_index(doc):
             level_elev[key] = 0.0
         index.level_name_by_id[key] = _read_name(lvl) or "(unnamed level)"
 
+    boundary_opts = SpatialElementBoundaryOptions()
+    try:
+        boundary_opts.SpatialElementBoundaryLocation = SpatialElementBoundaryLocation.Finish
+    except Exception:
+        pass
+
     for r in FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms).WhereElementIsNotElementType():
         try:
             if r.Area <= 0 or r.Location is None:
@@ -295,6 +378,27 @@ def build_room_index(doc):
         except Exception:
             key = None
         index.rooms_by_level_id.setdefault(key, []).append(r)
+
+        # boundary-element association (walls, room separation lines,
+        # etc.) - see module docstring, used to match a wall aligned
+        # with the room boundary directly, without any point test.
+        try:
+            loops = r.GetBoundarySegments(boundary_opts)
+        except Exception:
+            loops = None
+        if loops:
+            for loop in loops:
+                for seg in loop:
+                    try:
+                        seg_id = seg.ElementId
+                    except Exception:
+                        continue
+                    if seg_id is None or seg_id == ElementId.InvalidElementId:
+                        continue
+                    seg_key = _element_id_value(seg_id)
+                    if seg_key is None:
+                        continue
+                    index.boundary_element_to_rooms.setdefault(seg_key, []).append(r)
 
     index.sorted_level_ids = sorted(
         [k for k in index.rooms_by_level_id.keys() if k is not None],
@@ -336,7 +440,7 @@ def _test_candidates(pt, rooms):
 
 
 class MatchDiagnostics(object):
-    """Populated by find_room_for_point on a miss, so a "no room found"
+    """Populated by find_room_for_points on a miss, so a "no room found"
     row can say WHY instead of leaving it a black box - level
     resolution failure, an empty narrowed candidate set, and a genuine
     geometry miss against every room in the project all look identical
@@ -365,11 +469,32 @@ class MatchDiagnostics(object):
         return "No room found - checked {0} nearby room(s), no match".format(self.tier_a_count)
 
 
-def find_room_for_point(pt, element_level_id, room_index):
-    """Returns (room_or_None, MatchDiagnostics). See module docstring
-    for the Tier A/B narrowing and Tier 1/2 Z-retry rationale."""
+def find_room_by_boundary(element, room_index):
+    """Direct match via Revit's own room-boundary computation - see
+    module docstring ("Why boundary-defining elements are matched
+    directly, not by point testing"). Returns the first Room this
+    element bounds, or None if it doesn't bound any room (an interior
+    partition with a room on only one side it doesn't bound, an
+    exterior wall, an unrelated category, etc.) - callers fall through
+    to point-based matching in that case."""
+    try:
+        key = _element_id_value(element.Id)
+    except Exception:
+        return None
+    rooms = room_index.boundary_element_to_rooms.get(key)
+    if not rooms:
+        return None
+    return rooms[0]
+
+
+def find_room_for_points(points, element_level_id, room_index):
+    """Returns (room_or_None, MatchDiagnostics). Tries each candidate
+    point in `points` in turn against the Tier A candidate set first,
+    then - only if none of them matched - against every room in the
+    project (Tier B). See module docstring for the Tier A/B narrowing,
+    Tier 1/2 Z-retry, and multi-point rationale."""
     diag = MatchDiagnostics()
-    if pt is None:
+    if not points:
         diag.point_missing = True
         return None, diag
 
@@ -380,17 +505,22 @@ def find_room_for_point(pt, element_level_id, room_index):
     diag.level_has_nearby_rooms = len(candidates) > 0
 
     if candidates:
-        match = _test_candidates(pt, candidates)
-        if match is not None:
-            return match, diag
+        for pt in points:
+            match = _test_candidates(pt, candidates)
+            if match is not None:
+                return match, diag
 
     # Tier B - element level unresolved, Tier A had no candidates, or
-    # Tier A's candidates didn't match - a narrowing miss must never
-    # cost correctness, only performance for this one element.
+    # none of Tier A's candidates matched any candidate point - a
+    # narrowing miss must never cost correctness, only performance for
+    # this one element.
     diag.used_full_fallback = True
     diag.tier_b_count = len(room_index.all_rooms)
-    match = _test_candidates(pt, room_index.all_rooms)
-    return match, diag
+    for pt in points:
+        match = _test_candidates(pt, room_index.all_rooms)
+        if match is not None:
+            return match, diag
+    return None, diag
 
 
 # ==========================================================================
@@ -420,9 +550,9 @@ def validate_parameter(element, param_name):
 # Pass 1 - project-wide element cache + distinct String-parameter names
 # ==========================================================================
 class _CachedElement(object):
-    def __init__(self, element, point, level_id, category_name):
+    def __init__(self, element, points, level_id, category_name):
         self.element = element
-        self.point = point
+        self.points = points
         self.level_id = level_id
         self.category_name = category_name
 
@@ -458,10 +588,10 @@ def collect_string_param_universe_and_elements(doc, progress_cb=None):
             except Exception:
                 continue
 
-            pt = get_representative_point(doc, el)
+            pts = get_representative_points(doc, el)
             level_id = _resolve_element_level_id(el)
             cat_name = _read_name(cat) or "(unknown category)"
-            cached.append(_CachedElement(el, pt, level_id, cat_name))
+            cached.append(_CachedElement(el, pts, level_id, cat_name))
 
             for p in el.Parameters:
                 try:
@@ -536,10 +666,13 @@ def scan_for_parameter(param_name, cached_elements, room_index, progress_cb=None
             rows.append(PreviewRow(cached, "read_only", current_value, "", current_value, level_label))
             continue
 
-        room, diag = find_room_for_point(cached.point, cached.level_id, room_index)
+        room = find_room_by_boundary(cached.element, room_index)
+        diag = None
+        if room is None:
+            room, diag = find_room_for_points(cached.points, cached.level_id, room_index)
         if room is None:
             rows.append(PreviewRow(cached, "no_room", current_value, "", current_value, level_label,
-                                   status_detail=diag.reason_text))
+                                   status_detail=diag.reason_text if diag is not None else None))
             continue
 
         room_label = _room_label(room)
