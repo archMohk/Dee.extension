@@ -116,6 +116,15 @@ same policy as this extension's other geometry-heavy tools)
   was last redrawn, a known, ordinary Revit modeling situation), the
   boundary-element index built here will be stale in exactly the same
   way and in the same places Revit's own room boundary already is.
+- View.IsolateElementsTemporary/TemporaryViewMode (the "isolate
+  updated elements in a 3D view" step after Apply) - this exact API
+  pair is reused from DeeCleaner.pushbutton's inplace_isolate_click,
+  but that tool's OWN docstring flags it as still needing live-Revit
+  verification too - it is not yet a proven pattern in this codebase,
+  only a shared unverified one. The _ensure_view/_find_3d_view/
+  _ensure_3d_view_type helpers (view CREATION) are the separately-
+  proven part, confirmed live via DeeRehoster's own 3D color-coded
+  view.
 """
 import time
 
@@ -123,14 +132,17 @@ from Autodesk.Revit.DB import (
     FilteredElementCollector, BuiltInCategory, BuiltInParameter, CategoryType,
     LocationPoint, LocationCurve, RevitLinkInstance, Transaction, StorageType,
     XYZ, Level, ElementId, SpatialElementBoundaryOptions, SpatialElementBoundaryLocation,
+    View3D, ViewFamilyType, ViewFamily, TemporaryViewMode,
 )
 from Autodesk.Revit.DB.Architecture import Room
+from System.Collections.Generic import List
 
 from pyrevit import script
 
 output = script.get_output()
 
 _Z_EPSILON = 0.1  # feet - lifted above a room's own floor for the Tier-2 retry
+_UPDATED_VIEW_NAME = "DeeRoomStamp - Updated Elements"
 
 _LEVEL_PARAM_CANDIDATES = [
     "SCHEDULE_LEVEL_PARAM", "FAMILY_LEVEL_PARAM", "LEVEL_PARAM",
@@ -689,7 +701,8 @@ def scan_for_parameter(param_name, cached_elements, room_index, progress_cb=None
 class ApplyResult(object):
     def __init__(self):
         self.ok_count = 0
-        self.skipped = []  # list of (id_text, reason)
+        self.skipped = []       # list of (id_text, reason)
+        self.updated_ids = []   # ElementId list - fed to isolate_updated_elements
         self.elapsed_seconds = 0.0
 
 
@@ -707,6 +720,7 @@ def apply_rows(doc, rows, param_name):
                     continue
                 p.Set(row.new_value)
                 result.ok_count += 1
+                result.updated_ids.append(row.element.Id)
             except Exception as e:
                 result.skipped.append((row.id_text, str(e)))
         t.Commit()
@@ -717,10 +731,88 @@ def apply_rows(doc, rows, param_name):
     return result
 
 
-def print_report(result):
+# ==========================================================================
+# Isolate updated elements in a dedicated 3D view - same proven pattern
+# already used in DeeCleaner.pushbutton's inplace_isolate_click (ensure-
+# or-reuse a named 3D view, Temporary Hide/Isolate the given ids).
+# ==========================================================================
+def _as_element_id(value):
+    if isinstance(value, ElementId):
+        return value
+    if hasattr(value, "Id"):
+        return value.Id
+    return value
+
+
+def _find_3d_view(doc, name):
+    for v in FilteredElementCollector(doc).OfClass(View3D):
+        if not v.IsTemplate and v.Name == name:
+            return v
+    return None
+
+
+def _ensure_3d_view_type(doc):
+    for vft in FilteredElementCollector(doc).OfClass(ViewFamilyType):
+        try:
+            if vft.ViewFamily != ViewFamily.ThreeDimensional:
+                continue
+        except Exception:
+            continue
+        return _as_element_id(vft.Id)
+    raise Exception("No usable 3D ViewFamilyType found in this project")
+
+
+def _ensure_view(doc, name):
+    view = _find_3d_view(doc, name)
+    if view is not None:
+        return view
+    type_id = _ensure_3d_view_type(doc)
+    view = View3D.CreateIsometric(doc, _as_element_id(type_id))
+    view.Name = name
+    return view
+
+
+def isolate_updated_elements(doc, element_ids, view_name=_UPDATED_VIEW_NAME):
+    """Creates (or reuses) a dedicated 3D view and isolates exactly
+    `element_ids` in it via Revit's Temporary Hide/Isolate. Its own
+    self-contained Transaction, run AFTER apply_rows's Transaction has
+    already committed - isolating is a secondary, reporting-only step
+    and must never risk the parameter writes that already succeeded.
+    Returns the view's Name; raises on failure (caller decides whether
+    that should interrupt the report or just get noted in it)."""
+    if not element_ids:
+        raise Exception("No updated elements to isolate")
+    ids = List[ElementId](element_ids)
+    t = Transaction(doc, "DeeRoomStamp - Isolate Updated Elements")
+    t.Start()
+    try:
+        view = _ensure_view(doc, view_name)
+        try:
+            if view.IsInTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate):
+                view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate)
+        except Exception:
+            pass
+        view.IsolateElementsTemporary(ids)
+        t.Commit()
+    except Exception:
+        t.RollBack()
+        raise
+    return view.Name
+
+
+def print_report(result, view_name=None, view_error=None):
     html = ['<h2 style="font-family:sans-serif;color:#ddd;">DeeRoomStamp - Apply Results</h2>',
             '<p style="color:#ddd;">{0} updated, {1} skipped - {2:.2f}s.</p>'.format(
                 result.ok_count, len(result.skipped), result.elapsed_seconds)]
+    if view_name:
+        html.append(
+            '<p style="color:#ddd;">Updated elements isolated in the '
+            '<b>&quot;{0}&quot;</b> 3D view (Temporary Hide/Isolate - open that view to '
+            'see them; reset or make it permanent from the View Control Bar at the '
+            'bottom of the view).</p>'.format(view_name))
+    elif view_error:
+        html.append(
+            '<p style="color:#c62828;">Could not create the isolated view: {0}</p>'.format(view_error))
     for label, reason in result.skipped:
         html.append(
             '<div style="padding:4px 10px;margin:2px 0;background:#c62828;color:#fff;'

@@ -106,7 +106,15 @@ class DeeRoomStampWindow(dee_branding.DeeBrandedWindow):
 
         with forms.ProgressBar(title="DeeRoomStamp - applying...", indeterminate=True):
             result = core.apply_rows(self.doc, selected, param_name)
-        core.print_report(result)
+            view_name = None
+            view_error = None
+            if result.updated_ids:
+                try:
+                    view_name = core.isolate_updated_elements(self.doc, result.updated_ids)
+                except Exception as e:
+                    view_error = str(e)
+
+        core.print_report(result, view_name=view_name, view_error=view_error)
         self.status_tb.Text = "Applied: {0} updated, {1} skipped. See the pyRevit output window for details.".format(
             result.ok_count, len(result.skipped))
 
