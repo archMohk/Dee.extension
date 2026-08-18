@@ -20,11 +20,13 @@
             <TabItem Header="1. Scan">
                 <DockPanel Margin="8">
                     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Pick which categories to include (defaults to every model category found in the project) and the parameter to segregate quantities by (e.g. Level). Scan computes a real measured quantity per element (Area/Volume/Length/Count depending on category) and pivots it against that parameter's value."/>
+                               Text="Pick which categories to include (defaults to every model category found in the project) and the parameter to segregate quantities by (e.g. Level). 'Then By' is optional - set it too for a 2nd-level grouping (e.g. Level, then Material). Scan computes a real measured quantity per element (Area/Volume/Length/Count depending on category) and pivots it against those value(s)."/>
 
                     <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="2*"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="1*"/>
                             <ColumnDefinition Width="10"/>
                             <ColumnDefinition Width="1*"/>
                         </Grid.ColumnDefinitions>
@@ -50,6 +52,14 @@
                                 <TextBox DockPanel.Dock="Top" x:Name="param_search_tb" Height="24" TextChanged="param_search_changed"/>
                                 <ListBox x:Name="param_suggestions_lb" Height="130" Margin="0,4,0,0"
                                          SelectionChanged="param_suggestion_selected"/>
+                            </DockPanel>
+                        </GroupBox>
+
+                        <GroupBox Grid.Column="4" Header="Then By (optional)">
+                            <DockPanel>
+                                <TextBox DockPanel.Dock="Top" x:Name="param2_search_tb" Height="24" TextChanged="param2_search_changed"/>
+                                <ListBox x:Name="param2_suggestions_lb" Height="130" Margin="0,4,0,0"
+                                         SelectionChanged="param2_suggestion_selected"/>
                             </DockPanel>
                         </GroupBox>
                     </Grid>
@@ -154,10 +164,11 @@
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                         <Button x:Name="preview_b" Content="Preview" Width="120" Height="30" Click="preview_click"/>
                         <Button x:Name="export_b" Content="Export to Excel" Width="150" Height="30" Margin="10,0,0,0" FontWeight="Bold" Click="export_click"/>
+                        <Button x:Name="export_advanced_b" Content="Export Advanced (3-sheet)" Width="190" Height="30" Margin="10,0,0,0" FontWeight="Bold" Click="export_advanced_click"/>
                     </StackPanel>
 
                     <TextBlock TextWrapping="Wrap"
-                               Text="Preview shows exactly what will be exported (Sections, Items, Subtotals, Grand Total) in the pyRevit output window. Export to Excel writes the same structure to a styled .xlsx file."/>
+                               Text="Preview shows exactly what will be exported (Sections, Items, Subtotals, Grand Total) in the pyRevit output window. Export to Excel writes a single styled sheet. Export Advanced writes a 3-sheet workbook (Summary section totals, Detailed item breakdown, and a hidden Data sheet with every scanned element's raw quantity for audit)."/>
                 </DockPanel>
             </TabItem>
 

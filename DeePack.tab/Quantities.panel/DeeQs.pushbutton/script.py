@@ -92,6 +92,7 @@ class DeeQsWindow(dee_branding.DeeBrandedWindow):
         self._category_choices = [CategoryChoice(n, True) for n in self._universe.category_names]
         self.category_lb.ItemsSource = self._category_choices
         self.param_suggestions_lb.ItemsSource = self._universe.param_names
+        self.param2_suggestions_lb.ItemsSource = self._universe.param_names
         if "Level" in self._universe.param_names:
             self.param_search_tb.Text = "Level"
 
@@ -140,11 +141,24 @@ class DeeQsWindow(dee_branding.DeeBrandedWindow):
         if picked:
             self.param_search_tb.Text = picked
 
+    def param2_search_changed(self, sender, args):
+        filt = (self.param2_search_tb.Text or "").lower()
+        if filt:
+            self.param2_suggestions_lb.ItemsSource = [n for n in self._universe.param_names if filt in n.lower()]
+        else:
+            self.param2_suggestions_lb.ItemsSource = self._universe.param_names
+
+    def param2_suggestion_selected(self, sender, args):
+        picked = self.param2_suggestions_lb.SelectedItem
+        if picked:
+            self.param2_search_tb.Text = picked
+
     def scan_click(self, sender, args):
         param_name = (self.param_search_tb.Text or "").strip()
         if not param_name:
             forms.alert("Type or pick a parameter to segregate by first.")
             return
+        param_name_2 = (self.param2_search_tb.Text or "").strip() or None
         selected = set(c.name for c in self._category_choices if c.checked)
         if not selected:
             forms.alert("Check at least one category first.")
@@ -152,7 +166,8 @@ class DeeQsWindow(dee_branding.DeeBrandedWindow):
 
         with forms.ProgressBar(title="DeeQs - measuring quantities...", cancellable=True) as pb:
             self._scan_rows = core.scan_for_quantities(
-                self.doc, self._universe.cached_elements, param_name, selected, self._progress_cb(pb))
+                self.doc, self._universe.cached_elements, param_name, selected,
+                segregation_param_name_2=param_name_2, progress_cb=self._progress_cb(pb))
 
         categories, values, grid = core.build_pivot(self._scan_rows)
         self._pivot = (categories, values, grid)
@@ -392,6 +407,27 @@ class DeeQsWindow(dee_branding.DeeBrandedWindow):
                 return
         self.status_tb.Text = "Exported to {0}".format(dlg.FileName)
         MessageBox.Show("Exported Bill of Quantities to:\n{0}".format(dlg.FileName), "DeeQs")
+
+    def export_advanced_click(self, sender, args):
+        if not self._sections:
+            forms.alert("Generate a BOQ Structure first (Tab 1 - Scan, then Generate BOQ Structure).")
+            return
+        dlg = SaveFileDialog()
+        dlg.Filter = "Excel Workbook (*.xlsx)|*.xlsx"
+        dlg.FileName = "DeeQs_BOQ_Advanced.xlsx"
+        if dlg.ShowDialog() != DialogResult.OK:
+            return
+        with forms.ProgressBar(title="DeeQs - exporting (Summary/Detailed/Data)...", indeterminate=True):
+            try:
+                raw_rows = core.raw_rows_for_export(self.doc, self._scan_rows)
+                xlsx_writer.write_boq_advanced_xlsx(
+                    dlg.FileName, self._project_info(), self._sections, self._currency(), raw_rows=raw_rows)
+            except Exception as e:
+                forms.alert("Could not export: {0}".format(e))
+                return
+        self.status_tb.Text = "Exported (Advanced) to {0}".format(dlg.FileName)
+        MessageBox.Show(
+            "Exported Bill of Quantities (Summary/Detailed/Data) to:\n{0}".format(dlg.FileName), "DeeQs")
 
     def close_click(self, sender, args):
         self.Close()

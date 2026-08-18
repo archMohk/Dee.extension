@@ -376,10 +376,20 @@ class ScanRow(object):
         self.segregation_value = segregation_value if segregation_value else _UNASSIGNED_LABEL
 
 
-def scan_for_quantities(doc, cached_elements, segregation_param_name, selected_categories=None, progress_cb=None):
+def scan_for_quantities(doc, cached_elements, segregation_param_name, selected_categories=None,
+                         segregation_param_name_2=None, progress_cb=None):
     """cached_elements: the (element, category_name, category_id_value)
     list from build_element_universe - re-collecting is never needed
-    for the real scan, only re-filtering/re-measuring."""
+    for the real scan, only re-filtering/re-measuring.
+
+    segregation_param_name_2 (optional, Phase 2): when given, each
+    element's two parameter values are combined into one compound
+    segregation_value string ("Level 1 | Concrete") rather than
+    restructuring BoqSection/BoqItem into a true 3-tier hierarchy -
+    build_pivot/seed_boq_from_pivot/renumber_all are completely
+    unchanged by this, they just see a richer value string, keeping
+    this an additive change on top of the already-live-tested Phase 1
+    data model rather than a rework of it."""
     rows = []
     total = len(cached_elements)
     for i, (el, cat_name, cat_id_val) in enumerate(cached_elements):
@@ -390,8 +400,25 @@ def scan_for_quantities(doc, cached_elements, segregation_param_name, selected_c
             continue
         quantity, kind = get_element_quantity(el, cat_id_val)
         seg_value = _read_segregation_value(doc, el, segregation_param_name)
+        if segregation_param_name_2:
+            seg_value_2 = _read_segregation_value(doc, el, segregation_param_name_2)
+            seg_value = "{0} | {1}".format(seg_value or _UNASSIGNED_LABEL, seg_value_2 or _UNASSIGNED_LABEL)
         rows.append(ScanRow(el, cat_name, quantity, kind, seg_value))
     return rows
+
+
+def raw_rows_for_export(doc, rows):
+    """Flattens ScanRow objects (one per scanned element, NOT summed)
+    into plain (category_name, segregation_value, quantity, unit)
+    tuples for xlsx_writer.write_boq_advanced_xlsx's hidden Data sheet
+    - every individual element in display units, so the Advanced
+    export stays traceable/auditable back to the raw scan, unlike the
+    Summary/Detailed sheets which are aggregated per (value, category)."""
+    out = []
+    for r in rows:
+        display_qty, unit_label = convert_and_label(doc, r.quantity, r.quantity_kind)
+        out.append((r.category_name, r.segregation_value, display_qty, unit_label))
+    return out
 
 
 # ----------------------------------------------------------------------------

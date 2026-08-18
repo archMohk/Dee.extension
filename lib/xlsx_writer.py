@@ -566,31 +566,13 @@ def _boq_cell(col, row, style, value, is_number=False):
         ref, style, _escape("" if value is None else str(value)))
 
 
-def write_boq_xlsx(path, project_info, sections, currency_symbol="$"):
-    """path: output file path.
-    project_info: dict with optional keys project_name/project_no/
-                  client/consultant/date.
-    sections: list of section-like objects, each with .title/
-              .section_no and .items (item-like objects with
-              .item_no/.description/.unit/.quantity/.rate) - matches
-              dee_qs_service's BoqSection/BoqItem shape but only reads
-              these attributes, so any duck-typed equivalent works.
-    currency_symbol: shown in the Rate/Amount column headers only -
-                     Excel itself just sees plain numbers.
-    """
-    headers = ["Item No", "Description", "Unit", "Quantity",
-               "Rate ({0})".format(currency_symbol), "Amount ({0})".format(currency_symbol)]
-    col_widths = [10, 46, 10, 14, 14, 16]
-    ncols = len(headers)
-    last_col = _col_letter(ncols)
-
-    rows_xml = []
-    merges = []
-
-    rows_xml.append(
-        '<row r="1" ht="26" customHeight="1">' +
-        _boq_cell("A", 1, _BOQ_STYLE_TITLE, "Bill of Quantities") + "</row>")
-    merges.append("A1:{0}1".format(last_col))
+def _boq_title_and_info_rows(title_text, project_info, last_col):
+    """Shared title + Project/Project No/Client/Consultant/Date block
+    used at the top of every BOQ sheet variant. Returns (rows_xml list,
+    merges list, next_free_row)."""
+    rows_xml = ['<row r="1" ht="26" customHeight="1">' +
+                _boq_cell("A", 1, _BOQ_STYLE_TITLE, title_text) + "</row>"]
+    merges = ["A1:{0}1".format(last_col)]
 
     info_pairs = [
         ("Project", project_info.get("project_name", "")),
@@ -607,8 +589,24 @@ def write_boq_xlsx(path, project_info, sections, currency_symbol="$"):
             _boq_cell("B", r, _BOQ_STYLE_VALUE, value) + "</row>")
         merges.append("B{0}:{1}{0}".format(r, last_col))
         r += 1
-    r += 1  # blank spacer row
+    return rows_xml, merges, r + 1  # +1 blank spacer row
 
+
+def _boq_detail_table_rows(sections, currency_symbol, start_row):
+    """The Item No/Description/Unit/Quantity/Rate/Amount table with a
+    Section group-header row, a Subtotal row per Section, and a Grand
+    Total row - the same body write_boq_xlsx has always produced,
+    factored out so the Advanced export's Detailed sheet can reuse it
+    exactly instead of re-deriving it. Returns (rows_xml, merges,
+    grand_total, next_free_row)."""
+    headers = ["Item No", "Description", "Unit", "Quantity",
+               "Rate ({0})".format(currency_symbol), "Amount ({0})".format(currency_symbol)]
+    ncols = len(headers)
+    rows_xml = []
+    merges = []
+    last_col = _col_letter(ncols)
+
+    r = start_row
     header_row = "".join(
         _boq_cell(_col_letter(i + 1), r, _BOQ_STYLE_HEADER, h) for i, h in enumerate(headers))
     rows_xml.append('<row r="{0}">'.format(r) + header_row + "</row>")
@@ -654,17 +652,47 @@ def write_boq_xlsx(path, project_info, sections, currency_symbol="$"):
     grand_cells += _boq_cell("E", r, _BOQ_STYLE_GRAND_LABEL, "Grand Total")
     grand_cells += _boq_cell("F", r, _BOQ_STYLE_GRAND_NUM, round(grand_total, 2), is_number=True)
     rows_xml.append('<row r="{0}">'.format(r) + grand_cells + "</row>")
+    r += 1
 
+    return rows_xml, merges, grand_total, r
+
+
+def _boq_sheet_xml(col_widths, rows_xml, merges):
+    ncols = len(col_widths)
     cols_xml = "".join(
         '<col min="{0}" max="{0}" width="{1}" customWidth="1"/>'.format(i + 1, w)
         for i, w in enumerate(col_widths))
-    merge_xml = '<mergeCells count="{0}">{1}</mergeCells>'.format(
-        len(merges), "".join('<mergeCell ref="{0}"/>'.format(m) for m in merges))
-    sheet_xml = (
+    merge_xml = ""
+    if merges:
+        merge_xml = '<mergeCells count="{0}">{1}</mergeCells>'.format(
+            len(merges), "".join('<mergeCell ref="{0}"/>'.format(m) for m in merges))
+    return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
         '<cols>{0}</cols><sheetData>{1}</sheetData>{2}</worksheet>'
     ).format(cols_xml, "".join(rows_xml), merge_xml)
+
+
+def write_boq_xlsx(path, project_info, sections, currency_symbol="$"):
+    """path: output file path.
+    project_info: dict with optional keys project_name/project_no/
+                  client/consultant/date.
+    sections: list of section-like objects, each with .title/
+              .section_no and .items (item-like objects with
+              .item_no/.description/.unit/.quantity/.rate) - matches
+              dee_qs_service's BoqSection/BoqItem shape but only reads
+              these attributes, so any duck-typed equivalent works.
+    currency_symbol: shown in the Rate/Amount column headers only -
+                     Excel itself just sees plain numbers.
+    """
+    col_widths = [10, 46, 10, 14, 14, 16]
+    last_col = _col_letter(len(col_widths))
+
+    title_rows, title_merges, next_row = _boq_title_and_info_rows("Bill of Quantities", project_info, last_col)
+    detail_rows, detail_merges, _grand_total, _next_row = _boq_detail_table_rows(
+        sections, currency_symbol, next_row)
+
+    sheet_xml = _boq_sheet_xml(col_widths, title_rows + detail_rows, title_merges + detail_merges)
 
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("[Content_Types].xml", _CONTENT_TYPES)
@@ -673,3 +701,150 @@ def write_boq_xlsx(path, project_info, sections, currency_symbol="$"):
         z.writestr("xl/_rels/workbook.xml.rels", _WORKBOOK_RELS)
         z.writestr("xl/styles.xml", _BOQ_STYLES)
         z.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+
+
+# ---------------------------------------------------------------------------
+# 3-sheet Advanced BOQ export (DeeQs Phase 2) - Summary (one row per
+# Section, subtotal only), Detailed (the exact same section/item table
+# write_boq_xlsx produces, via the shared helpers above), and a hidden
+# Data sheet (every individual scanned element's raw category/
+# segregation-value/quantity/unit - not aggregated - for traceability/
+# audit back to the source scan). Reuses _BOQ_STYLES and every helper
+# above rather than duplicating the section/item-table logic.
+# ---------------------------------------------------------------------------
+def _boq_summary_table_rows(sections, currency_symbol, start_row):
+    headers = ["Section No", "Section", "Subtotal ({0})".format(currency_symbol)]
+    ncols = len(headers)
+    last_col = _col_letter(ncols)
+    rows_xml = []
+
+    r = start_row
+    header_row = "".join(
+        _boq_cell(_col_letter(i + 1), r, _BOQ_STYLE_HEADER, h) for i, h in enumerate(headers))
+    rows_xml.append('<row r="{0}">'.format(r) + header_row + "</row>")
+    r += 1
+
+    grand_total = 0.0
+    for section in sections:
+        subtotal = sum(item.quantity * item.rate for item in section.items)
+        grand_total += subtotal
+        rows_xml.append(
+            '<row r="{0}">'.format(r) +
+            _boq_cell("A", r, _BOQ_STYLE_ITEM_TEXT, getattr(section, "section_no", "")) +
+            _boq_cell("B", r, _BOQ_STYLE_ITEM_TEXT, section.title) +
+            _boq_cell("C", r, _BOQ_STYLE_ITEM_NUM, round(subtotal, 2), is_number=True) +
+            "</row>")
+        r += 1
+
+    grand_cells = (
+        _boq_cell("A", r, _BOQ_STYLE_GRAND_LABEL, "") +
+        _boq_cell("B", r, _BOQ_STYLE_GRAND_LABEL, "Grand Total") +
+        _boq_cell("C", r, _BOQ_STYLE_GRAND_NUM, round(grand_total, 2), is_number=True))
+    rows_xml.append('<row r="{0}">'.format(r) + grand_cells + "</row>")
+    r += 1
+
+    return rows_xml, [], r, [10, 40, 18], last_col
+
+
+def _boq_data_table_rows(raw_rows, start_row):
+    """raw_rows: list of (category_name, segregation_value, quantity,
+    unit) tuples - one per scanned element (dee_qs_service.ScanRow, via
+    dee_qs_service.pivot_display_rows-style flattening, but per-element
+    rather than pre-summed) - or None to emit an empty Data sheet when
+    the caller doesn't have per-element rows on hand."""
+    headers = ["Category", "Segregation Value", "Quantity", "Unit"]
+    rows_xml = []
+    r = start_row
+    header_row = "".join(
+        _boq_cell(_col_letter(i + 1), r, _BOQ_STYLE_HEADER, h) for i, h in enumerate(headers))
+    rows_xml.append('<row r="{0}">'.format(r) + header_row + "</row>")
+    r += 1
+    for category_name, segregation_value, quantity, unit in (raw_rows or []):
+        rows_xml.append(
+            '<row r="{0}">'.format(r) +
+            _boq_cell("A", r, _BOQ_STYLE_ITEM_TEXT, category_name) +
+            _boq_cell("B", r, _BOQ_STYLE_ITEM_TEXT, segregation_value) +
+            _boq_cell("C", r, _BOQ_STYLE_ITEM_NUM, round(quantity, 2), is_number=True) +
+            _boq_cell("D", r, _BOQ_STYLE_ITEM_TEXT, unit) +
+            "</row>")
+        r += 1
+    return rows_xml, [16, 220, 14, 10], r
+
+
+def write_boq_advanced_xlsx(path, project_info, sections, currency_symbol="$", raw_rows=None):
+    """path: output file path.
+    project_info/sections/currency_symbol: same as write_boq_xlsx.
+    raw_rows: optional list of (category_name, segregation_value,
+              quantity, unit) tuples - one per scanned element, for the
+              hidden Data sheet. Omit for an empty Data sheet.
+    Produces a 3-sheet workbook: Summary (Section/Subtotal only),
+    Detailed (the full write_boq_xlsx table), Data (hidden, raw
+    per-element scan rows for audit).
+    """
+    detail_col_widths = [10, 46, 10, 14, 14, 16]
+    detail_last_col = _col_letter(len(detail_col_widths))
+
+    summary_title_rows, summary_title_merges, summary_next = _boq_title_and_info_rows(
+        "Bill of Quantities - Summary", project_info, _col_letter(3))
+    summary_rows, summary_merges, _summary_next, summary_col_widths, _summary_last_col = \
+        _boq_summary_table_rows(sections, currency_symbol, summary_next)
+    summary_xml = _boq_sheet_xml(summary_col_widths, summary_title_rows + summary_rows,
+                                  summary_title_merges + summary_merges)
+
+    detail_title_rows, detail_title_merges, detail_next = _boq_title_and_info_rows(
+        "Bill of Quantities - Detailed", project_info, detail_last_col)
+    detail_rows, detail_merges, _grand_total, _detail_next = _boq_detail_table_rows(
+        sections, currency_symbol, detail_next)
+    detail_xml = _boq_sheet_xml(detail_col_widths, detail_title_rows + detail_rows,
+                                 detail_title_merges + detail_merges)
+
+    data_rows, data_col_widths, _data_next = _boq_data_table_rows(raw_rows, 1)
+    data_xml = _boq_sheet_xml(data_col_widths, data_rows, [])
+
+    sheet_names = ["Summary", "Detailed", "Data"]
+    sheet_xmls = [summary_xml, detail_xml, data_xml]
+
+    content_overrides = "".join(
+        '<Override PartName="/xl/worksheets/sheet{0}.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'.format(i + 1)
+        for i in range(len(sheet_names)))
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+        + content_overrides + '</Types>')
+
+    workbook_sheets = "".join(
+        '<sheet name="{0}" sheetId="{1}" r:id="rId{1}"{2}/>'.format(
+            _escape(name), i + 1, ' state="hidden"' if name == "Data" else "")
+        for i, name in enumerate(sheet_names))
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets>' + workbook_sheets + '</sheets></workbook>')
+
+    styles_rid = len(sheet_names) + 1
+    workbook_rels = "".join(
+        '<Relationship Id="rId{0}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+        'Target="worksheets/sheet{0}.xml"/>'.format(i + 1)
+        for i in range(len(sheet_names)))
+    workbook_rels += (
+        '<Relationship Id="rId{0}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" '
+        'Target="styles.xml"/>'.format(styles_rid))
+    workbook_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        + workbook_rels + '</Relationships>')
+
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", content_types)
+        z.writestr("_rels/.rels", _ROOT_RELS)
+        z.writestr("xl/workbook.xml", workbook_xml)
+        z.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
+        z.writestr("xl/styles.xml", _BOQ_STYLES)
+        for i, sheet_xml in enumerate(sheet_xmls):
+            z.writestr("xl/worksheets/sheet{0}.xml".format(i + 1), sheet_xml)
