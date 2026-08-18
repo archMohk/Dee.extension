@@ -493,3 +493,183 @@ def write_health_report_xlsx(path, overall_score, section_rows, detail_rows):
         z.writestr("xl/styles.xml", _HR_STYLES)
         z.writestr("xl/worksheets/sheet1.xml", summary_xml)
         z.writestr("xl/worksheets/sheet2.xml", detail_xml)
+
+
+# ---------------------------------------------------------------------------
+# BOQ writer (DeeQs) - a title block (Project/Project No/Client/Consultant/
+# Date), a Section-grouped Item No/Description/Unit/Quantity/Rate/Amount
+# table with a bold-filled group-header row per Section, a top-bordered
+# Subtotal row per Section, and a double-top-bordered Grand Total row.
+# None of the 3 writers above have a currency number format or grouped-
+# header/subtotal styling - this is a new style palette (_BOQ_STYLES),
+# built the same raw-OOXML way as every other writer in this module.
+# ---------------------------------------------------------------------------
+_BOQ_STYLES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="1">
+<numFmt numFmtId="164" formatCode="#,##0.00"/>
+</numFmts>
+<fonts count="3">
+<font><sz val="11"/><name val="Arial"/></font>
+<font><b/><sz val="16"/><name val="Arial"/></font>
+<font><b/><sz val="11"/><name val="Arial"/></font>
+</fonts>
+<fills count="5">
+<fill><patternFill patternType="none"/></fill>
+<fill><patternFill patternType="gray125"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFD9D9D9"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFDDEBF7"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFBFBFBF"/><bgColor indexed="64"/></patternFill></fill>
+</fills>
+<borders count="4">
+<border><left/><right/><top/><bottom/><diagonal/></border>
+<border><left style="thin"><color indexed="64"/></left><right style="thin"><color indexed="64"/></right><top style="thin"><color indexed="64"/></top><bottom style="thin"><color indexed="64"/></bottom><diagonal/></border>
+<border><left/><right/><top style="thin"><color indexed="64"/></top><bottom/><diagonal/></border>
+<border><left/><right/><top style="double"><color indexed="64"/></top><bottom style="double"><color indexed="64"/></bottom><diagonal/></border>
+</borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="12">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+<xf numFmtId="0" fontId="2" fillId="0" borderId="2" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+<xf numFmtId="164" fontId="2" fillId="0" borderId="2" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+<xf numFmtId="0" fontId="2" fillId="4" borderId="3" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+<xf numFmtId="164" fontId="2" fillId="4" borderId="3" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>"""
+
+_BOQ_STYLE_TITLE = 1
+_BOQ_STYLE_LABEL = 2
+_BOQ_STYLE_VALUE = 3
+_BOQ_STYLE_HEADER = 4
+_BOQ_STYLE_SECTION = 5
+_BOQ_STYLE_ITEM_TEXT = 6
+_BOQ_STYLE_ITEM_NUM = 7
+_BOQ_STYLE_SUBTOTAL_LABEL = 8
+_BOQ_STYLE_SUBTOTAL_NUM = 9
+_BOQ_STYLE_GRAND_LABEL = 10
+_BOQ_STYLE_GRAND_NUM = 11
+
+
+def _boq_cell(col, row, style, value, is_number=False):
+    ref = "{0}{1}".format(col, row)
+    if is_number:
+        return '<c r="{0}" s="{1}"><v>{2}</v></c>'.format(ref, style, value)
+    return '<c r="{0}" s="{1}" t="inlineStr"><is><t xml:space="preserve">{2}</t></is></c>'.format(
+        ref, style, _escape("" if value is None else str(value)))
+
+
+def write_boq_xlsx(path, project_info, sections, currency_symbol="$"):
+    """path: output file path.
+    project_info: dict with optional keys project_name/project_no/
+                  client/consultant/date.
+    sections: list of section-like objects, each with .title/
+              .section_no and .items (item-like objects with
+              .item_no/.description/.unit/.quantity/.rate) - matches
+              dee_qs_service's BoqSection/BoqItem shape but only reads
+              these attributes, so any duck-typed equivalent works.
+    currency_symbol: shown in the Rate/Amount column headers only -
+                     Excel itself just sees plain numbers.
+    """
+    headers = ["Item No", "Description", "Unit", "Quantity",
+               "Rate ({0})".format(currency_symbol), "Amount ({0})".format(currency_symbol)]
+    col_widths = [10, 46, 10, 14, 14, 16]
+    ncols = len(headers)
+    last_col = _col_letter(ncols)
+
+    rows_xml = []
+    merges = []
+
+    rows_xml.append(
+        '<row r="1" ht="26" customHeight="1">' +
+        _boq_cell("A", 1, _BOQ_STYLE_TITLE, "Bill of Quantities") + "</row>")
+    merges.append("A1:{0}1".format(last_col))
+
+    info_pairs = [
+        ("Project", project_info.get("project_name", "")),
+        ("Project No", project_info.get("project_no", "")),
+        ("Client", project_info.get("client", "")),
+        ("Consultant", project_info.get("consultant", "")),
+        ("Date", project_info.get("date", "")),
+    ]
+    r = 2
+    for label, value in info_pairs:
+        rows_xml.append(
+            '<row r="{0}">'.format(r) +
+            _boq_cell("A", r, _BOQ_STYLE_LABEL, label) +
+            _boq_cell("B", r, _BOQ_STYLE_VALUE, value) + "</row>")
+        merges.append("B{0}:{1}{0}".format(r, last_col))
+        r += 1
+    r += 1  # blank spacer row
+
+    header_row = "".join(
+        _boq_cell(_col_letter(i + 1), r, _BOQ_STYLE_HEADER, h) for i, h in enumerate(headers))
+    rows_xml.append('<row r="{0}">'.format(r) + header_row + "</row>")
+    r += 1
+
+    grand_total = 0.0
+    for section in sections:
+        section_label = "{0}  {1}".format(getattr(section, "section_no", ""), section.title).strip()
+        section_cells = _boq_cell("A", r, _BOQ_STYLE_SECTION, section_label)
+        section_cells += "".join(
+            _boq_cell(_col_letter(i + 2), r, _BOQ_STYLE_SECTION, "") for i in range(ncols - 1))
+        rows_xml.append('<row r="{0}">'.format(r) + section_cells + "</row>")
+        merges.append("A{0}:{1}{0}".format(r, last_col))
+        r += 1
+
+        for item in section.items:
+            amount = item.quantity * item.rate
+            rows_xml.append(
+                '<row r="{0}">'.format(r) +
+                _boq_cell("A", r, _BOQ_STYLE_ITEM_TEXT, getattr(item, "item_no", "")) +
+                _boq_cell("B", r, _BOQ_STYLE_ITEM_TEXT, item.description) +
+                _boq_cell("C", r, _BOQ_STYLE_ITEM_TEXT, item.unit) +
+                _boq_cell("D", r, _BOQ_STYLE_ITEM_NUM, round(item.quantity, 2), is_number=True) +
+                _boq_cell("E", r, _BOQ_STYLE_ITEM_NUM, round(item.rate, 2), is_number=True) +
+                _boq_cell("F", r, _BOQ_STYLE_ITEM_NUM, round(amount, 2), is_number=True) +
+                "</row>")
+            r += 1
+
+        subtotal = sum(item.quantity * item.rate for item in section.items)
+        grand_total += subtotal
+        rows_xml.append(
+            '<row r="{0}">'.format(r) +
+            _boq_cell("A", r, _BOQ_STYLE_SUBTOTAL_LABEL, "") +
+            _boq_cell("B", r, _BOQ_STYLE_SUBTOTAL_LABEL, "") +
+            _boq_cell("C", r, _BOQ_STYLE_SUBTOTAL_LABEL, "") +
+            _boq_cell("D", r, _BOQ_STYLE_SUBTOTAL_LABEL, "") +
+            _boq_cell("E", r, _BOQ_STYLE_SUBTOTAL_LABEL, "Subtotal") +
+            _boq_cell("F", r, _BOQ_STYLE_SUBTOTAL_NUM, round(subtotal, 2), is_number=True) +
+            "</row>")
+        r += 1
+
+    grand_cells = "".join(_boq_cell(_col_letter(i + 1), r, _BOQ_STYLE_GRAND_LABEL, "") for i in range(4))
+    grand_cells += _boq_cell("E", r, _BOQ_STYLE_GRAND_LABEL, "Grand Total")
+    grand_cells += _boq_cell("F", r, _BOQ_STYLE_GRAND_NUM, round(grand_total, 2), is_number=True)
+    rows_xml.append('<row r="{0}">'.format(r) + grand_cells + "</row>")
+
+    cols_xml = "".join(
+        '<col min="{0}" max="{0}" width="{1}" customWidth="1"/>'.format(i + 1, w)
+        for i, w in enumerate(col_widths))
+    merge_xml = '<mergeCells count="{0}">{1}</mergeCells>'.format(
+        len(merges), "".join('<mergeCell ref="{0}"/>'.format(m) for m in merges))
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<cols>{0}</cols><sheetData>{1}</sheetData>{2}</worksheet>'
+    ).format(cols_xml, "".join(rows_xml), merge_xml)
+
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", _CONTENT_TYPES)
+        z.writestr("_rels/.rels", _ROOT_RELS)
+        z.writestr("xl/workbook.xml", _WORKBOOK)
+        z.writestr("xl/_rels/workbook.xml.rels", _WORKBOOK_RELS)
+        z.writestr("xl/styles.xml", _BOQ_STYLES)
+        z.writestr("xl/worksheets/sheet1.xml", sheet_xml)

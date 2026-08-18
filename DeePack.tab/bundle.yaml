@@ -6,6 +6,7 @@ layout:
   - SheetsExport
   - ViewsDatums
   - Rooms
+  - Quantities
   - Align
   - Health
   - Tools
