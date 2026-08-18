@@ -20,6 +20,23 @@ All scan/pivot/BOQ-model logic lives in lib/dee_qs_service.py; this
 file is the WPF wiring shell only, matching this stack's own
 DeeRoomStamp.pushbutton/script.py shape.
 
+Add/Rename Section and Add Item deliberately do NOT use
+forms.ask_for_string (a live-Revit crash was reported the first time
+this window's Add Section button was clicked - Revit froze then
+closed). forms.ask_for_string opens its own modal window via
+ShowDialog(), and this whole window is ALREADY modal
+(window.ShowDialog() at the bottom of this file) - a second nested
+ShowDialog() launched from an event handler of an already-modal
+pyRevit/WPF window hosted inside Revit's own Win32 message loop is a
+known-risky pattern (owner/threading edge cases in that interop layer
+can hang or crash the host process outright, not just throw a
+catchable exception). Since forms.alert (also modal) is used
+extensively elsewhere in this codebase without any reported issue, the
+suspicion is specific to ask_for_string's dialog, not modality itself
+- but the safest fix that removes the risk regardless of the exact
+mechanism is to never open a SECOND window at all: section_name_tb/
+item_desc_tb are plain inline TextBoxes on this same window instead.
+
 This is Phase 1 of a multi-phase build (see the project's plan file
 for the full roadmap) - Advanced Columns/Grouping/3-sheet export,
 Branding/Cover Page/image embedding, Numbering modes 2-3/Parameters/
@@ -186,16 +203,19 @@ class DeeQsWindow(dee_branding.DeeBrandedWindow):
 
     def sections_lb_selection_changed(self, sender, args):
         self._active_section = self.sections_lb.SelectedItem
+        self.section_name_tb.Text = self._active_section.title if self._active_section else ""
         self._refresh_items_grid()
 
     def section_add_click(self, sender, args):
-        name = forms.ask_for_string(default="", prompt="Section name:", title="DeeQs - Add Section")
+        name = (self.section_name_tb.Text or "").strip()
         if not name:
+            forms.alert("Type a section name in the box above first.")
             return
         section = core.BoqSection(name)
         self._sections.append(section)
         core.renumber_all(self._sections)
         self._active_section = section
+        self.section_name_tb.Text = ""
         self._refresh_sections_list()
         self._refresh_items_grid()
 
@@ -204,8 +224,9 @@ class DeeQsWindow(dee_branding.DeeBrandedWindow):
         if not section:
             forms.alert("Select a section first.")
             return
-        name = forms.ask_for_string(default=section.title, prompt="New section name:", title="DeeQs - Rename Section")
+        name = (self.section_name_tb.Text or "").strip()
         if not name:
+            forms.alert("Type the new section name in the box above first.")
             return
         section.title = name
         self._active_section = section
@@ -230,11 +251,13 @@ class DeeQsWindow(dee_branding.DeeBrandedWindow):
         if not self._active_section:
             forms.alert("Select a section first.")
             return
-        desc = forms.ask_for_string(default="", prompt="Item description:", title="DeeQs - Add Item")
+        desc = (self.item_desc_tb.Text or "").strip()
         if not desc:
+            forms.alert("Type an item description in the box above first.")
             return
         self._active_section.items.append(core.BoqItem(description=desc))
         core.renumber_all(self._sections)
+        self.item_desc_tb.Text = ""
         self._refresh_items_grid()
         self._refresh_sections_list()
 
