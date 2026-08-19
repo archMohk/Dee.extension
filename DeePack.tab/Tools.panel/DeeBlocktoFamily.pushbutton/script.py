@@ -368,6 +368,30 @@ def main():
 
     matches = core.find_matching_occurrences(occurrences, clicked)
     _log("matches: {0}".format(len(matches)))
+
+    # Cross-check the computed positions against the CAD import's own
+    # (authoritative, internal-units) bounding box before anything is
+    # placed - see core.diagnose_occurrences.
+    pos_ok, pos_msg = core.diagnose_occurrences(doc, cad_element, matches)
+    _log("position check: {0}".format(pos_msg))
+    for i, occ in enumerate(matches[:3]):
+        _log("  sample match {0}: internal(ft)=({1:.4f}, {2:.4f}, {3:.4f})  display=({4:.2f}, "
+             "{5:.2f}, {6:.2f}) {7}".format(
+                 i + 1, occ.origin[0], occ.origin[1], occ.origin[2],
+                 core.internal_to_display(doc, occ.origin[0]),
+                 core.internal_to_display(doc, occ.origin[1]),
+                 core.internal_to_display(doc, occ.origin[2]),
+                 core.unit_abbreviation(doc)))
+    if not pos_ok:
+        if not forms.alert(
+                "The block positions computed from this CAD file fall outside the file's own "
+                "extents, which means they are almost certainly at the wrong scale.\n\n"
+                "{0}\n\nPlacing now would put families in the wrong place. Continue anyway?".format(
+                    pos_msg),
+                title="DeeBlocktoFamily - position check FAILED", yes=True, no=True):
+            _log("aborted by user after failed position check")
+            return
+
     occurrences = None  # only `matches` is needed from here on
 
     if not matches:

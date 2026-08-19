@@ -505,6 +505,71 @@ def _walk_geometry_element(geom_element, accumulated_transform, results, progres
         # not relevant to block matching, skipped
 
 
+def diagnose_occurrences(doc, import_instance, occurrences):
+    """Cross-checks the walked block positions against the
+    ImportInstance's OWN bounding box, which Revit reports in internal
+    units (feet) and is therefore authoritative.
+
+    Every block in a CAD file must, by definition, sit inside that
+    file's extents. So if the computed origins fall outside it - or
+    span a wildly different size - the transform composition is wrong,
+    and the ratio between the two spans is the scale factor being
+    missed (e.g. ~304.8 for a millimetre DWG whose unit conversion
+    wasn't applied). This turns "the positions look wrong" into a
+    measured number instead of a guess.
+
+    Returns (ok, message). Never raises."""
+    try:
+        if not occurrences:
+            return True, "no occurrences to check"
+        bb = import_instance.get_BoundingBox(None)
+        if bb is None:
+            return True, "import has no bounding box - cannot cross-check"
+
+        ix0, iy0, iz0 = bb.Min.X, bb.Min.Y, bb.Min.Z
+        ix1, iy1, iz1 = bb.Max.X, bb.Max.Y, bb.Max.Z
+        xs = [o.origin[0] for o in occurrences]
+        ys = [o.origin[1] for o in occurrences]
+        ox0, ox1 = min(xs), max(xs)
+        oy0, oy1 = min(ys), max(ys)
+
+        import_span = max(ix1 - ix0, iy1 - iy0)
+        origin_span = max(ox1 - ox0, oy1 - oy0)
+
+        pad = max(1.0, import_span * 0.05)
+        inside = (ox0 >= ix0 - pad and ox1 <= ix1 + pad and
+                  oy0 >= iy0 - pad and oy1 <= iy1 + pad)
+
+        detail = ("import bbox X[{0:.3f}..{1:.3f}] Y[{2:.3f}..{3:.3f}] Z[{4:.3f}..{5:.3f}] ft"
+                  " | block origins X[{6:.3f}..{7:.3f}] Y[{8:.3f}..{9:.3f}] ft"
+                  " | spans import={10:.3f} blocks={11:.3f}").format(
+                      ix0, ix1, iy0, iy1, iz0, iz1, ox0, ox1, oy0, oy1,
+                      import_span, origin_span)
+
+        if inside:
+            return True, "positions inside the import extents - OK. " + detail
+
+        ratio = (origin_span / import_span) if import_span > 1e-9 else float("inf")
+        # Deliberately NOT presented as an exact unit factor: the blocks
+        # only cover part of the drawing, so this ratio is diluted by
+        # however much of the sheet they actually occupy. It is an
+        # order-of-magnitude signal, and saying more than that would be
+        # inventing precision the number does not carry.
+        hint = ""
+        for factor, name in ((304.8, "millimetres"), (30.48, "centimetres"), (3.2808, "metres")):
+            if 0.5 * factor <= ratio <= 2.0 * factor:
+                hint = (" The magnitude is consistent with DWG {0} not being converted to "
+                        "Revit's internal feet.".format(name))
+                break
+        return False, (
+            "BLOCK POSITIONS FALL OUTSIDE THE CAD IMPORT'S OWN EXTENTS - a scale factor is being "
+            "lost somewhere in the transform composition. Blocks span roughly {0:.1f}x the "
+            "import's own span (approximate - the blocks cover only part of the drawing).{1} "
+            "{2}".format(ratio, hint, detail))
+    except Exception as e:
+        return True, "cross-check failed: {0}".format(e)
+
+
 def walk_import_instance(doc, import_instance, progress_cb=None):
     """progress_cb(occurrences_found_so_far) -> True to cancel, False/None
     to continue - there is no reliable total count to report progress
