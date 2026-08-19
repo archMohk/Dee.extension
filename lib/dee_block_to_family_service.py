@@ -905,9 +905,11 @@ class PlacementResult(object):
         self.scale_warnings = 0
         self.ceiling_hosted_count = 0
         self.fallback_plane_count = 0
+        self.rotation_applied = True
 
 
-def place_matches(doc, entry, occurrences, level_entry, fallback_height_internal=0.0):
+def place_matches(doc, entry, occurrences, level_entry, fallback_height_internal=0.0,
+                   apply_rotation=True):
     """entry/level_entry: FamilyTypeEntry and LevelEntry (ElementId +
     pre-read plain values) - the live FamilySymbol and Level are
     re-resolved from their ids HERE, at the single moment they're
@@ -918,10 +920,18 @@ def place_matches(doc, entry, occurrences, level_entry, fallback_height_internal
     ABOVE the chosen Level for the fallback Reference Plane used where
     no ceiling is found over a block point.
 
+    apply_rotation: True to rotate each placed family to match its CAD
+    block's own rotation; False to leave every instance at the family's
+    default orientation. Worth turning off when the source blocks were
+    inserted at arbitrary angles that shouldn't carry into the model -
+    common for symmetrical fixtures like ceiling spots, where the CAD
+    rotation is meaningless noise.
+
     One Transaction; each occurrence wrapped in its own try/except so
     one failure never aborts the rest. Never touches the CAD/DWG
     geometry - only ever creates new FamilyInstance elements."""
     result = PlacementResult()
+    result.rotation_applied = bool(apply_rotation)
     symbol = resolve_symbol(doc, entry)
     if symbol is None:
         result.skipped.append(("Family type", "Could not resolve the selected Family Type - re-pick it."))
@@ -951,7 +961,7 @@ def place_matches(doc, entry, occurrences, level_entry, fallback_height_internal
                 # occ carries plain floats, not a live Transform - a
                 # fresh XYZ is built here at placement time.
                 x, y, z = occ.origin
-                angle = occ.rotation_radians
+                angle = occ.rotation_radians if apply_rotation else 0.0
                 if abs(occ.scale - 1.0) > 1e-4:
                     result.scale_warnings += 1
 
@@ -1000,6 +1010,11 @@ def print_report(result, block_count, family_label):
         '<p style="color:#ddd;">Matched {0} block occurrence(s). Placed {1} instance(s) of "{2}". '
         '{3} skipped.</p>'.format(block_count, result.placed_count, family_label, len(result.skipped)),
     ]
+    html.append(
+        '<div style="padding:4px 10px;margin:2px 0;color:#bbb;font-family:monospace;font-size:12px;">'
+        'Rotation: {0}</div>'.format(
+            "matched to each CAD block" if result.rotation_applied
+            else "IGNORED - all placed at the family's default orientation"))
     if result.ceiling_hosted_count or result.fallback_plane_count:
         html.append(
             '<div style="padding:6px 12px;margin:4px 0;background:#2e7d32;color:#fff;'

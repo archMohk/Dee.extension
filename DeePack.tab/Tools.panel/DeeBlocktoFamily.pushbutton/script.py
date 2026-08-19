@@ -246,16 +246,26 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
                 return
             fallback_internal = core.display_to_internal(self.doc, fallback_display)
 
+        rotation_note = ("matching each block's rotation"
+                          if self.apply_rotation_cb.IsChecked is True
+                          else "all at the family's default orientation (rotation ignored)")
         if not forms.alert(
-                "Place '{0}' at {1} matched occurrence(s)?".format(entry.type_name, len(self._matches)),
+                "Place '{0}' at {1} matched occurrence(s), {2}?".format(
+                    entry.type_name, len(self._matches), rotation_note),
                 title="DeeBlocktoFamily - Confirm", yes=True, no=True):
             return
 
-        _log("PLACE start: type='{0}' kind={1} count={2}".format(
-            entry.type_name, entry.placement_kind, len(self._matches)))
+        # CheckBox.IsChecked is a Nullable<bool> - it can arrive as
+        # None (indeterminate), so compare explicitly rather than
+        # relying on truthiness.
+        apply_rotation = (self.apply_rotation_cb.IsChecked is True)
+
+        _log("PLACE start: type='{0}' kind={1} count={2} rotation={3}".format(
+            entry.type_name, entry.placement_kind, len(self._matches), apply_rotation))
         with forms.ProgressBar(title="DeeBlocktoFamily - placing families...", indeterminate=True):
             result = core.place_matches(
-                self.doc, entry, self._matches, level_entry, fallback_internal)
+                self.doc, entry, self._matches, level_entry, fallback_internal,
+                apply_rotation=apply_rotation)
         _log("PLACE done: placed={0} skipped={1}".format(result.placed_count, len(result.skipped)))
 
         core.print_report(result, len(self._matches), entry.type_name)

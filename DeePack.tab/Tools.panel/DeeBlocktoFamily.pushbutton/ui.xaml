@@ -55,7 +55,12 @@
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Text="Level:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <ComboBox Grid.Column="1" x:Name="level_cb" Height="24" HorizontalAlignment="Left" Width="220"/>
+                    <StackPanel Grid.Column="1" Orientation="Vertical" HorizontalAlignment="Left">
+                        <ComboBox x:Name="level_cb" Height="24" Width="220"/>
+                        <CheckBox x:Name="apply_rotation_cb" Margin="0,8,0,0" IsChecked="True"
+                                  Content="Match each block's rotation"
+                                  ToolTip="Unchecked: every family is placed at its default orientation (0°), ignoring how the CAD block was rotated."/>
+                    </StackPanel>
                     <TextBlock Grid.Column="3" x:Name="fallback_label_tb" VerticalAlignment="Center" Margin="0,0,6,0"
                                Text="Fallback height above Level (if no ceiling found):"/>
                     <StackPanel Grid.Column="4" Orientation="Horizontal">
