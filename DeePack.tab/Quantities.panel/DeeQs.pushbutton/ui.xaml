@@ -93,10 +93,14 @@
                     <DockPanel Grid.Column="0">
                         <TextBlock DockPanel.Dock="Top" Text="Sections (one per segregation value):" Margin="0,0,0,4" TextWrapping="Wrap"/>
                         <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
-                            <TextBox x:Name="section_name_tb" Height="24" Margin="0,0,0,4"/>
+                            <TextBlock Text="New section name:" FontSize="11" Margin="0,0,0,2"/>
+                            <TextBox x:Name="new_section_name_tb" Height="24" Margin="0,0,0,4"/>
                             <Button x:Name="section_add_b" Content="Add Section" Height="26" Click="section_add_click"/>
-                            <Button x:Name="section_rename_b" Content="Rename Selected To Above" Height="26" Margin="0,4,0,0" Click="section_rename_click"/>
-                            <Button x:Name="section_delete_b" Content="Delete Section" Height="26" Margin="0,4,0,0" Click="section_delete_click"/>
+                            <Separator Margin="0,8,0,4"/>
+                            <TextBlock Text="Rename selected section to:" FontSize="11" Margin="0,0,0,2"/>
+                            <TextBox x:Name="section_name_tb" Height="24" Margin="0,0,0,4"/>
+                            <Button x:Name="section_rename_b" Content="Rename Selected Section" Height="26" Click="section_rename_click"/>
+                            <Button x:Name="section_delete_b" Content="Delete Selected Section" Height="26" Margin="0,4,0,0" Click="section_delete_click"/>
                         </StackPanel>
                         <ListBox x:Name="sections_lb" DisplayMemberPath="label" SelectionChanged="sections_lb_selection_changed"/>
                     </DockPanel>

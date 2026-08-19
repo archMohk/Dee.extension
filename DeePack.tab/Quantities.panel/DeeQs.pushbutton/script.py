@@ -222,15 +222,15 @@ class DeeQsWindow(dee_branding.DeeBrandedWindow):
         self._refresh_items_grid()
 
     def section_add_click(self, sender, args):
-        name = (self.section_name_tb.Text or "").strip()
+        name = (self.new_section_name_tb.Text or "").strip()
         if not name:
-            forms.alert("Type a section name in the box above first.")
+            forms.alert("Type a new section name in the 'New section name' box first.")
             return
         section = core.BoqSection(name)
         self._sections.append(section)
         core.renumber_all(self._sections)
         self._active_section = section
-        self.section_name_tb.Text = ""
+        self.new_section_name_tb.Text = ""
         self._refresh_sections_list()
         self._refresh_items_grid()
 

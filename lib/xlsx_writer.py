@@ -94,6 +94,23 @@ def _escape(s):
              .replace(">", "&gt;").replace('"', "&quot;"))
 
 
+def _zip_bytes(s):
+    """zipfile.writestr needs real bytes, not a Python 2 unicode string
+    (IronPython strings are .NET System.String, always the "unicode"
+    side of that divide) - passing one through relies on an IMPLICIT
+    ASCII encode deep inside zipfile/the underlying stream write, which
+    raises UnicodeEncodeError the moment the XML contains any non-ASCII
+    character. Every string this module writes can contain user/model
+    text (project name, client, level/room/parameter values) - Arabic
+    names are common in this codebase's actual projects - so this is a
+    near-certain real crash, not a theoretical one. Always encode
+    explicitly instead of relying on that implicit coercion."""
+    try:
+        return s.encode("utf-8")
+    except AttributeError:
+        return s  # already bytes
+
+
 def write_themed_xlsx(path, title, headers, col_widths, rows):
     """path: output file path.
     title: text for the merged, bold title row.
@@ -148,12 +165,12 @@ def write_themed_xlsx(path, title, headers, col_widths, rows):
     ).format(cols_xml, "".join(rows_xml), merge_xml)
 
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml", _CONTENT_TYPES)
-        z.writestr("_rels/.rels", _ROOT_RELS)
-        z.writestr("xl/workbook.xml", _WORKBOOK)
-        z.writestr("xl/_rels/workbook.xml.rels", _WORKBOOK_RELS)
-        z.writestr("xl/styles.xml", _STYLES)
-        z.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+        z.writestr("[Content_Types].xml", _zip_bytes(_CONTENT_TYPES))
+        z.writestr("_rels/.rels", _zip_bytes(_ROOT_RELS))
+        z.writestr("xl/workbook.xml", _zip_bytes(_WORKBOOK))
+        z.writestr("xl/_rels/workbook.xml.rels", _zip_bytes(_WORKBOOK_RELS))
+        z.writestr("xl/styles.xml", _zip_bytes(_STYLES))
+        z.writestr("xl/worksheets/sheet1.xml", _zip_bytes(sheet_xml))
 
 
 # ---------------------------------------------------------------------------
@@ -312,13 +329,13 @@ def write_multisheet_xlsx(path, sheets):
         + "".join(workbook_rels) + "</Relationships>")
 
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml", content_types)
-        z.writestr("_rels/.rels", _ROOT_RELS)
-        z.writestr("xl/workbook.xml", workbook_xml)
-        z.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
-        z.writestr("xl/styles.xml", _MS_STYLES_TEMPLATE)
+        z.writestr("[Content_Types].xml", _zip_bytes(content_types))
+        z.writestr("_rels/.rels", _zip_bytes(_ROOT_RELS))
+        z.writestr("xl/workbook.xml", _zip_bytes(workbook_xml))
+        z.writestr("xl/_rels/workbook.xml.rels", _zip_bytes(workbook_rels_xml))
+        z.writestr("xl/styles.xml", _zip_bytes(_MS_STYLES_TEMPLATE))
         for part_name, xml in files.items():
-            z.writestr(part_name, xml)
+            z.writestr(part_name, _zip_bytes(xml))
 
 
 # ---------------------------------------------------------------------------
@@ -486,13 +503,13 @@ def write_health_report_xlsx(path, overall_score, section_rows, detail_rows):
         '</Relationships>')
 
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml", content_types)
-        z.writestr("_rels/.rels", _ROOT_RELS)
-        z.writestr("xl/workbook.xml", workbook_xml)
-        z.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
-        z.writestr("xl/styles.xml", _HR_STYLES)
-        z.writestr("xl/worksheets/sheet1.xml", summary_xml)
-        z.writestr("xl/worksheets/sheet2.xml", detail_xml)
+        z.writestr("[Content_Types].xml", _zip_bytes(content_types))
+        z.writestr("_rels/.rels", _zip_bytes(_ROOT_RELS))
+        z.writestr("xl/workbook.xml", _zip_bytes(workbook_xml))
+        z.writestr("xl/_rels/workbook.xml.rels", _zip_bytes(workbook_rels_xml))
+        z.writestr("xl/styles.xml", _zip_bytes(_HR_STYLES))
+        z.writestr("xl/worksheets/sheet1.xml", _zip_bytes(summary_xml))
+        z.writestr("xl/worksheets/sheet2.xml", _zip_bytes(detail_xml))
 
 
 # ---------------------------------------------------------------------------
@@ -695,12 +712,12 @@ def write_boq_xlsx(path, project_info, sections, currency_symbol="$"):
     sheet_xml = _boq_sheet_xml(col_widths, title_rows + detail_rows, title_merges + detail_merges)
 
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml", _CONTENT_TYPES)
-        z.writestr("_rels/.rels", _ROOT_RELS)
-        z.writestr("xl/workbook.xml", _WORKBOOK)
-        z.writestr("xl/_rels/workbook.xml.rels", _WORKBOOK_RELS)
-        z.writestr("xl/styles.xml", _BOQ_STYLES)
-        z.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+        z.writestr("[Content_Types].xml", _zip_bytes(_CONTENT_TYPES))
+        z.writestr("_rels/.rels", _zip_bytes(_ROOT_RELS))
+        z.writestr("xl/workbook.xml", _zip_bytes(_WORKBOOK))
+        z.writestr("xl/_rels/workbook.xml.rels", _zip_bytes(_WORKBOOK_RELS))
+        z.writestr("xl/styles.xml", _zip_bytes(_BOQ_STYLES))
+        z.writestr("xl/worksheets/sheet1.xml", _zip_bytes(sheet_xml))
 
 
 # ---------------------------------------------------------------------------
@@ -841,10 +858,10 @@ def write_boq_advanced_xlsx(path, project_info, sections, currency_symbol="$", r
         + workbook_rels + '</Relationships>')
 
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml", content_types)
-        z.writestr("_rels/.rels", _ROOT_RELS)
-        z.writestr("xl/workbook.xml", workbook_xml)
-        z.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
-        z.writestr("xl/styles.xml", _BOQ_STYLES)
+        z.writestr("[Content_Types].xml", _zip_bytes(content_types))
+        z.writestr("_rels/.rels", _zip_bytes(_ROOT_RELS))
+        z.writestr("xl/workbook.xml", _zip_bytes(workbook_xml))
+        z.writestr("xl/_rels/workbook.xml.rels", _zip_bytes(workbook_rels_xml))
+        z.writestr("xl/styles.xml", _zip_bytes(_BOQ_STYLES))
         for i, sheet_xml in enumerate(sheet_xmls):
-            z.writestr("xl/worksheets/sheet{0}.xml".format(i + 1), sheet_xml)
+            z.writestr("xl/worksheets/sheet{0}.xml".format(i + 1), _zip_bytes(sheet_xml))
