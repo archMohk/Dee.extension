@@ -834,25 +834,52 @@ def _build_ceiling_cache(doc):
     return cache
 
 
-def _ceiling_face_at_point(doc, ceiling_cache, x, y, min_z):
-    """Returns (face_reference, face_z) for the LOWEST ceiling whose
-    plan bbox contains (x, y) and which sits at/above min_z (the chosen
-    Level's elevation) - i.e. the ceiling directly above that block, not
-    one on a floor above. (None, None) when there's no ceiling there.
+def _ceiling_face_at_point(doc, ceiling_cache, x, y, ref_z):
+    """Returns (face_reference, face_z) for the best ceiling above the
+    point (x, y). (None, None) when no ceiling covers that point at all.
+
+    ref_z is the BLOCK's own Z, not the chosen Level's elevation. That
+    distinction is load-bearing: the first version anchored the search
+    to the Level, and against a real project where the picked Level was
+    "TOS" (top of slab, above the ceilings) every single ceiling was
+    filtered out as "below the level" - 317 of 317 fixtures fell through
+    to the fallback Reference Plane even though the model had ceilings.
+    The Level a user picks is the family's level association, which says
+    nothing about where the ceilings sit relative to it.
+
+    Preference order:
+      1. the LOWEST ceiling whose underside is at/above the block (the
+         ceiling the fixture belongs in, not one a storey up), else
+      2. the ceiling nearest in Z, so a block sitting slightly above its
+         own ceiling plane (very common - CAD blocks carry whatever
+         elevation the drafter left them at) still hosts correctly
+         instead of silently falling back.
 
     Point-in-bbox is a deliberate simplification over exact face
     containment: a ceiling's bbox is its real plan extent for the
     rectangular/simple ceilings this targets, and an over-match just
     means the fixture hosts to a ceiling whose edge is nearby rather
     than failing outright."""
-    best = None
-    for (x0, y0, _z0, x1, y1, z1, ceiling) in ceiling_cache:
-        if x0 <= x <= x1 and y0 <= y <= y1 and z1 >= min_z - 1e-6:
-            if best is None or z1 < best[0]:
-                best = (z1, ceiling)
-    if best is None:
+    above = None       # (bottom_z, ceiling) - lowest underside at/above ref_z
+    nearest = None     # (abs_dz, bottom_z, ceiling)
+    for (x0, y0, z0, x1, y1, _z1, ceiling) in ceiling_cache:
+        if not (x0 <= x <= x1 and y0 <= y <= y1):
+            continue
+        # z0 is the ceiling's UNDERSIDE - that's the face a fixture
+        # hosts to, and what should be compared against the block.
+        if z0 >= ref_z - 1e-6:
+            if above is None or z0 < above[0]:
+                above = (z0, ceiling)
+        dz = abs(z0 - ref_z)
+        if nearest is None or dz < nearest[0]:
+            nearest = (dz, z0, ceiling)
+
+    if above is not None:
+        ceiling = above[1]
+    elif nearest is not None:
+        ceiling = nearest[2]
+    else:
         return None, None
-    ceiling = best[1]
     try:
         refs = HostObjectUtils.GetBottomFaces(ceiling)
     except Exception:
@@ -976,6 +1003,7 @@ class PlacementResult(object):
         self.fallback_plane_count = 0
         self.rotation_applied = True
         self.revit_warnings_suppressed = 0
+        self.ceilings_in_model = 0
 
 
 def place_matches(doc, entry, occurrences, level_entry, fallback_height_internal=0.0,
@@ -1014,6 +1042,27 @@ def place_matches(doc, entry, occurrences, level_entry, fallback_height_internal
     kind = entry.placement_kind
     needs_face = (kind == _PLACEMENT_WORK_PLANE)
     ceiling_cache = _build_ceiling_cache(doc) if needs_face else []
+    result.ceilings_in_model = len(ceiling_cache)
+
+    # A CAD import's GeometryInstance transforms carry the DWG's own
+    # unit-conversion factor, so their raw Scale is almost never 1.0 -
+    # comparing against 1.0 flagged all 317 occurrences as "non-1:1",
+    # which is noise, not information. What actually matters is whether
+    # a block is scaled differently from the OTHERS in the same file, so
+    # the baseline is the most common scale among the matches and only
+    # deviations from it are reported.
+    baseline_scale = 1.0
+    try:
+        counts = {}
+        for o in occurrences:
+            k = round(o.scale, 4)
+            counts[k] = counts.get(k, 0) + 1
+        if counts:
+            baseline_scale = max(counts.items(), key=lambda kv: kv[1])[0]
+    except Exception:
+        baseline_scale = 1.0
+    if not baseline_scale:
+        baseline_scale = 1.0
     ref_plane_cache = {}
     try:
         level_elevation = level.Elevation
@@ -1040,7 +1089,7 @@ def place_matches(doc, entry, occurrences, level_entry, fallback_height_internal
                 # fresh XYZ is built here at placement time.
                 x, y, z = occ.origin
                 angle = occ.rotation_radians if apply_rotation else 0.0
-                if abs(occ.scale - 1.0) > 1e-4:
+                if abs(occ.scale - baseline_scale) > 1e-4 * max(1.0, abs(baseline_scale)):
                     result.scale_warnings += 1
 
                 if needs_face:
@@ -1050,7 +1099,7 @@ def place_matches(doc, entry, occurrences, level_entry, fallback_height_internal
                     # block point; fall back to a shared Reference
                     # Plane at the requested height.
                     face_ref, face_z = _ceiling_face_at_point(
-                        doc, ceiling_cache, x, y, level_elevation)
+                        doc, ceiling_cache, x, y, z)
                     if face_ref is not None:
                         place_z = face_z if face_z is not None else fallback_z
                         origin = XYZ(x, y, place_z)
@@ -1105,19 +1154,31 @@ def print_report(result, block_count, family_label):
             'reverses the whole placement in one step if that is the case.</div>'.format(
                 result.revit_warnings_suppressed))
     if result.ceiling_hosted_count or result.fallback_plane_count:
+        colour = "#2e7d32" if result.fallback_plane_count == 0 else "#8d6e00"
+        detail = ""
+        if result.fallback_plane_count:
+            if result.ceilings_in_model == 0:
+                detail = (" There are NO ceilings in this model at all, so a reference plane was the "
+                          "only option - model the ceilings first if you want the fixtures hosted "
+                          "to them.")
+            else:
+                detail = (" The model has {0} ceiling(s), but none cover those block points in plan. "
+                          "Check that the ceilings actually sit above the CAD blocks.".format(
+                              result.ceilings_in_model))
         html.append(
-            '<div style="padding:6px 12px;margin:4px 0;background:#2e7d32;color:#fff;'
+            '<div style="padding:6px 12px;margin:4px 0;background:{0};color:#fff;'
             'border-radius:4px;font-family:monospace;font-size:12px;">'
-            'Face-hosted placement: {0} hosted to a real ceiling above the block, {1} hosted to a '
-            'fallback Reference Plane (no ceiling found above those points).</div>'.format(
-                result.ceiling_hosted_count, result.fallback_plane_count))
+            'Face-hosted placement: {1} hosted to a real ceiling, {2} hosted to a fallback '
+            'Reference Plane.{3}</div>'.format(
+                colour, result.ceiling_hosted_count, result.fallback_plane_count, detail))
     if result.scale_warnings:
         html.append(
             '<div style="padding:6px 12px;margin:4px 0;background:#8d6e00;color:#fff;'
             'border-radius:4px;font-family:monospace;font-size:12px;">'
-            '&#9888;&nbsp; {0} occurrence(s) had a non-1:1 CAD scale - Revit\'s placement API has no '
-            'supported way to apply instance scale to a Family, so these were placed at native family '
-            'size (position/rotation still matched).</div>'.format(result.scale_warnings))
+            '&#9888;&nbsp; {0} occurrence(s) are scaled differently from the other blocks in this '
+            'file. Revit\'s placement API has no supported way to apply instance scale to a Family, '
+            'so these were placed at native family size (position/rotation still matched).</div>'.format(
+                result.scale_warnings))
     for label, reason in result.skipped:
         html.append(
             '<div style="padding:4px 10px;margin:2px 0;background:#c62828;color:#fff;'
