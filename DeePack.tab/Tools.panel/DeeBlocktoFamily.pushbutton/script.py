@@ -194,6 +194,27 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
                 forms.alert("Could not find any block near that click - try again.")
                 return
             self._matches = core.find_matching_occurrences(self._occurrences, self._clicked)
+            # Only self._matches (a small subset) is needed from here on -
+            # drop the reference to the full walked list (every block in
+            # the whole CAD file, potentially far larger than the match
+            # count - the walk visits everything, not just matches) so a
+            # GC pass right after has real garbage to reclaim, instead of
+            # this window holding onto thousands of Curve/Solid/
+            # GeometryInstance/GeometryElement wrapper objects for the
+            # rest of its life regardless. A live "unrecoverable error"
+            # crash reproduced twice on a real large CAD file at the next
+            # UI interaction after this exact walk (Category/Family
+            # selection on Tab 3, which itself makes no Revit API calls)
+            # - forcing cleanup now, before that next interaction, is a
+            # standard mitigation for exactly this class of problem, not
+            # a confirmed root-cause fix.
+            self._occurrences = []
+            try:
+                System.GC.Collect()
+                System.GC.WaitForPendingFinalizers()
+                System.GC.Collect()
+            except Exception:
+                pass
         finally:
             self.Show()
 
