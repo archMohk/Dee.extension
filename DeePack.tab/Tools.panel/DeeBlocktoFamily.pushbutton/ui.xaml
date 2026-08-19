@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeBlocktoFamily"
         ShowInTaskbar="False"
-        MinHeight="600" MinWidth="900" Height="660" Width="980"
+        MinHeight="560" MinWidth="900" Height="620" Width="960"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <StatusBar DockPanel.Dock="Bottom">
@@ -12,103 +12,72 @@
         </StatusBar>
 
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
-            <Button x:Name="close_b" Content="Close" Width="90" Height="30" Click="close_click"/>
+            <Button x:Name="place_b" Content="Place Family at All Matches" Width="220" Height="32"
+                    FontWeight="Bold" Click="place_click"/>
+            <Button x:Name="close_b" Content="Close" Width="90" Height="32" Margin="14,0,0,0" Click="close_click"/>
         </StackPanel>
 
-        <TabControl x:Name="main_tabs">
+        <Border DockPanel.Dock="Top" Background="#EEF3F8" Padding="8" Margin="0,0,0,10">
+            <StackPanel>
+                <TextBlock x:Name="summary_tb" FontWeight="Bold" TextWrapping="Wrap"
+                           Text="Matched blocks"/>
+                <TextBlock x:Name="cad_file_tb" TextWrapping="Wrap" Margin="0,3,0,0" Text=""/>
+            </StackPanel>
+        </Border>
 
-            <TabItem Header="1. Pick CAD File">
-                <DockPanel Margin="8">
-                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Every linked or imported CAD (DWG) file in this project. Pick the one that contains the block you want to replace with a Revit Family."/>
-                    <Button DockPanel.Dock="Top" x:Name="rescan_b" Content="Rescan" Width="100" Height="26"
-                            HorizontalAlignment="Left" Margin="0,0,0,8" Click="rescan_click"/>
-                    <DataGrid x:Name="cad_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
-                              SelectionMode="Single" SelectionUnit="FullRow" SelectionChanged="cad_grid_selection_changed">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="File Name" Binding="{Binding file_name}" Width="*"/>
-                            <DataGridTextColumn Header="Kind" Binding="{Binding kind_text}" Width="120"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </DockPanel>
-            </TabItem>
+        <GroupBox DockPanel.Dock="Top" Header="Revit Family to place" Margin="0,0,0,8">
+            <StackPanel Margin="4">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Category:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox Grid.Column="1" x:Name="category_cb" Height="24" SelectionChanged="category_cb_changed"/>
+                    <TextBlock Grid.Column="3" Text="Family:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox Grid.Column="4" x:Name="family_cb" Height="24" SelectionChanged="family_cb_changed"/>
+                    <TextBlock Grid.Column="6" Text="Type:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox Grid.Column="7" x:Name="type_cb" Height="24" SelectionChanged="type_cb_changed"/>
+                </Grid>
 
-            <TabItem Header="2. Pick Block">
-                <DockPanel Margin="8">
-                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Click 'Pick Block in View' below, then click ONE visible occurrence of the block you want (e.g. one chair, one door symbol) directly in an open Revit view. This tool window will hide while you click, then reappear. Every other occurrence of that exact same block anywhere in the CAD file is found automatically - no name is needed."/>
-                    <Button DockPanel.Dock="Top" x:Name="pick_block_b" Content="Pick Block in View" Width="160" Height="30"
-                            HorizontalAlignment="Left" Margin="0,0,0,8" Click="pick_block_click"/>
-                    <TextBlock DockPanel.Dock="Top" x:Name="match_summary_tb" Margin="0,0,0,8" FontWeight="Bold"
-                               Text="No block picked yet."/>
-                    <DataGrid x:Name="matches_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
-                              SelectionMode="Extended" SelectionUnit="FullRow">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="#" Binding="{Binding index}" Width="50"/>
-                            <DataGridTextColumn Header="X" Binding="{Binding x_text}" Width="90"/>
-                            <DataGridTextColumn Header="Y" Binding="{Binding y_text}" Width="90"/>
-                            <DataGridTextColumn Header="Z" Binding="{Binding z_text}" Width="90"/>
-                            <DataGridTextColumn Header="Rotation (deg)" Binding="{Binding rotation_text}" Width="120"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </DockPanel>
-            </TabItem>
+                <Grid Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="240"/>
+                        <ColumnDefinition Width="30"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Level:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox Grid.Column="1" x:Name="level_cb" Height="24" HorizontalAlignment="Left" Width="220"/>
+                    <TextBlock Grid.Column="3" x:Name="fallback_label_tb" VerticalAlignment="Center" Margin="0,0,6,0"
+                               Text="Fallback height above Level (if no ceiling found):"/>
+                    <StackPanel Grid.Column="4" Orientation="Horizontal">
+                        <TextBox x:Name="fallback_height_tb" Width="90" Height="24"
+                                 VerticalContentAlignment="Center" Text="3000"/>
+                        <TextBlock x:Name="fallback_unit_tb" VerticalAlignment="Center" Margin="6,0,0,0" Text="mm"/>
+                    </StackPanel>
+                </Grid>
 
-            <TabItem Header="3. Family &amp; Place">
-                <DockPanel Margin="8">
-                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Pick the Revit Family/Type and Level to place at every matched block occurrence. Point-placed families (Generic Models, Furniture, Planting), column-like families, and ceiling/face-hosted families (ceiling spotlights, sprinklers, diffusers, smoke detectors) are all supported. Wall-hosted and line-based families are not - a block point alone can't say which wall or line to host them to."/>
+                <TextBlock x:Name="placement_warning_tb" TextWrapping="Wrap" Margin="0,8,0,0" Text=""/>
+            </StackPanel>
+        </GroupBox>
 
-                    <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="20"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="20"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <TextBlock Grid.Column="0" Text="Category:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <ComboBox Grid.Column="1" x:Name="category_cb" Height="24" SelectionChanged="category_cb_changed"/>
-
-                        <TextBlock Grid.Column="3" Text="Family:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <ComboBox Grid.Column="4" x:Name="family_cb" Height="24" SelectionChanged="family_cb_changed"/>
-
-                        <TextBlock Grid.Column="6" Text="Type:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <ComboBox Grid.Column="7" x:Name="type_cb" Height="24" SelectionChanged="type_cb_changed"/>
-                    </Grid>
-
-                    <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="240"/>
-                            <ColumnDefinition Width="30"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="Level:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <ComboBox Grid.Column="1" x:Name="level_cb" Height="24" HorizontalAlignment="Left" Width="220"/>
-
-                        <TextBlock Grid.Column="3" x:Name="fallback_label_tb" VerticalAlignment="Center" Margin="0,0,6,0"
-                                   Text="Fallback height above Level (if no ceiling found):"/>
-                        <StackPanel Grid.Column="4" Orientation="Horizontal">
-                            <TextBox x:Name="fallback_height_tb" Width="90" Height="24"
-                                     VerticalContentAlignment="Center" Text="3000"/>
-                            <TextBlock x:Name="fallback_unit_tb" VerticalAlignment="Center" Margin="6,0,0,0" Text="mm"/>
-                        </StackPanel>
-                    </Grid>
-
-                    <TextBlock DockPanel.Dock="Top" x:Name="placement_warning_tb" TextWrapping="Wrap"
-                               Foreground="#C62828" Margin="0,0,0,8" Text=""/>
-
-                    <Button DockPanel.Dock="Top" x:Name="place_b" Content="Place Family at All Matches" Width="220" Height="32"
-                            HorizontalAlignment="Left" FontWeight="Bold" Click="place_click"/>
-                </DockPanel>
-            </TabItem>
-
-        </TabControl>
+        <DataGrid x:Name="matches_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
+                  SelectionMode="Extended" SelectionUnit="FullRow">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="#" Binding="{Binding index}" Width="50"/>
+                <DataGridTextColumn Header="X" Binding="{Binding x_text}" Width="110"/>
+                <DataGridTextColumn Header="Y" Binding="{Binding y_text}" Width="110"/>
+                <DataGridTextColumn Header="Z" Binding="{Binding z_text}" Width="110"/>
+                <DataGridTextColumn Header="Rotation (deg)" Binding="{Binding rotation_text}" Width="130"/>
+            </DataGrid.Columns>
+        </DataGrid>
     </DockPanel>
 </Window>

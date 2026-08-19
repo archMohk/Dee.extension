@@ -1,46 +1,60 @@
 # -*- coding: utf-8 -*-
 """
 DeeBlocktoFamily
-Pick a linked or imported CAD (DWG) file already in the project, click
-one visible occurrence of a block directly in an open Revit view, and
-place a chosen Revit Family instance at every OTHER occurrence of that
-same block found in the file - matching position and rotation. The
-CAD/DWG geometry itself is never touched, deleted, or modified.
+Pick a linked or imported CAD (DWG) file, click one visible occurrence
+of a block directly in an open Revit view, and place a chosen Revit
+Family instance at every OTHER occurrence of that same block found in
+the file - matching position and rotation. The CAD/DWG geometry itself
+is never touched, deleted, or modified.
 
 Click-to-identify rather than a named list: real AutoCAD block names
-are not reliably readable via Revit's public API (researched this
-session - see lib/dee_block_to_family_service.py's module docstring
-for sources) - so the user visually identifies the block themselves by
-clicking it in their own real CAD content, and the tool matches every
-other occurrence by comparing geometry, not a name.
+are not reliably readable via Revit's public API (researched - see
+lib/dee_block_to_family_service.py's module docstring for sources), so
+the user visually identifies the block by clicking it in their own CAD
+content and the tool matches every other occurrence by geometry.
 
-All scan/geometry/matching/placement logic lives in
-lib/dee_block_to_family_service.py; this file only wires the WPF
-window to it, matching this stack's established thin-shell convention
-(DeeGetDWG.pushbutton/script.py is the closest shape).
+--------------------------------------------------------------------
+TWO-PHASE FLOW - why this file is shaped the way it is
+--------------------------------------------------------------------
+Phase 1 (this module's main(), NO window open at any point):
+    pick the CAD file -> Selection.PickObject -> walk the geometry ->
+    resolve the click -> find matching occurrences -> reduce everything
+    to plain Python numbers.
+Phase 2 (the WPF window): choose Family/Type/Level and place. The
+    window makes NO Revit API calls except the final placement
+    Transaction.
 
-Window/view-interaction handoff: pick_block_click calls self.Hide(),
-then uidoc.Selection.PickObject(...) (any exception - including a
-plain user Escape-cancel - is swallowed silently, matching common
-pyRevit pick-wrapper convention, since a cancel isn't a fault worth
-alerting about), then self.Show() in a finally block so the window can
-never be left stranded hidden. This is NOT the same pattern that
-crashed Revit live in DeeQs this session (forms.ask_for_string opening
-a SECOND, separate ShowDialog()/message-loop from inside an
-already-modal window) - Hide()/Show() toggle visibility on the SAME
-window instance already inside its original ShowDialog() call, and
-calling Selection.PickObject from within an open modal WPF window's
-event handler is a standard, Revit-API-supported pattern (it hands
-control to Revit's own selection/highlighting UI, not a second WPF
-dialog). Still flagged NEEDS LIVE-REVIT VERIFICATION per
-dee_block_to_family_service.py's own docstring, since this exact
-sequence has no prior precedent anywhere in this codebase - if it
-proves unstable, the documented fallback is a two-phase flow (pick the
-block via a lightweight PickObject call BEFORE the wizard window even
-opens, then launch the wizard pre-seeded with the result).
+The earlier design ran PickObject from a button inside the wizard
+window, calling self.Hide() first and self.Show() after. That kept
+crashing Revit outright ("An unrecoverable error has occurred") at
+whatever the user touched next. Hide() does NOT end a modal dialog -
+ShowDialog() is still blocking further up the stack, so Revit was
+being driven from inside a nested modal message loop, which is a
+documented no-go for Selection.PickObject specifically. The pick
+itself appeared to succeed (317 matches were found and displayed), but
+it left the host in a state that died at the next interaction - which
+is exactly why the crash point kept sliding around as other things
+were fixed, and why no try/except ever caught it.
+
+So the pick now happens with no window in play at all. This is the
+fallback the tool's own plan named for exactly this outcome, and it
+also matches every other tool in this extension: they open a modal
+window and never hand control back to the Revit view while it's up.
+
+Trade-off, accepted deliberately: choosing a different block now means
+re-running the tool rather than clicking "Re-pick" in the window. That
+is a small, honest cost for not crashing.
+
+A step-by-step trace is appended to DeeBlocktoFamily_trace.log in the
+system TEMP folder (each line flushed and the file closed immediately,
+so the trail survives even a hard process kill).
+If anything still goes wrong, that file says exactly which step was
+last reached.
 """
 import math
 import os
+import tempfile
+import traceback
 
 import System
 import clr
@@ -63,11 +77,23 @@ _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 _ERROR_BRUSH = SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28))   # red - a real blocker
 _NOTE_BRUSH = SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32))    # green - informational
 
+_LOG_PATH = os.path.join(tempfile.gettempdir(), "DeeBlocktoFamily_trace.log")
+
+
+def _log(message):
+    """Opened/closed per line on purpose - a buffered handle would lose
+    the last (most interesting) lines if Revit dies hard."""
+    try:
+        with open(_LOG_PATH, "a") as fh:
+            fh.write("{0}  {1}\n".format(
+                System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"), message))
+    except Exception:
+        pass
+
 
 class _SingleElementFilter(ISelectionFilter):
-    """Restricts PickObject to only the chosen ImportInstance - Revit
-    itself refuses clicks on anything else, so no post-pick "did they
-    click the right element" validation is needed."""
+    """Restricts PickObject to only the chosen ImportInstance, so Revit
+    itself refuses clicks on anything else."""
     def __init__(self, target_id):
         self._target_id = target_id
 
@@ -91,141 +117,33 @@ class MatchDisplayRow(object):
         self.rotation_text = "{0:.1f}".format(math.degrees(occurrence.rotation_radians))
 
 
+# ==========================================================================
+# Phase 2: the window (no Revit API calls except the final placement)
+# ==========================================================================
 class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
-    def __init__(self, xaml_file, doc, uidoc):
+    def __init__(self, xaml_file, doc, cad_label, matches, type_index, family_index, level_entries):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
-        self.uidoc = uidoc
-        self._cad_rows = []
-        self._selected_cad = None
-        self._occurrences = []
-        self._clicked = None
-        self._matches = []
-        self._type_index = {}
-        self._family_index = {}
-        self._selected_entry = None      # a core.FamilyTypeEntry (ElementId + plain values)
-        self._level_entries = []
-        self._level_by_name = {}
+        self._matches = matches
+        self._type_index = type_index
+        self._family_index = family_index
+        self._level_entries = level_entries
+        self._level_by_name = dict((e.name, e) for e in level_entries)
+        self._selected_entry = None
 
-        self._rescan_cad()
+        self.summary_tb.Text = "{0} matching block occurrence(s) found.".format(len(matches))
+        self.cad_file_tb.Text = "CAD file: {0}".format(cad_label)
 
-        self._level_entries = core.list_level_entries(self.doc)
-        self._level_by_name = dict((e.name, e) for e in self._level_entries)
+        self.category_cb.ItemsSource = sorted(self._family_index.keys())
         self.level_cb.ItemsSource = sorted(self._level_by_name.keys())
-        self.fallback_unit_tb.Text = core.unit_abbreviation(self.doc)
+        self.fallback_unit_tb.Text = core.unit_abbreviation(doc)
         self._set_fallback_visible(False)
 
-        with forms.ProgressBar(title="DeeBlocktoFamily - scanning loaded families...", cancellable=True) as pb:
-            self._type_index, self._family_index = core.build_family_index(self.doc, self._progress_cb(pb))
-        self.category_cb.ItemsSource = sorted(self._family_index.keys())
-
-        self.matches_grid.ItemsSource = []
-        self.status_tb.Text = "Ready. Pick a CAD file on Tab 1."
-
-    def _progress_cb(self, pb):
-        def cb(i, total):
-            if i % 20 == 0 or i == total - 1:
-                try:
-                    pb.update_progress(i, total)
-                except Exception:
-                    pass
-            return pb.cancelled
-        return cb
-
-    # ======================================================================
-    # Tab 1: Pick CAD File
-    # ======================================================================
-    def _rescan_cad(self):
-        self._cad_rows = core.scan_cad_instances(self.doc)
-        self.cad_grid.ItemsSource = None
-        self.cad_grid.ItemsSource = self._cad_rows
-        self.status_tb.Text = "{0} CAD import/link(s) found.".format(len(self._cad_rows))
-
-    def rescan_click(self, sender, args):
-        self._rescan_cad()
-
-    def cad_grid_selection_changed(self, sender, args):
-        self._selected_cad = self.cad_grid.SelectedItem
-        self._occurrences = []
-        self._clicked = None
-        self._matches = []
-        self._refresh_matches_grid()
-        if self._selected_cad is not None:
-            self.status_tb.Text = "Selected: {0}. Go to Tab 2 and click 'Pick Block in View'.".format(
-                self._selected_cad.file_name)
-
-    # ======================================================================
-    # Tab 2: Pick Block
-    # ======================================================================
-    def _refresh_matches_grid(self):
-        rows = [MatchDisplayRow(self.doc, i + 1, occ) for i, occ in enumerate(self._matches)]
-        self.matches_grid.ItemsSource = None
+        rows = [MatchDisplayRow(doc, i + 1, occ) for i, occ in enumerate(matches)]
         self.matches_grid.ItemsSource = rows
-        if self._matches:
-            self.match_summary_tb.Text = "Found {0} matching occurrence(s).".format(len(self._matches))
-        else:
-            self.match_summary_tb.Text = "No block picked yet."
 
-    def pick_block_click(self, sender, args):
-        if self._selected_cad is None:
-            forms.alert("Pick a CAD file on Tab 1 first.")
-            return
-
-        self.Hide()
-        try:
-            sel_filter = _SingleElementFilter(self._selected_cad.id)
-            try:
-                ref = self.uidoc.Selection.PickObject(
-                    ObjectType.PointOnElement, sel_filter,
-                    "Click one visible occurrence of the block to replace")
-            except Exception:
-                return  # cancelled (Escape) or nothing pickable - not a fault, no alert needed
-
-            with forms.ProgressBar(title="DeeBlocktoFamily - scanning CAD geometry...", indeterminate=True):
-                self._occurrences = core.walk_import_instance(self.doc, self._selected_cad.element)
-
-            world_point = None
-            try:
-                world_point = ref.GlobalPoint
-            except Exception:
-                world_point = None
-            if world_point is None:
-                forms.alert("Could not resolve a 3D point from that click - "
-                             "try clicking directly on a visible line/edge of the block.")
-                return
-
-            self._clicked = core.resolve_clicked_occurrence(self._occurrences, world_point)
-            if self._clicked is None:
-                forms.alert("Could not find any block near that click - try again.")
-                return
-            self._matches = core.find_matching_occurrences(self._occurrences, self._clicked)
-            # Only self._matches is needed from here on - drop the full
-            # walked list (every block in the file, not just matches).
-            # BlockOccurrence holds plain floats only, so nothing
-            # Revit-owned survives this method either way; this is just
-            # ordinary housekeeping now, not a crash mitigation.
-            #
-            # An explicit GC.Collect()/WaitForPendingFinalizers() used to
-            # sit here as a speculative fix for the crash that turned out
-            # to be the stale-Element-reference problem (see
-            # dee_block_to_family_service.FamilyTypeEntry's docstring).
-            # It was REMOVED rather than left in as harmless insurance:
-            # WaitForPendingFinalizers forces Revit API wrapper
-            # finalizers to run on the GC finalizer thread, i.e. calls
-            # into a decidedly non-thread-safe API from a non-UI thread -
-            # itself a documented way to destabilize Revit. Leaving in a
-            # speculative "fix" that carries its own real crash risk
-            # would have been strictly worse than not having it.
-            self._occurrences = []
-        finally:
-            self.Show()
-
-        self._refresh_matches_grid()
         self._default_level_from_matches()
-        self.status_tb.Text = "{0} matching occurrence(s) found. Pick a Family and Level.".format(
-            len(self._matches))
-        if self._matches:
-            self.main_tabs.SelectedIndex = 2
+        self.status_tb.Text = "Pick a Category, Family, Type and Level, then Place."
 
     def _default_level_from_matches(self):
         if not self._matches or not self._level_entries:
@@ -238,9 +156,7 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
             except Exception:
                 pass
 
-    # ======================================================================
-    # Tab 3: Family & Place
-    # ======================================================================
+    # ---------------- family pickers (pure dict lookups, no Revit API) ----
     def category_cb_changed(self, sender, args):
         cat = self.category_cb.SelectedItem
         families = self._family_index.get(cat, {}) if cat else {}
@@ -261,14 +177,11 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
         self._update_symbol()
 
     def _update_symbol(self):
-        # This whole selection path is now 100% Revit-API-free: the
-        # index holds core.FamilyTypeEntry objects (ElementId + a
-        # placement kind already read as a plain string back when the
-        # symbol was freshly collected), so picking a Category/Family/
-        # Type is pure dict lookups and WPF property sets. The live
-        # FamilySymbol is only re-resolved inside place_matches. See
-        # dee_block_to_family_service.FamilyTypeEntry's docstring for
-        # why touching a long-cached FamilySymbol here crashed Revit.
+        # 100% Revit-API-free: the index holds core.FamilyTypeEntry
+        # objects (ElementId + a placement kind already read as a plain
+        # string). The live FamilySymbol is only re-resolved inside
+        # place_matches. See FamilyTypeEntry's docstring for why
+        # touching a long-cached FamilySymbol here crashed Revit.
         cat = self.category_cb.SelectedItem
         fam = self.family_cb.SelectedItem
         typ = self.type_cb.SelectedItem
@@ -308,10 +221,8 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
             except Exception:
                 pass
 
+    # ---------------- place ----------------
     def place_click(self, sender, args):
-        if not self._matches:
-            forms.alert("Pick a block on Tab 2 first.")
-            return
         entry = self._selected_entry
         if entry is None:
             forms.alert("Pick a Category, Family, and Type first.")
@@ -326,11 +237,6 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Pick a Level first.")
             return
 
-        if not forms.alert(
-                "Place '{0}' at {1} matched occurrence(s)?".format(self.type_cb.SelectedItem, len(self._matches)),
-                title="DeeBlocktoFamily - Confirm", yes=True, no=True):
-            return
-
         fallback_internal = 0.0
         if entry.needs_host_face:
             try:
@@ -340,11 +246,19 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
                 return
             fallback_internal = core.display_to_internal(self.doc, fallback_display)
 
+        if not forms.alert(
+                "Place '{0}' at {1} matched occurrence(s)?".format(entry.type_name, len(self._matches)),
+                title="DeeBlocktoFamily - Confirm", yes=True, no=True):
+            return
+
+        _log("PLACE start: type='{0}' kind={1} count={2}".format(
+            entry.type_name, entry.placement_kind, len(self._matches)))
         with forms.ProgressBar(title="DeeBlocktoFamily - placing families...", indeterminate=True):
             result = core.place_matches(
                 self.doc, entry, self._matches, level_entry, fallback_internal)
+        _log("PLACE done: placed={0} skipped={1}".format(result.placed_count, len(result.skipped)))
 
-        core.print_report(result, len(self._matches), self.type_cb.SelectedItem)
+        core.print_report(result, len(self._matches), entry.type_name)
         self.status_tb.Text = "Placed {0}, skipped {1}. See the pyRevit output window for details.".format(
             result.placed_count, len(result.skipped))
 
@@ -352,9 +266,128 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
         self.Close()
 
 
-uiapp = __revit__
-if uiapp.ActiveUIDocument is None:
-    forms.alert("Open a Revit project first.")
-else:
-    window = DeeBlocktoFamilyWindow(_XAML_FILE, uiapp.ActiveUIDocument.Document, uiapp.ActiveUIDocument)
+# ==========================================================================
+# Phase 1: everything that touches the Revit view/geometry, with NO
+# window open - see the module docstring for why this ordering matters
+# ==========================================================================
+def _choose_cad_instance(cad_rows):
+    if not cad_rows:
+        return None
+    if len(cad_rows) == 1:
+        return cad_rows[0]
+    labels = {}
+    for row in cad_rows:
+        labels[row.label] = row
+    picked_label = forms.SelectFromList.show(
+        sorted(labels.keys()), title="DeeBlocktoFamily - pick the CAD file", multiselect=False)
+    if not picked_label:
+        return None
+    return labels.get(picked_label)
+
+
+def main():
+    uiapp = __revit__
+    if uiapp.ActiveUIDocument is None:
+        forms.alert("Open a Revit project first.")
+        return
+    uidoc = uiapp.ActiveUIDocument
+    doc = uidoc.Document
+
+    _log("=== DeeBlocktoFamily run start ===")
+
+    cad_rows = core.scan_cad_instances(doc)
+    _log("CAD instances found: {0}".format(len(cad_rows)))
+    if not cad_rows:
+        forms.alert("No CAD imports or links found in this project.")
+        return
+
+    selected_cad = _choose_cad_instance(cad_rows)
+    if selected_cad is None:
+        _log("cancelled at CAD file selection")
+        return
+    _log("CAD chosen: {0}".format(selected_cad.file_name))
+
+    # --- the pick, with NO window open ---
+    forms.alert(
+        "Click one visible occurrence of the block you want to replace.\n\n"
+        "Every other occurrence of that same block in '{0}' will be found automatically.".format(
+            selected_cad.file_name),
+        title="DeeBlocktoFamily")
+    _log("PickObject: about to call")
+    try:
+        ref = uidoc.Selection.PickObject(
+            ObjectType.PointOnElement,
+            _SingleElementFilter(selected_cad.id),
+            "Click one visible occurrence of the block to replace")
+    except Exception:
+        _log("PickObject: cancelled or failed")
+        return  # user pressed Escape - not a fault worth alerting about
+    _log("PickObject: returned OK")
+
+    world_point = None
+    try:
+        world_point = ref.GlobalPoint
+    except Exception:
+        world_point = None
+    if world_point is None:
+        _log("GlobalPoint unavailable")
+        forms.alert("Could not resolve a 3D point from that click - "
+                     "try clicking directly on a visible line/edge of the block.")
+        return
+    _log("GlobalPoint OK")
+
+    # Re-resolve the ImportInstance from its id rather than reusing the
+    # object captured during the initial scan - PickObject sits between
+    # the two, and holding an Element across another API operation is
+    # the exact pattern that crashed this tool before.
+    cad_element = doc.GetElement(selected_cad.id)
+    if cad_element is None:
+        _log("could not re-resolve the CAD instance")
+        forms.alert("Could not re-read that CAD instance - try running the tool again.")
+        return
+
+    with forms.ProgressBar(title="DeeBlocktoFamily - scanning CAD geometry...", indeterminate=True):
+        occurrences = core.walk_import_instance(doc, cad_element)
+    _log("geometry walk done: {0} block occurrence(s)".format(len(occurrences)))
+
+    clicked = core.resolve_clicked_occurrence(occurrences, world_point)
+    if clicked is None:
+        _log("click did not resolve to any block")
+        forms.alert("Could not find any block near that click - try again.")
+        return
+
+    matches = core.find_matching_occurrences(occurrences, clicked)
+    _log("matches: {0}".format(len(matches)))
+    occurrences = None  # only `matches` is needed from here on
+
+    if not matches:
+        forms.alert("No matching blocks found.")
+        return
+
+    with forms.ProgressBar(title="DeeBlocktoFamily - scanning loaded families...", cancellable=True) as pb:
+        def cb(i, total):
+            if i % 20 == 0 or i == total - 1:
+                try:
+                    pb.update_progress(i, total)
+                except Exception:
+                    pass
+            return pb.cancelled
+        type_index, family_index = core.build_family_index(doc, cb)
+    _log("family index built: {0} categor(y/ies)".format(len(family_index)))
+
+    level_entries = core.list_level_entries(doc)
+    _log("levels: {0}".format(len(level_entries)))
+
+    # --- Phase 2: the window. Nothing Revit-owned is handed to it. ---
+    _log("opening window")
+    window = DeeBlocktoFamilyWindow(
+        _XAML_FILE, doc, selected_cad.label, matches, type_index, family_index, level_entries)
     window.ShowDialog()
+    _log("window closed - run end")
+
+
+try:
+    main()
+except Exception:
+    _log("UNHANDLED:\n" + traceback.format_exc())
+    raise
