@@ -94,9 +94,10 @@ from Autodesk.Revit.DB import (
     FilteredElementCollector, ImportInstance, BuiltInParameter, BuiltInCategory,
     CategoryType, ElementId, Transaction, Options, ViewDetailLevel,
     GeometryInstance, GeometryElement, Line, Arc, Curve, Solid, PolyLine, Mesh,
-    XYZ, Transform, ElementTransformUtils, Level, HostObjectUtils,
+    XYZ, Transform, ElementTransformUtils, Level, HostObjectUtils, ReferencePlane,
     FamilySymbol,
     UnitUtils, UnitTypeId, SpecTypeId,
+    IFailuresPreprocessor, FailureProcessingResult, FailureSeverity,
 )
 from Autodesk.Revit.DB.Structure import StructuralType
 
@@ -870,14 +871,45 @@ def _ceiling_face_at_point(doc, ceiling_cache, x, y, min_z):
     return None, None
 
 
+def _find_existing_horizontal_plane(doc, z, tol=1e-4):
+    """Reuse a horizontal Reference Plane already sitting at this height
+    rather than adding another one on every run."""
+    try:
+        planes = FilteredElementCollector(doc).OfClass(ReferencePlane)
+    except Exception:
+        return None
+    for rp in planes:
+        try:
+            normal = rp.Normal
+            if abs(abs(normal.Z) - 1.0) > 1e-6:
+                continue  # not horizontal
+            if abs(rp.BubbleEnd.Z - z) <= tol:
+                return rp
+        except Exception:
+            continue
+    return None
+
+
 def _get_or_create_reference_plane(doc, z, cache):
-    """One shared horizontal Reference Plane per height, created lazily -
-    the fallback host for WorkPlaneBased families where no ceiling was
-    found. Ported from DeeDistributor's
+    """One shared horizontal Reference Plane per height - the fallback
+    host for WorkPlaneBased families where no ceiling was found.
+    Ported from DeeDistributor's
     _get_or_create_fallback_reference_plane (whose own docstring flags
     NewReferencePlane's argument geometry and ReferencePlane.
     GetReference()'s suitability as a host as NOT live-verified - the
-    same caveat applies here)."""
+    same caveat applies here).
+
+    Deliberately does NOT set a Name. An earlier version named each
+    plane after its height, which blew up on the SECOND run against the
+    same model: the plane from the first run already owned that name,
+    and Revit reports the duplicate as a transaction-level ERROR ("The
+    name entered is already in use") that blocks the whole commit -
+    taking every family placement down with it. Wrapping the assignment
+    in try/except was not enough, because the failure is raised by
+    Revit's failure-handling machinery at commit time, not by the
+    property setter. An unnamed plane hosts families exactly as well,
+    so the name bought nothing and cost a hard blocker. Existing
+    planes at the same height are reused instead of piling up."""
     key = round(z, 4)
     cached = cache.get(key)
     if cached is not None:
@@ -885,17 +917,54 @@ def _get_or_create_reference_plane(doc, z, cache):
             return cached.GetReference()
         except Exception:
             del cache[key]
+
+    existing = _find_existing_horizontal_plane(doc, z)
+    if existing is not None:
+        try:
+            cache[key] = existing
+            return existing.GetReference()
+        except Exception:
+            pass
+
     try:
         rp = doc.Create.NewReferencePlane(
             XYZ(-100.0, 0.0, z), XYZ(100.0, 0.0, z), XYZ(0.0, 100.0, z), doc.ActiveView)
-        try:
-            rp.Name = "DeeBlocktoFamily Host Plane {0:.3f}".format(z)
-        except Exception:
-            pass  # a name collision is harmless - the plane still works as a host
         cache[key] = rp
         return rp.GetReference()
     except Exception:
         return None
+
+
+class _WarningSwallower(IFailuresPreprocessor):
+    """Placing hundreds of fixtures legitimately raises hundreds of
+    Revit WARNINGS - most commonly "There are identical instances in
+    the same place", which fires whenever a new instance lands on top
+    of one that already exists (very likely here: the CAD block layout
+    is often already modelled). Left unhandled, Revit stacks them into
+    a modal dialog listing 300+ entries that the user has to dismiss,
+    and which can itself block an otherwise-fine commit.
+
+    This swallows WARNINGS only. Errors are deliberately left alone -
+    they still surface, still block, and still get reported, because an
+    error means Revit could not do what was asked and hiding that would
+    be lying about the result. The count is kept so the report can say
+    honestly how many were suppressed."""
+
+    def __init__(self):
+        self.swallowed = 0
+
+    def PreprocessFailures(self, failures_accessor):
+        try:
+            for fm in failures_accessor.GetFailureMessages():
+                try:
+                    if fm.GetSeverity() == FailureSeverity.Warning:
+                        failures_accessor.DeleteWarning(fm)
+                        self.swallowed += 1
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return FailureProcessingResult.Continue
 
 
 class PlacementResult(object):
@@ -906,6 +975,7 @@ class PlacementResult(object):
         self.ceiling_hosted_count = 0
         self.fallback_plane_count = 0
         self.rotation_applied = True
+        self.revit_warnings_suppressed = 0
 
 
 def place_matches(doc, entry, occurrences, level_entry, fallback_height_internal=0.0,
@@ -953,6 +1023,14 @@ def place_matches(doc, entry, occurrences, level_entry, fallback_height_internal
 
     t = Transaction(doc, "DeeBlocktoFamily - Place Family at Matched Blocks")
     t.Start()
+    swallower = _WarningSwallower()
+    try:
+        opts = t.GetFailureHandlingOptions()
+        opts.SetFailuresPreprocessor(swallower)
+        opts.SetClearAfterRollback(True)
+        t.SetFailureHandlingOptions(opts)
+    except Exception:
+        pass  # worst case the user sees Revit's own warning dialog
     try:
         ensure_symbol_active(doc, symbol)
         for i, occ in enumerate(occurrences):
@@ -1001,6 +1079,7 @@ def place_matches(doc, entry, occurrences, level_entry, fallback_height_internal
     except Exception:
         t.RollBack()
         raise
+    result.revit_warnings_suppressed = swallower.swallowed
     return result
 
 
@@ -1015,6 +1094,16 @@ def print_report(result, block_count, family_label):
         'Rotation: {0}</div>'.format(
             "matched to each CAD block" if result.rotation_applied
             else "IGNORED - all placed at the family's default orientation"))
+    if result.revit_warnings_suppressed:
+        html.append(
+            '<div style="padding:6px 12px;margin:4px 0;background:#8d6e00;color:#fff;'
+            'border-radius:4px;font-family:monospace;font-size:12px;">'
+            '&#9888;&nbsp; {0} Revit warning(s) were auto-dismissed so the placement could finish '
+            'without a 300-entry dialog. These are usually "There are identical instances in the '
+            'same place", which means a fixture was placed on top of one that was ALREADY in the '
+            'model - if these blocks were already modelled, you now have duplicates. Undo (Ctrl+Z) '
+            'reverses the whole placement in one step if that is the case.</div>'.format(
+                result.revit_warnings_suppressed))
     if result.ceiling_hosted_count or result.fallback_plane_count:
         html.append(
             '<div style="padding:6px 12px;margin:4px 0;background:#2e7d32;color:#fff;'
