@@ -107,6 +107,11 @@ output = script.get_output()
 _ROUND_NDP = 5  # decimal places, internal (feet) units - ~1e-5 ft ~ 0.003mm
 _BBOX_PAD = 0.05  # feet (~15mm) - containment/proximity tolerance for click resolution
 
+# v1 supports only point-placed families (the FamilyPlacementType whose
+# NewFamilyInstance overload takes a plain XYZ + Level, matching
+# DeeDistributor's own OneLevelBased branch)
+_SUPPORTED_PLACEMENT = "OneLevelBased"
+
 
 # ==========================================================================
 # Units (local copy of the same small pattern already proven in
@@ -398,11 +403,29 @@ def _apply_bbox_transform(local_bbox, transform):
 # signature + world transform + world bbox in a single pass
 # ==========================================================================
 class BlockOccurrence(object):
-    def __init__(self, geometry_instance, local_signature, world_transform, world_bbox):
-        self.geometry_instance = geometry_instance
+    """Deliberately holds NO live Revit objects - only plain Python
+    numbers/tuples. The placement position/rotation/scale are extracted
+    from the world Transform immediately during the walk and stored as
+    floats, and the GeometryInstance itself is never retained.
+
+    This matters: a BlockOccurrence list survives across a
+    Selection.PickObject call, a full CAD geometry walk, and an
+    open-ended amount of user UI interaction on the wizard's later
+    tabs. Holding Revit API objects (GeometryInstance/Transform, which
+    are managed wrappers over native geometry owned by a
+    GeometryElement that is itself long out of scope) across that span
+    risks a native access violation - a hard "unrecoverable error"
+    Revit crash that no try/except can catch - rather than a clean
+    Python exception. Storing plain floats removes that entire class
+    of failure, and costs nothing since placement only ever needed the
+    numbers anyway."""
+
+    def __init__(self, local_signature, origin, rotation_radians, scale, world_bbox):
         self.local_signature = local_signature
-        self.world_transform = world_transform
-        self.world_bbox = world_bbox  # (min_tuple, max_tuple) or None
+        self.origin = origin              # plain (x, y, z) float tuple, world space
+        self.rotation_radians = rotation_radians
+        self.scale = scale
+        self.world_bbox = world_bbox      # (min_tuple, max_tuple) of plain floats, or None
 
 
 def _walk_geometry_element(geom_element, accumulated_transform, results, progress_cb):
@@ -435,7 +458,12 @@ def _walk_geometry_element(geom_element, accumulated_transform, results, progres
                 continue
             local_sig, local_bbox = _signature_and_bbox_for_geometry_element(symbol_geom)
             world_bbox = _apply_bbox_transform(local_bbox, world_transform) if local_bbox else None
-            results.append(BlockOccurrence(obj, local_sig, world_transform, world_bbox))
+            # Extract placement numbers NOW, while world_transform is
+            # known-live, so nothing Revit-owned outlives this call -
+            # see BlockOccurrence's docstring.
+            origin, angle, scale = extract_position_and_rotation(world_transform)
+            results.append(BlockOccurrence(
+                local_sig, (origin.X, origin.Y, origin.Z), angle, scale, world_bbox))
             _walk_geometry_element(symbol_geom, world_transform, results, progress_cb)
         elif isinstance(obj, GeometryElement):
             _walk_geometry_element(obj, accumulated_transform, results, progress_cb)
@@ -540,13 +568,54 @@ def collect_all_family_symbols(doc):
         return []
 
 
+class FamilyTypeEntry(object):
+    """Everything the UI needs about one FamilySymbol, captured as plain
+    Python values at index-build time - deliberately does NOT hold the
+    live FamilySymbol object.
+
+    Holding Revit Element objects (rather than ElementIds) across other
+    API operations is a well-known crash risk: the managed wrapper can
+    outlive or desync from the underlying native object, and in this
+    tool the gap is unusually wide and unusually eventful - the symbols
+    are collected once at window-open, then the user runs
+    Selection.PickObject and a full CAD geometry walk over potentially
+    thousands of geometry objects, and only THEN picks a Category/
+    Family/Type. Reading symbol.Family.FamilyPlacementType on a
+    long-held symbol object at that point crashed Revit outright
+    ("unrecoverable error") in live testing - three times, with the
+    crash point moving further down the Category -> Family -> Type
+    chain as intermediate mitigations were applied, which is exactly
+    the signature of stale/unstable element references rather than a
+    logic bug.
+
+    So: the placement kind is read ONCE here, while the symbol is
+    freshly collected, and stored as a plain string; only the
+    ElementId is kept, and the real symbol is re-resolved via
+    doc.GetElement(id) at the single moment it's actually needed
+    (placement). The entire interactive Category/Family/Type selection
+    path then makes ZERO Revit API calls."""
+    def __init__(self, element_id, type_name, placement_kind):
+        self.element_id = element_id
+        self.type_name = type_name
+        self.placement_kind = placement_kind  # plain string, e.g. "OneLevelBased"
+
+    @property
+    def is_supported(self):
+        return self.placement_kind == _SUPPORTED_PLACEMENT
+
+
 def build_family_index(doc, progress_cb=None):
-    """Returns (type_index, family_index):
-    type_index[category_name][family_name][type_name] = FamilySymbol
-    family_index[category_name][family_name] = Family
+    """Returns (type_index, family_names_index):
+    type_index[category_name][family_name][type_name] = FamilyTypeEntry
+    family_names_index[category_name] = set/dict of family names
     Model categories only (matches DeeDistributor's own filter - a CAD
     block gets replaced by real 3D content, so annotation/2D families
-    don't belong in this list)."""
+    don't belong in this list).
+
+    Note this stores FamilyTypeEntry (ElementId + pre-read placement
+    kind), never the live FamilySymbol/Family objects - see
+    FamilyTypeEntry's docstring for why that distinction is
+    load-bearing here, not incidental."""
     symbols = collect_all_family_symbols(doc)
     total = len(symbols)
     type_index = {}
@@ -570,24 +639,70 @@ def build_family_index(doc, progress_cb=None):
             type_name = _read_name(fs)
             if not (cat_name and fam_name and type_name):
                 continue
-            type_index.setdefault(cat_name, {}).setdefault(fam_name, {})[type_name] = fs
-            family_index.setdefault(cat_name, {})[fam_name] = fam
+            # Read the placement kind NOW, while this symbol is freshly
+            # collected and its Family reference is known-good.
+            try:
+                placement_kind = str(fam.FamilyPlacementType)
+            except Exception:
+                placement_kind = "(unknown)"
+            entry = FamilyTypeEntry(fs.Id, type_name, placement_kind)
+            type_index.setdefault(cat_name, {}).setdefault(fam_name, {})[type_name] = entry
+            family_index.setdefault(cat_name, {})[fam_name] = True
         except Exception:
             continue
     return type_index, family_index
 
 
-def list_levels(doc):
-    try:
-        return sorted(FilteredElementCollector(doc).OfClass(Level), key=lambda l: l.Elevation)
-    except Exception:
-        return []
-
-
-def nearest_level(levels, z_internal):
-    if not levels:
+def resolve_symbol(doc, entry):
+    """Re-resolves a FamilyTypeEntry's ElementId to a live FamilySymbol
+    at the moment of use - never held across other API operations."""
+    if entry is None:
         return None
-    return min(levels, key=lambda l: abs(l.Elevation - z_internal))
+    try:
+        return doc.GetElement(entry.element_id)
+    except Exception:
+        return None
+
+
+class LevelEntry(object):
+    """Same ElementId-not-Element discipline as FamilyTypeEntry - the
+    Level dropdown is populated once at window-open but only used much
+    later, after PickObject and the geometry walk."""
+    def __init__(self, element_id, name, elevation):
+        self.element_id = element_id
+        self.name = name
+        self.elevation = elevation
+
+
+def list_level_entries(doc):
+    entries = []
+    try:
+        levels = sorted(FilteredElementCollector(doc).OfClass(Level), key=lambda l: l.Elevation)
+    except Exception:
+        return entries
+    for lvl in levels:
+        try:
+            name = _read_name(lvl)
+            if name:
+                entries.append(LevelEntry(lvl.Id, name, lvl.Elevation))
+        except Exception:
+            continue
+    return entries
+
+
+def nearest_level_entry(level_entries, z_internal):
+    if not level_entries:
+        return None
+    return min(level_entries, key=lambda e: abs(e.elevation - z_internal))
+
+
+def resolve_level(doc, entry):
+    if entry is None:
+        return None
+    try:
+        return doc.GetElement(entry.element_id)
+    except Exception:
+        return None
 
 
 # ==========================================================================
@@ -595,22 +710,6 @@ def nearest_level(levels, z_internal):
 # model/furniture/planting-style families), matching DeeDistributor's
 # own _place_instance(OneLevelBased) branch and _apply_rotation
 # ==========================================================================
-_SUPPORTED_PLACEMENT = "OneLevelBased"
-
-
-def placement_kind_text(symbol):
-    if symbol is None:
-        return ""
-    try:
-        return str(symbol.Family.FamilyPlacementType)
-    except Exception:
-        return "(unknown)"
-
-
-def is_placement_supported(symbol):
-    return placement_kind_text(symbol) == _SUPPORTED_PLACEMENT
-
-
 def ensure_symbol_active(doc, symbol):
     try:
         if not symbol.IsActive:
@@ -664,11 +763,25 @@ class PlacementResult(object):
         self.scale_warnings = 0
 
 
-def place_matches(doc, symbol, occurrences, level):
-    """One Transaction; each occurrence wrapped in its own try/except so
+def place_matches(doc, entry, occurrences, level_entry):
+    """entry/level_entry: FamilyTypeEntry and LevelEntry (ElementId +
+    pre-read plain values) - the live FamilySymbol and Level are
+    re-resolved from their ids HERE, at the single moment they're
+    actually needed, rather than being held by the UI across the
+    PickObject/geometry-walk steps (see FamilyTypeEntry's docstring).
+
+    One Transaction; each occurrence wrapped in its own try/except so
     one failure never aborts the rest. Never touches the CAD/DWG
     geometry - only ever creates new FamilyInstance elements."""
     result = PlacementResult()
+    symbol = resolve_symbol(doc, entry)
+    if symbol is None:
+        result.skipped.append(("Family type", "Could not resolve the selected Family Type - re-pick it."))
+        return result
+    level = resolve_level(doc, level_entry)
+    if level is None:
+        result.skipped.append(("Level", "Could not resolve the selected Level - re-pick it."))
+        return result
     t = Transaction(doc, "DeeBlocktoFamily - Place Family at Matched Blocks")
     t.Start()
     try:
@@ -676,8 +789,11 @@ def place_matches(doc, symbol, occurrences, level):
         for i, occ in enumerate(occurrences):
             label = "Occurrence {0}".format(i + 1)
             try:
-                origin, angle, scale = extract_position_and_rotation(occ.world_transform)
-                if abs(scale - 1.0) > 1e-4:
+                # occ carries plain floats, not a live Transform - a
+                # fresh XYZ is built here at placement time.
+                origin = XYZ(occ.origin[0], occ.origin[1], occ.origin[2])
+                angle = occ.rotation_radians
+                if abs(occ.scale - 1.0) > 1e-4:
                     result.scale_warnings += 1
                 inst = doc.Create.NewFamilyInstance(origin, symbol, level, StructuralType.NonStructural)
                 _apply_rotation(doc, inst, angle, origin)

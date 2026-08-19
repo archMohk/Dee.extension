@@ -76,11 +76,11 @@ class _SingleElementFilter(ISelectionFilter):
 class MatchDisplayRow(object):
     def __init__(self, doc, index, occurrence):
         self.index = index
-        origin, angle, _scale = core.extract_position_and_rotation(occurrence.world_transform)
-        self.x_text = "{0:.2f}".format(core.internal_to_display(doc, origin.X))
-        self.y_text = "{0:.2f}".format(core.internal_to_display(doc, origin.Y))
-        self.z_text = "{0:.2f}".format(core.internal_to_display(doc, origin.Z))
-        self.rotation_text = "{0:.1f}".format(math.degrees(angle))
+        x, y, z = occurrence.origin  # plain floats - no Revit objects retained
+        self.x_text = "{0:.2f}".format(core.internal_to_display(doc, x))
+        self.y_text = "{0:.2f}".format(core.internal_to_display(doc, y))
+        self.z_text = "{0:.2f}".format(core.internal_to_display(doc, z))
+        self.rotation_text = "{0:.1f}".format(math.degrees(occurrence.rotation_radians))
 
 
 class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
@@ -95,19 +95,14 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
         self._matches = []
         self._type_index = {}
         self._family_index = {}
-        self._selected_symbol = None
-        self._levels = []
+        self._selected_entry = None      # a core.FamilyTypeEntry (ElementId + plain values)
+        self._level_entries = []
         self._level_by_name = {}
 
         self._rescan_cad()
 
-        self._levels = core.list_levels(self.doc)
-        self._level_by_name = {}
-        for lvl in self._levels:
-            try:
-                self._level_by_name[lvl.Name] = lvl
-            except Exception:
-                continue
+        self._level_entries = core.list_level_entries(self.doc)
+        self._level_by_name = dict((e.name, e) for e in self._level_entries)
         self.level_cb.ItemsSource = sorted(self._level_by_name.keys())
 
         with forms.ProgressBar(title="DeeBlocktoFamily - scanning loaded families...", cancellable=True) as pb:
@@ -194,27 +189,24 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
                 forms.alert("Could not find any block near that click - try again.")
                 return
             self._matches = core.find_matching_occurrences(self._occurrences, self._clicked)
-            # Only self._matches (a small subset) is needed from here on -
-            # drop the reference to the full walked list (every block in
-            # the whole CAD file, potentially far larger than the match
-            # count - the walk visits everything, not just matches) so a
-            # GC pass right after has real garbage to reclaim, instead of
-            # this window holding onto thousands of Curve/Solid/
-            # GeometryInstance/GeometryElement wrapper objects for the
-            # rest of its life regardless. A live "unrecoverable error"
-            # crash reproduced twice on a real large CAD file at the next
-            # UI interaction after this exact walk (Category/Family
-            # selection on Tab 3, which itself makes no Revit API calls)
-            # - forcing cleanup now, before that next interaction, is a
-            # standard mitigation for exactly this class of problem, not
-            # a confirmed root-cause fix.
+            # Only self._matches is needed from here on - drop the full
+            # walked list (every block in the file, not just matches).
+            # BlockOccurrence holds plain floats only, so nothing
+            # Revit-owned survives this method either way; this is just
+            # ordinary housekeeping now, not a crash mitigation.
+            #
+            # An explicit GC.Collect()/WaitForPendingFinalizers() used to
+            # sit here as a speculative fix for the crash that turned out
+            # to be the stale-Element-reference problem (see
+            # dee_block_to_family_service.FamilyTypeEntry's docstring).
+            # It was REMOVED rather than left in as harmless insurance:
+            # WaitForPendingFinalizers forces Revit API wrapper
+            # finalizers to run on the GC finalizer thread, i.e. calls
+            # into a decidedly non-thread-safe API from a non-UI thread -
+            # itself a documented way to destabilize Revit. Leaving in a
+            # speculative "fix" that carries its own real crash risk
+            # would have been strictly worse than not having it.
             self._occurrences = []
-            try:
-                System.GC.Collect()
-                System.GC.WaitForPendingFinalizers()
-                System.GC.Collect()
-            except Exception:
-                pass
         finally:
             self.Show()
 
@@ -226,13 +218,13 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
             self.main_tabs.SelectedIndex = 2
 
     def _default_level_from_matches(self):
-        if not self._matches or not self._levels:
+        if not self._matches or not self._level_entries:
             return
-        avg_z = sum(occ.world_transform.Origin.Z for occ in self._matches) / float(len(self._matches))
-        nearest = core.nearest_level(self._levels, avg_z)
+        avg_z = sum(occ.origin[2] for occ in self._matches) / float(len(self._matches))
+        nearest = core.nearest_level_entry(self._level_entries, avg_z)
         if nearest is not None:
             try:
-                self.level_cb.SelectedItem = nearest.Name
+                self.level_cb.SelectedItem = nearest.name
             except Exception:
                 pass
 
@@ -259,43 +251,26 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
         self._update_symbol()
 
     def _update_symbol(self):
-        # Only pure Python/dict lookups happen inline here - the actual
-        # Revit API read (symbol.Family.FamilyPlacementType, inside
-        # core.is_placement_supported) is deferred to
-        # _refresh_placement_warning via Dispatcher.BeginInvoke instead
-        # of running synchronously inside this ComboBox.SelectionChanged
-        # handler. Same deferral principle already proven necessary in
-        # this codebase for a related WPF-event-timing issue (DataGrid
-        # RowEditEnding in DeeQs/DeeSheet - "'Refresh' is not allowed
-        # during an AddNew or EditItem transaction" when Revit-adjacent
-        # work runs before a WPF selection/edit event has fully
-        # unwound) - here as a defensive precaution against a live
-        # "unrecoverable error" crash reported right after a Category/
-        # Family/Type selection, not a confirmed root cause.
+        # This whole selection path is now 100% Revit-API-free: the
+        # index holds core.FamilyTypeEntry objects (ElementId + a
+        # placement kind already read as a plain string back when the
+        # symbol was freshly collected), so picking a Category/Family/
+        # Type is pure dict lookups and WPF property sets. The live
+        # FamilySymbol is only re-resolved inside place_matches. See
+        # dee_block_to_family_service.FamilyTypeEntry's docstring for
+        # why touching a long-cached FamilySymbol here crashed Revit.
         cat = self.category_cb.SelectedItem
         fam = self.family_cb.SelectedItem
         typ = self.type_cb.SelectedItem
-        self._selected_symbol = None
+        self._selected_entry = None
         if cat and fam and typ:
-            self._selected_symbol = self._type_index.get(cat, {}).get(fam, {}).get(typ)
-        self.placement_warning_tb.Text = ""
-        if self._selected_symbol is not None:
-            try:
-                self.Dispatcher.BeginInvoke(System.Action(self._refresh_placement_warning))
-            except Exception:
-                self._refresh_placement_warning()
-
-    def _refresh_placement_warning(self):
-        symbol = self._selected_symbol
-        if symbol is None:
-            self.placement_warning_tb.Text = ""
-            return
-        if not core.is_placement_supported(symbol):
-            typ = self.type_cb.SelectedItem
+            self._selected_entry = self._type_index.get(cat, {}).get(fam, {}).get(typ)
+        entry = self._selected_entry
+        if entry is not None and not entry.is_supported:
             self.placement_warning_tb.Text = (
                 "'{0}' is a {1} family - only point-placed (OneLevelBased) families like Generic "
                 "Models/Furniture/Planting are supported by this tool. Pick a different Type.").format(
-                    typ, core.placement_kind_text(symbol))
+                    entry.type_name, entry.placement_kind)
         else:
             self.placement_warning_tb.Text = ""
 
@@ -303,15 +278,16 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
         if not self._matches:
             forms.alert("Pick a block on Tab 2 first.")
             return
-        if self._selected_symbol is None:
+        entry = self._selected_entry
+        if entry is None:
             forms.alert("Pick a Category, Family, and Type first.")
             return
-        if not core.is_placement_supported(self._selected_symbol):
+        if not entry.is_supported:
             forms.alert("This family's placement type is not supported by this tool - pick a different Type.")
             return
         level_name = self.level_cb.SelectedItem
-        level = self._level_by_name.get(level_name) if level_name else None
-        if level is None:
+        level_entry = self._level_by_name.get(level_name) if level_name else None
+        if level_entry is None:
             forms.alert("Pick a Level first.")
             return
 
@@ -321,7 +297,7 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
             return
 
         with forms.ProgressBar(title="DeeBlocktoFamily - placing families...", indeterminate=True):
-            result = core.place_matches(self.doc, self._selected_symbol, self._matches, level)
+            result = core.place_matches(self.doc, entry, self._matches, level_entry)
 
         core.print_report(result, len(self._matches), self.type_cb.SelectedItem)
         self.status_tb.Text = "Placed {0}, skipped {1}. See the pyRevit output window for details.".format(
