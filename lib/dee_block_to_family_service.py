@@ -95,9 +95,10 @@ from Autodesk.Revit.DB import (
     CategoryType, ElementId, Transaction, Options, ViewDetailLevel,
     GeometryInstance, GeometryElement, Line, Arc, Curve, Solid, PolyLine, Mesh,
     XYZ, Transform, ElementTransformUtils, Level,
-    FamilySymbol, StructuralType,
+    FamilySymbol,
     UnitUtils, UnitTypeId, SpecTypeId,
 )
+from Autodesk.Revit.DB.Structure import StructuralType
 
 from pyrevit import script
 
