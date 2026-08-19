@@ -57,7 +57,7 @@
             <TabItem Header="3. Family &amp; Place">
                 <DockPanel Margin="8">
                     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Pick the Revit Family/Type and Level to place at every matched block occurrence. Only point-placed families (Generic Models, Furniture, Planting, etc. - not wall/face-hosted or curve-based families) are supported."/>
+                               Text="Pick the Revit Family/Type and Level to place at every matched block occurrence. Point-placed families (Generic Models, Furniture, Planting), column-like families, and ceiling/face-hosted families (ceiling spotlights, sprinklers, diffusers, smoke detectors) are all supported. Wall-hosted and line-based families are not - a block point alone can't say which wall or line to host them to."/>
 
                     <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
@@ -84,10 +84,21 @@
                     <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="300"/>
+                            <ColumnDefinition Width="240"/>
+                            <ColumnDefinition Width="30"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" Text="Level:" VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <ComboBox Grid.Column="1" x:Name="level_cb" Height="24" HorizontalAlignment="Left" Width="220"/>
+
+                        <TextBlock Grid.Column="3" x:Name="fallback_label_tb" VerticalAlignment="Center" Margin="0,0,6,0"
+                                   Text="Fallback height above Level (if no ceiling found):"/>
+                        <StackPanel Grid.Column="4" Orientation="Horizontal">
+                            <TextBox x:Name="fallback_height_tb" Width="90" Height="24"
+                                     VerticalContentAlignment="Center" Text="3000"/>
+                            <TextBlock x:Name="fallback_unit_tb" VerticalAlignment="Center" Margin="6,0,0,0" Text="mm"/>
+                        </StackPanel>
                     </Grid>
 
                     <TextBlock DockPanel.Dock="Top" x:Name="placement_warning_tb" TextWrapping="Wrap"

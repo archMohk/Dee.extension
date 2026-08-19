@@ -91,10 +91,10 @@ this - flagged per this codebase's own established convention):
 import math
 
 from Autodesk.Revit.DB import (
-    FilteredElementCollector, ImportInstance, BuiltInParameter,
+    FilteredElementCollector, ImportInstance, BuiltInParameter, BuiltInCategory,
     CategoryType, ElementId, Transaction, Options, ViewDetailLevel,
     GeometryInstance, GeometryElement, Line, Arc, Curve, Solid, PolyLine, Mesh,
-    XYZ, Transform, ElementTransformUtils, Level,
+    XYZ, Transform, ElementTransformUtils, Level, HostObjectUtils,
     FamilySymbol,
     UnitUtils, UnitTypeId, SpecTypeId,
 )
@@ -107,10 +107,35 @@ output = script.get_output()
 _ROUND_NDP = 5  # decimal places, internal (feet) units - ~1e-5 ft ~ 0.003mm
 _BBOX_PAD = 0.05  # feet (~15mm) - containment/proximity tolerance for click resolution
 
-# v1 supports only point-placed families (the FamilyPlacementType whose
-# NewFamilyInstance overload takes a plain XYZ + Level, matching
-# DeeDistributor's own OneLevelBased branch)
-_SUPPORTED_PLACEMENT = "OneLevelBased"
+# Supported FamilyPlacementType kinds, each with its own placement
+# branch in place_matches:
+#   OneLevelBased   - plain point + Level (furniture, generic models)
+#   TwoLevelsBased  - column-like; same creation call, Revit resolves
+#                     the top constraint from the type's own defaults
+#   WorkPlaneBased  - face/ceiling-hosted (ceiling spotlights,
+#                     sprinklers, diffusers, smoke detectors). CANNOT be
+#                     placed with the plain XYZ+Level overload at all -
+#                     it needs a host Reference, so this branch finds
+#                     the ceiling above each block point and hosts to
+#                     its bottom face, falling back to a shared
+#                     horizontal Reference Plane when there is no
+#                     ceiling there.
+_PLACEMENT_ONE_LEVEL = "OneLevelBased"
+_PLACEMENT_TWO_LEVELS = "TwoLevelsBased"
+_PLACEMENT_WORK_PLANE = "WorkPlaneBased"
+_SUPPORTED_PLACEMENTS = (_PLACEMENT_ONE_LEVEL, _PLACEMENT_TWO_LEVELS, _PLACEMENT_WORK_PLANE)
+
+# Human-readable explanation per unsupported kind, so the UI can say
+# WHY rather than just "not supported"
+_UNSUPPORTED_REASONS = {
+    "OneLevelBasedHosted": (
+        "wall-hosted - it must be cut into a specific wall, and a CAD block point alone "
+        "doesn't identify which wall to host it to"),
+    "CurveBased": "line-based - it needs a line to sit on, not a single point",
+    "CurveBasedDetail": "line-based detail - it needs a line to sit on, not a single point",
+    "ViewBased": "a 2D detail/annotation family - it lives in one view, not in 3D model space",
+    "Invalid": "not placeable as an instance by Revit itself",
+}
 
 
 # ==========================================================================
@@ -131,6 +156,14 @@ def internal_to_display(doc, value_internal):
         return UnitUtils.ConvertFromInternalUnits(value_internal, uid)
     except Exception:
         return value_internal
+
+
+def display_to_internal(doc, value_display):
+    uid = _length_unit_type_id(doc)
+    try:
+        return UnitUtils.ConvertToInternalUnits(value_display, uid)
+    except Exception:
+        return value_display
 
 
 _UNIT_ABBR = [
@@ -601,7 +634,18 @@ class FamilyTypeEntry(object):
 
     @property
     def is_supported(self):
-        return self.placement_kind == _SUPPORTED_PLACEMENT
+        return self.placement_kind in _SUPPORTED_PLACEMENTS
+
+    @property
+    def needs_host_face(self):
+        """WorkPlaneBased families can't be placed at a bare point - the
+        UI uses this to show/enable the ceiling-fallback height field."""
+        return self.placement_kind == _PLACEMENT_WORK_PLANE
+
+    @property
+    def unsupported_reason(self):
+        return _UNSUPPORTED_REASONS.get(
+            self.placement_kind, "an unsupported placement type ({0})".format(self.placement_kind))
 
 
 def build_family_index(doc, progress_cb=None):
@@ -756,19 +800,123 @@ def _apply_rotation(doc, instance, angle_radians, fallback_xyz):
         pass
 
 
+# --------------------------------------------------------------------------
+# Ceiling hosting for WorkPlaneBased families (ceiling spotlights,
+# sprinklers, diffusers, smoke detectors - the common case for a CAD
+# reflected-ceiling-plan block).
+#
+# Note on the element cache below vs. the "never cache Revit Elements"
+# rule this tool was just fixed for: that rule is about holding elements
+# across UNRELATED API operations and open-ended UI waits. This cache is
+# built and fully consumed inside a single place_matches call, within
+# one Transaction, with no user interaction in between - the normal,
+# correct way to avoid re-querying ceilings 300+ times. It is never
+# stored on the window.
+# --------------------------------------------------------------------------
+def _build_ceiling_cache(doc):
+    """[(minx, miny, minz, maxx, maxy, maxz, ceiling_element), ...]"""
+    cache = []
+    try:
+        collector = (FilteredElementCollector(doc)
+                     .OfCategory(BuiltInCategory.OST_Ceilings)
+                     .WhereElementIsNotElementType())
+    except Exception:
+        return cache
+    for c in collector:
+        try:
+            bb = c.get_BoundingBox(None)
+            if bb is None:
+                continue
+            cache.append((bb.Min.X, bb.Min.Y, bb.Min.Z, bb.Max.X, bb.Max.Y, bb.Max.Z, c))
+        except Exception:
+            continue
+    return cache
+
+
+def _ceiling_face_at_point(doc, ceiling_cache, x, y, min_z):
+    """Returns (face_reference, face_z) for the LOWEST ceiling whose
+    plan bbox contains (x, y) and which sits at/above min_z (the chosen
+    Level's elevation) - i.e. the ceiling directly above that block, not
+    one on a floor above. (None, None) when there's no ceiling there.
+
+    Point-in-bbox is a deliberate simplification over exact face
+    containment: a ceiling's bbox is its real plan extent for the
+    rectangular/simple ceilings this targets, and an over-match just
+    means the fixture hosts to a ceiling whose edge is nearby rather
+    than failing outright."""
+    best = None
+    for (x0, y0, _z0, x1, y1, z1, ceiling) in ceiling_cache:
+        if x0 <= x <= x1 and y0 <= y <= y1 and z1 >= min_z - 1e-6:
+            if best is None or z1 < best[0]:
+                best = (z1, ceiling)
+    if best is None:
+        return None, None
+    ceiling = best[1]
+    try:
+        refs = HostObjectUtils.GetBottomFaces(ceiling)
+    except Exception:
+        refs = None
+    if not refs:
+        return None, None
+    face_z = None
+    try:
+        bb = ceiling.get_BoundingBox(None)
+        if bb is not None:
+            face_z = bb.Min.Z
+    except Exception:
+        face_z = None
+    for r in refs:
+        return r, face_z
+    return None, None
+
+
+def _get_or_create_reference_plane(doc, z, cache):
+    """One shared horizontal Reference Plane per height, created lazily -
+    the fallback host for WorkPlaneBased families where no ceiling was
+    found. Ported from DeeDistributor's
+    _get_or_create_fallback_reference_plane (whose own docstring flags
+    NewReferencePlane's argument geometry and ReferencePlane.
+    GetReference()'s suitability as a host as NOT live-verified - the
+    same caveat applies here)."""
+    key = round(z, 4)
+    cached = cache.get(key)
+    if cached is not None:
+        try:
+            return cached.GetReference()
+        except Exception:
+            del cache[key]
+    try:
+        rp = doc.Create.NewReferencePlane(
+            XYZ(-100.0, 0.0, z), XYZ(100.0, 0.0, z), XYZ(0.0, 100.0, z), doc.ActiveView)
+        try:
+            rp.Name = "DeeBlocktoFamily Host Plane {0:.3f}".format(z)
+        except Exception:
+            pass  # a name collision is harmless - the plane still works as a host
+        cache[key] = rp
+        return rp.GetReference()
+    except Exception:
+        return None
+
+
 class PlacementResult(object):
     def __init__(self):
         self.placed_count = 0
         self.skipped = []  # list of (label, reason)
         self.scale_warnings = 0
+        self.ceiling_hosted_count = 0
+        self.fallback_plane_count = 0
 
 
-def place_matches(doc, entry, occurrences, level_entry):
+def place_matches(doc, entry, occurrences, level_entry, fallback_height_internal=0.0):
     """entry/level_entry: FamilyTypeEntry and LevelEntry (ElementId +
     pre-read plain values) - the live FamilySymbol and Level are
     re-resolved from their ids HERE, at the single moment they're
     actually needed, rather than being held by the UI across the
     PickObject/geometry-walk steps (see FamilyTypeEntry's docstring).
+
+    fallback_height_internal: for WorkPlaneBased families only - height
+    ABOVE the chosen Level for the fallback Reference Plane used where
+    no ceiling is found over a block point.
 
     One Transaction; each occurrence wrapped in its own try/except so
     one failure never aborts the rest. Never touches the CAD/DWG
@@ -782,6 +930,17 @@ def place_matches(doc, entry, occurrences, level_entry):
     if level is None:
         result.skipped.append(("Level", "Could not resolve the selected Level - re-pick it."))
         return result
+
+    kind = entry.placement_kind
+    needs_face = (kind == _PLACEMENT_WORK_PLANE)
+    ceiling_cache = _build_ceiling_cache(doc) if needs_face else []
+    ref_plane_cache = {}
+    try:
+        level_elevation = level.Elevation
+    except Exception:
+        level_elevation = 0.0
+    fallback_z = level_elevation + (fallback_height_internal or 0.0)
+
     t = Transaction(doc, "DeeBlocktoFamily - Place Family at Matched Blocks")
     t.Start()
     try:
@@ -791,11 +950,39 @@ def place_matches(doc, entry, occurrences, level_entry):
             try:
                 # occ carries plain floats, not a live Transform - a
                 # fresh XYZ is built here at placement time.
-                origin = XYZ(occ.origin[0], occ.origin[1], occ.origin[2])
+                x, y, z = occ.origin
                 angle = occ.rotation_radians
                 if abs(occ.scale - 1.0) > 1e-4:
                     result.scale_warnings += 1
-                inst = doc.Create.NewFamilyInstance(origin, symbol, level, StructuralType.NonStructural)
+
+                if needs_face:
+                    # A WorkPlaneBased symbol CANNOT use the plain
+                    # XYZ+Level overload at all - it needs a host
+                    # Reference. Prefer the real ceiling above this
+                    # block point; fall back to a shared Reference
+                    # Plane at the requested height.
+                    face_ref, face_z = _ceiling_face_at_point(
+                        doc, ceiling_cache, x, y, level_elevation)
+                    if face_ref is not None:
+                        place_z = face_z if face_z is not None else fallback_z
+                        origin = XYZ(x, y, place_z)
+                        inst = doc.Create.NewFamilyInstance(face_ref, origin, XYZ.BasisX, symbol)
+                        result.ceiling_hosted_count += 1
+                    else:
+                        plane_ref = _get_or_create_reference_plane(doc, fallback_z, ref_plane_cache)
+                        if plane_ref is None:
+                            result.skipped.append(
+                                (label, "No ceiling above this point and the fallback Reference "
+                                        "Plane could not be created"))
+                            continue
+                        origin = XYZ(x, y, fallback_z)
+                        inst = doc.Create.NewFamilyInstance(plane_ref, origin, XYZ.BasisX, symbol)
+                        result.fallback_plane_count += 1
+                else:
+                    origin = XYZ(x, y, z)
+                    inst = doc.Create.NewFamilyInstance(
+                        origin, symbol, level, StructuralType.NonStructural)
+
                 _apply_rotation(doc, inst, angle, origin)
                 result.placed_count += 1
             except Exception as e:
@@ -813,6 +1000,13 @@ def print_report(result, block_count, family_label):
         '<p style="color:#ddd;">Matched {0} block occurrence(s). Placed {1} instance(s) of "{2}". '
         '{3} skipped.</p>'.format(block_count, result.placed_count, family_label, len(result.skipped)),
     ]
+    if result.ceiling_hosted_count or result.fallback_plane_count:
+        html.append(
+            '<div style="padding:6px 12px;margin:4px 0;background:#2e7d32;color:#fff;'
+            'border-radius:4px;font-family:monospace;font-size:12px;">'
+            'Face-hosted placement: {0} hosted to a real ceiling above the block, {1} hosted to a '
+            'fallback Reference Plane (no ceiling found above those points).</div>'.format(
+                result.ceiling_hosted_count, result.fallback_plane_count))
     if result.scale_warnings:
         html.append(
             '<div style="padding:6px 12px;margin:4px 0;background:#8d6e00;color:#fff;'

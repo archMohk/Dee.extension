@@ -43,6 +43,11 @@ import math
 import os
 
 import System
+import clr
+clr.AddReference("PresentationCore")
+clr.AddReference("PresentationFramework")
+from System.Windows import Visibility
+from System.Windows.Media import SolidColorBrush, Color
 
 from pyrevit import forms, script
 import dee_branding
@@ -54,6 +59,9 @@ output = script.get_output()
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
+
+_ERROR_BRUSH = SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28))   # red - a real blocker
+_NOTE_BRUSH = SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32))    # green - informational
 
 
 class _SingleElementFilter(ISelectionFilter):
@@ -104,6 +112,8 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
         self._level_entries = core.list_level_entries(self.doc)
         self._level_by_name = dict((e.name, e) for e in self._level_entries)
         self.level_cb.ItemsSource = sorted(self._level_by_name.keys())
+        self.fallback_unit_tb.Text = core.unit_abbreviation(self.doc)
+        self._set_fallback_visible(False)
 
         with forms.ProgressBar(title="DeeBlocktoFamily - scanning loaded families...", cancellable=True) as pb:
             self._type_index, self._family_index = core.build_family_index(self.doc, self._progress_cb(pb))
@@ -266,13 +276,37 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
         if cat and fam and typ:
             self._selected_entry = self._type_index.get(cat, {}).get(fam, {}).get(typ)
         entry = self._selected_entry
-        if entry is not None and not entry.is_supported:
-            self.placement_warning_tb.Text = (
-                "'{0}' is a {1} family - only point-placed (OneLevelBased) families like Generic "
-                "Models/Furniture/Planting are supported by this tool. Pick a different Type.").format(
-                    entry.type_name, entry.placement_kind)
+        self._set_fallback_visible(entry is not None and entry.needs_host_face)
+        if entry is None:
+            self._set_note("", ok=True)
+        elif not entry.is_supported:
+            self._set_note(
+                "'{0}' can't be used here - it's {1}. Pick a different Type.".format(
+                    entry.type_name, entry.unsupported_reason), ok=False)
+        elif entry.needs_host_face:
+            self._set_note(
+                "'{0}' is a ceiling/face-hosted family. Each one will be hosted to the ceiling "
+                "directly above its block; where there's no ceiling, it falls back to a reference "
+                "plane at the height set above.".format(entry.type_name), ok=True)
         else:
-            self.placement_warning_tb.Text = ""
+            self._set_note("", ok=True)
+
+    def _set_note(self, text, ok):
+        """Red only for a real blocker - an informational note about
+        face-hosting shouldn't look like an error."""
+        self.placement_warning_tb.Text = text
+        try:
+            self.placement_warning_tb.Foreground = _NOTE_BRUSH if ok else _ERROR_BRUSH
+        except Exception:
+            pass
+
+    def _set_fallback_visible(self, visible):
+        vis = Visibility.Visible if visible else Visibility.Collapsed
+        for ctrl in (self.fallback_label_tb, self.fallback_height_tb, self.fallback_unit_tb):
+            try:
+                ctrl.Visibility = vis
+            except Exception:
+                pass
 
     def place_click(self, sender, args):
         if not self._matches:
@@ -283,7 +317,8 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Pick a Category, Family, and Type first.")
             return
         if not entry.is_supported:
-            forms.alert("This family's placement type is not supported by this tool - pick a different Type.")
+            forms.alert("'{0}' can't be used here - it's {1}. Pick a different Type.".format(
+                entry.type_name, entry.unsupported_reason))
             return
         level_name = self.level_cb.SelectedItem
         level_entry = self._level_by_name.get(level_name) if level_name else None
@@ -296,8 +331,18 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
                 title="DeeBlocktoFamily - Confirm", yes=True, no=True):
             return
 
+        fallback_internal = 0.0
+        if entry.needs_host_face:
+            try:
+                fallback_display = float(self.fallback_height_tb.Text)
+            except (TypeError, ValueError):
+                forms.alert("Fallback height must be a number.")
+                return
+            fallback_internal = core.display_to_internal(self.doc, fallback_display)
+
         with forms.ProgressBar(title="DeeBlocktoFamily - placing families...", indeterminate=True):
-            result = core.place_matches(self.doc, entry, self._matches, level_entry)
+            result = core.place_matches(
+                self.doc, entry, self._matches, level_entry, fallback_internal)
 
         core.print_report(result, len(self._matches), self.type_cb.SelectedItem)
         self.status_tb.Text = "Placed {0}, skipped {1}. See the pyRevit output window for details.".format(
