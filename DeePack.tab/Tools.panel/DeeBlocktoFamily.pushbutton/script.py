@@ -42,6 +42,8 @@ opens, then launch the wizard pre-seeded with the result).
 import math
 import os
 
+import System
+
 from pyrevit import forms, script
 import dee_branding
 import dee_block_to_family_service as core
@@ -236,17 +238,43 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
         self._update_symbol()
 
     def _update_symbol(self):
+        # Only pure Python/dict lookups happen inline here - the actual
+        # Revit API read (symbol.Family.FamilyPlacementType, inside
+        # core.is_placement_supported) is deferred to
+        # _refresh_placement_warning via Dispatcher.BeginInvoke instead
+        # of running synchronously inside this ComboBox.SelectionChanged
+        # handler. Same deferral principle already proven necessary in
+        # this codebase for a related WPF-event-timing issue (DataGrid
+        # RowEditEnding in DeeQs/DeeSheet - "'Refresh' is not allowed
+        # during an AddNew or EditItem transaction" when Revit-adjacent
+        # work runs before a WPF selection/edit event has fully
+        # unwound) - here as a defensive precaution against a live
+        # "unrecoverable error" crash reported right after a Category/
+        # Family/Type selection, not a confirmed root cause.
         cat = self.category_cb.SelectedItem
         fam = self.family_cb.SelectedItem
         typ = self.type_cb.SelectedItem
         self._selected_symbol = None
         if cat and fam and typ:
             self._selected_symbol = self._type_index.get(cat, {}).get(fam, {}).get(typ)
-        if self._selected_symbol is not None and not core.is_placement_supported(self._selected_symbol):
+        self.placement_warning_tb.Text = ""
+        if self._selected_symbol is not None:
+            try:
+                self.Dispatcher.BeginInvoke(System.Action(self._refresh_placement_warning))
+            except Exception:
+                self._refresh_placement_warning()
+
+    def _refresh_placement_warning(self):
+        symbol = self._selected_symbol
+        if symbol is None:
+            self.placement_warning_tb.Text = ""
+            return
+        if not core.is_placement_supported(symbol):
+            typ = self.type_cb.SelectedItem
             self.placement_warning_tb.Text = (
                 "'{0}' is a {1} family - only point-placed (OneLevelBased) families like Generic "
                 "Models/Furniture/Planting are supported by this tool. Pick a different Type.").format(
-                    typ, core.placement_kind_text(self._selected_symbol))
+                    typ, core.placement_kind_text(symbol))
         else:
             self.placement_warning_tb.Text = ""
 
