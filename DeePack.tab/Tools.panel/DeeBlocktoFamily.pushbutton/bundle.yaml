@@ -1,0 +1,2 @@
+title: DeeBlocktoFamily
+tooltip: Pick a linked or imported CAD file, click one occurrence of a block in the view, and place a chosen Revit Family at every occurrence of that same block - the CAD geometry itself is never touched.
