@@ -220,6 +220,44 @@ def save_standalone(document, logger=None):
         return False, str(e)
 
 
+def open_document_best_detach(application, file_path, audit=False, logger=None):
+    """Opens a LOCAL file for copying, choosing the detach mode by
+    trying rather than assuming - the same reasoning as
+    acc_file_browser.open_cloud_document_detached (see its docstring).
+
+    A standalone (non-workshared) .rvt has nothing to detach from, and
+    Revit rejects any detach option on it with ArgumentException
+    "Detach option is not valid... Parameter name: openOptions". Since
+    the closed-file scan cannot reliably tell workshared from standalone
+    (see deew_model_scanner's own documented limitation), the only
+    dependable approach is to attempt the preferred mode and fall back.
+
+    Falling back to DoNotDetach is safe for the copy workflow: callers
+    never call Save() and always close with save_modified=False, so the
+    source file is not written to either way.
+
+    Returns (document_or_None, detail_string) - detail names the mode
+    that worked."""
+    attempts = [
+        ("preserve", "detached (worksets preserved)"),
+        ("discard", "detached (worksets discarded)"),
+        ("none", "opened attached (model is not workshared)"),
+    ]
+    errors = []
+    for detach_option, label in attempts:
+        try:
+            model_path = ModelPathUtils.ConvertUserVisiblePathToModelPath(file_path)
+            options = build_open_options(detach_option, audit, open_all_worksets=True)
+            document = application.OpenDocumentFile(model_path, options)
+            return document, label
+        except Exception as e:
+            errors.append("{0}: {1}".format(label, e))
+            continue
+    if logger is not None:
+        logger.error("Could not open document in any detach mode: {0}".format(file_path))
+    return None, " | ".join(errors)
+
+
 def unique_target_path(folder, file_name):
     """Returns a non-colliding path inside `folder`. DeeW.Transmit must
     never silently overwrite a previously issued model, so a repeat run

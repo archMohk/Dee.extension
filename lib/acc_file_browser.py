@@ -564,27 +564,65 @@ def open_cloud_document_detached(application, region, project_id, item_id, token
        OpenDocumentFile never touches the UI, so the batch does not
        depend on Revit's window/active-document state at all.
 
-    Returns (document_or_None, detail_string). Never raises."""
+    Detach mode is chosen by TRYING, not assumed. Revit raises
+    ArgumentException("Detach option is not valid...", param
+    "openOptions") when a model does not support detaching at all -
+    which is what a non-workshared cloud model does, and what every
+    model in the first live run against a real ACC project did. There is
+    no reliable way to ask a CLOSED model whether it is workshared, so
+    this walks the options in order of preference and keeps the first
+    that Revit accepts:
+
+      DetachAndPreserveWorksets -> best for a workshared model: the copy
+                                   keeps its worksets.
+      DetachAndDiscardWorksets  -> workshared model where preserving was
+                                   refused.
+      DoNotDetach               -> the model is not workshared, so there
+                                   is nothing to detach FROM. Saving a
+                                   copy of it is still safe: SaveAs on a
+                                   non-workshared document just writes a
+                                   new file, and callers here never call
+                                   Save() and always close with
+                                   save_modified=False, so the ACC model
+                                   is still never written back to.
+
+    Returns (document_or_None, detail_string) - detail names the mode
+    that actually worked, so the report says what happened rather than
+    leaving it a mystery. Never raises."""
     try:
         proj_guid, model_guid, _guid_src = get_cloud_path_guids(project_id, item_id, token)
     except Exception as e:
         return None, "Could not resolve cloud GUIDs: {0}".format(e)
     try:
         cloud_path = ModelPathUtils.ConvertCloudGUIDsToCloudPath(region, proj_guid, model_guid)
-        open_options = OpenOptions()
-        open_options.DetachFromCentralOption = (
-            DetachFromCentralOption.DetachAndDiscardWorksets if discard_worksets
-            else DetachFromCentralOption.DetachAndPreserveWorksets)
-        open_options.Audit = bool(audit)
-        try:
-            open_options.SetOpenWorksetsConfiguration(
-                WorksetConfiguration(WorksetConfigurationOption.OpenAllWorksets))
-        except Exception:
-            pass
-        document = application.OpenDocumentFile(cloud_path, open_options)
-        return document, "Opened (detached)"
     except Exception as e:
-        return None, str(e)
+        return None, "Could not build cloud path: {0}".format(e)
+
+    if discard_worksets:
+        attempts = [(DetachFromCentralOption.DetachAndDiscardWorksets, "detached (worksets discarded)"),
+                    (DetachFromCentralOption.DoNotDetach, "opened attached (model is not workshared)")]
+    else:
+        attempts = [(DetachFromCentralOption.DetachAndPreserveWorksets, "detached (worksets preserved)"),
+                    (DetachFromCentralOption.DetachAndDiscardWorksets, "detached (worksets discarded)"),
+                    (DetachFromCentralOption.DoNotDetach, "opened attached (model is not workshared)")]
+
+    errors = []
+    for detach_option, label in attempts:
+        try:
+            open_options = OpenOptions()
+            open_options.DetachFromCentralOption = detach_option
+            open_options.Audit = bool(audit)
+            try:
+                open_options.SetOpenWorksetsConfiguration(
+                    WorksetConfiguration(WorksetConfigurationOption.OpenAllWorksets))
+            except Exception:
+                pass
+            document = application.OpenDocumentFile(cloud_path, open_options)
+            return document, label
+        except Exception as e:
+            errors.append("{0}: {1}".format(label, e))
+            continue
+    return None, " | ".join(errors)
 
 
 def open_cloud_file(uiapp, region, project_id, item_id, token, close_worksets=False):

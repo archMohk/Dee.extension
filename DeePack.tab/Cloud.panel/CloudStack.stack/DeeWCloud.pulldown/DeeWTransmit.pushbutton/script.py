@@ -191,15 +191,17 @@ class TransmitPipeline(object):
                 row.errors = scanned_model.error
                 return row
 
-            # DETACHED - this is what keeps the source file untouched.
-            document, err = docmgr.open_document(
+            # Detach where the model supports it, fall back where it
+            # does not - a standalone .rvt has nothing to detach from
+            # and Revit rejects the option outright.
+            document, open_detail = docmgr.open_document_best_detach(
                 self.application, scanned_model.file_path,
-                detach_option="preserve", audit=self.options.get("audit", False),
-                open_all_worksets=True, logger=self.logger)
+                audit=self.options.get("audit", False), logger=self.logger)
             if document is None:
                 row.save_status = "Failed - could not open"
-                row.errors = err
+                row.errors = open_detail
                 return row
+            row.warnings = (row.warnings + "; " + open_detail) if row.warnings else open_detail
 
             clean_result = cleansvc.clean_document(document, self.options)
             self._apply_clean_result(row, clean_result)
@@ -230,13 +232,14 @@ class TransmitPipeline(object):
         start = time.time()
         document = None
         try:
-            document, detail = afb.open_cloud_document_detached(
+            document, open_detail = afb.open_cloud_document_detached(
                 self.application, item.region, item.project_id, item.item_id, item.token,
                 audit=self.options.get("audit", False))
             if document is None:
                 row.save_status = "Failed - could not open"
-                row.errors = detail
+                row.errors = open_detail
                 return row
+            row.warnings = (row.warnings + "; " + open_detail) if row.warnings else open_detail
 
             clean_result = cleansvc.clean_document(document, self.options)
             self._apply_clean_result(row, clean_result)
