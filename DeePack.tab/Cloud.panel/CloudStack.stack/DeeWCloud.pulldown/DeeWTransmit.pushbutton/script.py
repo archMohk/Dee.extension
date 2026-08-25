@@ -48,14 +48,16 @@ NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct)
   worksets, so the copy is a new central). That is the intended
   behaviour for issuing a model, but confirm it matches expectations on
   a real workshared project before relying on it.
-- Cloud models are opened through acc_file_browser.open_cloud_file(),
-  which uses OpenAndActivateDocument and therefore cannot detach. For
-  cloud sources this tool therefore saves a copy of the OPENED cloud
-  model and explicitly never synchronizes - the cloud model itself is
-  left untouched, but it IS briefly opened for real (same behaviour
-  DeeW.Clean already has). Verify on a real ACC project that closing
-  without syncing leaves the cloud model unchanged, which is the
-  expected Revit behaviour but worth confirming once.
+- Cloud models are opened via acc_file_browser.open_cloud_document_detached()
+  (Application.OpenDocumentFile on a cloud ModelPath, detached, headless).
+  FIRST LIVE RUN FAILED with the earlier approach and this is the fix:
+  it originally used open_cloud_file()/OpenAndActivateDocument, which
+  cannot detach, so SaveAs to a local path was rejected on the still-
+  attached ACC central ("Failed - could not save copy"), and every
+  model after the first then failed to open one second apart -
+  consistent with repeatedly activating/closing documents from inside a
+  modal window. Headless detached opening removes both problems, but
+  needs confirming on a real ACC project.
 """
 import os
 import time
@@ -217,24 +219,29 @@ class TransmitPipeline(object):
             row.processing_time_seconds = time.time() - start
 
     def process_cloud(self, item, uiapp):
+        """Cloud models are opened HEADLESS + DETACHED (see
+        acc_file_browser.open_cloud_document_detached for why). The
+        earlier version used the UI-activating, non-detaching
+        open_cloud_file, which made SaveAs illegal on the still-attached
+        central and destabilised every subsequent open in the batch."""
         row = reportgen.CleanReportRow(
             item.display_name, item.location_text, "Cloud", "Cloud Model",
             _revit_version_text(self.application))
         start = time.time()
-        ui_doc = None
+        document = None
         try:
-            ui_doc, detail = afb.open_cloud_file(
-                uiapp, item.region, item.project_id, item.item_id, item.token, close_worksets=False)
-            if ui_doc is None:
+            document, detail = afb.open_cloud_document_detached(
+                self.application, item.region, item.project_id, item.item_id, item.token,
+                audit=self.options.get("audit", False))
+            if document is None:
                 row.save_status = "Failed - could not open"
                 row.errors = detail
                 return row
-            document = ui_doc.Document
 
             clean_result = cleansvc.clean_document(document, self.options)
             self._apply_clean_result(row, clean_result)
-            # Save a copy out, then close WITHOUT synchronizing - the
-            # cloud model itself is deliberately left as it was.
+            # The document is detached, so this writes only to the new
+            # path - the ACC model is never synchronized or altered.
             self._save_copy(row, document, item.display_name)
             return row
         except Exception as e:
@@ -243,9 +250,9 @@ class TransmitPipeline(object):
             self.logger.exception("Unexpected error transmitting cloud file", e, file=item.display_name)
             return row
         finally:
-            if ui_doc is not None:
+            if document is not None:
                 try:
-                    docmgr.close_document(ui_doc.Document, save_modified=False, logger=self.logger)
+                    docmgr.close_document(document, save_modified=False, logger=self.logger)
                 except Exception:
                     pass
             row.processing_time_seconds = time.time() - start
@@ -498,7 +505,9 @@ class DeeWTransmitWindow(dee_branding.DeeBrandedWindow):
                     outcome = ("success" if row.save_status == "Copy saved"
                                else ("skipped" if "skip" in row.save_status.lower() else "failed"))
                     prog.finish_file(outcome)
-                    self._log("'{0}': {1}".format(model.file_name, row.save_status))
+                    self._log("'{0}': {1}{2}".format(
+                        model.file_name, row.save_status,
+                        (" - " + row.errors) if row.errors else ""))
 
                 if not prog.cancelled:
                     for item in selected_cloud:
@@ -513,7 +522,9 @@ class DeeWTransmitWindow(dee_branding.DeeBrandedWindow):
                         outcome = ("success" if row.save_status == "Copy saved"
                                    else ("skipped" if "skip" in row.save_status.lower() else "failed"))
                         prog.finish_file(outcome)
-                        self._log("'{0}': {1}".format(item.display_name, row.save_status))
+                        self._log("'{0}': {1}{2}".format(
+                            item.display_name, row.save_status,
+                            (" - " + row.errors) if row.errors else ""))
         finally:
             if self._dialog_handler is not None:
                 try:

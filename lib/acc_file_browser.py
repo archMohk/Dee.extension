@@ -34,7 +34,10 @@ except ImportError:
 
 import System
 from pyrevit import forms
-from Autodesk.Revit.DB import OpenOptions, WorksetConfigurationOption, WorksetConfiguration, ModelPathUtils
+from Autodesk.Revit.DB import (
+    OpenOptions, WorksetConfigurationOption, WorksetConfiguration, ModelPathUtils,
+    DetachFromCentralOption,
+)
 from Autodesk.Revit.UI import TaskDialogResult
 
 import acc_api
@@ -535,6 +538,53 @@ def pick_files_to_open(all_items, title="Select Files to Open", button_name="Ope
         multiselect=True,
         button_name=button_name
     )
+
+
+def open_cloud_document_detached(application, region, project_id, item_id, token,
+                                  audit=False, discard_worksets=False):
+    """Opens a cloud model HEADLESS and DETACHED via
+    Application.OpenDocumentFile - deliberately NOT the
+    UIApplication.OpenAndActivateDocument path used by open_cloud_file
+    below.
+
+    Two things make this the right call for any tool that wants to save
+    a COPY of a cloud model (DeeW.Transmit):
+
+    1. OpenAndActivateDocument cannot detach - the document stays bound
+       to its ACC central. Document.SaveAs to a local path on a still-
+       attached workshared/cloud central is rejected by Revit, which is
+       exactly why DeeW.Transmit's first live run reported "Failed -
+       could not save copy" after successfully opening and cleaning the
+       model. Detaching first is what makes SaveAs legal.
+    2. It activates each document into Revit's UI, swapping the visible
+       tab per file and closing the active document between iterations.
+       On that same live run every model after the first failed to open
+       at all, one second apart - consistent with driving document
+       activation repeatedly from inside a modal window. The headless
+       OpenDocumentFile never touches the UI, so the batch does not
+       depend on Revit's window/active-document state at all.
+
+    Returns (document_or_None, detail_string). Never raises."""
+    try:
+        proj_guid, model_guid, _guid_src = get_cloud_path_guids(project_id, item_id, token)
+    except Exception as e:
+        return None, "Could not resolve cloud GUIDs: {0}".format(e)
+    try:
+        cloud_path = ModelPathUtils.ConvertCloudGUIDsToCloudPath(region, proj_guid, model_guid)
+        open_options = OpenOptions()
+        open_options.DetachFromCentralOption = (
+            DetachFromCentralOption.DetachAndDiscardWorksets if discard_worksets
+            else DetachFromCentralOption.DetachAndPreserveWorksets)
+        open_options.Audit = bool(audit)
+        try:
+            open_options.SetOpenWorksetsConfiguration(
+                WorksetConfiguration(WorksetConfigurationOption.OpenAllWorksets))
+        except Exception:
+            pass
+        document = application.OpenDocumentFile(cloud_path, open_options)
+        return document, "Opened (detached)"
+    except Exception as e:
+        return None, str(e)
 
 
 def open_cloud_file(uiapp, region, project_id, item_id, token, close_worksets=False):
