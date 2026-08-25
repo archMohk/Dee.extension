@@ -1,0 +1,3 @@
+title: DeeW.Transmit
+tooltip: Issue cleaned copies of local or cloud models to a folder - opens each model detached, applies the DeeW.Clean operations (purge, rooms, groups, and optionally strip views/sheets), then saves a copy to a folder you choose. The original model is never modified.
+context: zero-doc

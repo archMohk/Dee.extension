@@ -1,69 +1,61 @@
 # -*- coding: utf-8 -*-
 """
-DeeW.Clean (DeeW.Cloud)
-Batch-cleans local and cloud Revit models: Purge Unused Elements,
-delete Zero-Area Rooms, delete Unused Groups, and flag In-Place
-Families for manual review - then saves (Standalone) or Synchronizes
-With Central (workshared local files AND ACC cloud models) so the
-cleanup actually reaches the shared model, not a disconnected copy.
+DeeW.Transmit (DeeW.Cloud)
+Issues cleaned COPIES of local and cloud Revit models into a folder you
+choose - an eTransmit-style "prepare a model to send out" workflow.
 
 --------------------------------------------------------------------
-Architecture - IronPython 2, matching the rest of DeeW.Cloud
+The one thing that makes this different from DeeW.Clean
 --------------------------------------------------------------------
-Built directly on IronPython 2 from the start (unlike DeeW.Sharing/
-Batch Save to Cloud, which were originally built for pyRevit's CPython
-3 engine and rewritten after live-test crashes - see those tools'
-module docstrings for that history). Shares every relevant lib/deew_*.py
-service already proven by Sharing/Batch:
-  deew_logger / deew_settings / deew_model_scanner / deew_failure_handler
-  deew_progress_service / deew_report_generator (CleanReportRow, added
-      here rather than repurposing the upload-oriented ReportRow, since
-      this tool never uploads anything - it purges/deletes elements in
-      place and saves/syncs the SAME file)
-  acc_file_browser / deew_cloud_service - for the Cloud Models picker
-      and get_token(), reused unchanged
+DeeW.Clean opens the REAL central/cloud model (DoNotDetach) and pushes
+its changes back via Synchronize With Central - the cleanup is meant to
+reach the shared model.
 
-New shared logic added for this tool:
-  deew_clean_service.py - the actual purge/delete/count operations,
-      adapted from DeeCleaner's own proven interactive scans (see that
-      module's docstring for the exact detection rules reused).
-  deew_document_manager.open_document_no_detach() / synchronize_with_central()
-      / save_standalone() - DeeW.Clean deliberately does NOT detach
-      before cleaning (unlike Sharing/Batch, whose whole point is an
-      independent NEW cloud copy) - it opens the REAL central/cloud
-      model directly so the cleanup reaches the actual shared file,
-      then pushes changes back via Synchronize With Central. Property
-      names for SynchronizeWithCentralOptions were verified against
-      revitapidocs.com before writing, not guessed.
+DeeW.Transmit does the opposite, deliberately, and this was confirmed
+with the user before it was built: every model is opened DETACHED, the
+same cleaning operations are applied to that detached copy, and the
+result is written to a NEW file in the destination folder. The source
+local file is never saved and the source cloud model is never
+synchronized. Closing the detached document without saving is what
+guarantees that - there is no code path here that writes to the origin.
+
+Because the copies are detached, deleting all views/sheets (the
+destructive options this tool shares with DeeW.Clean) is a normal thing
+to do here rather than an alarming one: it strips a model down for
+issuing without touching the drawings the team is still working in.
 
 --------------------------------------------------------------------
-DELIBERATELY CONSERVATIVE: In-Place Families are REPORT-ONLY
+Shared with DeeW.Clean - no duplicated logic
 --------------------------------------------------------------------
-Matches DeeCleaner's own restraint - an in-place family is real
-modeled geometry, not an "unused" element by any Revit definition.
-This tool counts and reports them but NEVER deletes them automatically,
-even though every other check here does delete unattended - that
-asymmetry is intentional, not an oversight.
+  deew_clean_service.clean_document() - the identical option dict, so
+      a checkbox added to one tool's Options tab means the same thing
+      in the other by construction.
+  deew_document_manager.open_document / save_copy_as / unique_target_path
+  deew_model_scanner / deew_logger / deew_settings / deew_failure_handler
+  deew_progress_service / deew_report_generator (CleanReportRow reused
+      as-is: its "location" column carries the saved copy's path here
+      instead of the source location, which is the more useful thing to
+      report for this tool)
+  acc_file_browser / deew_cloud_service - Cloud Models picker, unchanged
 
 --------------------------------------------------------------------
 NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct)
 --------------------------------------------------------------------
-- Document.GetUnusedElements is Revit 2024+ only (verified against
-  revitapidocs.com) - guarded via hasattr(), degrades to "Purge
-  skipped" on older Revit rather than crashing, but the actual
-  behavior needs a live check on a real 2024+ session.
-- Opening a file the scanner classified as "Central" (vs "Local Copy
-  of Central") directly with DoNotDetach and then Synchronizing With
-  Central from it is unusual - per deew_model_scanner.py's own
-  documented limitation, a closed file's header can't reliably
-  distinguish Central from Local Copy, so both are treated the same
-  way here. Best practice is always working from a local copy; this
-  is flagged rather than silently assumed safe.
-- Cloud items opened via acc_file_browser.open_cloud_file() use
-  OpenAndActivateDocument, which switches Revit's visible active tab
-  to each file in turn while the batch runs - expected/proven behavior
-  (same mechanism DeeOpener/DeeNWCs already use), not a bug, but worth
-  knowing if you're watching Revit while a Cloud Models batch runs.
+- Document.SaveAs(ModelPath, SaveAsOptions) on a detached workshared
+  document: the detached doc is saved as a NEW standalone/central file.
+  Whether the result is standalone or a new central depends on the
+  detach option used at open time (DetachAndPreserveWorksets keeps
+  worksets, so the copy is a new central). That is the intended
+  behaviour for issuing a model, but confirm it matches expectations on
+  a real workshared project before relying on it.
+- Cloud models are opened through acc_file_browser.open_cloud_file(),
+  which uses OpenAndActivateDocument and therefore cannot detach. For
+  cloud sources this tool therefore saves a copy of the OPENED cloud
+  model and explicitly never synchronizes - the cloud model itself is
+  left untouched, but it IS briefly opened for real (same behaviour
+  DeeW.Clean already has). Verify on a real ACC project that closing
+  without syncing leaves the cloud model unchanged, which is the
+  expected Revit behaviour but worth confirming once.
 """
 import os
 import time
@@ -89,8 +81,8 @@ import deew_cloud_service as cloudsvc
 
 output = script.get_output()
 
-_TOOL_NAME = "DeeWClean"
-_TOOL_TITLE = "DeeW.Clean"
+_TOOL_NAME = "DeeWTransmit"
+_TOOL_TITLE = "DeeW.Transmit"
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
@@ -98,6 +90,7 @@ _CACHE_FILE = os.path.join(_THIS_DIR, ".acc_file_cache.json")
 
 _DEFAULT_SETTINGS = {
     "last_source_folder": "",
+    "last_dest_folder": "",
     "options": {},
 }
 
@@ -109,11 +102,10 @@ def _revit_version_text(app):
         return "Unknown"
 
 
-class CloudCleanItem(object):
-    """One row per cloud model added via "Add Cloud Models..." - plain
-    fields matching acc_file_browser's existing pick_hub/pick_project/
-    list_project_files return shapes, so no new ACC-browsing logic is
-    needed here beyond calling those already-proven functions."""
+class CloudTransmitItem(object):
+    """One row per cloud model added via "Add Cloud Models..." - same
+    plain shape acc_file_browser's pick_hub/pick_project/
+    list_project_files already return."""
 
     def __init__(self, hub_id, hub_name, region, project_id, project_name, item_id, display_name, token):
         self.selected = False
@@ -132,16 +124,23 @@ class CloudCleanItem(object):
         return "{0} / {1}".format(self.hub_name, self.project_name)
 
 
-class CleanPipeline(object):
-    """Owns the actual per-file Open -> Clean -> Save/Sync -> Close
-    pipeline, for both local and cloud sources - kept separate from
-    the Window class per this repo's established one-tool-file
-    convention (UI wiring vs. the real work)."""
+class TransmitPipeline(object):
+    """Per-file Open (detached) -> Clean -> Save Copy -> Close. Kept
+    separate from the Window class per this repo's UI-vs-work
+    convention, and structured to mirror DeeW.Clean's CleanPipeline so
+    the two stay easy to compare."""
 
     def __init__(self, application, options, logger):
         self.application = application
         self.options = options
         self.logger = logger
+
+    def _target_name(self, source_file_name):
+        base, ext = os.path.splitext(source_file_name)
+        if not ext:
+            ext = ".rvt"
+        suffix = self.options.get("name_suffix", "") or ""
+        return base + suffix + ext
 
     def _apply_clean_result(self, row, clean_result):
         row.purged_count = clean_result.purged_count
@@ -161,6 +160,20 @@ class CleanPipeline(object):
     def _add_error(self, row, detail):
         row.errors = (row.errors + "; " + detail) if row.errors else detail
 
+    def _save_copy(self, row, document, source_file_name):
+        dest_folder = self.options.get("dest_folder", "")
+        target = docmgr.unique_target_path(dest_folder, self._target_name(source_file_name))
+        ok, detail = docmgr.save_copy_as(
+            document, target, compact=self.options.get("compact_on_save", False),
+            overwrite=False, logger=self.logger)
+        if ok:
+            row.save_status = "Copy saved"
+            row.location = detail          # the saved copy's real path
+        else:
+            row.save_status = "Failed - could not save copy"
+            self._add_error(row, detail)
+        return ok
+
     def process_local(self, scanned_model):
         row = reportgen.CleanReportRow(
             scanned_model.file_name, scanned_model.file_path, "Local",
@@ -176,9 +189,11 @@ class CleanPipeline(object):
                 row.errors = scanned_model.error
                 return row
 
-            document, err = docmgr.open_document_no_detach(
+            # DETACHED - this is what keeps the source file untouched.
+            document, err = docmgr.open_document(
                 self.application, scanned_model.file_path,
-                audit=self.options.get("audit", False), open_all_worksets=True, logger=self.logger)
+                detach_option="preserve", audit=self.options.get("audit", False),
+                open_all_worksets=True, logger=self.logger)
             if document is None:
                 row.save_status = "Failed - could not open"
                 row.errors = err
@@ -186,28 +201,18 @@ class CleanPipeline(object):
 
             clean_result = cleansvc.clean_document(document, self.options)
             self._apply_clean_result(row, clean_result)
-
-            if docmgr.is_workshared(document):
-                ok, detail = docmgr.synchronize_with_central(
-                    document, comment=self.options.get("sync_comment", ""),
-                    compact=self.options.get("compact_on_sync", False), logger=self.logger)
-                row.save_status = "Synchronized with Central" if ok else "Failed - sync error"
-                if not ok:
-                    self._add_error(row, detail)
-            else:
-                ok, detail = docmgr.save_standalone(document, logger=self.logger)
-                row.save_status = "Saved" if ok else "Failed - save error"
-                if not ok:
-                    self._add_error(row, detail)
-
+            self._save_copy(row, document, scanned_model.file_name)
             return row
         except Exception as e:
             row.save_status = "Failed - unexpected error"
             row.errors = str(e)
-            self.logger.exception("Unexpected error cleaning file", e, file=scanned_model.file_name)
+            self.logger.exception("Unexpected error transmitting file", e, file=scanned_model.file_name)
             return row
         finally:
-            if document is not None and self.options.get("close_after", True):
+            if document is not None:
+                # save_modified=False always: the detached document has
+                # already been written to its new path, and there is
+                # nothing we ever want flushed back toward the origin.
                 docmgr.close_document(document, save_modified=False, logger=self.logger)
             row.processing_time_seconds = time.time() - start
 
@@ -228,22 +233,17 @@ class CleanPipeline(object):
 
             clean_result = cleansvc.clean_document(document, self.options)
             self._apply_clean_result(row, clean_result)
-
-            ok, sync_detail = docmgr.synchronize_with_central(
-                document, comment=self.options.get("sync_comment", ""),
-                compact=self.options.get("compact_on_sync", False), logger=self.logger)
-            row.save_status = "Synchronized with Central" if ok else "Failed - sync error"
-            if not ok:
-                self._add_error(row, sync_detail)
-
+            # Save a copy out, then close WITHOUT synchronizing - the
+            # cloud model itself is deliberately left as it was.
+            self._save_copy(row, document, item.display_name)
             return row
         except Exception as e:
             row.save_status = "Failed - unexpected error"
             row.errors = str(e)
-            self.logger.exception("Unexpected error cleaning cloud file", e, file=item.display_name)
+            self.logger.exception("Unexpected error transmitting cloud file", e, file=item.display_name)
             return row
         finally:
-            if ui_doc is not None and self.options.get("close_after", True):
+            if ui_doc is not None:
                 try:
                     docmgr.close_document(ui_doc.Document, save_modified=False, logger=self.logger)
                 except Exception:
@@ -251,7 +251,7 @@ class CleanPipeline(object):
             row.processing_time_seconds = time.time() - start
 
 
-class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
+class DeeWTransmitWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, uiapp):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.uiapp = uiapp
@@ -266,9 +266,11 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
         saved = deew_settings.load(_TOOL_NAME, _DEFAULT_SETTINGS)
         if saved.get("last_source_folder") and os.path.isdir(saved["last_source_folder"]):
             self.source_folder_tb.Text = saved["last_source_folder"]
+        if saved.get("last_dest_folder") and os.path.isdir(saved["last_dest_folder"]):
+            self.dest_folder_tb.Text = saved["last_dest_folder"]
         self._apply_saved_options(saved.get("options", {}))
 
-        self._log("Ready. Browse to a source folder and click Scan Folder, or Add Cloud Models.")
+        self._log("Ready. Pick source models, set a destination folder, then Run.")
 
     # ---------------- persistence ----------------
     def _current_options(self):
@@ -280,12 +282,13 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
             "delete_all_sheets": bool(self.delete_all_sheets_cb.IsChecked),
             "delete_all_views": bool(self.delete_all_views_cb.IsChecked),
             "delete_unused_views": bool(self.delete_unused_views_cb.IsChecked),
-            "sync_comment": self.sync_comment_tb.Text,
-            "compact_on_sync": bool(self.compact_on_sync_cb.IsChecked),
+            "dest_folder": self.dest_folder_tb.Text,
+            "name_suffix": self.name_suffix_tb.Text,
+            "compact_on_save": bool(self.compact_on_save_cb.IsChecked),
             "audit": bool(self.audit_cb.IsChecked),
             "auto_resolve_dialogs": bool(self.auto_resolve_dialogs_cb.IsChecked),
             "generate_report": bool(self.generate_report_cb.IsChecked),
-            "close_after": bool(self.close_after_cb.IsChecked),
+            "close_after": True,  # always - a detached copy is never left open
         }
 
     def _apply_saved_options(self, options):
@@ -294,23 +297,21 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
             self.delete_rooms_cb.IsChecked = options.get("delete_zero_area_rooms", True)
             self.delete_groups_cb.IsChecked = options.get("delete_unused_groups", True)
             self.flag_inplace_cb.IsChecked = options.get("flag_inplace_families", True)
-            # Destructive view/sheet options default OFF - a saved
-            # setting can turn them on, but a fresh install never does.
             self.delete_all_sheets_cb.IsChecked = options.get("delete_all_sheets", False)
             self.delete_all_views_cb.IsChecked = options.get("delete_all_views", False)
             self.delete_unused_views_cb.IsChecked = options.get("delete_unused_views", False)
-            self.sync_comment_tb.Text = options.get("sync_comment", "DeeW.Clean - automated batch cleanup")
-            self.compact_on_sync_cb.IsChecked = options.get("compact_on_sync", False)
+            self.name_suffix_tb.Text = options.get("name_suffix", "_CLEANED")
+            self.compact_on_save_cb.IsChecked = options.get("compact_on_save", False)
             self.audit_cb.IsChecked = options.get("audit", False)
             self.auto_resolve_dialogs_cb.IsChecked = options.get("auto_resolve_dialogs", True)
             self.generate_report_cb.IsChecked = options.get("generate_report", True)
-            self.close_after_cb.IsChecked = options.get("close_after", True)
         except Exception:
             pass
 
     def _save_settings(self):
         deew_settings.save(_TOOL_NAME, {
             "last_source_folder": self.source_folder_tb.Text,
+            "last_dest_folder": self.dest_folder_tb.Text,
             "options": self._current_options(),
         })
 
@@ -331,6 +332,14 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
             dlg.SelectedPath = self.source_folder_tb.Text
         if dlg.ShowDialog() == DialogResult.OK:
             self.source_folder_tb.Text = dlg.SelectedPath
+
+    def browse_dest_click(self, sender, args):
+        dlg = FolderBrowserDialog()
+        dlg.Description = "Pick the folder the cleaned copies will be saved into"
+        if self.dest_folder_tb.Text and os.path.isdir(self.dest_folder_tb.Text):
+            dlg.SelectedPath = self.dest_folder_tb.Text
+        if dlg.ShowDialog() == DialogResult.OK:
+            self.dest_folder_tb.Text = dlg.SelectedPath
 
     def scan_click(self, sender, args):
         folder = self.source_folder_tb.Text
@@ -359,7 +368,7 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
             return
         existing_paths = set(m.file_path for m in self._models)
         added = 0
-        with forms.ProgressBar(title="DeeWClean - scanning {value} of {max_value}...") as pb:
+        with forms.ProgressBar(title="DeeWTransmit - scanning {value} of {max_value}...") as pb:
             for i, path in enumerate(dlg.FileNames):
                 pb.update_progress(i, len(dlg.FileNames))
                 if path in existing_paths:
@@ -399,12 +408,12 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
                 return
             project_id, project_name = project
             self._log("Loading cloud model list for '{0}'...".format(project_name))
-            with forms.ProgressBar(title="DeeWClean - loading cloud model list...", indeterminate=True):
+            with forms.ProgressBar(title="DeeWTransmit - loading cloud model list...", indeterminate=True):
                 all_items = afb.list_project_files(hub_id, project_id, token, _CACHE_FILE)
             if not all_items:
                 return
             picked_names = afb.pick_files_to_open(
-                all_items, title="Select Cloud Models to Clean", button_name="Add Selected")
+                all_items, title="Select Cloud Models to Transmit", button_name="Add Selected")
             if not picked_names:
                 return
         except Exception as e:
@@ -418,7 +427,7 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
             if item_id in existing_ids:
                 continue
             self._cloud_items.append(
-                CloudCleanItem(hub_id, hub_name, region, project_id, project_name, item_id, name, token))
+                CloudTransmitItem(hub_id, hub_name, region, project_id, project_name, item_id, name, token))
             existing_ids.add(item_id)
             added += 1
         self._refresh_cloud_grid()
@@ -447,30 +456,21 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
             return
 
         options = self._current_options()
-        if not any(options[k] for k in (
-                "purge_unused", "delete_zero_area_rooms", "delete_unused_groups",
-                "flag_inplace_families", "delete_all_sheets", "delete_all_views",
-                "delete_unused_views")):
-            forms.alert("Check at least one cleaning operation in the Options tab first.")
+        dest = options["dest_folder"]
+        if not dest or not os.path.isdir(dest):
+            forms.alert("Pick a valid destination folder on the Options tab first.")
             return
-
-        # DeeW.Clean writes back to the REAL central/cloud model, so a
-        # view/sheet deletion here is not recoverable by closing without
-        # saving - it gets synchronized. Worth one explicit confirmation
-        # naming exactly what will be destroyed.
-        destructive = [label for key, label in (
-            ("delete_all_sheets", "ALL SHEETS"),
-            ("delete_all_views", "ALL VIEWS"),
-            ("delete_unused_views", "all views not placed on a sheet"),
-        ) if options[key]]
-        if destructive:
+        # Writing the copies back into the folder being scanned would
+        # make a second run pick up its own output as a source.
+        src = self.source_folder_tb.Text
+        if src and os.path.isdir(src) and os.path.normcase(os.path.abspath(src)) == \
+                os.path.normcase(os.path.abspath(dest)):
             if not forms.alert(
-                    "You are about to permanently delete {0} from {1} model(s), and these changes "
-                    "are SAVED/SYNCHRONIZED back to the real model.\n\nThis cannot be undone from "
-                    "here. Continue?".format(
-                        " and ".join(destructive), len(selected_local) + len(selected_cloud)),
-                    title=_TOOL_TITLE + " - confirm destructive cleanup", yes=True, no=True):
+                    "The destination folder is the same as the source folder. The cleaned copies "
+                    "will be picked up as sources next time you scan.\n\nUse it anyway?",
+                    title=_TOOL_TITLE, yes=True, no=True):
                 return
+
         self._save_settings()
 
         if options["auto_resolve_dialogs"]:
@@ -480,7 +480,7 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
             except Exception as e:
                 self.logger.exception("Could not attach dialog handler", e)
 
-        pipeline = CleanPipeline(self.application, options, self.logger)
+        pipeline = TransmitPipeline(self.application, options, self.logger)
         total = len(selected_local) + len(selected_cloud)
 
         report_rows = []
@@ -490,12 +490,12 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
                     if prog.cancelled:
                         self._log("Cancelled by user.")
                         break
-                    prog.step(model.file_name, "Cleaning (local)")
-                    self._log("Cleaning '{0}'...".format(model.file_name))
+                    prog.step(model.file_name, "Transmitting (local)")
+                    self._log("Transmitting '{0}'...".format(model.file_name))
                     row = pipeline.process_local(model)
                     report_rows.append(row)
                     model.status = row.save_status
-                    outcome = ("success" if row.save_status in ("Saved", "Synchronized with Central")
+                    outcome = ("success" if row.save_status == "Copy saved"
                                else ("skipped" if "skip" in row.save_status.lower() else "failed"))
                     prog.finish_file(outcome)
                     self._log("'{0}': {1}".format(model.file_name, row.save_status))
@@ -505,12 +505,12 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
                         if prog.cancelled:
                             self._log("Cancelled by user.")
                             break
-                        prog.step(item.display_name, "Cleaning (cloud)")
-                        self._log("Cleaning cloud model '{0}'...".format(item.display_name))
+                        prog.step(item.display_name, "Transmitting (cloud)")
+                        self._log("Transmitting cloud model '{0}'...".format(item.display_name))
                         row = pipeline.process_cloud(item, self.uiapp)
                         report_rows.append(row)
                         item.status = row.save_status
-                        outcome = ("success" if row.save_status == "Synchronized with Central"
+                        outcome = ("success" if row.save_status == "Copy saved"
                                    else ("skipped" if "skip" in row.save_status.lower() else "failed"))
                         prog.finish_file(outcome)
                         self._log("'{0}': {1}".format(item.display_name, row.save_status))
@@ -528,12 +528,12 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
         self._refresh_models_grid()
         self._refresh_cloud_grid()
 
-        succeeded = sum(1 for r in report_rows if r.save_status in ("Saved", "Synchronized with Central"))
+        succeeded = sum(1 for r in report_rows if r.save_status == "Copy saved")
         failed = sum(1 for r in report_rows if "fail" in r.save_status.lower())
         skipped = sum(1 for r in report_rows if "skip" in r.save_status.lower())
         self.summary_tb.Text = (
-            "{0} processed: {1} cleaned & saved, {2} failed, {3} skipped.".format(
-                len(report_rows), succeeded, failed, skipped))
+            "{0} processed: {1} copies saved to '{2}', {3} failed, {4} skipped.".format(
+                len(report_rows), succeeded, dest, failed, skipped))
         self._log(self.summary_tb.Text)
         forms.alert(self.summary_tb.Text, title=_TOOL_TITLE)
 
@@ -544,12 +544,12 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
             return
         dlg = SaveFileDialog()
         dlg.Filter = "Excel Workbook (*.xlsx)|*.xlsx|CSV (*.csv)|*.csv|Text (*.txt)|*.txt"
-        dlg.FileName = "DeeWClean_Report.xlsx"
+        dlg.FileName = "DeeWTransmit_Report.xlsx"
         if dlg.ShowDialog() != DialogResult.OK:
             return
         try:
             reportgen.export(
-                dlg.FileName, "DeeW.Clean - Batch Cleanup Report", self._report_rows,
+                dlg.FileName, "DeeW.Transmit - Issued Copies Report", self._report_rows,
                 headers=reportgen.CLEAN_REPORT_HEADERS, col_widths=reportgen.CLEAN_EXCEL_COL_WIDTHS)
         except Exception as e:
             forms.alert("Could not export report: {0}".format(e))
@@ -563,7 +563,7 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
 
 def main():
     uiapp = __revit__
-    window = DeeWCleanWindow(_XAML_FILE, uiapp)
+    window = DeeWTransmitWindow(_XAML_FILE, uiapp)
     window.ShowDialog()
 
 

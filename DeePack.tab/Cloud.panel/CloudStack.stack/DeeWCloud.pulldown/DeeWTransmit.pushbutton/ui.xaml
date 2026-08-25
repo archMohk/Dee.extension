@@ -1,12 +1,12 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="DeeW.Clean — Batch Clean Local &amp; Cloud Models"
+        Title="DeeW.Transmit — Issue Cleaned Copies of Local &amp; Cloud Models"
         ShowInTaskbar="False"
         MinHeight="640" MinWidth="1080" Height="720" Width="1160"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Batch-cleans local and cloud Revit models: purges unused elements, deletes zero-area rooms and unused groups, flags in-place families for review - then saves or Synchronizes With Central so the cleanup reaches the real shared model."/>
+                   Text="Issues cleaned COPIES of local and cloud Revit models. Each model is opened DETACHED, the selected cleaning operations are applied, and the result is saved as a new file in the destination folder you choose. The original local file / cloud model is never modified."/>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Button x:Name="run_b" Content="Run" Click="run_click" Width="90" Height="28"/>
@@ -85,13 +85,21 @@
                         </StackPanel>
                     </GroupBox>
 
-                    <GroupBox Header="Save / Synchronize" Margin="0,0,0,10">
+                    <GroupBox Header="Destination" Margin="0,0,0,10">
                         <StackPanel Margin="6">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
-                                       Text="Workshared local files and cloud models are opened WITHOUT detaching, cleaned, then pushed back to the real central via Synchronize With Central - not a disconnected copy. Standalone files are simply saved in place."/>
-                            <TextBlock Text="Synchronize Comment:" Margin="0,0,0,4"/>
-                            <TextBox x:Name="sync_comment_tb" Height="24" VerticalContentAlignment="Center" Text="DeeW.Clean - automated batch cleanup"/>
-                            <CheckBox x:Name="compact_on_sync_cb" Content="Compact Central File on Synchronize" Margin="0,8,0,4"/>
+                                       Text="Every selected model is saved as a new .rvt here. Nothing is written back to the source model or synchronized to central. If a file of the same name already exists it is kept - the new copy gets a (2), (3)... suffix instead of overwriting it."/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <TextBlock Text="Destination Folder:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBox x:Name="dest_folder_tb" Width="420" Height="24" VerticalContentAlignment="Center" IsReadOnly="True"/>
+                                <Button x:Name="browse_dest_b" Content="Browse..." Click="browse_dest_click" Width="90" Height="24" Margin="8,0,0,0"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <TextBlock Text="Add suffix to file name:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBox x:Name="name_suffix_tb" Width="200" Height="24" VerticalContentAlignment="Center" Text="_CLEANED"/>
+                                <TextBlock Text="(leave blank to keep the original name)" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="#888" FontSize="11"/>
+                            </StackPanel>
+                            <CheckBox x:Name="compact_on_save_cb" Content="Compact the saved copy" Margin="0,4,0,4"/>
                             <CheckBox x:Name="audit_cb" Content="Audit on Open (local files)" Margin="0,4,0,4"/>
                         </StackPanel>
                     </GroupBox>
@@ -100,7 +108,6 @@
                         <StackPanel Margin="6">
                             <CheckBox x:Name="auto_resolve_dialogs_cb" Content="Automatically Resolve Dialogs" Margin="0,4,0,4" IsChecked="True"/>
                             <CheckBox x:Name="generate_report_cb" Content="Generate Report" Margin="0,4,0,4" IsChecked="True"/>
-                            <CheckBox x:Name="close_after_cb" Content="Close File After Processing" Margin="0,4,0,4" IsChecked="True"/>
                         </StackPanel>
                     </GroupBox>
                 </StackPanel>
@@ -133,7 +140,8 @@
                                 <DataGridTextColumn Header="Sheets Del." Binding="{Binding sheets_deleted}" Width="75"/>
                                 <DataGridTextColumn Header="Views Del." Binding="{Binding views_deleted}" Width="75"/>
                                 <DataGridTextColumn Header="Unused Views Del." Binding="{Binding unused_views_deleted}" Width="110"/>
-                                <DataGridTextColumn Header="Save/Sync Status" Binding="{Binding save_status}" Width="150"/>
+                                <DataGridTextColumn Header="Result" Binding="{Binding save_status}" Width="150"/>
+                                <DataGridTextColumn Header="Saved Copy" Binding="{Binding location}" Width="200"/>
                                 <DataGridTextColumn Header="Warnings" Binding="{Binding warnings}" Width="130"/>
                                 <DataGridTextColumn Header="Errors" Binding="{Binding errors}" Width="*"/>
                             </DataGrid.Columns>

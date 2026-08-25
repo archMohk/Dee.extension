@@ -164,11 +164,12 @@ def export(path, title, rows, headers=None, col_widths=None):
 CLEAN_REPORT_HEADERS = [
     "File Name", "Location", "Source", "Model Type",
     "Unused Elements Purged", "Zero-Area Rooms Deleted", "Unused Groups Deleted",
-    "In-Place Families Found", "Save/Sync Status", "Warnings", "Errors",
+    "In-Place Families Found", "Sheets Deleted", "Views Deleted", "Unused Views Deleted",
+    "Save/Sync Status", "Warnings", "Errors",
     "Processing Time", "Date", "Revit Version", "User",
 ]
 
-CLEAN_EXCEL_COL_WIDTHS = [28, 34, 10, 16, 18, 20, 18, 18, 20, 30, 30, 14, 18, 12, 16]
+CLEAN_EXCEL_COL_WIDTHS = [28, 34, 10, 16, 18, 20, 18, 18, 14, 14, 18, 20, 30, 30, 14, 18, 12, 16]
 
 
 class CleanReportRow(object):
@@ -189,6 +190,9 @@ class CleanReportRow(object):
         self.zero_area_rooms_deleted = 0
         self.unused_groups_deleted = 0
         self.inplace_families_found = 0
+        self.sheets_deleted = 0
+        self.views_deleted = 0
+        self.unused_views_deleted = 0
         self.save_status = "Pending"
         self.warnings = ""
         self.errors = ""
@@ -204,7 +208,8 @@ class CleanReportRow(object):
         return [
             self.file_name, self.location, self.source, self.model_type,
             self.purged_count, self.zero_area_rooms_deleted, self.unused_groups_deleted,
-            self.inplace_families_found, self.save_status, self.warnings, self.errors,
+            self.inplace_families_found, self.sheets_deleted, self.views_deleted,
+            self.unused_views_deleted, self.save_status, self.warnings, self.errors,
             "{0:.1f}s".format(self.processing_time_seconds), self.date_text, self.revit_version,
             self.user,
         ]

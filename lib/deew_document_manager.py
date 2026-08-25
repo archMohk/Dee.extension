@@ -41,6 +41,8 @@ NEEDS LIVE VERIFICATION (flagged, not silently assumed correct):
     of Revit API examples seen for this specific method - if wrong,
     this is a one-line fix to wrap it).
 """
+import os
+
 from Autodesk.Revit.DB import (
     OpenOptions, DetachFromCentralOption, ModelPathUtils, SaveAsOptions,
     WorksetConfiguration, WorksetConfigurationOption,
@@ -215,4 +217,45 @@ def save_standalone(document, logger=None):
     except Exception as e:
         if logger is not None:
             logger.exception("Save failed", e)
+        return False, str(e)
+
+
+def unique_target_path(folder, file_name):
+    """Returns a non-colliding path inside `folder`. DeeW.Transmit must
+    never silently overwrite a previously issued model, so a repeat run
+    produces 'Model (2).rvt' rather than replacing 'Model.rvt'."""
+    base, ext = os.path.splitext(file_name)
+    if not ext:
+        ext = ".rvt"
+    candidate = os.path.join(folder, base + ext)
+    counter = 2
+    while os.path.exists(candidate):
+        candidate = os.path.join(folder, "{0} ({1}){2}".format(base, counter, ext))
+        counter += 1
+    return candidate
+
+
+def save_copy_as(document, target_path, compact=False, overwrite=False, logger=None):
+    """SaveAs a DETACHED document to a new path - the core of
+    DeeW.Transmit, which must never modify the source model.
+
+    Only ever call this on a document opened with a detach option: on a
+    still-attached workshared model SaveAs would repoint the local file
+    at a new central, which is exactly the kind of surprise this tool
+    must not spring on a shared project.
+
+    Returns (ok, detail)."""
+    try:
+        folder = os.path.dirname(target_path)
+        if folder and not os.path.isdir(folder):
+            os.makedirs(folder)
+        options = SaveAsOptions()
+        options.Compact = bool(compact)
+        options.OverwriteExistingFile = bool(overwrite)
+        model_path = ModelPathUtils.ConvertUserVisiblePathToModelPath(target_path)
+        document.SaveAs(model_path, options)
+        return True, target_path
+    except Exception as e:
+        if logger is not None:
+            logger.exception("Save copy failed", e, file=target_path)
         return False, str(e)
