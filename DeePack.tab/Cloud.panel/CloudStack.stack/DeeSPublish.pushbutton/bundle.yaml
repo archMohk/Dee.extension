@@ -1,2 +1,3 @@
 title: DeeS.Publish
-tooltip: Publish ALL Revit files in one or more selected ACC/BIM360 projects
+tooltip: Publish ALL Revit files in one or more selected ACC/BIM360 projects. Works with no Revit file open - it drives the ACC service directly and never touches the open document.
+context: zero-doc
