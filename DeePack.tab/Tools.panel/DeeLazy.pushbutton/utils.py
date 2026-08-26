@@ -178,6 +178,55 @@ def build_view_to_sheet_map(doc):
     return mapping
 
 
+def build_view_to_sheets_map(doc):
+    """{view_id_int: [ViewSheet, ...]} - the multi-sheet-aware sibling of
+    build_view_to_sheet_map above.
+
+    That one keeps a single sheet per view, so when a view appears on
+    more than one sheet the last one scanned silently wins. That is fine
+    for a "which sheet is this on?" filter, but it HIDES the multi-sheet
+    case, and legends in particular are routinely placed on many sheets
+    (schedules too). Any module that writes sheet data back onto a view
+    has to be able to see that, so it gets its own function rather than
+    changing the existing one's behaviour under view_cropping.
+
+    Same single-pass-per-collector approach as its sibling."""
+    mapping = {}
+
+    def add(view_id, sheet):
+        if sheet is None:
+            return
+        key = view_id.IntegerValue
+        bucket = mapping.setdefault(key, [])
+        # A view can be placed twice on the SAME sheet; that is still
+        # one sheet for our purposes.
+        for existing in bucket:
+            try:
+                if existing.Id == sheet.Id:
+                    return
+            except Exception:
+                continue
+        bucket.append(sheet)
+
+    try:
+        for vp in FilteredElementCollector(doc).OfClass(Viewport):
+            try:
+                add(vp.ViewId, doc.GetElement(vp.SheetId))
+            except Exception:
+                continue
+    except Exception:
+        pass
+    try:
+        for ssi in FilteredElementCollector(doc).OfClass(ScheduleSheetInstance):
+            try:
+                add(ssi.ScheduleId, doc.GetElement(ssi.SheetId))
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return mapping
+
+
 def sheet_label(sheet):
     if sheet is None:
         return ""
