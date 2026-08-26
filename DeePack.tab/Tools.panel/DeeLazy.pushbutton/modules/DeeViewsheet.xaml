@@ -54,6 +54,13 @@
             </StackPanel>
         </GroupBox>
 
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <CheckBox x:Name="unlock_templates_cb" IsChecked="True"
+                      Content="Exclude this parameter from the View Templates that control it (so it can be set per view)"/>
+            <TextBlock TextWrapping="Wrap" Foreground="#888" FontSize="11" Margin="18,3,0,0"
+                       Text="A parameter a View Template controls is read-only on every view using it, so writing would fail. This unticks it in the template's Include list - the template keeps controlling everything else. It changes those templates for the whole project, and the report lists exactly which ones were edited."/>
+        </StackPanel>
+
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Button x:Name="select_all_b" Content="Select All" Width="90" Height="24" Click="select_all_click"/>
             <Button x:Name="select_none_b" Content="Select None" Width="90" Height="24" Margin="6,0,0,0" Click="select_none_click"/>
@@ -67,6 +74,7 @@
                 <DataGridTextColumn Header="View Type" Binding="{Binding view_type}" IsReadOnly="True" Width="110"/>
                 <DataGridTextColumn Header="Sheet(s)" Binding="{Binding sheets_text}" IsReadOnly="True" Width="130"/>
                 <DataGridTextColumn Header="Sheet Name" Binding="{Binding sheet_name}" IsReadOnly="True" Width="160"/>
+                <DataGridTextColumn Header="View Template" Binding="{Binding template_name}" IsReadOnly="True" Width="130"/>
                 <DataGridTextColumn Header="Current Value" Binding="{Binding current_value}" IsReadOnly="True" Width="140"/>
                 <DataGridTextColumn Header="Will Write" Binding="{Binding new_value}" IsReadOnly="True" Width="140"/>
                 <DataGridTextColumn Header="Status" Binding="{Binding status}" IsReadOnly="True" Width="180"/>

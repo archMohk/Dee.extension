@@ -71,6 +71,7 @@ from Autodesk.Revit.DB import (
     CategorySet, ExternalDefinitionCreationOptions, SpecTypeId,
     BuiltInParameterGroup, ElementId, StorageType,
 )
+from System.Collections.Generic import List
 
 output = script.get_output()
 
@@ -112,6 +113,13 @@ class ViewRow(object):
             self.sheet_name = ""
         self.all_sheets_text = ", ".join(
             (getattr(s, "SheetNumber", "") or "?") for s in sheets)
+        try:
+            tid = view.ViewTemplateId
+            self.template_id = tid if (tid is not None and tid != ElementId.InvalidElementId) else None
+        except Exception:
+            self.template_id = None
+        self.template_name = ""
+        self.locked = False
         self.current_value = ""
         self.new_value = ""
         self.status = "Multiple sheets - will be skipped" if self.multi else "Ready"
@@ -154,10 +162,16 @@ def scan_placed_views(doc):
 # Existing text parameters available on views
 # ==========================================================================
 def list_view_text_parameters(doc, rows, limit=400):
-    """Distinct writable text parameter names found on the scanned
-    views. Built from the views themselves rather than from the
-    document's bindings, so what the picker offers is exactly what can
-    actually be written."""
+    """Distinct TEXT parameter names found on the scanned views. Built
+    from the views themselves rather than the document's bindings, so
+    the picker offers exactly what exists on real views.
+
+    Read-only parameters are deliberately NOT filtered out here. A
+    parameter controlled by a view template reports IsReadOnly=True on
+    every view using that template - filtering on it would hide the
+    very parameter the user is trying to unlock, which is the whole
+    point of the template-exclusion feature. Genuinely read-only
+    parameters still get caught and reported per view by apply_rows."""
     names = set()
     for row in rows[:limit]:
         view = doc.GetElement(row.view_id)
@@ -166,8 +180,6 @@ def list_view_text_parameters(doc, rows, limit=400):
         try:
             for p in view.Parameters:
                 try:
-                    if p.IsReadOnly:
-                        continue
                     if p.StorageType != StorageType.String:
                         continue
                     nm = p.Definition.Name
@@ -273,6 +285,124 @@ def create_shared_view_parameter(doc, app, param_name):
 
 
 # ==========================================================================
+# View Templates
+#
+# A parameter that a View Template CONTROLS is read-only on every view
+# using that template - Revit greys it out, and p.Set() cannot write to
+# it. So for templated views this tool is useless unless the parameter
+# is first excluded from template control.
+#
+# The API (confirmed against revitapidocs + a working published sample
+# before writing, because the naming is genuinely confusing - see the
+# open "SetNonControlledTemplateParameterIds not working as intended"
+# thread where the semantics tripped someone up):
+#   template.GetTemplateParameterIds()            -> everything the
+#       template is CAPABLE of controlling.
+#   template.GetNonControlledTemplateParameterIds() -> the subset
+#       currently EXCLUDED (unticked in the template's Include column).
+#   template.SetNonControlledTemplateParameterIds(ICollection<ElementId>)
+#       -> REPLACES that excluded set.
+#
+# Two things that matter and are easy to get wrong:
+#   1. Set() replaces rather than appends, so the new id must be added
+#      to the EXISTING excluded ids or every other exclusion the user
+#      had configured is silently wiped out.
+#   2. The collection must be a subset of GetTemplateParameterIds(), so
+#      a parameter the template cannot control is skipped rather than
+#      inserted.
+# ==========================================================================
+def get_param_element_id(doc, rows, param_name):
+    """ElementId of the named parameter, found from a real view that
+    has it. Shared/project parameters expose their ParameterElement id
+    via Parameter.Id."""
+    for row in rows:
+        view = doc.GetElement(row.view_id)
+        if view is None:
+            continue
+        p = utils.find_param_by_name(view, param_name)
+        if p is not None:
+            try:
+                return p.Id
+            except Exception:
+                continue
+    return None
+
+
+def template_controls_param(template, param_id):
+    """True when the template governs this parameter, i.e. it is
+    controllable AND not in the excluded set."""
+    if template is None or param_id is None:
+        return False
+    try:
+        controllable = [i.IntegerValue for i in template.GetTemplateParameterIds()]
+        if param_id.IntegerValue not in controllable:
+            return False
+        excluded = [i.IntegerValue for i in template.GetNonControlledTemplateParameterIds()]
+        return param_id.IntegerValue not in excluded
+    except Exception:
+        return False
+
+
+def exclude_param_from_templates(doc, template_ids, param_id):
+    """Adds param_id to each template's excluded ("not included") set so
+    the parameter becomes editable per view. Returns (changed, notes).
+    Its own Transaction, committed before any value is written."""
+    notes = []
+    changed = 0
+    if param_id is None:
+        return 0, ["Could not resolve the parameter's ElementId - nothing changed."]
+
+    t = Transaction(doc, "DeeViewsheet - Exclude Parameter from View Templates")
+    t.Start()
+    try:
+        for tid in template_ids:
+            template = doc.GetElement(tid)
+            if template is None:
+                continue
+            name = utils.read_name(template) or "(unnamed template)"
+            try:
+                controllable = [i.IntegerValue for i in template.GetTemplateParameterIds()]
+                if param_id.IntegerValue not in controllable:
+                    notes.append("{0}: template cannot control this parameter - nothing to do".format(name))
+                    continue
+                existing = list(template.GetNonControlledTemplateParameterIds())
+                if any(i.IntegerValue == param_id.IntegerValue for i in existing):
+                    notes.append("{0}: already excluded".format(name))
+                    continue
+                # Rebuild the FULL excluded set - Set() replaces it.
+                new_ids = List[ElementId]()
+                for i in existing:
+                    new_ids.Add(i)
+                new_ids.Add(param_id)
+                template.SetNonControlledTemplateParameterIds(new_ids)
+                changed += 1
+                notes.append("{0}: excluded".format(name))
+            except Exception as e:
+                notes.append("{0}: FAILED - {1}".format(name, e))
+        t.Commit()
+    except Exception:
+        t.RollBack()
+        raise
+    return changed, notes
+
+
+def templates_used_by(doc, rows):
+    """Distinct view-template ElementIds applied to the given rows."""
+    seen = {}
+    for row in rows:
+        view = doc.GetElement(row.view_id)
+        if view is None:
+            continue
+        try:
+            tid = view.ViewTemplateId
+            if tid is not None and tid != ElementId.InvalidElementId:
+                seen[tid.IntegerValue] = tid
+        except Exception:
+            continue
+    return list(seen.values())
+
+
+# ==========================================================================
 # Apply
 # ==========================================================================
 class ApplyResult(object):
@@ -281,6 +411,7 @@ class ApplyResult(object):
         self.skipped = []      # (label, reason)
         self.param_name = ""
         self.source = ""
+        self.template_notes = []
 
 
 def apply_rows(doc, rows, param_name, source):
@@ -334,6 +465,12 @@ def print_report(result):
         '<p style="color:#ddd;">Wrote {0} into <b>{1}</b> on {2} view(s). {3} skipped.</p>'.format(
             result.source, result.param_name, result.written, len(result.skipped)),
     ]
+    for note in getattr(result, "template_notes", []):
+        colour = "#c62828" if "FAILED" in note else "#2e7d32"
+        html.append(
+            '<div style="padding:4px 10px;margin:2px 0;background:{0};color:#fff;'
+            'border-radius:4px;font-family:monospace;font-size:12px;">'
+            'View template &mdash; {1}</div>'.format(colour, note))
     for label, reason in result.skipped:
         colour = "#8d6e00" if "skipped by design" in reason else "#c62828"
         html.append(
@@ -386,8 +523,21 @@ class DeeViewsheetWindow(dee_branding.DeeBrandedWindow):
     def _recompute_preview(self):
         source = self.source_cb.SelectedItem or SOURCE_NUMBER
         param = self.param_cb.SelectedItem
+        param_id = get_param_element_id(self.doc, self._rows, param) if param else None
+        # One lookup per template, not per view - a project can have
+        # hundreds of views sharing a handful of templates.
+        lock_cache = {}
         for row in self._rows:
             row.new_value = "" if row.multi else row.value_for(source)
+            row.locked = False
+            row.template_name = ""
+            if row.template_id is not None:
+                template = self.doc.GetElement(row.template_id)
+                row.template_name = utils.read_name(template) or ""
+                key = row.template_id.IntegerValue
+                if key not in lock_cache:
+                    lock_cache[key] = template_controls_param(template, param_id)
+                row.locked = lock_cache[key]
             if param:
                 view = self.doc.GetElement(row.view_id)
                 p = utils.find_param_by_name(view, param) if view is not None else None
@@ -395,6 +545,12 @@ class DeeViewsheetWindow(dee_branding.DeeBrandedWindow):
                     row.current_value = (p.AsString() or "") if p is not None else "(no such parameter)"
                 except Exception:
                     row.current_value = ""
+            if row.multi:
+                row.status = "Multiple sheets - will be skipped"
+            elif row.locked:
+                row.status = "Locked by view template"
+            else:
+                row.status = "Ready"
 
     def source_changed(self, sender, args):
         if self._rows:
@@ -453,15 +609,37 @@ class DeeViewsheetWindow(dee_branding.DeeBrandedWindow):
             return
         source = self.source_cb.SelectedItem or SOURCE_NUMBER
 
+        locked = [r for r in selected if r.locked]
+        unlock = (self.unlock_templates_cb.IsChecked is True)
+        template_ids = templates_used_by(self.doc, locked) if (locked and unlock) else []
+
         msg = "Write the {0} into '{1}' on {2} view(s)?".format(source, param, len(selected))
         if multi_selected:
             msg += "\n\n{0} selected view(s) sit on more than one sheet and will be skipped.".format(
                 len(multi_selected))
+        if locked:
+            if unlock:
+                msg += ("\n\n{0} selected view(s) have '{1}' controlled by a view template. "
+                        "{2} template(s) will be edited to EXCLUDE that parameter, so it becomes "
+                        "editable per view. This changes those templates for the whole "
+                        "project.".format(len(locked), param, len(template_ids)))
+            else:
+                msg += ("\n\n{0} selected view(s) have '{1}' locked by a view template and will "
+                        "FAIL to write. Tick 'Exclude from view templates' to fix that "
+                        "automatically.".format(len(locked), param))
         if not forms.alert(msg, title="DeeViewsheet - Confirm", yes=True, no=True):
             return
 
+        unlock_notes = []
+        if template_ids:
+            with forms.ProgressBar(title="DeeViewsheet - excluding parameter from view templates...",
+                                    indeterminate=True):
+                _changed, unlock_notes = exclude_param_from_templates(
+                    self.doc, template_ids, get_param_element_id(self.doc, self._rows, param))
+
         with forms.ProgressBar(title="DeeViewsheet - writing...", indeterminate=True):
             result = apply_rows(self.doc, self._rows, param, source)
+        result.template_notes = unlock_notes
         print_report(result)
         self._refresh()
         self.status_tb.Text = "Wrote {0}, skipped {1}. See the pyRevit output window for details.".format(
