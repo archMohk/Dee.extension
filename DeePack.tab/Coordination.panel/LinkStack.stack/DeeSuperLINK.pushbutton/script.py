@@ -69,10 +69,18 @@ NEEDS LIVE-REVIT VERIFICATION (flagged, not assumed)
   it is untested.
 """
 import os
+import time
 import datetime
 
 from pyrevit import forms, script
 import dee_branding
+
+import clr
+clr.AddReference("PresentationFramework")
+clr.AddReference("WindowsBase")
+from System import Action
+from System.Windows import Visibility
+from System.Windows.Threading import Dispatcher, DispatcherFrame, DispatcherPriority
 
 from Autodesk.Revit.DB import (
     RevitLinkType, RevitLinkOptions, RevitLinkInstance, ImportPlacement,
@@ -141,8 +149,24 @@ def _already_linked(existing, link_name):
     return False
 
 
-def link_into(doc, link_name, cloud_path, placement):
-    """One Transaction per link, mirroring DeeLINK's link_file()."""
+def format_duration(seconds):
+    seconds = int(max(0, seconds))
+    if seconds < 60:
+        return "{0}s".format(seconds)
+    if seconds < 3600:
+        return "{0}m {1:02d}s".format(seconds // 60, seconds % 60)
+    return "{0}h {1:02d}m".format(seconds // 3600, (seconds % 3600) // 60)
+
+
+def _placement_label(placement):
+    for label, value in PLACEMENT_OPTIONS:
+        if value == placement:
+            return label
+    return str(placement)
+
+
+def _link_once(doc, link_name, cloud_path, placement):
+    """A single attempt. Returns (ok, detail, instance_or_None)."""
     t = Transaction(doc, "DeeSuperLINK: link {0}".format(link_name))
     t.Start()
     try:
@@ -153,14 +177,61 @@ def link_into(doc, link_name, cloud_path, placement):
             bad = result.ElementId.IntegerValue < 0
         if bad:
             t.RollBack()
-            return False, "link type could not be created"
-        RevitLinkInstance.Create(doc, result.ElementId, placement)
+            return False, "link type could not be created", None
+        instance = RevitLinkInstance.Create(doc, result.ElementId, placement)
         t.Commit()
-        return True, "linked"
+        return True, "linked", instance
     except Exception as e:
         if t.HasStarted() and not t.HasEnded():
             t.RollBack()
-        return False, str(e)
+        return False, str(e), None
+
+
+def _shared_coordinates_look_unestablished(instance):
+    """After a Shared placement, an identity transform means the link
+    landed exactly origin-on-origin - which is what Revit does when the
+    two models have no shared-coordinate relationship to honour.
+
+    This is a SIGNAL, not proof: a genuinely shared model whose shared
+    position happens to coincide with the host's origin would look the
+    same. It is therefore reported as a note, never used to silently
+    re-place anything."""
+    try:
+        return bool(instance.GetTotalTransform().IsIdentity)
+    except Exception:
+        return False
+
+
+def link_into(doc, link_name, cloud_path, placement, fallback=None):
+    """Creates the link, falling back to `fallback` placement if the
+    requested one is rejected outright.
+
+    This exists for Shared coordinates: if the two models do not share
+    coordinates, linking "By Shared Coordinates" is not meaningful. Two
+    distinct behaviours are handled, because Revit can do either:
+      - it REFUSES the placement -> the exception is caught and the
+        fallback (Internal Origin) is attempted instead;
+      - it ACCEPTS it and quietly places origin-to-origin -> nothing
+        throws, so the result is checked and reported rather than
+        pretended otherwise.
+
+    Returns (ok, detail). detail names the placement actually used."""
+    ok, detail, instance = _link_once(doc, link_name, cloud_path, placement)
+    if ok:
+        note = _placement_label(placement)
+        if placement == ImportPlacement.Shared and _shared_coordinates_look_unestablished(instance):
+            note += " (no shared-coordinate relationship found - Revit placed it origin-to-origin)"
+        return True, "linked - {0}".format(note)
+
+    if fallback is None or fallback == placement:
+        return False, detail
+
+    ok2, detail2, _inst = _link_once(doc, link_name, cloud_path, fallback)
+    if ok2:
+        return True, "linked - {0} (requested {1} was rejected: {2})".format(
+            _placement_label(fallback), _placement_label(placement), detail)
+    return False, "{0} failed ({1}); {2} also failed ({3})".format(
+        _placement_label(placement), detail, _placement_label(fallback), detail2)
 
 
 class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
@@ -178,6 +249,9 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
         self._all_items = {}          # {display name: item_id}
         self._rows = []
         self._log_lines = []
+        self._prog_total = 1
+        self._prog_done = 0
+        self._prog_start = time.time()
 
         self.placement_cb.ItemsSource = [label for label, _v in PLACEMENT_OPTIONS]
         self.placement_cb.SelectedIndex = 0
@@ -193,6 +267,78 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
             self.log_tb.ScrollToEnd()
         except Exception:
             pass
+
+    # ---------------- in-window progress bar ----------------
+    #
+    # A modal WPF window does not repaint while a long synchronous loop
+    # runs on the UI thread, so the bar would only appear once the work
+    # had already finished. _pump() drains pending render work at
+    # Background priority (the standard WPF "DoEvents") after each
+    # update, which is what makes the bar actually animate.
+    #
+    # The step text is centred ON the bar by stacking a TextBlock over
+    # the ProgressBar in a Grid, rather than sitting beside it.
+    def _pump(self):
+        try:
+            frame = DispatcherFrame()
+
+            def _stop():
+                frame.Continue = False
+
+            self.Dispatcher.BeginInvoke(DispatcherPriority.Background, Action(_stop))
+            Dispatcher.PushFrame(frame)
+        except Exception:
+            pass
+
+    def _progress_begin(self, total_steps):
+        self._prog_total = max(1, total_steps)
+        self._prog_done = 0
+        self._prog_start = time.time()
+        try:
+            self.progress_bar.Maximum = self._prog_total
+            self.progress_bar.Value = 0
+            self.progress_host.Visibility = Visibility.Visible
+            self.run_b.IsEnabled = False
+        except Exception:
+            pass
+        self._progress_render("Starting...")
+
+    def _progress_render(self, label):
+        try:
+            elapsed = time.time() - self._prog_start
+            done = self._prog_done
+            if done > 0:
+                remaining = (elapsed / float(done)) * (self._prog_total - done)
+                eta = "ETA {0}".format(format_duration(remaining))
+            else:
+                eta = "ETA --"
+            self.progress_bar.Value = done
+            self.progress_text_tb.Text = "{0}   |   {1} of {2}   |   elapsed {3}   |   {4}".format(
+                label, min(done + 1, self._prog_total), self._prog_total,
+                format_duration(elapsed), eta)
+        except Exception:
+            pass
+        self._pump()
+
+    def _progress_step(self, label):
+        """Call BEFORE doing the work the label describes."""
+        self._progress_render(label)
+
+    def _progress_done_one(self):
+        self._prog_done += 1
+        try:
+            self.progress_bar.Value = self._prog_done
+        except Exception:
+            pass
+        self._pump()
+
+    def _progress_end(self):
+        try:
+            self.progress_host.Visibility = Visibility.Collapsed
+            self.run_b.IsEnabled = True
+        except Exception:
+            pass
+        self._pump()
 
     def _mode(self):
         return MODE_ONE_TO_MANY if self.mode_one_to_many_rb.IsChecked is True else MODE_MANY_TO_ONE
@@ -323,11 +469,19 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
             return
 
         placement = self._placement()
+        # Shared coordinates only mean something when the two models
+        # actually share them - fall back to origin-to-origin otherwise,
+        # per the user's explicit request.
+        fallback = ImportPlacement.Origin if placement == ImportPlacement.Shared else None
         comment = self.sync_comment_tb.Text or ""
         skip_existing = (self.skip_existing_cb.IsChecked is True)
         results = []
 
+        total_steps = sum(len(links_for(h)) + 1 for h in hosts)   # +1 = sync per host
+        self._progress_begin(total_steps)
+
         for host in hosts:
+            self._progress_step("Opening {0}".format(host.name))
             self._log("Opening host '{0}'...".format(host.name))
             doc, detail = afb.open_cloud_document_attached(
                 self.application, self._region, self._project_id, host.item_id, self._token)
@@ -335,6 +489,8 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
                 host.status = "Failed to open"
                 results.append((False, host.name, "could not open: {0}".format(detail)))
                 self._log("  FAILED to open - {0}".format(detail))
+                for _ in range(len(links_for(host)) + 1):
+                    self._progress_done_one()
                 continue
             try:
                 existing = existing_link_names(doc) if skip_existing else set()
@@ -344,6 +500,7 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
                         results.append((None, "{0} -> {1}".format(link_name, host.name),
                                         "already linked - skipped"))
                         self._log("  '{0}' already linked - skipped".format(link_name))
+                        self._progress_done_one()
                         continue
                     item_id = self._all_items.get(link_name)
                     cloud_path, path_detail = afb.cloud_model_path(
@@ -351,22 +508,28 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
                     if cloud_path is None:
                         results.append((False, "{0} -> {1}".format(link_name, host.name), path_detail))
                         self._log("  '{0}' path failed - {1}".format(link_name, path_detail))
+                        self._progress_done_one()
                         continue
-                    ok, link_detail = link_into(doc, link_name, cloud_path, placement)
+                    self._progress_step("Linking {0} -> {1}".format(link_name, host.name))
+                    ok, link_detail = link_into(doc, link_name, cloud_path, placement, fallback)
                     results.append((ok, "{0} -> {1}".format(link_name, host.name), link_detail))
                     self._log("  '{0}': {1}".format(link_name, link_detail))
                     if ok:
                         linked_here += 1
+                    self._progress_done_one()
 
                 if linked_here:
+                    self._progress_step("Synchronizing {0}".format(host.name))
                     ok_sync, sync_detail = docmgr.synchronize_with_central(
                         doc, comment=comment, compact=False, logger=self.logger)
                     host.status = "Synchronized" if ok_sync else "Linked but sync FAILED"
                     results.append((ok_sync, host.name,
                                     "synchronized" if ok_sync else "sync failed: {0}".format(sync_detail)))
                     self._log("  host {0}".format(host.status))
+                    self._progress_done_one()
                 else:
                     host.status = "Nothing to link"
+                    self._progress_done_one()
             except Exception as e:
                 host.status = "Failed"
                 results.append((False, host.name, "unexpected error: {0}".format(e)))
@@ -377,6 +540,7 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
                 except Exception:
                     pass
 
+        self._progress_end()
         self._refresh_rows()
         self._report(results)
         ok_count = sum(1 for r in results if r[0] is True)

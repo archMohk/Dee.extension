@@ -12,6 +12,12 @@
             <StatusBarItem><TextBlock x:Name="status_tb" Text="Ready."/></StatusBarItem>
         </StatusBar>
 
+        <Grid DockPanel.Dock="Bottom" x:Name="progress_host" Height="26" Margin="0,4,0,4" Visibility="Collapsed">
+            <ProgressBar x:Name="progress_bar" Minimum="0" Maximum="100" Height="26"/>
+            <TextBlock x:Name="progress_text_tb" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       FontWeight="Bold" FontSize="12" Text=""/>
+        </Grid>
+
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
             <Button x:Name="run_b" Content="Create Links" Width="150" Height="30" FontWeight="Bold" Click="run_click"/>
             <Button x:Name="close_b" Content="Close" Width="90" Height="30" Margin="16,0,0,0" Click="close_click"/>
