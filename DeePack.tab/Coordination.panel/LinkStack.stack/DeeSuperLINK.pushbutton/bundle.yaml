@@ -1,0 +1,3 @@
+title: DeeSuperLINK
+tooltip: Link ACC/BIM360 cloud models into each other with NO Revit file open. Either link one model into many hosts, or many models into one host. Choose Internal Origin, Project Base Point, Shared Coordinates or Centered. Each host is opened, linked and synchronized automatically.
+context: zero-doc

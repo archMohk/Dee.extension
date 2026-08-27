@@ -625,6 +625,48 @@ def open_cloud_document_detached(application, region, project_id, item_id, token
     return None, " | ".join(errors)
 
 
+def cloud_model_path(region, project_id, item_id, token):
+    """The ModelPath for a cloud item - what RevitLinkType.Create needs
+    to link a cloud model. Returns (model_path_or_None, detail)."""
+    try:
+        proj_guid, model_guid, _src = get_cloud_path_guids(project_id, item_id, token)
+    except Exception as e:
+        return None, "could not resolve cloud GUIDs: {0}".format(e)
+    try:
+        return ModelPathUtils.ConvertCloudGUIDsToCloudPath(region, proj_guid, model_guid), "ok"
+    except Exception as e:
+        return None, "could not build cloud path: {0}".format(e)
+
+
+def open_cloud_document_attached(application, region, project_id, item_id, token, audit=False):
+    """Opens a cloud model HEADLESS and ATTACHED (DoNotDetach) so edits
+    can be pushed back with Synchronize With Central.
+
+    The deliberate opposite of open_cloud_document_detached() above:
+    that one exists so a COPY can be saved elsewhere, this one exists so
+    the REAL model can be modified. Both avoid
+    UIApplication.OpenAndActivateDocument, which activates each document
+    into Revit's UI and proved unusable for batch work (see the
+    detached function's docstring for that history).
+
+    Returns (document_or_None, detail). Never raises."""
+    model_path, detail = cloud_model_path(region, project_id, item_id, token)
+    if model_path is None:
+        return None, detail
+    try:
+        open_options = OpenOptions()
+        open_options.DetachFromCentralOption = DetachFromCentralOption.DoNotDetach
+        open_options.Audit = bool(audit)
+        try:
+            open_options.SetOpenWorksetsConfiguration(
+                WorksetConfiguration(WorksetConfigurationOption.OpenAllWorksets))
+        except Exception:
+            pass
+        return application.OpenDocumentFile(model_path, open_options), "opened (attached)"
+    except Exception as e:
+        return None, str(e)
+
+
 def open_cloud_file(uiapp, region, project_id, item_id, token, close_worksets=False):
     """Resolves the cloud path for `item_id` and opens+activates it. Returns
     (ui_document_or_None, detail_string)."""
