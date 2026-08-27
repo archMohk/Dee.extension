@@ -535,8 +535,21 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
 
         total_steps = sum(len(links_for(h)) + 1 for h in hosts)   # +1 = sync per host
         self._progress_begin(total_steps)
+        sync_failed = False
 
         for host in hosts:
+            if sync_failed:
+                # Stop rather than keep opening and modifying more cloud
+                # models. A sync failure means this host is already left
+                # changed-but-unsynced; carrying on would multiply that
+                # across the batch, and each additional open model adds
+                # memory pressure - the first live run crashed Revit
+                # while opening host 5 of 8 after two failed syncs.
+                host.status = "Not attempted - batch stopped"
+                results.append((None, host.name, "skipped - batch stopped after a sync failure"))
+                for _ in range(len(links_for(host)) + 1):
+                    self._progress_done_one()
+                continue
             self._progress_step("Opening {0}".format(host.name))
             self._log("Opening host '{0}'...".format(host.name))
             doc, detail = afb.open_cloud_document_attached(
@@ -583,6 +596,13 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
                                     "synchronized" if ok_sync else "sync failed: {0}".format(sync_detail)))
                     self._log("  host {0}".format(host.status))
                     self._progress_done_one()
+                    if not ok_sync:
+                        # Surface WHY immediately. This detail previously
+                        # only reached the end-of-run report, so when the
+                        # first live run crashed mid-batch the user never
+                        # saw the reason at all.
+                        self._log("  SYNC ERROR: {0}".format(sync_detail))
+                        sync_failed = True
                 else:
                     host.status = "Nothing to link"
                     self._progress_done_one()
@@ -598,6 +618,15 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
 
         self._progress_end()
         self._refresh_rows()
+        if sync_failed:
+            forms.alert(
+                "A host was linked but could NOT be synchronized, so the batch was stopped "
+                "before touching any more models.\n\n"
+                "That model now has the link but has not been sent to ACC. Open it in Revit, "
+                "synchronize manually if you want to keep the change, and relinquish - then "
+                "re-run.\n\n"
+                "The reason is in the live status log and the report.",
+                title="DeeSuperLINK - stopped after a sync failure")
         self._report(results)
         ok_count = sum(1 for r in results if r[0] is True)
         fail = sum(1 for r in results if r[0] is False)

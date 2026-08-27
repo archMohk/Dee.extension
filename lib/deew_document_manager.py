@@ -46,7 +46,7 @@ import os
 from Autodesk.Revit.DB import (
     OpenOptions, DetachFromCentralOption, ModelPathUtils, SaveAsOptions,
     WorksetConfiguration, WorksetConfigurationOption,
-    TransactWithCentralOptions, SynchronizeWithCentralOptions,
+    TransactWithCentralOptions, SynchronizeWithCentralOptions, RelinquishOptions,
 )
 
 _DEFAULT_GRIDS_LEVELS_WORKSET = "Shared Levels and Grids"
@@ -190,15 +190,22 @@ def synchronize_with_central(document, comment="", compact=False, logger=None):
     try:
         transact_options = TransactWithCentralOptions()
         sync_options = SynchronizeWithCentralOptions()
-        sync_options.Comment = comment or "DeeW.Clean - automated batch cleanup"
+        sync_options.Comment = comment or "DeeW - automated batch operation"
         sync_options.Compact = bool(compact)
         sync_options.SaveLocalBefore = True
         sync_options.SaveLocalAfter = True
-        sync_options.RelinquishBorrowedElements = True
-        sync_options.RelinquishFamilyWorksets = True
-        sync_options.RelinquishProjectStandardWorksets = True
-        sync_options.RelinquishUserCreatedWorksets = True
-        sync_options.RelinquishViewWorksets = True
+        # The Relinquish* flags are NOT properties of
+        # SynchronizeWithCentralOptions - they belong to a separate
+        # RelinquishOptions object handed over via SetRelinquishOptions.
+        # Setting them directly (as this function originally did) raises
+        # AttributeError in IronPython, because assigning an unknown
+        # attribute on a .NET object is an error rather than a no-op. The
+        # whole call therefore failed before Revit was ever asked to
+        # sync, which is exactly what DeeSuperLINK's first live run
+        # showed: every host reported "linked but sync FAILED".
+        # RelinquishOptions(True) = relinquish everything, matching the
+        # Synchronize With Central dialog's own default state.
+        sync_options.SetRelinquishOptions(RelinquishOptions(True))
         document.SynchronizeWithCentral(transact_options, sync_options)
         return True, "Synchronized with central"
     except Exception as e:
