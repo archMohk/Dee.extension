@@ -68,9 +68,16 @@
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
             <TextBlock x:Name="many_label_tb" FontWeight="Bold" Text="3. Host models to link INTO (tick them):"/>
             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                <Button x:Name="select_all_b" Content="Select All" Width="90" Height="24" Click="select_all_click"/>
+                <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <TextBox x:Name="search_tb" Width="260" Height="24" VerticalContentAlignment="Center"
+                         TextChanged="search_changed"
+                         ToolTip="Type part of a file name. Multiple words all have to match, in any order - e.g. &quot;vil cor&quot; finds 25-036-NAG-BIM-VIL-00A-COR-AR."/>
+                <Button x:Name="clear_search_b" Content="Clear" Width="60" Height="24" Margin="6,0,0,0" Click="clear_search_click"/>
+                <Button x:Name="select_all_b" Content="Select All" Width="90" Height="24" Margin="16,0,0,0" Click="select_all_click"/>
                 <Button x:Name="select_none_b" Content="Select None" Width="90" Height="24" Margin="6,0,0,0" Click="select_none_click"/>
                 <Button x:Name="refresh_b" Content="Refresh List" Width="100" Height="24" Margin="6,0,0,0" Click="refresh_click"/>
+                <TextBlock x:Name="hidden_warning_tb" VerticalAlignment="Center" Margin="16,0,0,0"
+                           Foreground="#C62828" FontWeight="Bold" Text=""/>
             </StackPanel>
         </StackPanel>
 

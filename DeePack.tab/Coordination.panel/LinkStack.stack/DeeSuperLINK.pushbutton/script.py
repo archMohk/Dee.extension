@@ -149,6 +149,17 @@ def _already_linked(existing, link_name):
     return False
 
 
+def matches_search(name, query):
+    """Case-insensitive AND-of-terms match. Multiple space-separated
+    words must ALL appear, in any order, which is what makes long
+    structured file names searchable: "vil cor" finds
+    25-036-NAG-BIM-VIL-00A-COR-AR without typing the whole thing."""
+    if not query:
+        return True
+    haystack = (name or "").lower()
+    return all(term in haystack for term in query.lower().split())
+
+
 def format_duration(seconds):
     seconds = int(max(0, seconds))
     if seconds < 60:
@@ -415,24 +426,66 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
         self._refresh_rows()
         self._log("{0} Revit file(s) found.".format(len(names)))
 
-    def _refresh_rows(self):
-        """The file chosen in the single-side combo is excluded from the
-        many-side list - a model cannot link into itself."""
+    def _eligible_rows(self):
+        """Everything that could be used - the single-side file is
+        excluded because a model cannot link into itself. Search does
+        NOT apply here: this is the set Run actually works from."""
         single = self.single_cb.SelectedItem
-        visible = [r for r in self._rows if r.name != single]
+        return [r for r in self._rows if r.name != single]
+
+    def _visible_rows(self):
+        query = ""
+        try:
+            query = self.search_tb.Text or ""
+        except Exception:
+            query = ""
+        return [r for r in self._eligible_rows() if matches_search(r.name, query)]
+
+    def _refresh_rows(self):
+        visible = self._visible_rows()
         self.files_grid.ItemsSource = None
         self.files_grid.ItemsSource = visible
-        self.status_tb.Text = "{0} file(s) available. {1} ticked.".format(
-            len(visible), sum(1 for r in visible if r.selected))
+
+        eligible = self._eligible_rows()
+        ticked_total = sum(1 for r in eligible if r.selected)
+        visible_names = set(r.name for r in visible)
+        ticked_hidden = sum(1 for r in eligible if r.selected and r.name not in visible_names)
+
+        # A ticked file that the current search hides would still be
+        # processed by Run. Saying so out loud is the difference between
+        # a filter and a trap.
+        try:
+            self.hidden_warning_tb.Text = (
+                "{0} ticked file(s) hidden by the search - they WILL still be used".format(ticked_hidden)
+                if ticked_hidden else "")
+        except Exception:
+            pass
+
+        self.status_tb.Text = "Showing {0} of {1} file(s). {2} ticked.".format(
+            len(visible), len(eligible), ticked_total)
+
+    def search_changed(self, sender, args):
+        # Fires while the XAML is still loading, before the grid exists.
+        try:
+            self._refresh_rows()
+        except Exception:
+            pass
+
+    def clear_search_click(self, sender, args):
+        try:
+            self.search_tb.Text = ""
+        except Exception:
+            pass
 
     def select_all_click(self, sender, args):
-        single = self.single_cb.SelectedItem
-        for r in self._rows:
-            r.selected = (r.name != single)
+        """Applies to what the search is currently showing, not the whole
+        project - ticking files you cannot see would be worse."""
+        for r in self._visible_rows():
+            r.selected = True
         self._refresh_rows()
 
     def select_none_click(self, sender, args):
-        for r in self._rows:
+        for r in self._visible_rows():
             r.selected = False
         self._refresh_rows()
 
@@ -445,7 +498,10 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
         if not single:
             forms.alert("Pick the single model in the dropdown first.")
             return
-        ticked = [r for r in self._rows if r.selected and r.name != single]
+        # Deliberately the ELIGIBLE set, not the visible one: files
+        # ticked before a search was typed still count. _refresh_rows
+        # warns on screen when the search is hiding any of them.
+        ticked = [r for r in self._eligible_rows() if r.selected]
         if not ticked:
             forms.alert("Tick at least one file in the list.")
             return
