@@ -1,0 +1,2 @@
+title: DeeAssemb
+tooltip: Batch-create a full set of assembly views (3D, elevations, detail sections, part list, material takeoff) plus its own sheet for every selected assembly, arranged on the sheet with a layout you design visually. Each view is auto-scaled to the largest standard scale that still fits its cell. Assemblies that already have views or a sheet are skipped, never overwritten.

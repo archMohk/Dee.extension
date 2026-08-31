@@ -1,0 +1,219 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeAssemb — Batch Assembly Views &amp; Sheets"
+        ShowInTaskbar="False"
+        MinHeight="720" MinWidth="1180" Height="820" Width="1260"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem><TextBlock x:Name="status_tb" Text="Ready."/></StatusBarItem>
+        </StatusBar>
+
+        <Grid DockPanel.Dock="Bottom" x:Name="progress_host" Height="26" Margin="0,4,0,4" Visibility="Collapsed">
+            <ProgressBar x:Name="progress_bar" Minimum="0" Maximum="100" Height="26"/>
+            <TextBlock x:Name="progress_text_tb" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       FontWeight="Bold" FontSize="12" Text=""/>
+        </Grid>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
+            <Button x:Name="run_b" Content="Create Views &amp; Sheets" Width="180" Height="30"
+                    FontWeight="Bold" Click="run_click"/>
+            <TextBlock x:Name="run_summary_tb" VerticalAlignment="Center" Margin="14,0,0,0"
+                       FontStyle="Italic" Text=""/>
+            <Button x:Name="close_b" Content="Close" Width="90" Height="30" Margin="16,0,0,0" Click="close_click"/>
+        </StackPanel>
+
+        <TabControl x:Name="main_tabs">
+
+            <!-- ============ TAB 1: ASSEMBLIES ============ -->
+            <TabItem Header="1. Assemblies">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Tick every assembly that should get a full set of views and its own sheet. Assemblies that already have assembly views or an assembly sheet are marked Skip and are left completely untouched — nothing you have already drawn is ever overwritten or deleted."/>
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBlock Text="Search:" VerticalAlignment="Center"/>
+                        <TextBox x:Name="search_tb" Width="240" Height="24" Margin="6,0,0,0"
+                                 TextChanged="search_changed"
+                                 ToolTip="Type any number of words — a row must match all of them, in its name or its assembly type."/>
+                        <Button x:Name="select_all_b" Content="Select All Ready" Width="130" Height="24" Margin="16,0,0,0" Click="select_all_click"/>
+                        <Button x:Name="select_none_b" Content="Select None" Width="110" Height="24" Margin="6,0,0,0" Click="select_none_click"/>
+                        <Button x:Name="select_shown_b" Content="Select Shown" Width="110" Height="24" Margin="6,0,0,0" Click="select_shown_click"
+                                ToolTip="Ticks every Ready row currently passing the search filter."/>
+                        <Button x:Name="rescan_b" Content="Re-scan" Width="90" Height="24" Margin="16,0,0,0" Click="rescan_click"/>
+                    </StackPanel>
+
+                    <DataGrid x:Name="assemblies_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                              SelectionMode="Extended" SelectionUnit="FullRow" IsReadOnly="False">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Build" Binding="{Binding selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="55"/>
+                            <DataGridTextColumn Header="Assembly" Binding="{Binding name}" IsReadOnly="True" Width="2*"/>
+                            <DataGridTextColumn Header="Assembly Type" Binding="{Binding type_name}" IsReadOnly="True" Width="2*"/>
+                            <DataGridTextColumn Header="Members" Binding="{Binding member_count}" IsReadOnly="True" Width="80"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status}" IsReadOnly="True" Width="2*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- ============ TAB 2: VIEWS ============ -->
+            <TabItem Header="2. Views to Create">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Tick which views each selected assembly should get. The same set is created for every assembly in the batch. Part List, Material Takeoff and Single-Category Schedule are schedules, not drawings — they are placed on the sheet but cannot be scaled to fit."/>
+
+                    <GroupBox DockPanel.Dock="Top" Header="Title Block (used for every created sheet)" Margin="0,0,0,8">
+                        <StackPanel Orientation="Horizontal" Margin="6">
+                            <ComboBox x:Name="titleblock_cb" Width="420" Height="24" SelectionChanged="titleblock_changed"/>
+                            <TextBlock x:Name="titleblock_size_tb" VerticalAlignment="Center" Margin="12,0,0,0"
+                                       FontStyle="Italic" Text=""/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox DockPanel.Dock="Top" Header="View Templates (optional)" Margin="0,0,0,8">
+                        <StackPanel Margin="6">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <TextBlock Text="3D &amp; Section views:" Width="140" VerticalAlignment="Center"/>
+                                <ComboBox x:Name="model_template_cb" Width="320" Height="24"/>
+                                <TextBlock Text="Schedules:" Width="90" VerticalAlignment="Center" Margin="20,0,0,0"/>
+                                <ComboBox x:Name="schedule_template_cb" Width="260" Height="24"/>
+                            </StackPanel>
+                            <CheckBox x:Name="assign_template_cb" Content="Keep the template ASSIGNED to each view (locks view scale — turns auto-fit off)"
+                                      ToolTip="Left unticked, the template's settings are applied once and the view stays free, so DeeAssemb can pick the scale that best fills each cell. Ticked, Revit locks the scale to the template and views are placed at whatever scale the template dictates."/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox DockPanel.Dock="Bottom" Header="Sheet Naming (optional — leave blank to keep what Revit assigns)" Margin="0,8,0,0">
+                        <StackPanel Margin="6">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <TextBlock Text="Sheet number:" Width="100" VerticalAlignment="Center"/>
+                                <TextBox x:Name="sheet_number_tb" Width="260" Height="24"/>
+                                <TextBlock Text="Sheet name:" Width="90" VerticalAlignment="Center" Margin="20,0,0,0"/>
+                                <TextBox x:Name="sheet_name_tb" Width="260" Height="24"/>
+                            </StackPanel>
+                            <TextBlock TextWrapping="Wrap" FontStyle="Italic" FontSize="11"
+                                       Text="Tokens: {assembly} = assembly name, {type} = assembly type name, {index} = 1-based position in this batch. If Revit rejects a number (usually a duplicate), that assembly keeps Revit's own number and a warning is reported — the sheet is still built."/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <GroupBox Grid.Column="0" Header="Drawings" Margin="0,0,4,0">
+                            <StackPanel Margin="8">
+                                <CheckBox x:Name="kind_3d_cb"           Content="3D Orthographic"   Margin="0,3" Click="view_kind_changed"/>
+                                <Separator Margin="0,6"/>
+                                <CheckBox x:Name="kind_elev_front_cb"   Content="Elevation Front"   Margin="0,3" Click="view_kind_changed"/>
+                                <CheckBox x:Name="kind_elev_back_cb"    Content="Elevation Back"    Margin="0,3" Click="view_kind_changed"/>
+                                <CheckBox x:Name="kind_elev_left_cb"    Content="Elevation Left"    Margin="0,3" Click="view_kind_changed"/>
+                                <CheckBox x:Name="kind_elev_right_cb"   Content="Elevation Right"   Margin="0,3" Click="view_kind_changed"/>
+                                <CheckBox x:Name="kind_elev_top_cb"     Content="Elevation Top"     Margin="0,3" Click="view_kind_changed"/>
+                                <CheckBox x:Name="kind_elev_bottom_cb"  Content="Elevation Bottom"  Margin="0,3" Click="view_kind_changed"/>
+                                <Separator Margin="0,6"/>
+                                <CheckBox x:Name="kind_horiz_detail_cb" Content="Horizontal Detail" Margin="0,3" Click="view_kind_changed"/>
+                                <CheckBox x:Name="kind_detail_a_cb"     Content="Detail Section A"  Margin="0,3" Click="view_kind_changed"/>
+                                <CheckBox x:Name="kind_detail_b_cb"     Content="Detail Section B"  Margin="0,3" Click="view_kind_changed"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Grid.Column="1" Header="Schedules" Margin="4,0,0,0">
+                            <StackPanel Margin="8">
+                                <CheckBox x:Name="kind_part_list_cb" Content="Part List"        Margin="0,3" Click="view_kind_changed"/>
+                                <CheckBox x:Name="kind_takeoff_cb"   Content="Material Takeoff" Margin="0,3" Click="view_kind_changed"/>
+                                <Separator Margin="0,6"/>
+                                <CheckBox x:Name="kind_cat_schedule_cb" Content="Single-Category Schedule" Margin="0,3" Click="view_kind_changed"/>
+                                <StackPanel Orientation="Horizontal" Margin="22,4,0,0">
+                                    <TextBlock Text="Category:" VerticalAlignment="Center"/>
+                                    <ComboBox x:Name="schedule_category_cb" Width="220" Height="24" Margin="6,0,0,0"/>
+                                </StackPanel>
+                                <TextBlock TextWrapping="Wrap" FontStyle="Italic" FontSize="11" Margin="0,14,0,0"
+                                           Text="A schedule has no scale, so it is placed at its natural size: centred in its cell when it fits, anchored to the cell's top-left corner and allowed to overflow when it does not. Either way you get a warning telling you which happened."/>
+                            </StackPanel>
+                        </GroupBox>
+                    </Grid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- ============ TAB 3: LAYOUT ============ -->
+            <TabItem Header="3. Sheet Layout">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Set up the grid, then drag any view onto the cell you want it in — or click it and use the arrow buttons. Dropping a view onto an occupied cell swaps the two. Each view is scaled to the largest standard scale that still fits its cell, so a bigger cell means a bigger drawing."/>
+
+                    <GroupBox DockPanel.Dock="Top" Header="Grid" Margin="0,0,0,8">
+                        <WrapPanel Margin="6">
+                            <TextBlock Text="Rows:" VerticalAlignment="Center"/>
+                            <TextBox x:Name="rows_tb" Width="46" Height="24" Margin="6,0,0,0" Text="2" TextChanged="layout_param_changed"/>
+                            <TextBlock Text="Columns:" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                            <TextBox x:Name="cols_tb" Width="46" Height="24" Margin="6,0,0,0" Text="2" TextChanged="layout_param_changed"/>
+                            <TextBlock Text="Margin (mm):" VerticalAlignment="Center" Margin="24,0,0,0"/>
+                            <TextBox x:Name="margin_tb" Width="56" Height="24" Margin="6,0,0,0" Text="10" TextChanged="layout_param_changed"/>
+                            <TextBlock Text="Spacing H (mm):" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                            <TextBox x:Name="spacing_h_tb" Width="56" Height="24" Margin="6,0,0,0" Text="5" TextChanged="layout_param_changed"/>
+                            <TextBlock Text="Spacing V (mm):" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                            <TextBox x:Name="spacing_v_tb" Width="56" Height="24" Margin="6,0,0,0" Text="5" TextChanged="layout_param_changed"/>
+                            <Button x:Name="auto_arrange_b" Content="Auto-Arrange" Width="120" Height="24" Margin="24,0,0,0" Click="auto_arrange_click"/>
+                        </WrapPanel>
+                    </GroupBox>
+
+                    <GroupBox DockPanel.Dock="Right" Header="Selected View" Width="270" Margin="8,0,0,0">
+                        <StackPanel Margin="8">
+                            <TextBlock x:Name="selected_view_tb" Text="Nothing selected." TextWrapping="Wrap" FontWeight="Bold"/>
+                            <TextBlock Text="Move to another cell:" Margin="0,14,0,4"/>
+                            <Grid HorizontalAlignment="Left">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Button x:Name="move_up_b"    Grid.Row="0" Grid.Column="1" Content="▲" Width="38" Height="28" Click="move_up_click"/>
+                                <Button x:Name="move_left_b"  Grid.Row="1" Grid.Column="0" Content="◀" Width="38" Height="28" Click="move_left_click"/>
+                                <Button x:Name="move_down_b"  Grid.Row="1" Grid.Column="1" Content="▼" Width="38" Height="28" Click="move_down_click"/>
+                                <Button x:Name="move_right_b" Grid.Row="1" Grid.Column="2" Content="▶" Width="38" Height="28" Click="move_right_click"/>
+                            </Grid>
+
+                            <TextBlock Text="Span (cells):" Margin="0,16,0,4"/>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Rows:" VerticalAlignment="Center"/>
+                                <TextBox x:Name="row_span_tb" Width="44" Height="24" Margin="6,0,0,0" Text="1" TextChanged="span_changed"/>
+                                <TextBlock Text="Cols:" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                                <TextBox x:Name="col_span_tb" Width="44" Height="24" Margin="6,0,0,0" Text="1" TextChanged="span_changed"/>
+                            </StackPanel>
+                            <TextBlock TextWrapping="Wrap" FontStyle="Italic" FontSize="11" Margin="0,14,0,0"
+                                       Text="Give a tall Part List a row span of 2, or a wide 3D view a column span of 2, and it gets the whole merged area — and a correspondingly larger scale."/>
+                            <TextBlock x:Name="layout_warning_tb" TextWrapping="Wrap" Foreground="#FFB300" FontSize="11" Margin="0,14,0,0" Text=""/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <Border BorderBrush="#555" BorderThickness="1">
+                        <Canvas x:Name="layout_canvas" Background="#1a1a1a"
+                                MouseLeftButtonDown="canvas_mouse_down"
+                                MouseMove="canvas_mouse_move"
+                                MouseLeftButtonUp="canvas_mouse_up"
+                                SizeChanged="canvas_size_changed"/>
+                    </Border>
+                </DockPanel>
+            </TabItem>
+
+            <!-- ============ TAB 4: LOG ============ -->
+            <TabItem Header="4. Run Log">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Live progress of the batch. Each assembly is built inside its own transaction, so if one fails it is rolled back on its own and the rest of the batch carries on. The full report is also printed to the pyRevit output window when the run finishes."/>
+                    <TextBox x:Name="log_tb" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                             FontFamily="Consolas" FontSize="12" Background="#141414" Foreground="#DDDDDD"/>
+                </DockPanel>
+            </TabItem>
+
+        </TabControl>
+    </DockPanel>
+</Window>
