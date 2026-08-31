@@ -26,6 +26,7 @@ from modules import fill_conversion
 from modules import dee_sselect
 from modules import dee_viewsheet
 from modules import dee_view_select
+from modules import dee_draft_coper
 
 REGISTERED_MODULES = [
     view_cropping.TOOL_INFO,
@@ -33,4 +34,5 @@ REGISTERED_MODULES = [
     dee_sselect.TOOL_INFO,
     dee_viewsheet.TOOL_INFO,
     dee_view_select.TOOL_INFO,
+    dee_draft_coper.TOOL_INFO,
 ]

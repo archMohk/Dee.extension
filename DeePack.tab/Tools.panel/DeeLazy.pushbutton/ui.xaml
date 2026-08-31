@@ -2,11 +2,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeLazy — Bulk Productivity Tools"
         ShowInTaskbar="False"
-        MinHeight="320" MinWidth="480" Height="360" Width="560"
+        MinHeight="420" MinWidth="580" Height="640" Width="850"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10"
-                   Text="DeeLazy is a growing collection of bulk productivity tools. Pick a tool below to open it in its own window."/>
+                   Text="DeeLazy is a growing collection of bulk productivity tools. Click anywhere on a card to open that tool in its own window."/>
         <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click" Width="90" Height="28" HorizontalAlignment="Right" Margin="0,10,0,0"/>
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <WrapPanel x:Name="cards_panel" Orientation="Horizontal"/>

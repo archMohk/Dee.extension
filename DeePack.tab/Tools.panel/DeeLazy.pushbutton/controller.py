@@ -16,12 +16,21 @@ clr.AddReference("System.Windows.Forms")
 
 from System.Windows import Thickness, TextWrapping, HorizontalAlignment, VerticalAlignment, FontWeights, CornerRadius
 from System.Windows.Controls import Border, DockPanel, Dock, TextBlock, Button
-from System.Windows.Media import Brushes
+from System.Windows.Input import Cursors
+from System.Windows.Media import Brushes, SolidColorBrush, Color
 
 from pyrevit import forms
 import dee_branding
 
 from modules import REGISTERED_MODULES
+
+# The DeeLazy brand orange (same value dee_branding uses for the footer bar),
+# reused here so a hovered card reads as part of the same tool rather than a
+# generic Windows highlight.
+_ACCENT = Color.FromRgb(0xF2, 0x99, 0x4D)
+_HOVER_BORDER = SolidColorBrush(_ACCENT)
+_HOVER_FILL = SolidColorBrush(Color.FromArgb(0x28, 0xF2, 0x99, 0x4D))
+_IDLE_BORDER = Brushes.Gray
 
 
 class DeeLazyHomeWindow(dee_branding.DeeBrandedWindow):
@@ -45,13 +54,20 @@ class DeeLazyHomeWindow(dee_branding.DeeBrandedWindow):
         past the card's visible area instead of wrapping/clipping in
         its own space."""
         border = Border()
-        border.Width = 220
-        border.Height = 150
+        border.Width = 250
+        border.Height = 165
         border.Margin = Thickness(6)
         border.Padding = Thickness(10)
-        border.BorderBrush = Brushes.Gray
+        border.BorderBrush = _IDLE_BORDER
         border.BorderThickness = Thickness(1)
         border.CornerRadius = CornerRadius(6)
+        # A Border only receives mouse events where it has a Background, so
+        # Transparent (not null) is what makes the WHOLE card hoverable and
+        # clickable rather than just its text.
+        border.Background = Brushes.Transparent
+        border.Cursor = Cursors.Hand
+        border.ToolTip = tool_info.get("description", "")
+        self._wire_card_interaction(border, tool_info)
 
         panel = DockPanel()
 
@@ -86,6 +102,31 @@ class DeeLazyHomeWindow(dee_branding.DeeBrandedWindow):
 
         border.Child = panel
         return border
+
+    def _wire_card_interaction(self, border, tool_info):
+        """Makes the whole card behave like one big button: it highlights on
+        hover and opens on click, so the small Open button is a visual cue
+        rather than the only target. Handlers are built in closures because
+        every card needs its own - the same reason _make_launch_handler
+        already exists."""
+        launch = self._make_launch_handler(tool_info)
+
+        def on_enter(sender, args):
+            sender.BorderBrush = _HOVER_BORDER
+            sender.BorderThickness = Thickness(2)
+            sender.Background = _HOVER_FILL
+
+        def on_leave(sender, args):
+            sender.BorderBrush = _IDLE_BORDER
+            sender.BorderThickness = Thickness(1)
+            sender.Background = Brushes.Transparent
+
+        def on_click(sender, args):
+            launch(sender, args)
+
+        border.MouseEnter += on_enter
+        border.MouseLeave += on_leave
+        border.MouseLeftButtonUp += on_click
 
     def _make_launch_handler(self, tool_info):
         def handler(sender, args):
