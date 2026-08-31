@@ -482,8 +482,10 @@ class BuildOptions(object):
         self.schedule_template_id = None
         self.assign_template = False
         self.schedule_category_id = None
-        self.sheet_number_pattern = ""
-        self.sheet_name_pattern = ""
+        self.sheet_number_rule = None    # NamingRule or None
+        self.sheet_name_rule = None      # NamingRule or None
+        # key -> fixed scale denominator, or None for auto-fit.
+        self.scales = {}
         self.probe_scale = 50
 
 
@@ -538,9 +540,15 @@ def _try_scale(view):
         return "?"
 
 
-def _fit_and_place_viewport(doc, sheet_id, view_id, cell, probe_scale, warnings, label):
-    """Places the view, measures the real viewport box, then picks the
-    largest standard scale that still fits the cell and re-measures.
+def _fit_and_place_viewport(doc, sheet_id, view_id, cell, probe_scale, warnings,
+                            label, fixed_scale=None):
+    """Places the view and positions it in its cell.
+
+    fixed_scale=None  -> auto-fit: measure the real viewport box, then pick the
+                         largest standard scale that still fits, and re-measure.
+    fixed_scale=<int> -> use exactly that scale. It is still measured, and an
+                         overflow is reported rather than silently allowed, but
+                         the scale the user asked for is never overridden.
 
     Measuring rather than computing from CropBox is deliberate: the viewport
     box includes the view title, and the crop box's paper-space units are
@@ -560,9 +568,10 @@ def _fit_and_place_viewport(doc, sheet_id, view_id, cell, probe_scale, warnings,
         pass
 
     scale_locked = False
-    if probe_scale:
+    wanted = int(fixed_scale) if fixed_scale else (int(probe_scale) if probe_scale else None)
+    if wanted:
         try:
-            view.Scale = int(probe_scale)
+            view.Scale = wanted
         except Exception:
             scale_locked = True
 
@@ -575,7 +584,12 @@ def _fit_and_place_viewport(doc, sheet_id, view_id, cell, probe_scale, warnings,
                 o.MaximumPoint.Y - o.MinimumPoint.Y)
 
     w, h = measured()
-    if not scale_locked and w > 1e-9 and h > 1e-9 and cell_w > 0 and cell_h > 0:
+    if fixed_scale and scale_locked:
+        warnings.append(
+            "{0}: could not set the requested 1:{1} - the view's scale is locked "
+            "by an assigned view template".format(label, int(fixed_scale)))
+    if (not fixed_scale and not scale_locked
+            and w > 1e-9 and h > 1e-9 and cell_w > 0 and cell_h > 0):
         ratio = max(w / cell_w, h / cell_h)
         try:
             current = int(view.Scale)
@@ -607,14 +621,20 @@ def _fit_and_place_viewport(doc, sheet_id, view_id, cell, probe_scale, warnings,
                 break
             guard += 1
 
-    if scale_locked:
+    if scale_locked and not fixed_scale:
         warnings.append(
             "{0}: view scale is locked (assigned view template) - placed at its "
             "template scale without auto-fit".format(label))
     elif w > cell_w + 1e-6 or h > cell_h + 1e-6:
-        warnings.append(
-            "{0}: still larger than its cell at 1:{1} - even the coarsest standard "
-            "scale was not enough".format(label, _try_scale(view)))
+        if fixed_scale:
+            warnings.append(
+                "{0}: does not fit its cell at the 1:{1} you chose - placed anyway "
+                "and allowed to overflow (set it to Auto-fit, enlarge the cell, or "
+                "give it a bigger span)".format(label, _try_scale(view)))
+        else:
+            warnings.append(
+                "{0}: still larger than its cell at 1:{1} - even the coarsest "
+                "standard scale was not enough".format(label, _try_scale(view)))
 
     vp.SetBoxCenter(XYZ(cx, cy, 0))
     return vp
@@ -664,16 +684,114 @@ def _place_schedule(doc, sheet_id, schedule_id, cell, warnings, label):
     return inst
 
 
-def format_pattern(pattern, assembly_name, type_name, index):
-    """Token substitution for the sheet number/name patterns. Returns None
-    for an empty pattern, meaning "leave whatever Revit chose"."""
+def format_pattern(pattern, assembly_name, type_name, index, seq=""):
+    """Token substitution used by both halves of a NamingRule. Returns None
+    for an empty pattern."""
     if not pattern:
         return None
     out = pattern
     for token, value in (("{assembly}", assembly_name), ("{type}", type_name),
-                         ("{index}", str(index)), ("{n}", str(index))):
+                         ("{index}", str(index)), ("{n}", str(index)),
+                         ("{seq}", seq)):
         out = out.replace(token, value)
     return out
+
+
+def alpha_label(n):
+    """0 -> A, 25 -> Z, 26 -> AA, 27 -> AB ... the same bijective base-26
+    sequence Excel uses for column letters. Negative input clamps to A."""
+    n = int(n)
+    if n < 0:
+        n = 0
+    out = ""
+    while True:
+        out = chr(ord("A") + (n % 26)) + out
+        n = n // 26 - 1
+        if n < 0:
+            break
+    return out
+
+
+def alpha_index(text):
+    """Inverse of alpha_label - "A" -> 0, "AA" -> 26. Non-letters are ignored,
+    and an empty/garbage start value falls back to A rather than raising."""
+    n = 0
+    found = False
+    for ch in str(text).upper():
+        if not ("A" <= ch <= "Z"):
+            continue
+        found = True
+        n = n * 26 + (ord(ch) - ord("A") + 1)
+    if not found:
+        return 0
+    return n - 1
+
+
+# NamingRule.mode
+NAMING_NONE = "none"
+NAMING_NUMBER = "number"
+NAMING_ALPHA = "alpha"
+
+NAMING_MODE_LABELS = [
+    ("No sequence", NAMING_NONE),
+    ("Sequential number (1, 2, 3...)", NAMING_NUMBER),
+    ("Alphabetic (A, B, C... AA, AB)", NAMING_ALPHA),
+]
+
+
+class NamingRule(object):
+    """Builds a sheet number or sheet name as  prefix + sequence + suffix.
+
+    Prefix and suffix both accept the {assembly} / {type} / {index} / {seq}
+    tokens, so a separator is just part of the prefix ("A-") rather than yet
+    another field. An all-empty rule renders to None, which the builder reads
+    as "leave whatever Revit assigned"."""
+
+    def __init__(self, prefix="", suffix="", mode=NAMING_NONE, start="1",
+                 step=1, pad=0):
+        self.prefix = prefix or ""
+        self.suffix = suffix or ""
+        self.mode = mode or NAMING_NONE
+        self.start = start if start not in (None, "") else "1"
+        self.step = int(step) if step else 1
+        self.pad = int(pad) if pad else 0
+
+    def sequence_for(self, position):
+        """position is 0-based within the batch."""
+        if self.mode == NAMING_NUMBER:
+            try:
+                first = int(str(self.start).strip())
+            except (TypeError, ValueError):
+                first = 1
+            value = first + position * self.step
+            text = str(value)
+            if self.pad > 0:
+                negative = text.startswith("-")
+                digits = text[1:] if negative else text
+                text = ("-" if negative else "") + digits.rjust(self.pad, "0")
+            return text
+        if self.mode == NAMING_ALPHA:
+            return alpha_label(alpha_index(self.start) + position * self.step)
+        return ""
+
+    def render(self, position, assembly_name, type_name):
+        """Returns the finished string, or None when the rule produces
+        nothing at all (so the caller leaves Revit's own value alone)."""
+        seq = self.sequence_for(position)
+        index = position + 1
+        prefix = format_pattern(self.prefix, assembly_name, type_name, index, seq) or ""
+        suffix = format_pattern(self.suffix, assembly_name, type_name, index, seq) or ""
+        out = "{0}{1}{2}".format(prefix, seq, suffix)
+        return out if out else None
+
+    def preview(self, samples):
+        """samples: list of (assembly_name, type_name). Returns the rendered
+        strings so the window can show what the first few sheets will be
+        called before anything is created."""
+        out = []
+        for i, (name, type_name) in enumerate(samples):
+            out.append(self.render(i, name, type_name) or "(unchanged)")
+        return out
 
 
 def build_for_assembly(doc, row, opts, index):
@@ -694,7 +812,10 @@ def build_for_assembly(doc, row, opts, index):
             raise Exception("Revit returned no sheet")
         sheet_id = sheet.Id
 
-        number = format_pattern(opts.sheet_number_pattern, row.name, row.type_name, index)
+        # index is 1-based for display; NamingRule counts positions from 0.
+        position = max(0, index - 1)
+        number = (opts.sheet_number_rule.render(position, row.name, row.type_name)
+                  if opts.sheet_number_rule is not None else None)
         if number:
             try:
                 sheet.SheetNumber = number
@@ -702,7 +823,8 @@ def build_for_assembly(doc, row, opts, index):
                 result.warnings.append(
                     "sheet number '{0}' rejected ({1}) - kept Revit's own number".format(
                         number, e))
-        name = format_pattern(opts.sheet_name_pattern, row.name, row.type_name, index)
+        name = (opts.sheet_name_rule.render(position, row.name, row.type_name)
+                if opts.sheet_name_rule is not None else None)
         if name:
             try:
                 sheet.Name = name
@@ -753,9 +875,12 @@ def build_for_assembly(doc, row, opts, index):
                     result.created.append((label, "schedule"))
                 else:
                     _fit_and_place_viewport(doc, sheet_id, view_id, cell,
-                                            opts.probe_scale, result.warnings, label)
+                                            opts.probe_scale, result.warnings, label,
+                                            fixed_scale=opts.scales.get(key))
+                    chosen = _try_scale(doc.GetElement(view_id))
                     result.created.append(
-                        (label, "1:{0}".format(_try_scale(doc.GetElement(view_id)))))
+                        (label, "1:{0}{1}".format(
+                            chosen, "" if opts.scales.get(key) else " auto")))
             except Exception as e:
                 result.warnings.append("{0}: created but NOT placed - {1}".format(label, e))
 
@@ -891,5 +1016,71 @@ if __name__ == "__main__":
 
         def test_empty_means_leave_alone(self):
             self.assertIsNone(format_pattern("", "x", "y", 1))
+
+    class AlphaTests(unittest.TestCase):
+        def test_single_letters(self):
+            self.assertEqual(alpha_label(0), "A")
+            self.assertEqual(alpha_label(25), "Z")
+
+        def test_rolls_over_like_excel_columns(self):
+            self.assertEqual(alpha_label(26), "AA")
+            self.assertEqual(alpha_label(27), "AB")
+            self.assertEqual(alpha_label(51), "AZ")
+            self.assertEqual(alpha_label(52), "BA")
+
+        def test_round_trip(self):
+            for n in (0, 1, 25, 26, 27, 51, 52, 700):
+                self.assertEqual(alpha_index(alpha_label(n)), n)
+
+        def test_garbage_start_falls_back_to_a(self):
+            self.assertEqual(alpha_index(""), 0)
+            self.assertEqual(alpha_index("123"), 0)
+
+        def test_negative_clamps(self):
+            self.assertEqual(alpha_label(-5), "A")
+
+    class NamingRuleTests(unittest.TestCase):
+        def test_sequential_with_padding(self):
+            r = NamingRule(prefix="A-", mode=NAMING_NUMBER, start="1", pad=3)
+            self.assertEqual(r.render(0, "PC-01", "Panel"), "A-001")
+            self.assertEqual(r.render(9, "PC-01", "Panel"), "A-010")
+
+        def test_step_and_custom_start(self):
+            r = NamingRule(mode=NAMING_NUMBER, start="100", step=5)
+            self.assertEqual([r.sequence_for(i) for i in range(3)], ["100", "105", "110"])
+
+        def test_alphabetic(self):
+            r = NamingRule(prefix="SH-", mode=NAMING_ALPHA, start="A")
+            self.assertEqual([r.render(i, "x", "y") for i in range(3)],
+                             ["SH-A", "SH-B", "SH-C"])
+
+        def test_alphabetic_custom_start(self):
+            r = NamingRule(mode=NAMING_ALPHA, start="C")
+            self.assertEqual(r.sequence_for(0), "C")
+            self.assertEqual(r.sequence_for(1), "D")
+
+        def test_prefix_suffix_tokens(self):
+            r = NamingRule(prefix="{assembly} - ", suffix=" ({type} {seq})",
+                           mode=NAMING_NUMBER, start="1")
+            self.assertEqual(r.render(0, "PC-01", "Panel"), "PC-01 - 1 (Panel 1)")
+
+        def test_no_sequence_is_prefix_plus_suffix(self):
+            r = NamingRule(prefix="{assembly}", suffix=" Layout", mode=NAMING_NONE)
+            self.assertEqual(r.render(3, "PC-04", "Panel"), "PC-04 Layout")
+
+        def test_completely_empty_leaves_revits_value(self):
+            self.assertIsNone(NamingRule().render(0, "x", "y"))
+
+        def test_pad_keeps_negative_sign(self):
+            r = NamingRule(mode=NAMING_NUMBER, start="-2", pad=3)
+            self.assertEqual(r.sequence_for(0), "-002")
+
+        def test_bad_start_falls_back_to_one(self):
+            r = NamingRule(mode=NAMING_NUMBER, start="abc")
+            self.assertEqual(r.sequence_for(0), "1")
+
+        def test_preview_matches_render(self):
+            r = NamingRule(prefix="A-", mode=NAMING_NUMBER, start="1", pad=2)
+            self.assertEqual(r.preview([("a", "t"), ("b", "t")]), ["A-01", "A-02"])
 
     unittest.main(verbosity=2)

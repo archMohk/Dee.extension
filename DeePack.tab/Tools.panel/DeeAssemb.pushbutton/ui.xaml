@@ -84,17 +84,61 @@
                         </StackPanel>
                     </GroupBox>
 
-                    <GroupBox DockPanel.Dock="Bottom" Header="Sheet Naming (optional — leave blank to keep what Revit assigns)" Margin="0,8,0,0">
-                        <StackPanel Margin="6">
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                                <TextBlock Text="Sheet number:" Width="100" VerticalAlignment="Center"/>
-                                <TextBox x:Name="sheet_number_tb" Width="260" Height="24"/>
-                                <TextBlock Text="Sheet name:" Width="90" VerticalAlignment="Center" Margin="20,0,0,0"/>
-                                <TextBox x:Name="sheet_name_tb" Width="260" Height="24"/>
+                    <GroupBox DockPanel.Dock="Bottom" Header="Sheet Naming — built as  Prefix + Sequence + Suffix  (leave a row completely empty to keep what Revit assigns)" Margin="0,8,0,0">
+                        <Grid Margin="6">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- header row -->
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="Prefix"     FontWeight="Bold" FontSize="11" Margin="4,0,4,3"/>
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="Sequence"   FontWeight="Bold" FontSize="11" Margin="4,0,4,3"/>
+                            <TextBlock Grid.Row="0" Grid.Column="3" Text="Start"      FontWeight="Bold" FontSize="11" Margin="4,0,4,3"/>
+                            <TextBlock Grid.Row="0" Grid.Column="4" Text="Step"       FontWeight="Bold" FontSize="11" Margin="4,0,4,3"/>
+                            <TextBlock Grid.Row="0" Grid.Column="5" Text="Pad"        FontWeight="Bold" FontSize="11" Margin="4,0,4,3"
+                                       ToolTip="Zero-padding width for a numeric sequence: 3 turns 1 into 001. Ignored for an alphabetic sequence."/>
+                            <TextBlock Grid.Row="0" Grid.Column="6" Text="Suffix"     FontWeight="Bold" FontSize="11" Margin="4,0,4,3"/>
+
+                            <!-- sheet number -->
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Sheet number:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox   Grid.Row="1" Grid.Column="1" x:Name="num_prefix_tb" Width="150" Height="24" Margin="4,2" TextChanged="naming_changed"/>
+                            <ComboBox  Grid.Row="1" Grid.Column="2" x:Name="num_mode_cb"   Width="190" Height="24" Margin="4,2" SelectionChanged="naming_mode_changed"/>
+                            <TextBox   Grid.Row="1" Grid.Column="3" x:Name="num_start_tb"  Width="60"  Height="24" Margin="4,2" Text="1" TextChanged="naming_changed"/>
+                            <TextBox   Grid.Row="1" Grid.Column="4" x:Name="num_step_tb"   Width="46"  Height="24" Margin="4,2" Text="1" TextChanged="naming_changed"/>
+                            <TextBox   Grid.Row="1" Grid.Column="5" x:Name="num_pad_tb"    Width="46"  Height="24" Margin="4,2" Text="0" TextChanged="naming_changed"/>
+                            <TextBox   Grid.Row="1" Grid.Column="6" x:Name="num_suffix_tb" Width="150" Height="24" Margin="4,2" TextChanged="naming_changed"/>
+
+                            <!-- sheet name -->
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Sheet name:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox   Grid.Row="2" Grid.Column="1" x:Name="name_prefix_tb" Width="150" Height="24" Margin="4,2" TextChanged="naming_changed"/>
+                            <ComboBox  Grid.Row="2" Grid.Column="2" x:Name="name_mode_cb"   Width="190" Height="24" Margin="4,2" SelectionChanged="naming_mode_changed"/>
+                            <TextBox   Grid.Row="2" Grid.Column="3" x:Name="name_start_tb"  Width="60"  Height="24" Margin="4,2" Text="1" TextChanged="naming_changed"/>
+                            <TextBox   Grid.Row="2" Grid.Column="4" x:Name="name_step_tb"   Width="46"  Height="24" Margin="4,2" Text="1" TextChanged="naming_changed"/>
+                            <TextBox   Grid.Row="2" Grid.Column="5" x:Name="name_pad_tb"    Width="46"  Height="24" Margin="4,2" Text="0" TextChanged="naming_changed"/>
+                            <TextBox   Grid.Row="2" Grid.Column="6" x:Name="name_suffix_tb" Width="150" Height="24" Margin="4,2" TextChanged="naming_changed"/>
+
+                            <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="8" Margin="0,8,0,0">
+                                <TextBlock TextWrapping="Wrap" FontStyle="Italic" FontSize="11"
+                                           Text="Prefix and suffix accept tokens: {assembly} = assembly name, {type} = assembly type name, {index} = 1-based position in the batch, {seq} = the sequence value. Put any separator in the prefix itself (e.g. &quot;A-&quot;). If Revit rejects a sheet number — almost always a duplicate — that assembly keeps Revit's own number, a warning is reported, and the sheet is still built."/>
+                                <Border BorderBrush="#555" BorderThickness="1" Margin="0,6,0,0" Padding="6" Background="#141414">
+                                    <TextBlock x:Name="naming_preview_tb" FontFamily="Consolas" FontSize="12"
+                                               Foreground="#8BC34A" TextWrapping="Wrap" Text=""/>
+                                </Border>
                             </StackPanel>
-                            <TextBlock TextWrapping="Wrap" FontStyle="Italic" FontSize="11"
-                                       Text="Tokens: {assembly} = assembly name, {type} = assembly type name, {index} = 1-based position in this batch. If Revit rejects a number (usually a duplicate), that assembly keeps Revit's own number and a warning is reported — the sheet is still built."/>
-                        </StackPanel>
+                        </Grid>
                     </GroupBox>
 
                     <Grid>
@@ -103,20 +147,60 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <GroupBox Grid.Column="0" Header="Drawings" Margin="0,0,4,0">
+                        <GroupBox Grid.Column="0" Header="Drawings — tick the view, then set its scale" Margin="0,0,4,0">
                             <StackPanel Margin="8">
-                                <CheckBox x:Name="kind_3d_cb"           Content="3D Orthographic"   Margin="0,3" Click="view_kind_changed"/>
-                                <Separator Margin="0,6"/>
-                                <CheckBox x:Name="kind_elev_front_cb"   Content="Elevation Front"   Margin="0,3" Click="view_kind_changed"/>
-                                <CheckBox x:Name="kind_elev_back_cb"    Content="Elevation Back"    Margin="0,3" Click="view_kind_changed"/>
-                                <CheckBox x:Name="kind_elev_left_cb"    Content="Elevation Left"    Margin="0,3" Click="view_kind_changed"/>
-                                <CheckBox x:Name="kind_elev_right_cb"   Content="Elevation Right"   Margin="0,3" Click="view_kind_changed"/>
-                                <CheckBox x:Name="kind_elev_top_cb"     Content="Elevation Top"     Margin="0,3" Click="view_kind_changed"/>
-                                <CheckBox x:Name="kind_elev_bottom_cb"  Content="Elevation Bottom"  Margin="0,3" Click="view_kind_changed"/>
-                                <Separator Margin="0,6"/>
-                                <CheckBox x:Name="kind_horiz_detail_cb" Content="Horizontal Detail" Margin="0,3" Click="view_kind_changed"/>
-                                <CheckBox x:Name="kind_detail_a_cb"     Content="Detail Section A"  Margin="0,3" Click="view_kind_changed"/>
-                                <CheckBox x:Name="kind_detail_b_cb"     Content="Detail Section B"  Margin="0,3" Click="view_kind_changed"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <TextBlock Text="View" Width="170" FontWeight="Bold" FontSize="11"/>
+                                    <TextBlock Text="Scale" FontWeight="Bold" FontSize="11"/>
+                                    <Button x:Name="scale_all_auto_b" Content="All Auto-fit" Height="20" FontSize="10"
+                                            Margin="16,0,0,0" Padding="6,0" Click="scale_all_auto_click"/>
+                                </StackPanel>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,2">
+                                    <CheckBox x:Name="kind_3d_cb" Content="3D Orthographic" Width="170" VerticalAlignment="Center" Click="view_kind_changed"/>
+                                    <ComboBox x:Name="scale_3d_cb" Width="130" Height="22"/>
+                                </StackPanel>
+                                <Separator Margin="0,5"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,2">
+                                    <CheckBox x:Name="kind_elev_front_cb" Content="Elevation Front" Width="170" VerticalAlignment="Center" Click="view_kind_changed"/>
+                                    <ComboBox x:Name="scale_elev_front_cb" Width="130" Height="22"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,2">
+                                    <CheckBox x:Name="kind_elev_back_cb" Content="Elevation Back" Width="170" VerticalAlignment="Center" Click="view_kind_changed"/>
+                                    <ComboBox x:Name="scale_elev_back_cb" Width="130" Height="22"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,2">
+                                    <CheckBox x:Name="kind_elev_left_cb" Content="Elevation Left" Width="170" VerticalAlignment="Center" Click="view_kind_changed"/>
+                                    <ComboBox x:Name="scale_elev_left_cb" Width="130" Height="22"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,2">
+                                    <CheckBox x:Name="kind_elev_right_cb" Content="Elevation Right" Width="170" VerticalAlignment="Center" Click="view_kind_changed"/>
+                                    <ComboBox x:Name="scale_elev_right_cb" Width="130" Height="22"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,2">
+                                    <CheckBox x:Name="kind_elev_top_cb" Content="Elevation Top" Width="170" VerticalAlignment="Center" Click="view_kind_changed"/>
+                                    <ComboBox x:Name="scale_elev_top_cb" Width="130" Height="22"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,2">
+                                    <CheckBox x:Name="kind_elev_bottom_cb" Content="Elevation Bottom" Width="170" VerticalAlignment="Center" Click="view_kind_changed"/>
+                                    <ComboBox x:Name="scale_elev_bottom_cb" Width="130" Height="22"/>
+                                </StackPanel>
+                                <Separator Margin="0,5"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,2">
+                                    <CheckBox x:Name="kind_horiz_detail_cb" Content="Horizontal Detail" Width="170" VerticalAlignment="Center" Click="view_kind_changed"/>
+                                    <ComboBox x:Name="scale_horiz_detail_cb" Width="130" Height="22"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,2">
+                                    <CheckBox x:Name="kind_detail_a_cb" Content="Detail Section A" Width="170" VerticalAlignment="Center" Click="view_kind_changed"/>
+                                    <ComboBox x:Name="scale_detail_a_cb" Width="130" Height="22"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,2">
+                                    <CheckBox x:Name="kind_detail_b_cb" Content="Detail Section B" Width="170" VerticalAlignment="Center" Click="view_kind_changed"/>
+                                    <ComboBox x:Name="scale_detail_b_cb" Width="130" Height="22"/>
+                                </StackPanel>
+
+                                <TextBlock TextWrapping="Wrap" FontStyle="Italic" FontSize="11" Margin="0,10,0,0"
+                                           Text="Auto-fit picks the largest standard scale that still fits the view's cell on the sheet. Choose a fixed scale instead and it is used exactly as asked — if the view then overflows its cell you get a warning naming it, rather than a silently rescaled drawing."/>
                             </StackPanel>
                         </GroupBox>
 

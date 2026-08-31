@@ -130,6 +130,66 @@ class DeeAssembWindow(dee_branding.DeeBrandedWindow):
         self._update_status()
         self._redraw()
 
+    # ---------------- per-view scale ----------------
+    def _scale_for(self, key):
+        """None = auto-fit, otherwise the chosen standard denominator."""
+        cb = getattr(self, "scale_{0}_cb".format(key), None)
+        if cb is None:
+            return None
+        idx = cb.SelectedIndex
+        if idx <= 0 or idx > len(core.STANDARD_SCALES):
+            return None
+        return core.STANDARD_SCALES[idx - 1]
+
+    def scale_all_auto_click(self, sender, args):
+        for key in self._drawing_keys():
+            cb = getattr(self, "scale_{0}_cb".format(key), None)
+            if cb is not None:
+                cb.SelectedIndex = 0
+
+    # ---------------- sheet naming ----------------
+    def _naming_rule(self, which):
+        """which is "num" or "name" - the two rows of the naming grid."""
+        mode_cb = getattr(self, "{0}_mode_cb".format(which))
+        idx = mode_cb.SelectedIndex
+        mode = (core.NAMING_MODE_LABELS[idx][1]
+                if 0 <= idx < len(core.NAMING_MODE_LABELS) else core.NAMING_NONE)
+        return core.NamingRule(
+            prefix=(getattr(self, "{0}_prefix_tb".format(which)).Text or ""),
+            suffix=(getattr(self, "{0}_suffix_tb".format(which)).Text or ""),
+            mode=mode,
+            start=(getattr(self, "{0}_start_tb".format(which)).Text or "1").strip(),
+            step=self._int_of(getattr(self, "{0}_step_tb".format(which)), 1, -999, 999),
+            pad=self._int_of(getattr(self, "{0}_pad_tb".format(which)), 0, 0, 12))
+
+    def _preview_samples(self):
+        """The first few assemblies that will actually be built, so the preview
+        shows real names rather than invented ones."""
+        rows = self._selected_rows() or [r for r in self._rows if r.is_ready] or self._rows
+        return [(r.name, r.type_name) for r in rows[:3]]
+
+    def _refresh_naming_preview(self):
+        samples = self._preview_samples()
+        if not samples:
+            self.naming_preview_tb.Text = "No assemblies to preview."
+            return
+        numbers = self._naming_rule("num").preview(samples)
+        names = self._naming_rule("name").preview(samples)
+        lines = ["First {0} sheet(s) would be:".format(len(samples))]
+        for i in range(len(samples)):
+            lines.append("   {0}   |   {1}".format(numbers[i], names[i]))
+        self.naming_preview_tb.Text = "\n".join(lines)
+
+    def naming_changed(self, sender, args):
+        if not self._ready:
+            return
+        self._refresh_naming_preview()
+
+    def naming_mode_changed(self, sender, args):
+        if not self._ready:
+            return
+        self._refresh_naming_preview()
+
     # ---------------- scanning helpers ----------------
     def _progress_cb(self, pb):
         def cb(i, total):
@@ -141,7 +201,33 @@ class DeeAssembWindow(dee_branding.DeeBrandedWindow):
             return pb.cancelled
         return cb
 
+    def _drawing_keys(self):
+        """The view kinds that have a scale. Schedules do not - Revit has no
+        concept of scale for one, so they get no combo at all."""
+        return [k for k, _lbl, kind in core.VIEW_KINDS if kind != "schedule"]
+
+    def _fill_scale_combos(self):
+        for key in self._drawing_keys():
+            cb = getattr(self, "scale_{0}_cb".format(key), None)
+            if cb is None:
+                continue
+            cb.Items.Clear()
+            cb.Items.Add("Auto-fit")
+            for s in core.STANDARD_SCALES:
+                cb.Items.Add("1:{0}".format(s))
+            cb.SelectedIndex = 0
+
+    def _fill_naming_combos(self):
+        for name in ("num_mode_cb", "name_mode_cb"):
+            cb = getattr(self, name)
+            cb.Items.Clear()
+            for label, _mode in core.NAMING_MODE_LABELS:
+                cb.Items.Add(label)
+            cb.SelectedIndex = 0
+
     def _fill_combos(self):
+        self._fill_scale_combos()
+        self._fill_naming_combos()
         self.titleblock_cb.Items.Clear()
         for _tid, label, _w, _h in self._titleblocks:
             self.titleblock_cb.Items.Add(label)
@@ -186,6 +272,9 @@ class DeeAssembWindow(dee_branding.DeeBrandedWindow):
             "{3} ticked to build.".format(len(self._rows), ready, skipped, picked))
         self.run_summary_tb.Text = "{0} assembly(ies) x {1} view(s) selected.".format(
             picked, len(self._checked_keys()))
+        # The preview shows the assemblies actually queued, so it has to follow
+        # every change to the selection.
+        self._refresh_naming_preview()
 
     def _selected_rows(self):
         return [r for r in self._rows if r.selected and r.is_ready]
@@ -643,8 +732,9 @@ class DeeAssembWindow(dee_branding.DeeBrandedWindow):
         opts.schedule_category_id = (self._categories[idx][0]
                                      if 0 <= idx < len(self._categories) else None)
 
-        opts.sheet_number_pattern = (self.sheet_number_tb.Text or "").strip()
-        opts.sheet_name_pattern = (self.sheet_name_tb.Text or "").strip()
+        opts.sheet_number_rule = self._naming_rule("num")
+        opts.sheet_name_rule = self._naming_rule("name")
+        opts.scales = dict((key, self._scale_for(key)) for key in opts.view_keys)
         return opts
 
     def run_click(self, sender, args):
