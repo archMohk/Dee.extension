@@ -25,10 +25,12 @@ from modules import view_cropping
 from modules import fill_conversion
 from modules import dee_sselect
 from modules import dee_viewsheet
+from modules import dee_view_select
 
 REGISTERED_MODULES = [
     view_cropping.TOOL_INFO,
     fill_conversion.TOOL_INFO,
     dee_sselect.TOOL_INFO,
     dee_viewsheet.TOOL_INFO,
+    dee_view_select.TOOL_INFO,
 ]
