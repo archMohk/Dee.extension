@@ -14,8 +14,8 @@ clr.AddReference("PresentationFramework")
 clr.AddReference("PresentationCore")
 clr.AddReference("System.Windows.Forms")
 
-from System.Windows import Thickness, TextWrapping, HorizontalAlignment, VerticalAlignment, FontWeights, CornerRadius
-from System.Windows.Controls import Border, DockPanel, Dock, TextBlock, Button
+from System.Windows import Thickness, TextWrapping, VerticalAlignment, FontWeights, CornerRadius
+from System.Windows.Controls import Border, DockPanel, Dock, TextBlock
 from System.Windows.Input import Cursors
 from System.Windows.Media import Brushes, SolidColorBrush, Color
 
@@ -45,14 +45,16 @@ class DeeLazyHomeWindow(dee_branding.DeeBrandedWindow):
             self.cards_panel.Children.Add(card)
 
     def _make_card(self, tool_info):
-        """A DockPanel, not a plain vertical StackPanel, specifically so
-        the Open button always stays anchored at the bottom of the card
-        regardless of how long a module's description is - a
-        StackPanel's total content height isn't clamped to the Border's
-        fixed Height, so a longer description (a later module's, not
-        necessarily this first one's) can silently push the button
-        past the card's visible area instead of wrapping/clipping in
-        its own space."""
+        """The whole card is the button - there is no separate Open button,
+        because clicking anywhere on the card launches the tool and the hover
+        highlight plus the hand cursor are the affordance.
+
+        Still a DockPanel rather than a plain vertical StackPanel: the Border
+        has a fixed Height, and a StackPanel's content height isn't clamped to
+        it, so a longer description (a later module's) would silently spill
+        past the card's visible edge. DockPanel.LastChildFill gives the
+        description exactly the space left under the title, so it clips inside
+        the card instead."""
         border = Border()
         border.Width = 250
         border.Height = 165
@@ -80,19 +82,9 @@ class DeeLazyHomeWindow(dee_branding.DeeBrandedWindow):
         DockPanel.SetDock(title_tb, Dock.Top)
         panel.Children.Add(title_tb)
 
-        launch_b = Button()
-        launch_b.Content = "Open"
-        launch_b.Height = 28
-        launch_b.Width = 90
-        launch_b.HorizontalAlignment = HorizontalAlignment.Left
-        launch_b.Click += self._make_launch_handler(tool_info)
-        DockPanel.SetDock(launch_b, Dock.Bottom)
-        panel.Children.Add(launch_b)
-
         # Last child - DockPanel.LastChildFill (default True) gives this
-        # whatever space is left between the title and the button, so a
-        # long description clips/scrolls within that space instead of
-        # displacing the button.
+        # whatever space is left under the title, so a long description clips
+        # within that space instead of spilling past the card's fixed height.
         desc_tb = TextBlock()
         desc_tb.Text = tool_info.get("description", "")
         desc_tb.TextWrapping = TextWrapping.Wrap
@@ -105,10 +97,9 @@ class DeeLazyHomeWindow(dee_branding.DeeBrandedWindow):
 
     def _wire_card_interaction(self, border, tool_info):
         """Makes the whole card behave like one big button: it highlights on
-        hover and opens on click, so the small Open button is a visual cue
-        rather than the only target. Handlers are built in closures because
-        every card needs its own - the same reason _make_launch_handler
-        already exists."""
+        hover and opens on click. Handlers are built in closures because every
+        card needs its own bound to its own tool_info - the same reason
+        _make_launch_handler already exists."""
         launch = self._make_launch_handler(tool_info)
 
         def on_enter(sender, args):
