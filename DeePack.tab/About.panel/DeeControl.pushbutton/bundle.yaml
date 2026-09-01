@@ -1,0 +1,3 @@
+title: DeeControl
+tooltip: Control Panel - switch any DeePack button, dropdown item or whole panel on and off, each shown with a one-line brief of what it does. A panel hides itself once everything inside it is off. About and DeeControl are always on so you can never lock yourself out.
+context: zero-doc
