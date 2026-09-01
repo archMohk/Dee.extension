@@ -1,59 +1,76 @@
 # -*- coding: utf-8 -*-
 """
 dee_control_panel_service
-Scan / state / apply logic for DeeControl - the Control Panel that turns
-individual DeePack buttons, dropdown items and whole panels on and off.
+Scan / state / apply logic for DeeControl - the Control Panel that greys
+out DeePack buttons you do not want, without removing them from the
+ribbon.
 
 --------------------------------------------------------------------
-How a button is actually switched off
+How a button is greyed out (NOT hidden)
 --------------------------------------------------------------------
-Via the `layout:` list in each container's bundle.yaml. This is not a
-guess - it is confirmed in pyRevit's own source, in
-pyrevitlib/pyrevit/extensions/genericcomps.py, GenericUIContainer:
+By giving it a `context:` rule that can never be satisfied. Revit greys
+out - rather than hides - any command whose availability check returns
+false, so the button stays exactly where it is, visibly faded and
+unclickable, with its tooltip intact.
 
-    def __iter__(self):
-        # if item is not listed in layout, it will not be created
-        if self.layout_items:
-            ...only components matching a layout item are returned...
-        else:
-            return self.components
+The rule used is a logical contradiction:
 
-Two consequences drive the whole design here:
+    context:
+      rule: "(zero-doc)&!(zero-doc)"
 
-1. An item missing from a non-empty `layout:` is never created. That is
-   the off switch, and it needs no folder renaming - which matters,
-   because Revit holds locks on __pycache__ while it is running and a
-   folder rename can simply fail mid-session.
+pyRevit passes a `rule:` string straight through to the runtime
+untouched. Confirmed in pyRevit's own source,
+pyrevitlib/pyrevit/extensions/genericcomps.py,
+GenericUICommand._parse_context_directives:
 
-2. An EMPTY or ABSENT layout means "show everything" (the `else` branch
-   above). So writing an empty layout list to hide a whole panel would do
-   the exact opposite. A container with nothing left enabled is therefore
-   removed from ITS parent's layout instead - handled by
-   effective_enabled() below, which is why disabling every button in a
-   panel makes the panel itself disappear.
+    elif isinstance(context, dict):
+        if "rule" in context:
+            return context["rule"]
+
+and the grammar it must match is built a few lines above it - each rule
+is wrapped as "({rule})", a negated one is prefixed "!", and multiple
+rules are joined with "&" (MDATA_COMMAND_CONTEXT_ALL_SEP).
+
+"P and not P" is used deliberately in preference to something like
+"zero-doc & selection". The latter only works if you have reasoned
+correctly about what both tokens mean at runtime; a contradiction is
+false whatever `zero-doc` evaluates to, so it cannot be wrong for a
+reason this code cannot see.
 
 --------------------------------------------------------------------
-Ordering is preserved deliberately
+Why not the layout: list
 --------------------------------------------------------------------
-The ribbon order lives only in those layout lists, so switching a button
-off and back on must not shuffle its neighbours. The canonical order of
-every container is captured into the config file the first time it is
-seen and reused from then on; folders that appear later (a new button)
-are appended. Nothing is ever reordered as a side effect of a toggle.
+Omitting a button from a container's `layout:` list also works, and the
+first version of this tool did exactly that - but it makes the button
+DISAPPEAR. That was the wrong behaviour: a missing button looks like a
+broken install, whereas a faded one reads as "switched off on purpose".
+Layout lists are therefore left completely alone now, which also means
+ribbon ORDER is never touched by this tool.
+
+--------------------------------------------------------------------
+The original context must be remembered
+--------------------------------------------------------------------
+35 DeePack buttons already carry `context: zero-doc`, which is what lets
+them run with no project open. Overwriting that to disable a button and
+then "restoring" it by reading the file back would lose it forever - the
+file now holds the disable rule, not the original. Originals are
+therefore captured into the config the first time a button is seen and
+are authoritative from then on. (This is the same class of bug as the
+ordering one this module hit earlier: never re-derive a canonical value
+from a file your own tool overwrites.)
 
 --------------------------------------------------------------------
 Editing bundle.yaml
 --------------------------------------------------------------------
-Rewritten line-by-line rather than through a YAML round-trip: these files
-are hand-written and carry comments, quoting and long single-line
-tooltips that a dump/reload would reformat wholesale. Only the `layout:`
-block is touched; every other line is passed through byte-for-byte. A
-survey of all 28 container bundles confirmed they use plain
-`key: value` lines with no block scalars, so this is safe here.
+Rewritten line-by-line rather than through a YAML round-trip: these are
+hand-written files with quoting and long single-line tooltips that a
+dump/reload would reformat wholesale. Only the `context:` key is touched.
+All 61 button bundles were surveyed first - every existing context is the
+single line `context: zero-doc`, with no block scalars anywhere.
 
-NOTE: these bundle.yaml files are tracked in git, so toggling buttons
-produces real repository changes. That is expected, not a bug - it is
-also what makes the state reviewable and revertible with git.
+NOTE: these bundle.yaml files are tracked in git, so switching buttons
+off produces real repository changes. That is intended - it makes the
+state reviewable and revertible.
 """
 import io
 import json
@@ -68,8 +85,11 @@ KIND_SUFFIXES = [
 ]
 CONTAINER_KINDS = set(["Tab", "Panel", "Group", "Dropdown"])
 
-# Never switchable - turning these off would remove the only way back in.
+# Never switchable - greying these would remove the only way back in.
 LOCKED_NAMES = set(["About", "DeeControl"])
+
+# P and not P. See the module docstring for why this exact shape.
+DISABLED_RULE = "(zero-doc)&!(zero-doc)"
 
 
 def _kind_of(folder_name):
@@ -80,10 +100,12 @@ def _kind_of(folder_name):
 
 
 def read_bundle_meta(bundle_path):
-    """Minimal reader for the four keys these bundles actually use.
-    Splits on the FIRST colon only, because a tooltip legitimately
-    contains colons and parentheses."""
-    meta = {"title": None, "tooltip": None, "layout": []}
+    """Minimal reader for the keys these bundles actually use. Splits on the
+    FIRST colon only, because a tooltip legitimately contains colons.
+
+    `context` comes back as the single-line string value, or the special
+    string DISABLED_RULE when the file holds our disable block."""
+    meta = {"title": None, "tooltip": None, "layout": [], "context": None}
     if not os.path.isfile(bundle_path):
         return meta
     try:
@@ -91,19 +113,37 @@ def read_bundle_meta(bundle_path):
             lines = fh.read().splitlines()
     except Exception:
         return meta
+
     in_layout = False
+    in_context_block = False
     for raw in lines:
         line = raw.rstrip()
         if not line.strip():
             continue
         stripped = line.strip()
+
         if in_layout:
             if stripped.startswith("-"):
                 meta["layout"].append(stripped[1:].strip().strip('"').strip("'"))
                 continue
             in_layout = False
+
+        if in_context_block:
+            if line.startswith(" "):
+                if stripped.startswith("rule:"):
+                    meta["context"] = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+                continue
+            in_context_block = False
+
         if line.startswith("layout:"):
             in_layout = True
+            continue
+        if line.startswith("context:"):
+            value = line.split(":", 1)[1].strip()
+            if value:
+                meta["context"] = value.strip('"').strip("'")
+            else:
+                in_context_block = True
             continue
         if ":" in line and not line.startswith(" "):
             key, value = line.split(":", 1)
@@ -114,12 +154,12 @@ def read_bundle_meta(bundle_path):
 
 
 class BundleNode(object):
-    """Holds paths and plain strings only - this is filesystem state, never
-    a Revit element."""
+    """Holds paths and plain strings only - this is filesystem state, never a
+    Revit element."""
 
     def __init__(self, path, name, kind, title, brief, rel_key, depth):
         self.path = path
-        self.name = name          # folder stem, i.e. what a layout list holds
+        self.name = name
         self.kind = kind
         self.title = title or name
         self.brief = brief or ""
@@ -130,18 +170,20 @@ class BundleNode(object):
         self.enabled = True
         self.locked = name in LOCKED_NAMES
         self.note = "always on" if self.locked else ""
+        # The context this button had before DeeControl ever touched it.
+        self.original_context = None
 
     @property
     def display_name(self):
         """Indented by depth so the grid reads as the ribbon hierarchy without
-        needing a TreeView (which cannot be filtered by a search box nearly as
+        needing a TreeView (which a search box cannot filter nearly as
         simply)."""
         return u"{0}{1}".format(u"        " * max(0, self.depth), self.title)
 
     @property
     def is_toggleable(self):
         """Bound to the row checkbox's IsEnabled, so a locked row is greyed out
-        rather than silently snapping back after a click."""
+        rather than accepting a click and silently snapping back."""
         return not self.locked
 
     @property
@@ -168,20 +210,27 @@ def _scan_children(parent_node, tab_root):
             continue
         meta = read_bundle_meta(os.path.join(full, "bundle.yaml"))
         title = meta["title"] or name
-        # A title of "." is a deliberate icon-only button; the folder name
-        # is the useful label in a list like this.
+        # A title of "." is a deliberate icon-only button; the folder name is
+        # the useful label in a list like this.
         if not title.strip() or title.strip() == ".":
             title = name
         rel = os.path.relpath(full, tab_root).replace("\\", "/")
         node = BundleNode(full, name, kind, title, meta["tooltip"], rel,
                           parent_node.depth + 1)
         node.parent = parent_node
+        # A file already holding the disable rule means this button is off.
+        # Its ORIGINAL context is unknowable from the file at that point, which
+        # is exactly why the config remembers it - see load_state.
+        if meta["context"] == DISABLED_RULE:
+            node.enabled = False
+        else:
+            node.original_context = meta["context"]
         found[name] = node
         if node.is_container:
             _scan_children(node, tab_root)
 
-    # Canonical order: what the layout already says, then anything on disk
-    # that the layout does not mention (a newly added button), alphabetically.
+    # Order follows the container's layout: list where it has one, so the grid
+    # reads in ribbon order. This tool never WRITES layout lists.
     meta = read_bundle_meta(parent_node.bundle_path)
     ordered = []
     for name in meta["layout"]:
@@ -194,8 +243,8 @@ def _scan_children(parent_node, tab_root):
 
 
 def scan(tab_root):
-    """Returns the root node for the .tab folder, with the whole tree under
-    it. The root itself is never toggled."""
+    """Returns the root node for the .tab folder, with the whole tree under it.
+    The root itself is never toggled."""
     folder = os.path.basename(tab_root.rstrip("\\/"))
     name = folder[:-len(TAB_FOLDER_SUFFIX)] if folder.endswith(TAB_FOLDER_SUFFIX) else folder
     meta = read_bundle_meta(os.path.join(tab_root, "bundle.yaml"))
@@ -206,8 +255,7 @@ def scan(tab_root):
 
 
 def flatten(node, out=None):
-    """Depth-first, in canonical order - the order the ribbon is built in,
-    which is the order that makes sense in the list."""
+    """Depth-first, in ribbon order."""
     if out is None:
         out = []
     for child in node.children:
@@ -217,67 +265,64 @@ def flatten(node, out=None):
 
 
 def effective_enabled(node):
-    """A container is only really on if it is ticked AND has at least one
-    descendant that is on. This is what makes a panel vanish once its last
-    button is switched off - and it must, because an EMPTY layout list means
-    "show everything" to pyRevit, not "show nothing"."""
+    """A button is live only if it is on AND every container above it is on.
+
+    Ancestor-based, not descendant-based: switching a Panel off greys every
+    button inside it. Nothing is ever removed, so an empty container is not a
+    case that needs handling any more."""
     if node.locked:
         return True
     if not node.enabled:
         return False
-    if not node.is_container:
-        return True
-    return any(effective_enabled(c) for c in node.children)
+    parent = node.parent
+    while parent is not None:
+        if not parent.locked and not parent.enabled:
+            return False
+        parent = parent.parent
+    return True
+
+
+def refresh_notes(nodes):
+    """Explains, per row, why a button will be faded even though its own box is
+    ticked - because a panel above it is off.
+
+    A row switched off by its OWN tick gets no note: the unticked box already
+    says that, and leaving the note empty means toggling one button changes no
+    other row, so the window can skip rebuilding the grid and keep your scroll
+    position."""
+    for node in nodes:
+        if node.locked:
+            node.note = "always on"
+            continue
+        if not node.enabled:
+            node.note = ""
+            continue
+        blocker = None
+        parent = node.parent
+        while parent is not None:
+            if not parent.locked and not parent.enabled:
+                blocker = parent
+                break
+            parent = parent.parent
+        node.note = ("faded - '{0}' is off".format(blocker.title) if blocker else "")
+
+
+def summarize(nodes):
+    """(live_buttons, total_buttons, faded_buttons) for the status line."""
+    buttons = [n for n in nodes if not n.is_container]
+    live = len([n for n in buttons if effective_enabled(n)])
+    return live, len(buttons), len(buttons) - live
 
 
 # --------------------------------------------------------------------------
 # config
 # --------------------------------------------------------------------------
-def _container_key(node):
-    return node.rel_key or "."
-
-
-def collect_order(root):
-    """{container_key: [child names in canonical order]} for the whole tree."""
-    orders = {}
-
-    def walk(node):
-        if node.is_container or node.kind == "Tab":
-            orders[_container_key(node)] = [c.name for c in node.children]
-            for child in node.children:
-                walk(child)
-
-    walk(root)
-    return orders
-
-
-def apply_order(root, orders):
-    """Re-sorts each container's children to the SAVED order.
-
-    This is what stops a disabled button drifting to the end of the ribbon.
-    A disabled button is absent from the live layout: list, so re-deriving
-    order from that file alone would append it on re-enable instead of
-    returning it to its slot. The saved order is therefore authoritative,
-    and anything not in it (a button added since) keeps its scanned position
-    at the end."""
-    def walk(node):
-        if node.is_container or node.kind == "Tab":
-            saved = orders.get(_container_key(node))
-            if saved:
-                index = dict((name, i) for i, name in enumerate(saved))
-                fallback = len(saved)
-                node.children.sort(
-                    key=lambda c, _i=index, _f=fallback: _i.get(c.name, _f))
-            for child in node.children:
-                walk(child)
-
-    walk(root)
-
-
 def load_state(config_path, root, nodes):
-    """Applies the saved disabled-set AND the saved ordering onto a freshly
-    scanned tree. Anything not mentioned stays on, so a newly added button is
-    enabled by default."""
+    """Applies the saved disabled-set and the saved ORIGINAL contexts.
+
+    The originals matter: once a button has been switched off its file holds
+    the disable rule, so the file can no longer tell us what its context used
+    to be. Only the config can."""
     if not os.path.isfile(config_path):
         return False
     try:
@@ -285,9 +330,11 @@ def load_state(config_path, root, nodes):
             data = json.loads(fh.read())
     except Exception:
         return False
-    apply_order(root, data.get("order", {}))
+    originals = data.get("original_contexts", {})
     disabled = set(data.get("disabled", []))
     for node in nodes:
+        if node.rel_key in originals:
+            node.original_context = originals[node.rel_key]
         if node.rel_key in disabled and not node.locked:
             node.enabled = False
     return True
@@ -295,13 +342,15 @@ def load_state(config_path, root, nodes):
 
 def save_state(config_path, root, nodes):
     data = {
-        "_comment": ("Written by DeeControl. 'disabled' lists the bundles kept "
-                     "out of their parent's layout: list in bundle.yaml, and "
-                     "'order' remembers the real ribbon order so a button "
-                     "switched back on returns to its original slot. Delete "
-                     "this file and re-apply to turn everything back on."),
+        "_comment": ("Written by DeeControl. 'disabled' lists the bundles given "
+                     "a never-true context: rule, which makes Revit grey the "
+                     "button out instead of hiding it. 'original_contexts' "
+                     "remembers what each button's context was BEFORE it was "
+                     "switched off, so turning it back on restores it exactly. "
+                     "Delete this file only if every button is currently on."),
         "disabled": sorted(n.rel_key for n in nodes if not n.enabled and not n.locked),
-        "order": collect_order(root),
+        "original_contexts": dict(
+            (n.rel_key, n.original_context) for n in nodes if not n.is_container),
     }
     folder = os.path.dirname(config_path)
     if folder and not os.path.isdir(folder):
@@ -318,116 +367,79 @@ def save_state(config_path, root, nodes):
 # --------------------------------------------------------------------------
 # writing bundle.yaml
 # --------------------------------------------------------------------------
-def build_layout_block(names):
-    lines = ["layout:"]
-    for name in names:
-        lines.append("  - {0}".format(name))
-    return lines
-
-
-def rewrite_layout(bundle_path, names):
-    """Replaces ONLY the layout: block, leaving every other line untouched.
-    Returns (changed, detail).
-
-    Never writes an empty list: pyRevit treats an empty/absent layout as
-    "show every child", so an empty one would do the opposite of what the
-    caller means. A container with nothing enabled is dropped by its PARENT
-    instead, and its own file is left alone."""
-    if not names:
-        return False, "nothing enabled - handled by the parent, file left alone"
-
-    new_block = build_layout_block(names)
-    if not os.path.isfile(bundle_path):
-        io.open(bundle_path, "w", encoding="utf-8").write(
-            u"\n".join(new_block) + u"\n")
-        return True, "created with a layout"
-
-    with io.open(bundle_path, encoding="utf-8") as fh:
-        original = fh.read()
-    lines = original.splitlines()
+def _strip_key(lines, key):
+    """Removes `key:` and any indented continuation lines under it. Returns
+    (remaining_lines, index_where_it_was_or_None)."""
     out = []
+    found_at = None
     i = 0
-    replaced = False
+    prefix = key + ":"
     while i < len(lines):
         line = lines[i]
-        if line.startswith("layout:") and not replaced:
-            out.extend(new_block)
-            replaced = True
+        if line.startswith(prefix) and found_at is None:
+            found_at = len(out)
             i += 1
-            # Swallow the old list items (and blank lines between them).
-            while i < len(lines):
-                nxt = lines[i]
-                if nxt.strip().startswith("-") or not nxt.strip():
-                    i += 1
-                    continue
-                break
+            while i < len(lines) and lines[i].startswith(" "):
+                i += 1
             continue
         out.append(line)
         i += 1
+    return out, found_at
 
-    if not replaced:
-        if out and out[-1].strip():
-            out.append("")
-        out.extend(new_block)
 
-    new_text = u"\n".join(out).rstrip() + u"\n"
+def context_lines(context_value):
+    """[] for no context, one line for a plain value, a block for the disable
+    rule (which must be a mapping, since that is the only shape pyRevit passes
+    through untouched)."""
+    if context_value is None:
+        return []
+    if context_value == DISABLED_RULE:
+        return ["context:", '  rule: "{0}"'.format(DISABLED_RULE)]
+    return ["context: {0}".format(context_value)]
+
+
+def write_context(bundle_path, context_value):
+    """Sets (or removes) the context: key, leaving every other line untouched.
+    Returns (changed, detail)."""
+    if not os.path.isfile(bundle_path):
+        return False, "no bundle.yaml"
+    with io.open(bundle_path, encoding="utf-8") as fh:
+        original = fh.read()
+
+    lines = original.splitlines()
+    remaining, found_at = _strip_key(lines, "context")
+    new_lines = context_lines(context_value)
+    if new_lines:
+        at = found_at if found_at is not None else len(remaining)
+        remaining[at:at] = new_lines
+
+    new_text = u"\n".join(remaining).rstrip() + u"\n"
     if new_text == original.rstrip() + u"\n":
         return False, "already correct"
     with io.open(bundle_path, "w", encoding="utf-8") as fh:
         fh.write(new_text)
-    return True, "layout updated"
+    return True, ("greyed out" if context_value == DISABLED_RULE else
+                  "restored to {0}".format(context_value or "no context"))
 
 
 def apply_state(root):
-    """Walks every container and rewrites its layout to the enabled children,
-    in canonical order. Returns a list of (rel_key, detail) for the report."""
+    """Writes the disable rule onto every faded BUTTON and restores the
+    original context on every live one. Containers are never written to - a
+    container being off simply fades its buttons."""
     results = []
 
     def walk(node):
         if node.is_container or node.kind == "Tab":
-            names = [c.name for c in node.children if effective_enabled(c)]
-            changed, detail = rewrite_layout(node.bundle_path, names)
-            if changed:
-                results.append((node.rel_key or node.name, detail))
             for child in node.children:
                 walk(child)
+            return
+        wanted = node.original_context if effective_enabled(node) else DISABLED_RULE
+        changed, detail = write_context(node.bundle_path, wanted)
+        if changed:
+            results.append((node.rel_key, detail))
 
     walk(root)
     return results
-
-
-def refresh_notes(nodes):
-    """Explains, per row, why something will not appear even though its own box
-    is ticked - a button inside a switched-off panel, or a container whose last
-    child was switched off. Without this the grid would show a ticked button
-    that silently never appears."""
-    for node in nodes:
-        if node.locked:
-            node.note = "always on"
-            continue
-        if not node.enabled:
-            node.note = "OFF"
-            continue
-        if node.is_container and not effective_enabled(node):
-            node.note = "hidden - nothing inside it is on"
-            continue
-        parent = node.parent
-        while parent is not None and parent.kind != "Tab":
-            if not effective_enabled(parent):
-                node.note = "hidden - '{0}' is off".format(parent.title)
-                break
-            parent = parent.parent
-        else:
-            node.note = ""
-
-
-def summarize(nodes):
-    """(buttons_on, buttons_total, hidden_containers) for the status line."""
-    buttons = [n for n in nodes if not n.is_container]
-    on = len([n for n in buttons if n.enabled])
-    hidden_containers = len([n for n in nodes
-                             if n.is_container and not effective_enabled(n)])
-    return on, len(buttons), hidden_containers
 
 
 if __name__ == "__main__":
@@ -436,8 +448,6 @@ if __name__ == "__main__":
     import unittest
 
     def make_tree(root):
-        """A miniature DeePack: one panel with a stack of two buttons and one
-        loose button, plus a locked About panel."""
         def mk(path, text):
             os.makedirs(path)
             with io.open(os.path.join(path, "bundle.yaml"), "w",
@@ -448,20 +458,23 @@ if __name__ == "__main__":
         mk(tab, u'title: "DeePack"\nlayout:\n  - Cloud\n  - About\n')
         cloud = os.path.join(tab, "Cloud.panel")
         mk(cloud, u'title: "Cloud"\nlayout:\n  - Solo\n  - CloudStack\n')
-        mk(os.path.join(cloud, "Solo.pushbutton"), u'title: Solo\ntooltip: a lone button\n')
+        mk(os.path.join(cloud, "Solo.pushbutton"),
+           u'title: Solo\ntooltip: a lone button\ncontext: zero-doc\n')
         stack = os.path.join(cloud, "CloudStack.stack")
         mk(stack, u'layout:\n  - Alpha\n  - Beta\n')
         mk(os.path.join(stack, "Alpha.pushbutton"), u'title: Alpha\ntooltip: first\n')
         mk(os.path.join(stack, "Beta.pushbutton"), u'title: Beta\ntooltip: second\n')
         about = os.path.join(tab, "About.panel")
         mk(about, u'title: "About"\nlayout:\n  - DeeControl\n')
-        mk(os.path.join(about, "DeeControl.pushbutton"), u'title: DeeControl\ntooltip: this tool\n')
+        mk(os.path.join(about, "DeeControl.pushbutton"),
+           u'title: DeeControl\ntooltip: this tool\ncontext: zero-doc\n')
         return tab
 
     class Base(unittest.TestCase):
         def setUp(self):
             self.tmp = tempfile.mkdtemp()
             self.tab = make_tree(self.tmp)
+            self.cfg = os.path.join(self.tmp, "cfg.json")
             self.root = scan(self.tab)
             self.nodes = flatten(self.root)
             self.by = dict((n.name, n) for n in self.nodes)
@@ -469,9 +482,13 @@ if __name__ == "__main__":
         def tearDown(self):
             shutil.rmtree(self.tmp, ignore_errors=True)
 
-        def layout_of(self, rel):
-            return read_bundle_meta(
-                os.path.join(self.tab, rel, "bundle.yaml"))["layout"]
+        def meta_of(self, rel):
+            return read_bundle_meta(os.path.join(self.tab, rel, "bundle.yaml"))
+
+        def text_of(self, rel):
+            with io.open(os.path.join(self.tab, rel, "bundle.yaml"),
+                         encoding="utf-8") as fh:
+                return fh.read()
 
     class ScanTests(Base):
         def test_finds_every_bundle(self):
@@ -479,166 +496,187 @@ if __name__ == "__main__":
                 sorted(self.by.keys()),
                 ["About", "Alpha", "Beta", "Cloud", "CloudStack", "DeeControl", "Solo"])
 
-        def test_kinds(self):
-            self.assertEqual(self.by["Cloud"].kind, "Panel")
-            self.assertEqual(self.by["CloudStack"].kind, "Group")
-            self.assertEqual(self.by["Alpha"].kind, "Button")
+        def test_reads_existing_context(self):
+            self.assertEqual(self.by["Solo"].original_context, "zero-doc")
+            self.assertIsNone(self.by["Alpha"].original_context)
 
         def test_brief_comes_from_tooltip(self):
             self.assertEqual(self.by["Solo"].brief, "a lone button")
 
-        def test_canonical_order_follows_existing_layout(self):
+        def test_order_follows_layout(self):
             self.assertEqual([c.name for c in self.by["Cloud"].children],
                              ["Solo", "CloudStack"])
 
-        def test_about_and_control_are_locked(self):
-            self.assertTrue(self.by["About"].locked)
+        def test_locking(self):
             self.assertTrue(self.by["DeeControl"].locked)
-            self.assertFalse(self.by["Solo"].locked)
-
-        def test_is_toggleable_is_the_inverse_of_locked(self):
-            # bound to the row checkbox's IsEnabled
             self.assertFalse(self.by["DeeControl"].is_toggleable)
             self.assertTrue(self.by["Solo"].is_toggleable)
 
-        def test_display_name_is_indented_by_depth(self):
-            self.assertTrue(self.by["Alpha"].display_name.startswith(" "))
-            self.assertTrue(
-                len(self.by["Alpha"].display_name) - len(self.by["Alpha"].display_name.lstrip())
-                > len(self.by["Cloud"].display_name) - len(self.by["Cloud"].display_name.lstrip()))
-
     class EffectiveTests(Base):
-        def test_disabled_button_is_off(self):
+        def test_off_button_is_faded(self):
             self.by["Alpha"].enabled = False
             self.assertFalse(effective_enabled(self.by["Alpha"]))
 
-        def test_container_dies_when_all_children_off(self):
+        def test_panel_off_fades_its_descendants(self):
+            self.by["Cloud"].enabled = False
+            self.assertFalse(effective_enabled(self.by["Alpha"]))
+            self.assertFalse(effective_enabled(self.by["Solo"]))
+
+        def test_group_off_does_not_fade_a_sibling(self):
+            self.by["CloudStack"].enabled = False
+            self.assertFalse(effective_enabled(self.by["Alpha"]))
+            self.assertTrue(effective_enabled(self.by["Solo"]))
+
+        def test_all_children_off_does_not_fade_the_panel_itself(self):
+            # Nothing is hidden any more, so a container with every child off
+            # is still perfectly live itself.
             self.by["Alpha"].enabled = False
             self.by["Beta"].enabled = False
-            self.assertFalse(effective_enabled(self.by["CloudStack"]))
-
-        def test_container_survives_one_child(self):
-            self.by["Alpha"].enabled = False
             self.assertTrue(effective_enabled(self.by["CloudStack"]))
 
-        def test_locked_stays_on_even_if_unticked(self):
+        def test_locked_stays_live(self):
+            self.by["About"].enabled = False
             self.by["DeeControl"].enabled = False
             self.assertTrue(effective_enabled(self.by["DeeControl"]))
 
     class ApplyTests(Base):
-        def test_disabling_removes_only_that_name(self):
+        def test_disabling_writes_the_contradiction_rule(self):
             self.by["Alpha"].enabled = False
             apply_state(self.root)
-            self.assertEqual(self.layout_of("Cloud.panel/CloudStack.stack"), ["Beta"])
+            self.assertEqual(self.meta_of("Cloud.panel/CloudStack.stack/Alpha.pushbutton")["context"],
+                             DISABLED_RULE)
 
-        def test_order_is_preserved_on_re_enable(self):
-            """The regression that motivated persisting `order`: once Alpha is
-            switched off it vanishes from the layout file, so re-deriving order
-            from that file alone would append it AFTER Beta on re-enable."""
-            cfg = os.path.join(self.tmp, "cfg.json")
+        def test_the_rule_is_a_contradiction(self):
+            self.assertIn("!", DISABLED_RULE)
+            token = DISABLED_RULE.split("&")[0]
+            self.assertEqual(DISABLED_RULE, "{0}&!{1}".format(token, token))
+
+        def test_layout_lists_are_never_touched(self):
+            before = self.text_of("Cloud.panel")
             self.by["Alpha"].enabled = False
-            save_state(cfg, self.root, self.nodes)
-            apply_state(self.root)
-            self.assertEqual(self.layout_of("Cloud.panel/CloudStack.stack"), ["Beta"])
-
-            fresh = scan(self.tab)
-            nodes = flatten(fresh)
-            load_state(cfg, fresh, nodes)
-            by = dict((n.name, n) for n in nodes)
-            by["Alpha"].enabled = True
-            apply_state(fresh)
-            self.assertEqual(self.layout_of("Cloud.panel/CloudStack.stack"),
-                             ["Alpha", "Beta"])
-
-        def test_without_saved_order_it_would_drift(self):
-            """Documents exactly why the saved order is needed - without it the
-            scan can only see the pruned layout."""
-            self.by["Alpha"].enabled = False
-            apply_state(self.root)
-            fresh = scan(self.tab)
-            by = dict((n.name, n) for n in flatten(fresh))
-            self.assertEqual([c.name for c in by["CloudStack"].children],
-                             ["Beta", "Alpha"])
-
-        def test_empty_container_is_dropped_by_parent(self):
-            self.by["Alpha"].enabled = False
-            self.by["Beta"].enabled = False
-            apply_state(self.root)
-            self.assertEqual(self.layout_of("Cloud.panel"), ["Solo"])
-
-        def test_never_writes_an_empty_layout(self):
-            for n in self.nodes:
-                if not n.locked:
-                    n.enabled = False
-            apply_state(self.root)
-            # Cloud has nothing left, so the TAB drops it - and Cloud's own
-            # file must NOT have become an empty layout (that means "show all").
-            self.assertEqual(self.layout_of(""), ["About"])
-            self.assertTrue(len(self.layout_of("Cloud.panel")) > 0)
-
-        def test_other_keys_survive_a_rewrite(self):
             self.by["Solo"].enabled = False
             apply_state(self.root)
-            with io.open(os.path.join(self.tab, "Cloud.panel", "bundle.yaml"),
-                         encoding="utf-8") as fh:
-                text = fh.read()
-            self.assertIn('title: "Cloud"', text)
+            self.assertEqual(self.text_of("Cloud.panel"), before)
 
-        def test_layout_added_when_absent(self):
-            path = os.path.join(self.tab, "Cloud.panel", "CloudStack.stack",
-                                "Alpha.pushbutton", "bundle.yaml")
-            changed, _ = rewrite_layout(path, ["X"])
-            self.assertTrue(changed)
-            meta = read_bundle_meta(path)
-            self.assertEqual(meta["layout"], ["X"])
-            self.assertEqual(meta["title"], "Alpha")
-            self.assertEqual(meta["tooltip"], "first")
+        def test_original_context_is_restored(self):
+            self.by["Solo"].enabled = False
+            apply_state(self.root)
+            self.assertEqual(self.meta_of("Cloud.panel/Solo.pushbutton")["context"],
+                             DISABLED_RULE)
+            self.by["Solo"].enabled = True
+            apply_state(self.root)
+            self.assertEqual(self.meta_of("Cloud.panel/Solo.pushbutton")["context"],
+                             "zero-doc")
+
+        def test_button_with_no_context_gets_none_back(self):
+            self.by["Alpha"].enabled = False
+            apply_state(self.root)
+            self.by["Alpha"].enabled = True
+            apply_state(self.root)
+            self.assertIsNone(self.meta_of("Cloud.panel/CloudStack.stack/Alpha.pushbutton")["context"])
+
+        def test_other_keys_survive(self):
+            self.by["Solo"].enabled = False
+            apply_state(self.root)
+            text = self.text_of("Cloud.panel/Solo.pushbutton")
+            self.assertIn("title: Solo", text)
+            self.assertIn("tooltip: a lone button", text)
+
+        def test_panel_off_greys_children_not_the_panel_file(self):
+            before = self.text_of("Cloud.panel")
+            self.by["Cloud"].enabled = False
+            apply_state(self.root)
+            self.assertEqual(self.text_of("Cloud.panel"), before)
+            self.assertEqual(self.meta_of("Cloud.panel/Solo.pushbutton")["context"],
+                             DISABLED_RULE)
+
+        def test_locked_button_never_greyed(self):
+            self.by["DeeControl"].enabled = False
+            apply_state(self.root)
+            self.assertEqual(self.meta_of("About.panel/DeeControl.pushbutton")["context"],
+                             "zero-doc")
 
     class ConfigTests(Base):
-        def test_round_trip(self):
-            self.by["Alpha"].enabled = False
+        def test_original_context_survives_a_reload(self):
+            """The regression this config exists to prevent: once Solo is off,
+            its file says DISABLED_RULE, so only the config knows it was
+            zero-doc."""
             self.by["Solo"].enabled = False
-            cfg = os.path.join(self.tmp, "cfg.json")
-            save_state(cfg, self.root, self.nodes)
+            save_state(self.cfg, self.root, self.nodes)
+            apply_state(self.root)
+
             fresh = scan(self.tab)
             nodes = flatten(fresh)
-            load_state(cfg, fresh, nodes)
+            by = dict((n.name, n) for n in nodes)
+            self.assertFalse(by["Solo"].enabled)      # read back off from the file
+            self.assertIsNone(by["Solo"].original_context)   # file cannot know it
+            load_state(self.cfg, fresh, nodes)
+            self.assertEqual(by["Solo"].original_context, "zero-doc")
+
+            by["Solo"].enabled = True
+            apply_state(fresh)
+            self.assertEqual(self.meta_of("Cloud.panel/Solo.pushbutton")["context"],
+                             "zero-doc")
+
+        def test_disabled_set_round_trip(self):
+            self.by["Alpha"].enabled = False
+            save_state(self.cfg, self.root, self.nodes)
+            fresh = scan(self.tab)
+            nodes = flatten(fresh)
+            load_state(self.cfg, fresh, nodes)
             by = dict((n.name, n) for n in nodes)
             self.assertFalse(by["Alpha"].enabled)
-            self.assertFalse(by["Solo"].enabled)
             self.assertTrue(by["Beta"].enabled)
 
         def test_missing_config_leaves_everything_on(self):
             fresh = scan(self.tab)
             nodes = flatten(fresh)
-            self.assertFalse(
-                load_state(os.path.join(self.tmp, "nope.json"), fresh, nodes))
+            self.assertFalse(load_state(os.path.join(self.tmp, "nope.json"),
+                                        fresh, nodes))
             self.assertTrue(all(n.enabled for n in nodes))
 
-        def test_order_map_covers_every_container(self):
-            orders = collect_order(self.root)
-            self.assertIn(".", orders)
-            self.assertIn("Cloud.panel", orders)
-            self.assertIn("Cloud.panel/CloudStack.stack", orders)
-            self.assertEqual(orders["Cloud.panel"], ["Solo", "CloudStack"])
+    class MetaTests(Base):
+        def test_reads_back_a_written_rule_block(self):
+            path = os.path.join(self.tab, "Cloud.panel", "Solo.pushbutton",
+                                "bundle.yaml")
+            write_context(path, DISABLED_RULE)
+            meta = read_bundle_meta(path)
+            self.assertEqual(meta["context"], DISABLED_RULE)
+            self.assertEqual(meta["title"], "Solo")
+            self.assertEqual(meta["tooltip"], "a lone button")
 
-        def test_apply_order_puts_a_stray_child_last(self):
-            apply_order(self.root, {"Cloud.panel/CloudStack.stack": ["Beta"]})
-            by = dict((n.name, n) for n in flatten(self.root))
-            self.assertEqual([c.name for c in by["CloudStack"].children],
-                             ["Beta", "Alpha"])
+        def test_tooltip_with_colons_survives(self):
+            path = os.path.join(self.tab, "Cloud.panel", "Solo.pushbutton",
+                                "bundle.yaml")
+            with io.open(path, "w", encoding="utf-8") as fh:
+                fh.write(u"title: Solo\ntooltip: does a: thing (e.g. this: that)\n")
+            self.assertEqual(read_bundle_meta(path)["tooltip"],
+                             "does a: thing (e.g. this: that)")
 
     class SummaryTests(Base):
         def test_counts(self):
-            on, total, hidden = summarize(self.nodes)
-            self.assertEqual(total, 4)     # Solo, Alpha, Beta, DeeControl
-            self.assertEqual(on, 4)
-            self.assertEqual(hidden, 0)
+            live, total, faded = summarize(self.nodes)
+            self.assertEqual((live, total, faded), (4, 4, 0))
 
-        def test_hidden_container_counted(self):
+        def test_notes_only_flag_inherited_fading(self):
             self.by["Alpha"].enabled = False
-            self.by["Beta"].enabled = False
-            _on, _total, hidden = summarize(self.nodes)
-            self.assertEqual(hidden, 1)
+            refresh_notes(self.nodes)
+            # its own unticked box says it; no note, so no other row changed
+            self.assertEqual(self.by["Alpha"].note, "")
+            self.assertEqual(self.by["Beta"].note, "")
+
+        def test_notes_name_the_blocking_container(self):
+            self.by["Cloud"].enabled = False
+            refresh_notes(self.nodes)
+            self.assertIn("Cloud", self.by["Solo"].note)
+            self.assertIn("Cloud", self.by["Alpha"].note)
+            self.assertEqual(self.by["DeeControl"].note, "always on")
+
+        def test_panel_off_counts_its_buttons_as_faded(self):
+            self.by["Cloud"].enabled = False
+            live, total, faded = summarize(self.nodes)
+            self.assertEqual(total, 4)
+            self.assertEqual(faded, 3)   # Solo, Alpha, Beta
+            self.assertEqual(live, 1)    # DeeControl
 
     unittest.main(verbosity=2)

@@ -1,15 +1,22 @@
 # -*- coding: utf-8 -*-
 """
 DeeControl (About)
-The Control Panel: switches every DeePack button, dropdown item and panel
-on or off, with each one's own tooltip shown as its brief. All the scan /
-state / bundle-rewriting logic lives in lib/dee_control_panel_service.py;
-this file only wires the WPF window to it.
+The Control Panel: greys out any DeePack button, dropdown item or panel
+you do not want, with each one's own tooltip shown as its brief. All the
+scan / state / bundle-rewriting logic lives in
+lib/dee_control_panel_service.py; this file only wires the WPF window to
+it.
 
-The off switch is the `layout:` list in each container's bundle.yaml -
-confirmed in pyRevit's own source, not guessed. See the service module's
-docstring for the exact quote and for why an EMPTY layout would do the
-opposite of what you want.
+Switched-off buttons are FADED, never hidden - they stay exactly where
+they are on the ribbon, greyed and unclickable, keeping their tooltips.
+That is done by writing a never-true `context:` rule into the button's
+bundle.yaml; Revit greys out any command whose availability check returns
+false. See the service module's docstring for the pyRevit source that
+confirms the `rule:` passthrough, and for why the rule is a logical
+contradiction rather than a clever combination of tokens.
+
+Switching a PANEL off greys every button inside it. Nothing is ever
+removed from a layout, so ribbon order is never touched by this tool.
 
 context: zero-doc, because rearranging your own ribbon has nothing to do
 with whether a project happens to be open.
@@ -51,10 +58,11 @@ class DeeControlWindow(dee_branding.DeeBrandedWindow):
                                indeterminate=True):
             self.root = core.scan(_TAB_ROOT)
             self.nodes = core.flatten(self.root)
+            # load_state supplies each button's ORIGINAL context. Without it a
+            # button that is currently switched off cannot be restored, because
+            # its file now holds the disable rule rather than what it used to
+            # say.
             core.load_state(_CONFIG_PATH, self.root, self.nodes)
-            # flatten again: load_state may have re-ordered children back to
-            # their saved ribbon order.
-            self.nodes = core.flatten(self.root)
 
         self._baseline = dict((n.rel_key, n.enabled) for n in self.nodes)
         self._refresh()
@@ -74,24 +82,17 @@ class DeeControlWindow(dee_branding.DeeBrandedWindow):
     def _update_counts(self):
         """Text-only update. Deliberately does NOT rebuild the grid, so ticking
         a box does not reset your scroll position mid-pass."""
-        on, total, hidden = core.summarize(self.nodes)
+        live, total, faded = core.summarize(self.nodes)
         shown_count = len(self._shown())
         self.status_tb.Text = (
-            "{0} of {1} button(s) on. {2} panel/group(s) will be hidden because "
-            "nothing inside them is on. Showing {3} row(s).".format(
-                on, total, hidden, shown_count))
+            "{0} of {1} button(s) active, {2} greyed out. Showing {3} row(s).".format(
+                live, total, faded, shown_count))
         changed = [n for n in self.nodes
                    if self._baseline.get(n.rel_key) != n.enabled]
         self.pending_tb.Text = (
             "" if not changed else
             "{0} unapplied change(s). Click Apply Changes, then reload "
             "pyRevit.".format(len(changed)))
-
-    def _hidden_signature(self):
-        """Which CONTAINERS are currently hidden. Used to decide whether a
-        single tick actually changed anything other rows display."""
-        return tuple(sorted(n.rel_key for n in self.nodes
-                            if n.is_container and not core.effective_enabled(n)))
 
     def _refresh(self):
         core.refresh_notes(self.nodes)
@@ -131,12 +132,12 @@ class DeeControlWindow(dee_branding.DeeBrandedWindow):
                 node.enabled = True
                 self.status_tb.Text = "'{0}' is always on - it is how you get back here.".format(node.title)
                 return
-            before = self._hidden_signature()
             node.enabled = sender.IsChecked is True
             core.refresh_notes(self.nodes)
-            # Only rebuild when this tick changed what OTHER rows show, since a
-            # rebuild costs the scroll position.
-            if self._hidden_signature() != before:
+            # Only a CONTAINER toggle changes what other rows show (it greys
+            # everything beneath it), so only that needs a rebuild. Rebuilding
+            # on every tick would reset the scroll position of an 89-row list.
+            if node.is_container:
                 self._refresh()
             else:
                 self._update_counts()
@@ -186,16 +187,15 @@ class DeeControlWindow(dee_branding.DeeBrandedWindow):
         self._guard(self._apply)
 
     def _apply(self):
-        off_buttons = [n for n in self.nodes if not n.is_container and not n.enabled]
-        hidden_containers = [n for n in self.nodes
-                             if n.is_container and not core.effective_enabled(n)]
-        message = ("Write this layout to the extension?\n\n"
-                   "{0} button(s) will be switched OFF.\n"
-                   "{1} panel/group(s) will disappear because nothing inside "
-                   "them is on.\n\n"
-                   "This edits the layout list in each panel's bundle.yaml. "
-                   "Those files are tracked in git, so the change is reviewable "
-                   "and revertible.".format(len(off_buttons), len(hidden_containers)))
+        live, total, faded = core.summarize(self.nodes)
+        message = ("Apply this to the ribbon?\n\n"
+                   "{0} of {1} button(s) will be greyed out - they stay on the "
+                   "ribbon, visibly faded and unclickable, keeping their "
+                   "tooltips.\n\n"
+                   "Nothing is hidden, moved or deleted. This writes a "
+                   "never-true context rule into each button's bundle.yaml; "
+                   "those files are tracked in git, so the change is reviewable "
+                   "and revertible.".format(faded, total))
         if not forms.alert(message, title="DeeControl", yes=True, no=True):
             return
 
@@ -225,8 +225,8 @@ class DeeControlWindow(dee_branding.DeeBrandedWindow):
                      'font-size:12px;">Nothing needed changing.</div>')
         output.print_html(html)
 
-        self.status_tb.Text = ("Applied - {0} file(s) rewritten. Reload pyRevit to "
-                               "rebuild the ribbon.".format(len(results)))
+        self.status_tb.Text = ("Applied - {0} button file(s) rewritten. Reload "
+                               "pyRevit to see it.".format(len(results)))
         forms.alert("Applied.\n\n{0} bundle file(s) were rewritten.\n\n"
                     "The ribbon does not change until pyRevit reloads. Use the "
                     "Reload pyRevit Now button, or the Reload button on the "

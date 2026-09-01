@@ -1,13 +1,3 @@
 title: "DeePack"
 layout:
-  - Models
-  - Cloud
-  - Coordination
-  - SheetsExport
-  - ViewsDatums
-  - Rooms
-  - Quantities
-  - Align
-  - Health
-  - Tools
   - About

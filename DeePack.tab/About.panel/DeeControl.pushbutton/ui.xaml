@@ -11,7 +11,7 @@
         </StatusBar>
 
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Untick anything you do not want on the DeePack ribbon. A panel disappears on its own once everything inside it is off, and About / DeeControl are always on so you can never lock yourself out. Nothing changes in Revit until you click Apply — and even then the ribbon only rebuilds after a pyRevit reload."/>
+                   Text="Untick anything you do not want. A switched-off button is GREYED OUT, not hidden — it stays exactly where it is on the ribbon, faded and unclickable, and keeps its tooltip. Unticking a panel greys every button inside it. About and DeeControl are always on so you can never lock yourself out. Nothing changes until you click Apply, and the ribbon only updates after a pyRevit reload."/>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
             <TextBlock Text="Filter:" VerticalAlignment="Center"/>
@@ -43,7 +43,7 @@
                     <Button x:Name="close_b" Content="Close" Width="90" Height="30" Margin="10,0,0,0" Click="close_click"/>
                 </StackPanel>
                 <TextBlock TextWrapping="Wrap" FontSize="11" Margin="0,8,0,0"
-                           Text="Apply rewrites the layout list inside each panel's bundle.yaml — the same mechanism pyRevit itself uses to decide what to build. Those files are tracked in git, so your choices show up as normal repository changes you can review or revert."/>
+                           Text="Apply writes a never-true context rule into each switched-off button's bundle.yaml — that is what makes Revit grey it out instead of running it. Nothing is hidden, moved or deleted, and ribbon order is never touched. Those files are tracked in git, so your choices show up as normal repository changes you can review or revert."/>
                 <TextBlock x:Name="pending_tb" TextWrapping="Wrap" FontSize="12" FontWeight="Bold"
                            Foreground="#FFB300" Margin="0,6,0,0" Text=""/>
             </StackPanel>
@@ -71,7 +71,7 @@
                 <DataGridTextColumn Header="Name" Binding="{Binding display_name}" IsReadOnly="True" Width="260"/>
                 <DataGridTextColumn Header="Type" Binding="{Binding kind}" IsReadOnly="True" Width="80"/>
                 <DataGridTextColumn Header="What it does" Binding="{Binding brief}" IsReadOnly="True" Width="*"/>
-                <DataGridTextColumn Header="Note" Binding="{Binding note}" IsReadOnly="True" Width="190"/>
+                <DataGridTextColumn Header="Why faded" Binding="{Binding note}" IsReadOnly="True" Width="190"/>
             </DataGrid.Columns>
         </DataGrid>
     </DockPanel>
