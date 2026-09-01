@@ -71,55 +71,107 @@ class DeeControlWindow(dee_branding.DeeBrandedWindow):
         return [n for n in self.nodes
                 if matches(n, query) and not (buttons_only and n.is_container)]
 
-    def _refresh(self):
-        core.refresh_notes(self.nodes)
-        shown = self._shown()
-        self.items_grid.ItemsSource = None
-        self.items_grid.ItemsSource = shown
-
+    def _update_counts(self):
+        """Text-only update. Deliberately does NOT rebuild the grid, so ticking
+        a box does not reset your scroll position mid-pass."""
         on, total, hidden = core.summarize(self.nodes)
+        shown_count = len(self._shown())
         self.status_tb.Text = (
             "{0} of {1} button(s) on. {2} panel/group(s) will be hidden because "
             "nothing inside them is on. Showing {3} row(s).".format(
-                on, total, hidden, len(shown)))
-
+                on, total, hidden, shown_count))
         changed = [n for n in self.nodes
                    if self._baseline.get(n.rel_key) != n.enabled]
         self.pending_tb.Text = (
             "" if not changed else
             "{0} unapplied change(s). Click Apply Changes, then reload "
             "pyRevit.".format(len(changed)))
+
+    def _hidden_signature(self):
+        """Which CONTAINERS are currently hidden. Used to decide whether a
+        single tick actually changed anything other rows display."""
+        return tuple(sorted(n.rel_key for n in self.nodes
+                            if n.is_container and not core.effective_enabled(n)))
+
+    def _refresh(self):
+        core.refresh_notes(self.nodes)
+        shown = self._shown()
+        self.items_grid.ItemsSource = None
+        self.items_grid.ItemsSource = shown
+        self._update_counts()
         return shown
 
     def search_changed(self, sender, args):
         if not self._ready:
             return
-        self._refresh()
+        self._guard(self._refresh)
+
+    def _guard(self, fn, *args):
+        """WPF swallows exceptions raised inside an event handler, which would
+        make a real bug look exactly like 'the button does nothing'. Every
+        handler goes through here so a failure is visible instead."""
+        try:
+            return fn(*args)
+        except Exception as e:
+            import traceback
+            self.status_tb.Text = "ERROR: {0}".format(e)
+            forms.alert("DeeControl hit an error:\n\n{0}\n\n{1}".format(
+                e, traceback.format_exc()[-900:]), title="DeeControl")
+
+    def row_toggle_click(self, sender, args):
+        """The row checkbox. The model is set from the CheckBox's own state
+        rather than trusting the TwoWay binding to have written it back, so
+        this works regardless of how WPF resolved the binding."""
+        def run():
+            node = sender.DataContext
+            if node is None:
+                return
+            if node.locked:
+                sender.IsChecked = True
+                node.enabled = True
+                self.status_tb.Text = "'{0}' is always on - it is how you get back here.".format(node.title)
+                return
+            before = self._hidden_signature()
+            node.enabled = sender.IsChecked is True
+            core.refresh_notes(self.nodes)
+            # Only rebuild when this tick changed what OTHER rows show, since a
+            # rebuild costs the scroll position.
+            if self._hidden_signature() != before:
+                self._refresh()
+            else:
+                self._update_counts()
+        self._guard(run)
 
     # ---------------- bulk toggles ----------------
     def _set_all(self, nodes, value):
+        touched = 0
         for n in nodes:
             if not n.locked:
                 n.enabled = value
+                touched += 1
         self._refresh()
+        self.status_tb.Text = "{0} row(s) switched {1}. {2}".format(
+            touched, "on" if value else "off", self.status_tb.Text)
 
     def all_on_click(self, sender, args):
-        self._set_all(self.nodes, True)
+        self._guard(self._set_all, self.nodes, True)
 
     def all_off_click(self, sender, args):
-        self._set_all(self.nodes, False)
+        self._guard(self._set_all, self.nodes, False)
 
     def invert_click(self, sender, args):
-        for n in self.nodes:
-            if not n.locked:
-                n.enabled = not n.enabled
-        self._refresh()
+        def run():
+            for n in self.nodes:
+                if not n.locked:
+                    n.enabled = not n.enabled
+            self._refresh()
+        self._guard(run)
 
     def shown_on_click(self, sender, args):
-        self._set_all(self._shown(), True)
+        self._guard(self._set_all, self._shown(), True)
 
     def shown_off_click(self, sender, args):
-        self._set_all(self._shown(), False)
+        self._guard(self._set_all, self._shown(), False)
 
     def reset_click(self, sender, args):
         if not forms.alert("Turn every DeePack button back on?",
@@ -131,6 +183,9 @@ class DeeControlWindow(dee_branding.DeeBrandedWindow):
 
     # ---------------- apply ----------------
     def apply_click(self, sender, args):
+        self._guard(self._apply)
+
+    def _apply(self):
         off_buttons = [n for n in self.nodes if not n.is_container and not n.enabled]
         hidden_containers = [n for n in self.nodes
                              if n.is_container and not core.effective_enabled(n)]

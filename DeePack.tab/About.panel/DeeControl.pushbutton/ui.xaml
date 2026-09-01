@@ -52,7 +52,22 @@
         <DataGrid x:Name="items_grid" AutoGenerateColumns="False" CanUserAddRows="False"
                   SelectionMode="Extended" SelectionUnit="FullRow" FontFamily="Consolas">
             <DataGrid.Columns>
-                <DataGridCheckBoxColumn Header="On" Binding="{Binding enabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="45"/>
+                <!-- A TemplateColumn, not a DataGridCheckBoxColumn: the built-in
+                     one only toggles once the cell is in edit mode, so with
+                     SelectionUnit=FullRow the first click merely selects the row
+                     and the tick appears dead. A CheckBox in a template toggles
+                     on the first click, and its Click event lets the window
+                     react immediately. -->
+                <DataGridTemplateColumn Header="On" Width="45" SortMemberPath="enabled">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding enabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      IsEnabled="{Binding is_toggleable}"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                                      Click="row_toggle_click"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTextColumn Header="Name" Binding="{Binding display_name}" IsReadOnly="True" Width="260"/>
                 <DataGridTextColumn Header="Type" Binding="{Binding kind}" IsReadOnly="True" Width="80"/>
                 <DataGridTextColumn Header="What it does" Binding="{Binding brief}" IsReadOnly="True" Width="*"/>

@@ -139,6 +139,12 @@ class BundleNode(object):
         return u"{0}{1}".format(u"        " * max(0, self.depth), self.title)
 
     @property
+    def is_toggleable(self):
+        """Bound to the row checkbox's IsEnabled, so a locked row is greyed out
+        rather than silently snapping back after a click."""
+        return not self.locked
+
+    @property
     def is_container(self):
         return self.kind in CONTAINER_KINDS
 
@@ -489,6 +495,17 @@ if __name__ == "__main__":
             self.assertTrue(self.by["About"].locked)
             self.assertTrue(self.by["DeeControl"].locked)
             self.assertFalse(self.by["Solo"].locked)
+
+        def test_is_toggleable_is_the_inverse_of_locked(self):
+            # bound to the row checkbox's IsEnabled
+            self.assertFalse(self.by["DeeControl"].is_toggleable)
+            self.assertTrue(self.by["Solo"].is_toggleable)
+
+        def test_display_name_is_indented_by_depth(self):
+            self.assertTrue(self.by["Alpha"].display_name.startswith(" "))
+            self.assertTrue(
+                len(self.by["Alpha"].display_name) - len(self.by["Alpha"].display_name.lstrip())
+                > len(self.by["Cloud"].display_name) - len(self.by["Cloud"].display_name.lstrip()))
 
     class EffectiveTests(Base):
         def test_disabled_button_is_off(self):

@@ -1,0 +1,153 @@
+{
+  "_comment": "Written by DeeControl. 'disabled' lists the bundles kept out of their parent's layout: list in bundle.yaml, and 'order' remembers the real ribbon order so a button switched back on returns to its original slot. Delete this file and re-apply to turn everything back on.", 
+  "disabled": [], 
+  "order": {
+    ".": [
+      "Models", 
+      "Cloud", 
+      "Coordination", 
+      "SheetsExport", 
+      "ViewsDatums", 
+      "Rooms", 
+      "Quantities", 
+      "Align", 
+      "Health", 
+      "Tools", 
+      "About"
+    ], 
+    "About.panel": [
+      "DeeControl", 
+      "ContactStack", 
+      "UpdateStack"
+    ], 
+    "About.panel/ContactStack.stack": [
+      "WebSite", 
+      "WhatsApp"
+    ], 
+    "About.panel/UpdateStack.stack": [
+      "Update", 
+      "Version"
+    ], 
+    "Align.panel": [
+      "AlignHorizStack", 
+      "AlignVertStack", 
+      "DistributeStack"
+    ], 
+    "Align.panel/AlignHorizStack.stack": [
+      "AlignLeft", 
+      "AlignCenter", 
+      "AlignRight"
+    ], 
+    "Align.panel/AlignVertStack.stack": [
+      "AlignTop", 
+      "AlignMiddle", 
+      "AlignBottom"
+    ], 
+    "Align.panel/DistributeStack.stack": [
+      "DistributeHorizontal", 
+      "DistributeVertical"
+    ], 
+    "Cloud.panel": [
+      "DeePublisher", 
+      "CloudStack"
+    ], 
+    "Cloud.panel/CloudStack.stack": [
+      "DeeSPublish", 
+      "DeeWCloud", 
+      "DeeGUID"
+    ], 
+    "Cloud.panel/CloudStack.stack/DeeWCloud.pulldown": [
+      "DeeWAudit", 
+      "DeeWBatchSaveToCloud", 
+      "DeeWBatchUpgrade", 
+      "DeeWClean", 
+      "DeeWConsume", 
+      "DeeWPackage", 
+      "DeeWPublish", 
+      "DeeWSharing", 
+      "DeeWSync", 
+      "DeeWTransfer", 
+      "DeeWTransmit"
+    ], 
+    "Coordination.panel": [
+      "DeeCoord", 
+      "CoordViewStack", 
+      "LinkStack"
+    ], 
+    "Coordination.panel/CoordViewStack.stack": [
+      "DeeBIMview", 
+      "DeeLinkReview"
+    ], 
+    "Coordination.panel/LinkStack.stack": [
+      "DeeSuperLINK", 
+      "DeeLINK", 
+      "DeeRelink"
+    ], 
+    "Health.panel": [
+      "DeeHealth", 
+      "CleanupStack"
+    ], 
+    "Health.panel/CleanupStack.stack": [
+      "DeeCleaner", 
+      "DeeGetDWG", 
+      "DeeRehoster"
+    ], 
+    "Models.panel": [
+      "DeeSYNC", 
+      "SessionStack"
+    ], 
+    "Models.panel/SessionStack.stack": [
+      "DeeOpener", 
+      "DeeCloseAll"
+    ], 
+    "Quantities.panel": [
+      "DeeQs"
+    ], 
+    "Rooms.panel": [
+      "DeeFinisher", 
+      "RoomStack"
+    ], 
+    "Rooms.panel/RoomStack.stack": [
+      "DeeDistributor", 
+      "DeeRoomXYD", 
+      "DeeRoomStamp"
+    ], 
+    "SheetsExport.panel": [
+      "DeeSheet", 
+      "SheetStack", 
+      "ExportStack"
+    ], 
+    "SheetsExport.panel/ExportStack.stack": [
+      "DeeNWCs", 
+      "DeeScheduleXL"
+    ], 
+    "SheetsExport.panel/SheetStack.stack": [
+      "DeePrinter", 
+      "DeeAligner"
+    ], 
+    "Tools.panel": [
+      "DeeAI", 
+      "DeeLazy", 
+      "DeeBlocktoFamily", 
+      "DeeAssemb"
+    ], 
+    "ViewsDatums.panel": [
+      "DeeView", 
+      "ViewStack", 
+      "DatumStack", 
+      "CoordPointStack"
+    ], 
+    "ViewsDatums.panel/CoordPointStack.stack": [
+      "DeeReLevel", 
+      "DeeCordiPoint"
+    ], 
+    "ViewsDatums.panel/DatumStack.stack": [
+      "DeeLevels", 
+      "DeeGrid"
+    ], 
+    "ViewsDatums.panel/ViewStack.stack": [
+      "DeeVTemplate", 
+      "DeeViewAdjust"
+    ]
+  }
+}
