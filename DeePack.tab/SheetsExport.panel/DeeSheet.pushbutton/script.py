@@ -58,10 +58,22 @@ _RN_TOKEN_CHOICES = [
 _RN_TARGET_CHOICES = ["Number", "Name", "Both"]
 _RN_POSITION_CHOICES = ["Prefix", "Suffix"]
 _RN_NO_RESET_LABEL = "(No reset)"
-_RN_SEQ_FORMAT_NUMBER = "Number (1, 2, 3...)"
-_RN_SEQ_FORMAT_PADDED = "Padded Number (01, 02, 03...)"
-_RN_SEQ_FORMAT_LETTERS = "Letters (A, B, C...)"
-_RN_SEQ_FORMAT_CHOICES = [_RN_SEQ_FORMAT_NUMBER, _RN_SEQ_FORMAT_PADDED, _RN_SEQ_FORMAT_LETTERS]
+# (label, pad_width, letters). The label shows the ACTUAL result, so there is
+# nothing to infer - picking "001, 002, 003" cannot silently produce 1, 2, 3.
+# The old pair of controls (a Number/Padded dropdown plus a separate Pad width
+# box) could disagree: width 3 with Format still on "Number" gave 1, 2, 3 and
+# said nothing about why.
+_RN_SEQ_FORMAT_CHOICES = [
+    ("1, 2, 3 ...", 0, False),
+    ("01, 02, 03 ...", 2, False),
+    ("001, 002, 003 ...", 3, False),
+    ("0001, 0002, 0003 ...", 4, False),
+    ("00001, 00002, 00003 ...", 5, False),
+    ("Letters (A, B, C ...)", 0, True),
+    ("Custom pad width ->", -1, False),
+]
+_RN_SEQ_FORMAT_LABELS = [c[0] for c in _RN_SEQ_FORMAT_CHOICES]
+_RN_SEQ_CUSTOM_LABEL = _RN_SEQ_FORMAT_CHOICES[-1][0]
 
 
 def _read_name(element):
@@ -484,8 +496,9 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
     def _init_renamer_tab(self):
         self.token_cb.ItemsSource = _RN_TOKEN_CHOICES
         self.token_cb.SelectedIndex = 0
-        self.seq_format_cb.ItemsSource = _RN_SEQ_FORMAT_CHOICES
+        self.seq_format_cb.ItemsSource = _RN_SEQ_FORMAT_LABELS
         self.seq_format_cb.SelectedIndex = 0
+        self._sync_pad_box()
         self.clear_target_cb.ItemsSource = _RN_TARGET_CHOICES
         self.clear_target_cb.SelectedIndex = 2
         self.fr_target_cb.ItemsSource = _RN_TARGET_CHOICES
@@ -624,18 +637,50 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
     def insert_number_token_click(self, sender, args):
         self._insert_into(self.number_rule_tb, self.token_cb.SelectedItem)
 
+    def _seq_format(self):
+        """(pad_width, letters) for the current dropdown selection. The Pad
+        width box is only consulted for the Custom entry, so it can never
+        silently contradict the label."""
+        label = self.seq_format_cb.SelectedItem or _RN_SEQ_FORMAT_LABELS[0]
+        for choice_label, pad, letters in _RN_SEQ_FORMAT_CHOICES:
+            if choice_label == label:
+                if pad == -1:
+                    try:
+                        return max(1, int(self.seq_pad_tb.Text or "2")), False
+                    except Exception:
+                        return 2, False
+                return pad, letters
+        return 0, False
+
+    def _sync_pad_box(self):
+        """The Pad width box is live only for Custom - greyed out otherwise, so
+        it cannot look like it is doing something it is not."""
+        try:
+            is_custom = (self.seq_format_cb.SelectedItem == _RN_SEQ_CUSTOM_LABEL)
+            self.seq_pad_tb.IsEnabled = is_custom
+        except Exception:
+            pass
+
+    def seq_format_changed(self, sender, args):
+        """Rewrites any sequence token already sitting in the rule boxes, so
+        changing the dropdown changes the RESULT rather than only affecting the
+        next Insert."""
+        self._sync_pad_box()
+        try:
+            pad, letters = self._seq_format()
+            for box in (self.number_rule_tb, self.name_rule_tb):
+                updated = renamer.retarget_sequence_token(box.Text or "", pad, letters)
+                if updated != (box.Text or ""):
+                    box.Text = updated
+        except Exception:
+            pass
+
+    def seq_pad_changed(self, sender, args):
+        self.seq_format_changed(sender, args)
+
     def _seq_token_text(self):
-        fmt = self.seq_format_cb.SelectedItem or _RN_SEQ_FORMAT_NUMBER
-        if fmt == _RN_SEQ_FORMAT_PADDED:
-            try:
-                width = int(self.seq_pad_tb.Text or "2")
-            except Exception:
-                width = 2
-            width = max(1, width)
-            return "{{Serial|PAD{0}}}".format(width)
-        if fmt == _RN_SEQ_FORMAT_LETTERS:
-            return "{Alpha}"
-        return "{Serial}"
+        pad, letters = self._seq_format()
+        return renamer.sequence_token(pad, letters)
 
     def insert_seq_number_click(self, sender, args):
         self._insert_into(self.number_rule_tb, self._seq_token_text())

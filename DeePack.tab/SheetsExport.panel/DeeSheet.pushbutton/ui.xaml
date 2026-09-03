@@ -186,11 +186,13 @@
                                     <ComboBox x:Name="reset_by_cb" Height="24" Margin="0,0,0,4"/>
 
                                     <TextBlock Text="Format:" Margin="0,4,0,2"/>
-                                    <ComboBox x:Name="seq_format_cb" Height="24" Margin="0,0,0,4"/>
+                                    <ComboBox x:Name="seq_format_cb" Height="24" Margin="0,0,0,4"
+                                              SelectionChanged="seq_format_changed"
+                                              ToolTip="Shows the actual result. Changing this also updates a sequence token already in the rule boxes above."/>
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                                         <TextBlock Text="Pad width:" VerticalAlignment="Center" Width="70"
-                                                   ToolTip="Only used by Padded Number, e.g. width 2 = 01, 02, 03..."/>
-                                        <TextBox x:Name="seq_pad_tb" Text="2" Width="40" Height="22"/>
+                                                   ToolTip="Only used by the 'Custom pad width' entry - greyed out otherwise, because the other entries already say their own width."/>
+                                        <TextBox x:Name="seq_pad_tb" Text="2" Width="40" Height="22" TextChanged="seq_pad_changed"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal">
                                         <Button x:Name="insert_seq_number_b" Content="Insert -&gt; Number" Width="120" Height="24" Click="insert_seq_number_click"/>

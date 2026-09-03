@@ -401,6 +401,46 @@ def reset_preview(rows):
             r.new_name = r.original_name
 
 
+_SEQ_TOKEN_RE = re.compile(r"\{\s*(SERIAL|ALPHA)\s*((?:\|[^{}]*?)*)\}", re.IGNORECASE)
+
+
+def sequence_token(pad=0, letters=False):
+    """The token text for a sequence: {Alpha}, {Serial}, or {Serial|PADn}."""
+    if letters:
+        return "{Alpha}"
+    if pad and int(pad) > 1:
+        return "{{Serial|PAD{0}}}".format(int(pad))
+    return "{Serial}"
+
+
+def retarget_sequence_token(template, pad=0, letters=False):
+    """Rewrites any {Serial}/{Serial|PADn}/{Alpha} already in a template to the
+    chosen sequence format, leaving every other token and all literal text
+    alone.
+
+    This exists because the Format dropdown and the Pad width box used to be
+    two separate controls that had to agree: picking width 3 while Format still
+    said "Number" produced 1, 2, 3 with no warning, and the token already typed
+    into the rule box never changed at all. Now changing the format updates the
+    rule in place, so what the dropdown says is what you get.
+
+    Non-PAD modifiers are preserved - someone may well have {Alpha|LOWER}."""
+    if not template:
+        return template
+
+    def _sub(m):
+        mods = [p for p in m.group(2).split("|") if p.strip()]
+        kept = [p for p in mods if not re.match(r"^\s*PAD\d+\s*$", p, re.IGNORECASE)]
+        head = "Alpha" if letters else "Serial"
+        parts = [head]
+        if not letters and pad and int(pad) > 1:
+            parts.append("PAD{0}".format(int(pad)))
+        parts.extend(p.strip() for p in kept)
+        return "{" + "|".join(parts) + "}"
+
+    return _SEQ_TOKEN_RE.sub(_sub, template)
+
+
 def clear_values(rows, target):
     """Empties the New Number / New Name of every selected row, so a rule can
     be built from a blank slate instead of by editing what is already there.
