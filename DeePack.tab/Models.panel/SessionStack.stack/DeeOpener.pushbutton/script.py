@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 from pyrevit import forms, script
-from Autodesk.Revit.DB import OpenOptions, WorksetConfigurationOption, WorksetConfiguration, ModelPathUtils
+from Autodesk.Revit.DB import (
+    OpenOptions, WorksetConfigurationOption, WorksetConfiguration, ModelPathUtils,
+    WorksharingUtils,
+)
 from Autodesk.Revit.UI import TaskDialogResult
 import System
 import threading
@@ -16,6 +19,11 @@ import datetime
 
 import acc_auth
 import acc_api
+import deew_model_scanner as scanner
+
+import clr
+clr.AddReference("System.Windows.Forms")
+from System.Windows.Forms import OpenFileDialog, FolderBrowserDialog, DialogResult
 
 output = script.get_output()
 
@@ -263,7 +271,246 @@ def _make_dialog_handler(log_list):
     return handler
 
 
+SOURCE_ACC = "ACC / BIM 360 cloud project"
+SOURCE_LOCAL = "Local or network files"
+
+
 def main():
+    """DeeOpener opens models from EITHER an ACC project or the local/network
+    file system. The two halves share the open loop and the report - only the
+    way a model is located differs, so _open_and_report() takes a lazy path
+    factory per model rather than a ready ModelPath."""
+    source = forms.CommandSwitchWindow.show(
+        [SOURCE_ACC, SOURCE_LOCAL],
+        message="Where are the models you want to open?")
+    if not source:
+        return
+    if source == SOURCE_LOCAL:
+        _open_from_local()
+    else:
+        _open_from_acc()
+
+
+# ==========================================================================
+# Local / network files
+# ==========================================================================
+def _pick_local_paths():
+    """Returns a list of .rvt paths, or [] if the user backed out. Two ways in
+    because both are normal: a handful of known files, or a whole job folder."""
+    how = forms.CommandSwitchWindow.show(
+        ["Pick files...", "Scan a folder...", "Scan a folder and its subfolders..."],
+        message="How do you want to choose the local models?")
+    if not how:
+        return []
+
+    if how == "Pick files...":
+        dlg = OpenFileDialog()
+        dlg.Title = "Select Revit models to open"
+        dlg.Filter = "Revit models (*.rvt)|*.rvt"
+        dlg.Multiselect = True
+        if dlg.ShowDialog() != DialogResult.OK:
+            return []
+        return list(dlg.FileNames)
+
+    dlg = FolderBrowserDialog()
+    dlg.Description = "Select a folder containing Revit models"
+    if dlg.ShowDialog() != DialogResult.OK:
+        return []
+    recursive = how.endswith("subfolders...")
+    folder = dlg.SelectedPath
+    found = []
+    try:
+        if recursive:
+            for root, _dirs, files in os.walk(folder):
+                for f in files:
+                    if f.lower().endswith(".rvt"):
+                        found.append(os.path.join(root, f))
+        else:
+            found = [os.path.join(folder, f) for f in os.listdir(folder)
+                     if f.lower().endswith(".rvt")]
+    except Exception as e:
+        forms.alert("Could not read that folder:\n{0}".format(e))
+        return []
+    return sorted(found)
+
+
+def _local_label(model):
+    """One line per file, carrying the facts that decide how it should be
+    opened - a Central in particular should normally NOT be opened directly.
+    Revit's own backup folders are full of files whose name tells you nothing,
+    so the type matters more than the name here."""
+    bits = [model.model_type]
+    if model.version and model.version != "Unknown":
+        bits.append(model.version)
+    bits.append(model.size_mb_text)
+    return "{0}   [{1}]".format(model.file_name, "  |  ".join(bits))
+
+
+def _default_local_target(central_path):
+    """Where a new local copy goes - <name>_<username>.rvt in the user's
+    Documents folder, which is Revit's own default convention. Falls back to
+    the central's own folder if Documents is not there."""
+    base = os.path.splitext(os.path.basename(central_path))[0]
+    user = os.environ.get("USERNAME") or "local"
+    docs = os.path.join(os.path.expanduser("~"), "Documents")
+    if not os.path.isdir(docs):
+        docs = os.path.dirname(central_path)
+    return os.path.join(docs, "{0}_{1}.rvt".format(base, user))
+
+
+def _unique_path(path):
+    """Never overwrite an existing local copy - that could throw away work
+    somebody has not synchronised yet."""
+    if not os.path.exists(path):
+        return path
+    base, ext = os.path.splitext(path)
+    i = 2
+    while os.path.exists("{0} ({1}){2}".format(base, i, ext)):
+        i += 1
+    return "{0} ({1}){2}".format(base, i, ext)
+
+
+def _local_path_factory(model, make_local):
+    """Returns a callable producing (ModelPath, note) for one model. Deferred
+    so CreateNewLocal - which writes a file and is slow - happens inside the
+    progress loop rather than all up front."""
+    def factory():
+        source = ModelPathUtils.ConvertUserVisiblePathToModelPath(model.file_path)
+        if make_local and model.model_type == scanner.MODEL_TYPE_CENTRAL:
+            target_path = _unique_path(_default_local_target(model.file_path))
+            target = ModelPathUtils.ConvertUserVisiblePathToModelPath(target_path)
+            WorksharingUtils.CreateNewLocal(source, target)
+            return target, "new local: {0}".format(os.path.basename(target_path))
+        return source, ""
+    return factory
+
+
+def _open_from_local():
+    paths = _pick_local_paths()
+    if not paths:
+        return
+
+    with forms.ProgressBar(title="DeeOpener - reading model headers...",
+                           cancellable=True) as pb:
+        models = []
+        for i, path in enumerate(paths):
+            if pb.cancelled:
+                return
+            pb.update_progress(i, len(paths))
+            models.append(scanner.scan_file(path))
+
+    unreadable = [m for m in models if m.model_type == scanner.MODEL_TYPE_CORRUPTED]
+    usable = [m for m in models if m.model_type != scanner.MODEL_TYPE_CORRUPTED]
+    if not usable:
+        forms.alert("None of those {0} file(s) could be read.\n\n"
+                    "They may be corrupted, locked by another Revit session, "
+                    "or saved by a newer Revit than this one.".format(len(models)))
+        return
+
+    label_to_model = {}
+    for m in usable:
+        label_to_model[_local_label(m)] = m
+    chosen = forms.SelectFromList.show(
+        sorted(label_to_model.keys()),
+        title="Select Local Models to Open  ({0} readable)".format(len(usable)),
+        multiselect=True, button_name="Open Selected")
+    if not chosen:
+        return
+    picked = [label_to_model[c] for c in chosen]
+
+    close_worksets = _ask_close_worksets()
+    if close_worksets is None:
+        return
+
+    # A workshared CENTRAL should not normally be opened directly - that is
+    # exactly what Revit's own "Create New Local" exists to avoid. Only asked
+    # when a central is actually in the selection, and never assumed.
+    centrals = [m for m in picked if m.model_type == scanner.MODEL_TYPE_CENTRAL]
+    make_local = False
+    if centrals:
+        answer = forms.CommandSwitchWindow.show(
+            ["Create a new local copy first (recommended)",
+             "Open the central file directly"],
+            message="{0} of the selected model(s) are workshared CENTRAL "
+                    "files.".format(len(centrals)))
+        if not answer:
+            return
+        make_local = answer.startswith("Create")
+
+    entries = [(m.file_name, _local_path_factory(m, make_local)) for m in picked]
+    extra = [(False, m.file_name, "Skipped - could not read header: {0}".format(
+        m.error or m.model_type)) for m in unreadable]
+    _open_and_report(entries, close_worksets, extra)
+
+
+# ==========================================================================
+# Shared open loop
+# ==========================================================================
+def _ask_close_worksets():
+    """True/False, or None if the user backed out."""
+    open_mode = forms.CommandSwitchWindow.show(
+        ["Regular Open", "Open with All Worksets Closed"],
+        message="How should the selected files be opened?")
+    if not open_mode:
+        return None
+    return open_mode == "Open with All Worksets Closed"
+
+
+def _open_and_report(entries, close_worksets, extra_results=None):
+    """entries: [(label, factory)] where factory() -> (ModelPath, note).
+
+    Shared by the ACC and local paths so the dialog-suppression handler, the
+    progress bar and the report exist once. The factory is called INSIDE the
+    loop so a per-model failure (an unresolvable cloud GUID, a CreateNewLocal
+    that cannot write) is reported against that model instead of aborting the
+    whole batch before it starts."""
+    uiapp = __revit__
+    dismissed_log = []
+    dialog_handler = _make_dialog_handler(dismissed_log)
+    uiapp.DialogBoxShowing += dialog_handler
+
+    results = list(extra_results or [])
+    try:
+        with forms.ProgressBar(title="DeeOpener - opening {value} of {max_value}...",
+                               cancellable=False) as pb:
+            for i, (label, factory) in enumerate(entries):
+                pb.update_progress(i, len(entries))
+                before_count = len(dismissed_log)
+                try:
+                    model_path, note = factory()
+                    open_options = OpenOptions()
+                    wc_option = (WorksetConfigurationOption.CloseAllWorksets
+                                 if close_worksets
+                                 else WorksetConfigurationOption.OpenAllWorksets)
+                    open_options.SetOpenWorksetsConfiguration(
+                        WorksetConfiguration(wc_option))
+                    uiapp.OpenAndActivateDocument(model_path, open_options, False)
+                    results.append((True, label,
+                                    "Opened" + ("  ({0})".format(note) if note else "")))
+                except Exception as e:
+                    results.append((False, label, str(e)))
+                for msg, _sev in dismissed_log[before_count:]:
+                    results.append((True, label, msg))
+    finally:
+        uiapp.DialogBoxShowing -= dialog_handler
+
+    html = '<h2 style="font-family:sans-serif;color:#ddd;">Batch Open Results</h2>'
+    for ok, name, detail in results:
+        bg = "#1b5e20" if ok else "#b71c1c"
+        icon = "&#10003;" if ok else "&#10007;"
+        html += (
+            '<div style="padding:8px 14px;margin:3px 0;background:{0};color:#fff;'
+            'border-radius:4px;font-family:monospace;font-size:13px;">'
+            '<b>{1}</b>&nbsp; {2} &mdash; {3}'
+            '</div>'.format(bg, icon, name, detail)
+        )
+    output.print_html(html)
+
+
+# ==========================================================================
+# ACC / BIM 360
+# ==========================================================================
+def _open_from_acc():
     try:
         token = acc_auth.get_access_token()
     except Exception as e:
@@ -364,56 +611,24 @@ def main():
     if not selected_names:
         return
 
-    open_mode = forms.CommandSwitchWindow.show(
-        ["Regular Open", "Open with All Worksets Closed"],
-        message="How should the selected files be opened?"
-    )
-    if not open_mode:
+    close_worksets = _ask_close_worksets()
+    if close_worksets is None:
         return
-    close_worksets = open_mode == "Open with All Worksets Closed"
 
-    uiapp = __revit__
+    entries = [(name, _acc_path_factory(project_id, all_items[name], region, token))
+               for name in selected_names]
+    _open_and_report(entries, close_worksets)
 
-    dismissed_log = []
-    dialog_handler = _make_dialog_handler(dismissed_log)
-    uiapp.DialogBoxShowing += dialog_handler
 
-    results = []
-    try:
-        with forms.ProgressBar(title="DeeOpener - opening {value} of {max_value}...", cancellable=False) as pb:
-            for i, name in enumerate(selected_names):
-                pb.update_progress(i, len(selected_names))
-                item_id = all_items[name]
-                proj_guid, model_guid, guid_src = get_cloud_path_guids(project_id, item_id, token)
-                before_count = len(dismissed_log)
-                try:
-                    cloud_path = ModelPathUtils.ConvertCloudGUIDsToCloudPath(
-                        region, proj_guid, model_guid
-                    )
-                    open_options = OpenOptions()
-                    wc_option = (WorksetConfigurationOption.CloseAllWorksets if close_worksets
-                                 else WorksetConfigurationOption.OpenAllWorksets)
-                    open_options.SetOpenWorksetsConfiguration(WorksetConfiguration(wc_option))
-                    uiapp.OpenAndActivateDocument(cloud_path, open_options, False)
-                    results.append((True, name, "Opened"))
-                except Exception as e:
-                    results.append((False, name, str(e)))
-                for msg, _sev in dismissed_log[before_count:]:
-                    results.append((True, name, msg))
-    finally:
-        uiapp.DialogBoxShowing -= dialog_handler
-
-    html = '<h2 style="font-family:sans-serif;color:#ddd;">Batch Open Results</h2>'
-    for ok, name, detail in results:
-        bg   = "#1b5e20" if ok else "#b71c1c"
-        icon = "&#10003;" if ok else "&#10007;"
-        html += (
-            '<div style="padding:8px 14px;margin:3px 0;background:{0};color:#fff;'
-            'border-radius:4px;font-family:monospace;font-size:13px;">'
-            '<b>{1}</b>&nbsp; {2} &mdash; {3}'
-            '</div>'.format(bg, icon, name, detail)
-        )
-    output.print_html(html)
+def _acc_path_factory(project_id, item_id, region, token):
+    """Cloud GUID resolution is deferred into the open loop: it is a network
+    call that can fail per-model, and doing it lazily means one unresolvable
+    item is reported against its own row instead of killing the batch."""
+    def factory():
+        proj_guid, model_guid, _src = get_cloud_path_guids(project_id, item_id, token)
+        return ModelPathUtils.ConvertCloudGUIDsToCloudPath(
+            region, proj_guid, model_guid), ""
+    return factory
 
 
 main()
