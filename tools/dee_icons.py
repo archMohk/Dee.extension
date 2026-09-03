@@ -54,8 +54,22 @@ STROKE = 7.5                # base stroke width, in 96-space units
 
 PALETTES = {
     "light": {"ink": (43, 43, 43, 255), "accent": (242, 153, 77, 255)},
-    "dark":  {"ink": (236, 236, 236, 255), "accent": (242, 153, 77, 255)},
+    # Pure white, not off-white: on Revit's dark ribbon every extra step of
+    # contrast counts, and the accent orange is what carries the warmth.
+    "dark":  {"ink": (255, 255, 255, 255), "accent": (242, 153, 77, 255)},
 }
+
+MARGIN = 4.0
+#   Every glyph is AUTO-FITTED to the tile: its real bounding box (strokes
+#   included) is measured and scaled until it fills the canvas minus this
+#   margin, then centred. Revit draws the button at a fixed size, so any
+#   unused margin in the source is just wasted pixels on screen.
+#
+#   A single global scale factor was tried first and does not work: the glyphs
+#   do not all start at the same size, so any factor big enough to help the
+#   small ones pushed the already-large ones off the canvas (--clip flagged 28
+#   of them at 1.24, and still 7 at 1.06). Fitting each glyph individually
+#   makes them all optically the same weight AND makes clipping impossible.
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TAB_ROOT = os.path.join(os.path.dirname(HERE), "DeePack.tab")
@@ -473,10 +487,132 @@ def _rgba(palette, name):
     return palette[name]
 
 
-def render(ops, theme):
+def ops_bbox(ops, stroke):
+    """Analytic bounding box of a glyph, stroke width included. Computed from
+    the geometry rather than by rendering, so fitting stays exact and cheap."""
+    xs, ys = [], []
+
+    def add(x, y, pad=0.0):
+        xs.append(x - pad)
+        xs.append(x + pad)
+        ys.append(y - pad)
+        ys.append(y + pad)
+
+    for op in ops:
+        kind = op[0]
+        if kind == "line":
+            _, x1, y1, x2, y2, _c, w = op
+            pad = stroke * w / 2.0
+            add(x1, y1, pad)
+            add(x2, y2, pad)
+        elif kind == "poly":
+            _, pts, _c, w, _close = op
+            pad = stroke * w / 2.0
+            for x, y in pts:
+                add(x, y, pad)
+        elif kind == "fill":
+            _, pts, _c = op
+            for x, y in pts:
+                add(x, y)
+        elif kind in ("rect", "rectf"):
+            if kind == "rect":
+                _, x0, y0, x1, y1, _c, w, _r = op
+                pad = stroke * w / 2.0
+            else:
+                _, x0, y0, x1, y1, _c, _r = op
+                pad = 0.0
+            add(x0, y0, pad)
+            add(x1, y1, pad)
+        elif kind in ("circ", "circf"):
+            if kind == "circ":
+                _, cx, cy, rad, _c, w = op
+                pad = stroke * w / 2.0
+            else:
+                _, cx, cy, rad, _c = op
+                pad = 0.0
+            add(cx - rad, cy - rad, pad)
+            add(cx + rad, cy + rad, pad)
+        elif kind == "arc":
+            _, x0, y0, x1, y1, _st, _en, _c, w = op
+            pad = stroke * w / 2.0
+            add(x0, y0, pad)
+            add(x1, y1, pad)
+    if not xs:
+        return 0.0, 0.0, SIZE, SIZE
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def fit_factor(ops, margin=None):
+    """(scale, dx, dy) that makes this glyph fill the tile minus the margin.
+
+    Iterated three times because the bounding box includes the stroke and the
+    stroke itself scales - one pass would over-shoot slightly and could clip."""
+    m = MARGIN if margin is None else margin
+    k = 1.0
+    for _ in range(3):
+        x0, y0, x1, y1 = ops_bbox(ops, STROKE * k)
+        w = max(x1 - x0, 1e-6)
+        h = max(y1 - y0, 1e-6)
+        k = (SIZE - 2 * m) / max(w, h)
+    x0, y0, x1, y1 = ops_bbox(ops, STROKE * k)
+    cx = (x0 + x1) / 2.0
+    cy = (y0 + y1) / 2.0
+    return k, SIZE / 2.0 - cx * k, SIZE / 2.0 - cy * k
+
+
+def _k(v, k, d=0.0):
+    return v * k + d
+
+
+def scale_ops(ops, k, dx=0.0, dy=0.0):
+    """Scales a glyph by k and translates it, so fit_factor's result can be
+    baked straight into the geometry."""
+    if k == 1.0 and dx == 0.0 and dy == 0.0:
+        return ops
+    out = []
+    for op in ops:
+        kind = op[0]
+        if kind == "line":
+            _, x1, y1, x2, y2, c, w = op
+            out.append(("line", _k(x1, k, dx), _k(y1, k, dy),
+                        _k(x2, k, dx), _k(y2, k, dy), c, w))
+        elif kind == "poly":
+            _, pts, c, w, close = op
+            out.append(("poly", [(_k(x, k, dx), _k(y, k, dy)) for x, y in pts], c, w, close))
+        elif kind == "fill":
+            _, pts, c = op
+            out.append(("fill", [(_k(x, k, dx), _k(y, k, dy)) for x, y in pts], c))
+        elif kind == "rect":
+            _, x0, y0, x1, y1, c, w, r = op
+            out.append(("rect", _k(x0, k, dx), _k(y0, k, dy),
+                        _k(x1, k, dx), _k(y1, k, dy), c, w, r * k))
+        elif kind == "rectf":
+            _, x0, y0, x1, y1, c, r = op
+            out.append(("rectf", _k(x0, k, dx), _k(y0, k, dy),
+                        _k(x1, k, dx), _k(y1, k, dy), c, r * k))
+        elif kind == "circ":
+            _, cx, cy, rad, c, w = op
+            out.append(("circ", _k(cx, k, dx), _k(cy, k, dy), rad * k, c, w))
+        elif kind == "circf":
+            _, cx, cy, rad, c = op
+            out.append(("circf", _k(cx, k, dx), _k(cy, k, dy), rad * k, c))
+        elif kind == "arc":
+            _, x0, y0, x1, y1, st, en, c, w = op
+            out.append(("arc", _k(x0, k, dx), _k(y0, k, dy),
+                        _k(x1, k, dx), _k(y1, k, dy), st, en, c, w))
+        else:
+            out.append(op)
+    return out
+
+
+def render(ops, theme, margin=None):
     palette = PALETTES[theme]
+    k, dx, dy = fit_factor(ops, margin)
+    ops = scale_ops(ops, k, dx, dy)
     img = Image.new("RGBA", (SIZE * SS, SIZE * SS), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
+
+    stroke_base = STROKE * k
 
     def S(v):
         return v * SS
@@ -494,11 +630,11 @@ def render(ops, theme):
         kind = op[0]
         if kind == "line":
             _, x1, y1, x2, y2, c, w = op
-            stroke(x1, y1, x2, y2, STROKE * w * SS / 2.0 * 2 / 2.0, _rgba(palette, c))
+            stroke(x1, y1, x2, y2, stroke_base * w * SS / 2.0, _rgba(palette, c))
         elif kind == "poly":
             _, pts, c, w, close = op
             colour = _rgba(palette, c)
-            width = STROKE * w * SS / 2.0
+            width = stroke_base * w * SS / 2.0
             seq = list(pts) + ([pts[0]] if close else [])
             for i in range(len(seq) - 1):
                 stroke(seq[i][0], seq[i][1], seq[i + 1][0], seq[i + 1][1], width, colour)
@@ -508,7 +644,7 @@ def render(ops, theme):
         elif kind == "rect":
             _, x0, y0, x1, y1, c, w, r = op
             colour = _rgba(palette, c)
-            width = int(round(STROKE * w * SS / 2.0))
+            width = int(round(stroke_base * w * SS / 2.0))
             if r:
                 d.rounded_rectangle([S(x0), S(y0), S(x1), S(y1)], radius=S(r),
                                     outline=colour, width=width)
@@ -524,7 +660,7 @@ def render(ops, theme):
         elif kind == "circ":
             _, cx, cy, rad, c, w = op
             d.ellipse([S(cx - rad), S(cy - rad), S(cx + rad), S(cy + rad)],
-                      outline=_rgba(palette, c), width=int(round(STROKE * w * SS / 2.0)))
+                      outline=_rgba(palette, c), width=int(round(stroke_base * w * SS / 2.0)))
         elif kind == "circf":
             _, cx, cy, rad, c = op
             d.ellipse([S(cx - rad), S(cy - rad), S(cx + rad), S(cy + rad)],
@@ -532,7 +668,7 @@ def render(ops, theme):
         elif kind == "arc":
             _, x0, y0, x1, y1, start, end, c, w = op
             d.arc([S(x0), S(y0), S(x1), S(y1)], start, end,
-                  fill=_rgba(palette, c), width=int(round(STROKE * w * SS / 2.0)))
+                  fill=_rgba(palette, c), width=int(round(stroke_base * w * SS / 2.0)))
 
     return img.resize((SIZE, SIZE), Image.LANCZOS)
 
@@ -558,7 +694,16 @@ def find_buttons(tab_root):
     return found
 
 
-def write_all(tab_root, dry_run=False):
+def write_all(tab_root, dry_run=False, dark_default=False):
+    """dark_default writes the DARK artwork into icon.png as well.
+
+    pyRevit picks icon.dark.png only when the host is Revit 2024+ AND
+    UIThemeManager.CurrentTheme is Dark - and it decides that in
+    resolve_icon_file() during extension PARSING, whose result is cached. So a
+    cache built while Revit was in light theme keeps serving the dark-inked
+    icon.png until the cache is cleared. Normally the fix is to clear the cache
+    with Revit already in dark theme; this flag is the escape hatch for a setup
+    where that never resolves, at the cost of making light theme unusable."""
     buttons = find_buttons(tab_root)
     written, missing = [], []
     for name in sorted(buttons):
@@ -569,7 +714,8 @@ def write_all(tab_root, dry_run=False):
         if dry_run:
             written.append(name)
             continue
-        for theme, filename in (("light", "icon.png"), ("dark", "icon.dark.png")):
+        light_theme = "dark" if dark_default else "light"
+        for theme, filename in ((light_theme, "icon.png"), ("dark", "icon.dark.png")):
             render(builder(), theme).save(os.path.join(buttons[name], filename))
         written.append(name)
     unused = sorted(set(GLYPHS) - set(buttons))
@@ -631,9 +777,16 @@ def main():
     parser.add_argument("--sheet", action="store_true", help="also write a contact sheet")
     parser.add_argument("--check", action="store_true", help="report coverage, write nothing")
     parser.add_argument("--clip", action="store_true", help="report artwork running off canvas")
+    parser.add_argument("--dark-default", action="store_true",
+                        help="also put the DARK artwork in icon.png, for a Revit "
+                             "that never resolves the dark icon (breaks light theme)")
     args = parser.parse_args()
 
-    written, missing, unused = write_all(TAB_ROOT, dry_run=args.check)
+    written, missing, unused = write_all(TAB_ROOT, dry_run=args.check,
+                                        dark_default=args.dark_default)
+    if args.dark_default and not args.check:
+        print("dark-default: icon.png now carries the DARK artwork "
+              "(light theme will be unreadable)")
     print("buttons with a glyph : {0}".format(len(written)))
     print("buttons MISSING one  : {0}".format(missing or "NONE"))
     print("glyphs with no button: {0}".format(unused or "NONE"))
