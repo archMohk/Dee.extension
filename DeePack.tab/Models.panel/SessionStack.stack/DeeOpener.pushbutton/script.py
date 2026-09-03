@@ -2,7 +2,7 @@
 from pyrevit import forms, script
 from Autodesk.Revit.DB import (
     OpenOptions, WorksetConfigurationOption, WorksetConfiguration, ModelPathUtils,
-    WorksharingUtils,
+    WorksharingUtils, DetachFromCentralOption,
 )
 from Autodesk.Revit.UI import TaskDialogResult
 import System
@@ -274,6 +274,39 @@ def _make_dialog_handler(log_list):
 SOURCE_ACC = "ACC / BIM 360 cloud project"
 SOURCE_LOCAL = "Local or network files"
 
+# (label, detach_kind, close_worksets). detach_kind None = stay attached.
+#
+# Detach IS available through UIApplication.OpenAndActivateDocument - it is
+# OpenOptions.DetachFromCentralOption that decides, and the documented overload
+# is OpenAndActivateDocument(modelPath, openOptions, bDetachAndPrompt). An
+# earlier note in this repo claimed that call "cannot detach"; what actually
+# happened was that acc_file_browser.open_cloud_file never SET the option, only
+# the workset configuration.
+#
+# Detach and worksets are offered as four flat modes rather than a matrix
+# because that is the real decision being made per batch, and one click beats
+# two prompts. Both detached modes open all worksets.
+OPEN_MODES = [
+    ("Regular Open", None, False),
+    ("Open with All Worksets Closed", None, True),
+    ("Detached - preserve worksets", "preserve", False),
+    ("Detached - discard worksets (model becomes non-workshared)", "discard", False),
+]
+
+
+class OpenTarget(object):
+    """One model to open. `workshared` matters because Revit REJECTS a detach
+    option outright on a non-workshared model - ArgumentException "Detach
+    option is not valid" - rather than ignoring it. The local branch knows each
+    file's type from its header, so it can simply not ask for detach on a
+    Standalone; the open loop still falls back if the classification was wrong.
+    """
+
+    def __init__(self, label, factory, workshared=True):
+        self.label = label
+        self.factory = factory
+        self.workshared = workshared
+
 
 def main():
     """DeeOpener opens models from EITHER an ACC project or the local/network
@@ -418,16 +451,19 @@ def _open_from_local():
         return
     picked = [label_to_model[c] for c in chosen]
 
-    close_worksets = _ask_close_worksets()
-    if close_worksets is None:
+    mode = _ask_open_mode()
+    if mode is None:
         return
+    detach, close_worksets = mode
 
     # A workshared CENTRAL should not normally be opened directly - that is
     # exactly what Revit's own "Create New Local" exists to avoid. Only asked
-    # when a central is actually in the selection, and never assumed.
+    # when a central is actually in the selection, and never assumed - and NOT
+    # asked at all when detaching, because a detached open never touches the
+    # central in the first place, which is the whole point of it.
     centrals = [m for m in picked if m.model_type == scanner.MODEL_TYPE_CENTRAL]
     make_local = False
-    if centrals:
+    if centrals and not detach:
         answer = forms.CommandSwitchWindow.show(
             ["Create a new local copy first (recommended)",
              "Open the central file directly"],
@@ -437,33 +473,60 @@ def _open_from_local():
             return
         make_local = answer.startswith("Create")
 
-    entries = [(m.file_name, _local_path_factory(m, make_local)) for m in picked]
+    workshared_types = (scanner.MODEL_TYPE_CENTRAL, scanner.MODEL_TYPE_LOCAL)
+    targets = [OpenTarget(m.file_name, _local_path_factory(m, make_local),
+                          workshared=m.model_type in workshared_types)
+               for m in picked]
     extra = [(False, m.file_name, "Skipped - could not read header: {0}".format(
         m.error or m.model_type)) for m in unreadable]
-    _open_and_report(entries, close_worksets, extra)
+    _open_and_report(targets, close_worksets, detach, extra)
 
 
 # ==========================================================================
 # Shared open loop
 # ==========================================================================
-def _ask_close_worksets():
-    """True/False, or None if the user backed out."""
-    open_mode = forms.CommandSwitchWindow.show(
-        ["Regular Open", "Open with All Worksets Closed"],
-        message="How should the selected files be opened?")
-    if not open_mode:
+def _ask_open_mode():
+    """(detach_kind, close_worksets), or None if the user backed out. None as
+    the whole result is deliberately distinct from a detach_kind of None, which
+    is a real choice meaning "stay attached"."""
+    labels = [m[0] for m in OPEN_MODES]
+    chosen = forms.CommandSwitchWindow.show(
+        labels, message="How should the selected files be opened?")
+    if not chosen:
         return None
-    return open_mode == "Open with All Worksets Closed"
+    for label, detach, close_worksets in OPEN_MODES:
+        if label == chosen:
+            return detach, close_worksets
+    return None, False
 
 
-def _open_and_report(entries, close_worksets, extra_results=None):
-    """entries: [(label, factory)] where factory() -> (ModelPath, note).
+def _build_open_options(close_worksets, detach):
+    options = OpenOptions()
+    wc_option = (WorksetConfigurationOption.CloseAllWorksets if close_worksets
+                 else WorksetConfigurationOption.OpenAllWorksets)
+    options.SetOpenWorksetsConfiguration(WorksetConfiguration(wc_option))
+    if detach == "preserve":
+        options.DetachFromCentralOption = \
+            DetachFromCentralOption.DetachAndPreserveWorksets
+    elif detach == "discard":
+        options.DetachFromCentralOption = \
+            DetachFromCentralOption.DetachAndDiscardWorksets
+    return options
+
+
+def _open_and_report(targets, close_worksets, detach=None, extra_results=None):
+    """targets: [OpenTarget]. target.factory() -> (ModelPath, note).
 
     Shared by the ACC and local paths so the dialog-suppression handler, the
     progress bar and the report exist once. The factory is called INSIDE the
     loop so a per-model failure (an unresolvable cloud GUID, a CreateNewLocal
     that cannot write) is reported against that model instead of aborting the
-    whole batch before it starts."""
+    whole batch before it starts.
+
+    A detach request on a model that turns out not to be workshared is retried
+    once without it, because Revit rejects the option rather than ignoring it -
+    the same attempt-and-fall-back this repo already needed in
+    deew_document_manager.open_document_best_detach()."""
     uiapp = __revit__
     dismissed_log = []
     dialog_handler = _make_dialog_handler(dismissed_log)
@@ -473,20 +536,35 @@ def _open_and_report(entries, close_worksets, extra_results=None):
     try:
         with forms.ProgressBar(title="DeeOpener - opening {value} of {max_value}...",
                                cancellable=False) as pb:
-            for i, (label, factory) in enumerate(entries):
-                pb.update_progress(i, len(entries))
+            for i, target in enumerate(targets):
+                label = target.label
+                pb.update_progress(i, len(targets))
                 before_count = len(dismissed_log)
+                notes = []
+                want_detach = detach if target.workshared else None
+                if detach and not target.workshared:
+                    notes.append("not workshared, opened attached")
                 try:
-                    model_path, note = factory()
-                    open_options = OpenOptions()
-                    wc_option = (WorksetConfigurationOption.CloseAllWorksets
-                                 if close_worksets
-                                 else WorksetConfigurationOption.OpenAllWorksets)
-                    open_options.SetOpenWorksetsConfiguration(
-                        WorksetConfiguration(wc_option))
-                    uiapp.OpenAndActivateDocument(model_path, open_options, False)
-                    results.append((True, label,
-                                    "Opened" + ("  ({0})".format(note) if note else "")))
+                    model_path, note = target.factory()
+                    if note:
+                        notes.insert(0, note)
+                    try:
+                        uiapp.OpenAndActivateDocument(
+                            model_path, _build_open_options(close_worksets, want_detach),
+                            False)
+                    except Exception as detach_err:
+                        if not want_detach:
+                            raise
+                        notes.append("detach refused ({0}), opened attached".format(
+                            str(detach_err).split("\n")[0][:80]))
+                        uiapp.OpenAndActivateDocument(
+                            model_path, _build_open_options(close_worksets, None), False)
+                    detail = "Opened"
+                    if detach and want_detach:
+                        detail = "Opened DETACHED ({0} worksets)".format(want_detach)
+                    if notes:
+                        detail += "  (" + "; ".join(notes) + ")"
+                    results.append((True, label, detail))
                 except Exception as e:
                     results.append((False, label, str(e)))
                 for msg, _sev in dismissed_log[before_count:]:
@@ -611,13 +689,17 @@ def _open_from_acc():
     if not selected_names:
         return
 
-    close_worksets = _ask_close_worksets()
-    if close_worksets is None:
+    mode = _ask_open_mode()
+    if mode is None:
         return
+    detach, close_worksets = mode
 
-    entries = [(name, _acc_path_factory(project_id, all_items[name], region, token))
+    # Cloud models are workshared by definition, so detach always applies here.
+    targets = [OpenTarget(name,
+                          _acc_path_factory(project_id, all_items[name], region, token),
+                          workshared=True)
                for name in selected_names]
-    _open_and_report(entries, close_worksets)
+    _open_and_report(targets, close_worksets, detach)
 
 
 def _acc_path_factory(project_id, item_id, region, token):
