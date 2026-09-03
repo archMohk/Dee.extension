@@ -1,0 +1,3 @@
+title: DeeRelinquish
+tooltip: Scan an ACC project to see who owns which worksets across every Revit model - without opening any of them - then release everything YOU own in the models you pick, choosing which categories to release. Worksets held by other people are reported but never touched; the Revit API cannot release another user's ownership.
+context: zero-doc
