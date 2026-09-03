@@ -52,10 +52,36 @@ STROKE = 7.5                # base stroke width, in 96-space units
 #   filling in the denser glyphs (DeeGrid). 7.5 stays solid at 16px and
 #   still reads cleanly at 32px and 48px.
 
+# --------------------------------------------------------------------------
+# Palettes, chosen by measured contrast rather than by eye.
+#
+# pyRevit decides between icon.png and icon.dark.png inside resolve_icon_file()
+# during extension PARSING, and caches the result. Switching Revit's theme
+# afterwards does NOT re-resolve it - so either file can end up drawn on either
+# background, and both failure modes have been seen for real on this ribbon:
+# near-black ink scores 1.06 on the dark ribbon, and pure white scores 1.00 on
+# the light one. Invisible, both times.
+#
+# So every colour below clears 3.0:1 (the WCAG threshold for non-text) against
+# BOTH #FFFFFF and #2F2F2F, while still leaning toward its own theme:
+#
+#   colour     on #FFF   on #2F2F
+#   #7A7A7A       4.29       3.12    <- icon.png ink
+#   #949494       3.03       4.41    <- icon.dark.png ink
+#   #CC7020       3.56       3.77    <- accent, both
+#
+# The brand orange #F2994D is NOT used directly: it measures 2.22 on white,
+# which is why the light ribbon looked washed out even where it was orange.
+# #CC7020 is the same hue carried far enough to be legible on both.
+# --crisp restores maximum-contrast per-theme ink for a machine that never
+# switches theme.
 PALETTES = {
+    "light": {"ink": (122, 122, 122, 255), "accent": (204, 112, 32, 255)},
+    "dark":  {"ink": (148, 148, 148, 255), "accent": (204, 112, 32, 255)},
+}
+
+CRISP_PALETTES = {
     "light": {"ink": (43, 43, 43, 255), "accent": (242, 153, 77, 255)},
-    # Pure white, not off-white: on Revit's dark ribbon every extra step of
-    # contrast counts, and the accent orange is what carries the warmth.
     "dark":  {"ink": (255, 255, 255, 255), "accent": (242, 153, 77, 255)},
 }
 
@@ -777,11 +803,19 @@ def main():
     parser.add_argument("--sheet", action="store_true", help="also write a contact sheet")
     parser.add_argument("--check", action="store_true", help="report coverage, write nothing")
     parser.add_argument("--clip", action="store_true", help="report artwork running off canvas")
+    parser.add_argument("--crisp", action="store_true",
+                        help="maximum-contrast per-theme ink (near-black / white). "
+                             "Sharper, but invisible if pyRevit's cached theme "
+                             "does not match Revit's current one")
     parser.add_argument("--dark-default", action="store_true",
                         help="also put the DARK artwork in icon.png, for a Revit "
                              "that never resolves the dark icon (breaks light theme)")
     args = parser.parse_args()
 
+    if args.crisp:
+        PALETTES.update(CRISP_PALETTES)
+        print("crisp mode: per-theme ink, only safe if the pyRevit cache and "
+              "Revit's theme agree")
     written, missing, unused = write_all(TAB_ROOT, dry_run=args.check,
                                         dark_default=args.dark_default)
     if args.dark_default and not args.check:
