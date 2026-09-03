@@ -199,6 +199,17 @@
                                 </StackPanel>
                             </GroupBox>
 
+                            <GroupBox Header="Clear Naming" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,0,0,4"
+                                               Text="Wipes the New Number / New Name of the checked sheets so you can build a rule from scratch instead of editing the old text. Only the preview is cleared - Revit will not accept a blank Sheet Number or Name, so a cleared row shows as Empty and is skipped until you put something back."/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <ComboBox x:Name="clear_target_cb" Width="100" Height="24"/>
+                                        <Button x:Name="clear_values_b" Content="Clear" Width="90" Height="24" Margin="8,0,0,0" Click="clear_values_click"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </GroupBox>
+
                             <GroupBox Header="Find &amp; Replace" Padding="6" Margin="0,0,0,8">
                                 <StackPanel>
                                     <TextBlock Text="Find:" Margin="0,0,0,2"/>

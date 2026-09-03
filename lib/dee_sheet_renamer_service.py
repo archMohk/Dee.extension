@@ -401,6 +401,27 @@ def reset_preview(rows):
             r.new_name = r.original_name
 
 
+def clear_values(rows, target):
+    """Empties the New Number / New Name of every selected row, so a rule can
+    be built from a blank slate instead of by editing what is already there.
+
+    Every other operation here TRANSFORMS the existing text (find/replace, add,
+    extract, case), and the working values start as copies of the originals -
+    so without this there is no way to start from nothing.
+
+    This only touches the preview. Revit will not accept a blank Sheet Number
+    or Sheet Name, and compute_statuses already marks an emptied row Empty,
+    which apply_renames skips - so clearing alone can never blank a real sheet.
+    Put something back before applying; that guard is deliberate, not a gap."""
+    for r in rows:
+        if not r.selected:
+            continue
+        if target in ("number", "both"):
+            r.new_number = ""
+        if target in ("name", "both"):
+            r.new_name = ""
+
+
 def find_replace(rows, find_text, replace_text, target, case_sensitive, whole_word):
     if not find_text:
         return

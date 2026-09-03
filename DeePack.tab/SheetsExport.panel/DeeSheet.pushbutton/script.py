@@ -486,6 +486,8 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         self.token_cb.SelectedIndex = 0
         self.seq_format_cb.ItemsSource = _RN_SEQ_FORMAT_CHOICES
         self.seq_format_cb.SelectedIndex = 0
+        self.clear_target_cb.ItemsSource = _RN_TARGET_CHOICES
+        self.clear_target_cb.SelectedIndex = 2
         self.fr_target_cb.ItemsSource = _RN_TARGET_CHOICES
         self.fr_target_cb.SelectedIndex = 2
         self.add_target_cb.ItemsSource = _RN_TARGET_CHOICES
@@ -688,6 +690,29 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
     def _rn_target_value(self, combo):
         label = combo.SelectedItem or "Both"
         return label.lower()
+
+    def clear_values_click(self, sender, args):
+        """Empties the preview for the checked sheets. Confirmed first because
+        it throws away whatever rule the user has already built up, and the
+        only way back is Reset Preview (which returns the ORIGINALS, not the
+        work in progress)."""
+        if not any(r.selected for r in self._rename_rows):
+            forms.alert("Check at least one sheet first.")
+            return
+        target = self._rn_target_value(self.clear_target_cb)
+        count = sum(1 for r in self._rename_rows if r.selected)
+        label = {"number": "New Number", "name": "New Name",
+                 "both": "New Number and New Name"}.get(target, "values")
+        if not forms.alert(
+                "Clear the {0} of {1} checked sheet(s)?\n\n"
+                "This only empties the preview so you can build a rule from "
+                "scratch - nothing is written to Revit. Any rule you have "
+                "already built for those sheets is discarded.".format(label, count),
+                title="DeeSheet", yes=True, no=True):
+            return
+        renamer.clear_values(self._rename_rows, target)
+        renamer.compute_statuses(self._rename_rows)
+        self._refresh_rename_grid()
 
     def find_replace_click(self, sender, args):
         if not any(r.selected for r in self._rename_rows):
