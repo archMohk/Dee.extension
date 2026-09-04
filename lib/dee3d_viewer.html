@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#23262b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>BIM 3D Model</title>
+<!--
+  Dee3D standalone BIM viewer  -  www.archMKD.com
+  ============================================================
+  This file is COMPLETELY self-contained: no internet, no CDN, no
+  server, no app.  Everything (geometry, element data, the renderer)
+  lives in this one .html.  Double-click it on Windows, open it from
+  Files on iPhone/iPad, or from Downloads/Drive on Android and it just
+  runs in the browser.
+
+  The renderer is hand-written WebGL 1.0 rather than three.js on a CDN
+  precisely so the file keeps working with no network - which is the
+  whole point of being able to hand it to someone on site.
+-->
+<style>
+:root{
+  --bg:#23262b; --bg2:#1a1c20; --panel:rgba(32,35,40,.94); --line:#3a3f47;
+  --fg:#e8eaed; --dim:#a2a9b4; --accent:#f2994d; --accent2:#cc7020;
+  --ok:#3fa66b; --shadow:0 8px 28px rgba(0,0,0,.45);
+}
+html.light{
+  --bg:#eef1f4; --bg2:#dfe4ea; --panel:rgba(255,255,255,.96); --line:#c9d0d8;
+  --fg:#1e2227; --dim:#5c6672; --shadow:0 8px 28px rgba(0,0,0,.18);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%;overflow:hidden;overscroll-behavior:none}
+body{
+  background:var(--bg2); color:var(--fg);
+  font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#gl.grabbing{cursor:grabbing}
+
+/* ---------- top bar ---------- */
+#top{
+  position:fixed;top:0;left:0;right:0;height:46px;display:flex;align-items:center;gap:8px;
+  padding:0 8px;padding-top:env(safe-area-inset-top);height:calc(46px + env(safe-area-inset-top));
+  background:var(--panel);border-bottom:1px solid var(--line);backdrop-filter:blur(10px);z-index:30;
+}
+#ttl{flex:1;min-width:0;overflow:hidden}
+#ttl b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#ttl span{display:block;font-size:10.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ic{
+  flex:none;width:34px;height:34px;border:1px solid var(--line);background:transparent;color:var(--fg);
+  border-radius:8px;font-size:15px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;
+}
+.ic:active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.ic.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* ---------- bottom toolbar ---------- */
+#bot{
+  position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;gap:6px;padding:7px 8px;
+  padding-bottom:calc(7px + env(safe-area-inset-bottom));
+  background:var(--panel);border-top:1px solid var(--line);backdrop-filter:blur(10px);
+  overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;
+}
+#bot::-webkit-scrollbar{display:none}
+#bot button{
+  flex:none;min-width:52px;height:34px;padding:0 11px;border:1px solid var(--line);background:transparent;
+  color:var(--fg);border-radius:8px;font-size:12px;cursor:pointer;white-space:nowrap;
+}
+#bot button:active{background:var(--accent);color:#fff;border-color:var(--accent)}
+#bot .sep{flex:none;width:1px;background:var(--line);margin:2px 3px}
+
+/* ---------- drawer ---------- */
+#drawer{
+  position:fixed;top:calc(46px + env(safe-area-inset-top));bottom:0;left:0;width:290px;z-index:25;
+  background:var(--panel);border-right:1px solid var(--line);backdrop-filter:blur(10px);
+  display:flex;flex-direction:column;transform:translateX(-101%);transition:transform .22s ease;
+}
+#drawer.open{transform:none}
+#drawer .body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 10px 76px}
+.sec{border-top:1px solid var(--line);margin-top:8px;padding-top:8px}
+.sec:first-child{border-top:0;margin-top:0}
+.sec h4{margin:0 0 6px;font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:var(--dim);font-weight:600}
+.row{display:flex;align-items:center;gap:7px;padding:4px 2px;border-radius:6px;cursor:pointer}
+.row:active{background:rgba(242,153,77,.16)}
+.row input{flex:none;width:15px;height:15px;accent-color:var(--accent);margin:0}
+.row .sw{flex:none;width:11px;height:11px;border-radius:3px;border:1px solid rgba(128,128,128,.5)}
+.row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .ct{flex:none;font-size:10.5px;color:var(--dim);font-variant-numeric:tabular-nums}
+.mini{display:flex;gap:6px;margin-bottom:6px}
+.mini button{
+  flex:1;height:26px;border:1px solid var(--line);background:transparent;color:var(--dim);
+  border-radius:6px;font-size:11px;cursor:pointer
+}
+.mini button:active{background:var(--accent);color:#fff}
+input[type=search],input[type=text]{
+  width:100%;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:7px;
+  background:transparent;color:var(--fg);font-size:12.5px;outline:none
+}
+input[type=search]:focus{border-color:var(--accent)}
+input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:transparent}
+.slab{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim);margin-top:3px}
+#hits .row{font-size:12px}
+#hits .row .nm span{color:var(--dim);font-size:10.5px}
+
+/* ---------- info panel ---------- */
+#info{
+  position:fixed;right:0;z-index:26;width:300px;max-width:calc(100% - 12px);
+  top:calc(54px + env(safe-area-inset-top));background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;box-shadow:var(--shadow);backdrop-filter:blur(10px);
+  display:none;overflow:hidden;margin-right:8px
+}
+#info.show{display:block}
+#info .hd{display:flex;align-items:center;gap:6px;padding:9px 10px;border-bottom:1px solid var(--line)}
+#info .hd b{flex:1;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#info .hd button{
+  width:26px;height:26px;border:0;background:transparent;color:var(--dim);font-size:16px;cursor:pointer;border-radius:6px
+}
+#info .bd{max-height:44vh;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 10px}
+#info .acts{display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--line)}
+#info .acts button{
+  flex:1;height:30px;border:1px solid var(--line);background:transparent;color:var(--fg);
+  border-radius:7px;font-size:11.5px;cursor:pointer
+}
+#info .acts button:active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.kv{display:flex;gap:8px;padding:3px 0;border-bottom:1px solid rgba(128,128,128,.13);font-size:12px}
+.kv:last-child{border-bottom:0}
+.kv .k{flex:none;width:96px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kv .v{flex:1;min-width:0;word-break:break-word}
+
+/* ---------- splash / overlays ---------- */
+#splash{
+  position:fixed;inset:0;z-index:60;background:var(--bg2);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px
+}
+#splash .lg{font-size:19px;font-weight:600;letter-spacing:.4px}
+#splash .st{font-size:12.5px;color:var(--dim);min-height:18px}
+#splash .track{width:210px;height:4px;border-radius:3px;background:rgba(128,128,128,.25);overflow:hidden}
+#splash .fill{height:100%;width:0;background:var(--accent);transition:width .18s ease}
+#err{max-width:440px;color:#ff8a80;font-size:12.5px;line-height:1.6;display:none}
+#toast{
+  position:fixed;left:50%;transform:translateX(-50%);bottom:calc(62px + env(safe-area-inset-bottom));
+  z-index:50;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:7px 15px;
+  font-size:12px;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .2s
+}
+#toast.show{opacity:1}
+#help{
+  position:fixed;inset:0;z-index:55;background:rgba(0,0,0,.55);display:none;
+  align-items:center;justify-content:center;padding:18px
+}
+#help.show{display:flex}
+#help .card{
+  background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;
+  max-width:400px;width:100%;box-shadow:var(--shadow);max-height:80vh;overflow-y:auto
+}
+#help h3{margin:0 0 10px;font-size:14px}
+#help p{margin:5px 0;font-size:12.5px;color:var(--dim)}
+#help b{color:var(--fg)}
+#help .close{width:100%;height:32px;margin-top:12px;border:1px solid var(--line);background:transparent;
+  color:var(--fg);border-radius:8px;cursor:pointer}
+.brand{display:block;margin-top:10px;font-size:11px;color:var(--accent);text-decoration:none;text-align:center}
+
+@media (max-width:640px){
+  #drawer{width:min(84vw,320px)}
+  #info{
+    left:0;right:0;bottom:calc(50px + env(safe-area-inset-bottom));top:auto;width:auto;
+    margin:0 6px;border-radius:14px
+  }
+  #info .bd{max-height:36vh}
+  #bot button{min-width:46px;padding:0 9px;font-size:11.5px}
+}
+</style>
+</head>
+<body>
+
+<canvas id="gl"></canvas>
+
+<div id="top">
+  <button class="ic" id="b_menu" title="Model tree">&#9776;</button>
+  <div id="ttl"><b id="t_name">&nbsp;</b><span id="t_sub">&nbsp;</span></div>
+  <button class="ic" id="b_theme" title="Light / dark">&#9681;</button>
+  <button class="ic" id="b_help" title="Help">?</button>
+</div>
+
+<div id="drawer">
+  <div class="body">
+    <div class="sec">
+      <h4>Find</h4>
+      <input type="search" id="q" placeholder="Search type, family, category...">
+      <div id="hits" style="margin-top:6px"></div>
+    </div>
+    <div class="sec">
+      <h4>Categories</h4>
+      <div class="mini">
+        <button id="c_all">All on</button>
+        <button id="c_none">All off</button>
+      </div>
+      <div id="cats"></div>
+    </div>
+    <div class="sec">
+      <h4>Section box</h4>
+      <div id="clips"></div>
+      <div class="mini" style="margin-top:6px"><button id="clip_reset">Reset section</button></div>
+    </div>
+    <div class="sec">
+      <h4>Model</h4>
+      <div id="meta"></div>
+      <a class="brand" href="http://www.archMKD.com" target="_blank" rel="noopener">www.archMKD.com</a>
+    </div>
+  </div>
+</div>
+
+<div id="info">
+  <div class="hd"><b id="i_ttl">Element</b><button id="i_close">&times;</button></div>
+  <div class="bd" id="i_body"></div>
+  <div class="acts">
+    <button id="i_zoom">Zoom</button>
+    <button id="i_iso">Isolate</button>
+    <button id="i_hide">Hide</button>
+  </div>
+</div>
+
+<div id="bot">
+  <button id="v_fit">Fit</button>
+  <div class="sep"></div>
+  <button id="v_iso3">Iso</button>
+  <button id="v_top">Top</button>
+  <button id="v_front">Front</button>
+  <button id="v_back">Back</button>
+  <button id="v_left">Left</button>
+  <button id="v_right">Right</button>
+  <div class="sep"></div>
+  <button id="v_reset">Reset all</button>
+</div>
+
+<div id="toast"></div>
+
+<div id="help"><div class="card">
+  <h3>How to use</h3>
+  <p><b>Touch</b> &mdash; one finger drags to orbit, two fingers pinch to zoom and slide to pan, a single tap selects an element.</p>
+  <p><b>Mouse</b> &mdash; left button orbits, right button or middle button pans, the wheel zooms, a click selects.</p>
+  <p><b>Menu</b> (&#9776;) &mdash; search elements, switch whole categories on and off, and cut the model open with the section box.</p>
+  <p><b>Select</b> an element to read its category, family, type and level, then <b>Isolate</b> it or <b>Hide</b> it.</p>
+  <p><b>Reset all</b> puts every category, every hidden element and the section box back to how the file opened.</p>
+  <p style="margin-top:10px">This file works with no internet connection. It can be copied, emailed or shared like any other file.</p>
+  <button class="close" id="help_close">Got it</button>
+</div></div>
+
+<div id="splash">
+  <div class="lg">Dee3D</div>
+  <div class="track"><div class="fill" id="sp_fill"></div></div>
+  <div class="st" id="sp_txt">Loading model&hellip;</div>
+  <div id="err"></div>
+</div>
+
+<script>
+"use strict";
+var DATA = __DEE3D_PAYLOAD__;
+
+/* ==================================================================
+   small helpers
+   ================================================================== */
+function $(id){ return document.getElementById(id); }
+function on(el, ev, fn, op){ el.addEventListener(ev, fn, op || false); }
+
+var toastTimer = null;
+function toast(msg){
+  var t = $("toast");
+  t.textContent = msg;
+  t.className = "show";
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ t.className = ""; }, 1800);
+}
+
+function fail(msg){
+  $("sp_txt").textContent = "Could not open this model";
+  $("err").style.display = "block";
+  $("err").textContent = msg;
+  $("sp_fill").style.width = "100%";
+  $("sp_fill").style.background = "#c62828";
+}
+
+/* base64 -> Uint8Array.  Chunked so a very large payload does not
+   block long enough for the browser to complain. */
+function b64Bytes(b64){
+  var bin = atob(b64), n = bin.length, out = new Uint8Array(n), i = 0;
+  for (; i + 8 <= n; i += 8){
+    out[i]   = bin.charCodeAt(i);     out[i+1] = bin.charCodeAt(i+1);
+    out[i+2] = bin.charCodeAt(i+2);   out[i+3] = bin.charCodeAt(i+3);
+    out[i+4] = bin.charCodeAt(i+4);   out[i+5] = bin.charCodeAt(i+5);
+    out[i+6] = bin.charCodeAt(i+6);   out[i+7] = bin.charCodeAt(i+7);
+  }
+  for (; i < n; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/* The writer emits little-endian.  Every consumer device in practice is
+   little-endian too, but swapping is three lines so there is no reason
+   to simply hope. */
+var LITTLE = (function(){
+  var b = new ArrayBuffer(2);
+  new Uint16Array(b)[0] = 1;
+  return new Uint8Array(b)[0] === 1;
+})();
+function swap16(u8){
+  for (var i = 0; i < u8.length; i += 2){ var t = u8[i]; u8[i] = u8[i+1]; u8[i+1] = t; }
+}
+function swap32(u8){
+  for (var i = 0; i < u8.length; i += 4){
+    var a = u8[i], b = u8[i+1];
+    u8[i] = u8[i+3]; u8[i+1] = u8[i+2]; u8[i+2] = b; u8[i+3] = a;
+  }
+}
+
+/* ==================================================================
+   4x4 matrix maths (column-major, the layout WebGL wants)
+   ================================================================== */
+function mMul(a, b){
+  var o = new Float32Array(16);
+  for (var c = 0; c < 4; c++){
+    for (var r = 0; r < 4; r++){
+      o[c*4+r] = a[r] * b[c*4] + a[4+r] * b[c*4+1] + a[8+r] * b[c*4+2] + a[12+r] * b[c*4+3];
+    }
+  }
+  return o;
+}
+function mPersp(fovy, aspect, near, far){
+  var f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+  return new Float32Array([
+    f/aspect,0,0,0,  0,f,0,0,  0,0,(far+near)*nf,-1,  0,0,2*far*near*nf,0]);
+}
+function mLook(eye, ctr, up){
+  var zx = eye[0]-ctr[0], zy = eye[1]-ctr[1], zz = eye[2]-ctr[2];
+  var zl = Math.sqrt(zx*zx+zy*zy+zz*zz) || 1;
+  zx/=zl; zy/=zl; zz/=zl;
+  var xx = up[1]*zz - up[2]*zy, xy = up[2]*zx - up[0]*zz, xz = up[0]*zy - up[1]*zx;
+  var xl = Math.sqrt(xx*xx+xy*xy+xz*xz) || 1;
+  xx/=xl; xy/=xl; xz/=xl;
+  var yx = zy*xz - zz*xy, yy = zz*xx - zx*xz, yz = zx*xy - zy*xx;
+  return new Float32Array([
+    xx,yx,zx,0,  xy,yy,zy,0,  xz,yz,zz,0,
+    -(xx*eye[0]+xy*eye[1]+xz*eye[2]),
+    -(yx*eye[0]+yy*eye[1]+yz*eye[2]),
+    -(zx*eye[0]+zy*eye[1]+zz*eye[2]), 1]);
+}
+
+/* ==================================================================
+   shaders
+   ================================================================== */
+var VS = [
+"attribute vec3 a_pos;",
+"attribute vec3 a_nrm;",
+"attribute vec4 a_col;",
+"attribute float a_part;",
+"attribute float a_vis;",
+"uniform mat4 u_mvp;",
+"uniform vec3 u_qmin;",
+"uniform vec3 u_qscale;",
+"uniform float u_sel;",
+"varying vec3 v_nrm;",
+"varying vec4 v_col;",
+"varying vec3 v_wld;",
+"varying float v_sel;",
+"varying float v_vis;",
+"varying vec3 v_pick;",
+"void main(){",
+"  vec3 p = u_qmin + a_pos * u_qscale;",
+"  v_wld = p; v_nrm = a_nrm; v_col = a_col; v_vis = a_vis;",
+"  v_sel = abs(a_part - u_sel) < 0.5 ? 1.0 : 0.0;",
+"  float id = a_part + 1.0;",
+"  v_pick = vec3(mod(id,256.0), mod(floor(id/256.0),256.0), mod(floor(id/65536.0),256.0)) / 255.0;",
+"  gl_Position = u_mvp * vec4(p, 1.0);",
+"}"].join("\n");
+
+var FS = [
+"#ifdef GL_FRAGMENT_PRECISION_HIGH",
+"precision highp float;",
+"#else",
+"precision mediump float;",
+"#endif",
+"varying vec3 v_nrm;",
+"varying vec4 v_col;",
+"varying vec3 v_wld;",
+"varying float v_sel;",
+"varying float v_vis;",
+"varying vec3 v_pick;",
+"uniform vec3 u_cmin;",
+"uniform vec3 u_cmax;",
+"uniform vec3 u_eye;",
+"uniform float u_pick;",
+"void main(){",
+"  if (v_vis < 0.5) discard;",
+"  if (any(lessThan(v_wld, u_cmin)) || any(greaterThan(v_wld, u_cmax))) discard;",
+"  if (u_pick > 0.5){ gl_FragColor = vec4(v_pick, 1.0); return; }",
+"  vec3 n = normalize(v_nrm);",
+"  vec3 vd = normalize(u_eye - v_wld);",
+"  if (dot(n, vd) < 0.0) n = -n;",           /* CAD solids are not reliably outward-facing */
+"  vec3 L = normalize(vec3(0.38, 0.22, 0.90));",
+"  float diff = max(dot(n, L), 0.0);",
+"  float amb  = mix(0.34, 0.63, 0.5 + 0.5 * n.z);",
+"  float spec = pow(max(dot(reflect(-L, n), vd), 0.0), 26.0) * 0.16;",
+"  float rim  = pow(1.0 - max(dot(n, vd), 0.0), 3.0) * 0.14;",
+"  vec3 c = v_col.rgb * (amb + diff * 0.56) + spec + rim;",
+"  c = mix(c, vec3(1.0, 0.60, 0.20), v_sel * 0.70);",
+"  gl_FragColor = vec4(c, v_col.a);",
+"}"].join("\n");
+
+/* ==================================================================
+   state
+   ================================================================== */
+var gl = null, prog = null, U = {}, A = {};
+var buf = {};                     /* GPU buffers                       */
+var visArr = null;                /* CPU mirror of the visibility byte */
+var parts = null, nParts = 0;     /* [elem, color, triStart, triCount] */
+var els = [], strs = [], colors = [];
+var nOpaqueVerts = 0, nVerts = 0;
+var catList = [], catOf = null;   /* per element: category index       */
+var catOn = [], elHidden = null, isoSet = null;
+var selPart = -1, selElem = -1;
+var bmin = [0,0,0], bmax = [0,0,0], diag = 1;
+var clip = [0,0,0,1,1,1];         /* normalised min xyz, max xyz       */
+var cam = { tx:0, ty:0, tz:0, dist:10, yaw:-2.36, pitch:0.52 };
+var ebox = null;                  /* per element: min xyz, max xyz      */
+var pickFB = null, pickTex = null, pickRB = null, pickW = 0, pickH = 0;
+var needDraw = true, dpr = 1;
+
+/* ==================================================================
+   boot - staged so the splash actually paints between steps
+   ================================================================== */
+var steps = [
+  ["Reading geometry",  stepDecode],
+  ["Building surfaces", stepNormals],
+  ["Preparing viewer",  stepGL],
+  ["Almost there",      stepFinish]
+];
+var stepAt = 0;
+
+function runNext(){
+  if (stepAt >= steps.length) return;
+  var s = steps[stepAt];
+  $("sp_txt").textContent = s[0] + "\u2026";
+  $("sp_fill").style.width = Math.round((stepAt / steps.length) * 100) + "%";
+  setTimeout(function(){
+    try {
+      s[1]();
+    } catch (e) {
+      fail((e && e.message) ? e.message : String(e));
+      return;
+    }
+    stepAt++;
+    runNext();
+  }, 16);
+}
+
+var pos16 = null, nrmI8 = null, colU8 = null, partF32 = null;
+
+function stepDecode(){
+  if (!DATA || !DATA.pos) throw new Error("This file carries no geometry.");
+
+  var pb = b64Bytes(DATA.pos);
+  if (!LITTLE) swap16(pb);
+  pos16 = new Uint16Array(pb.buffer, pb.byteOffset, pb.byteLength >> 1);
+  nVerts = pos16.length / 3;
+
+  var qb = b64Bytes(DATA.parts);
+  if (!LITTLE) swap32(qb);
+  parts = new Uint32Array(qb.buffer, qb.byteOffset, qb.byteLength >> 2);
+  nParts = parts.length / 4;
+
+  els = DATA.els || [];
+  strs = DATA.strings || [];
+  colors = DATA.colors || [[190,190,190,255]];
+  nOpaqueVerts = DATA.opaqueVerts || nVerts;
+  bmin = DATA.bmin; bmax = DATA.bmax;
+  diag = Math.sqrt(
+    Math.pow(bmax[0]-bmin[0],2) + Math.pow(bmax[1]-bmin[1],2) + Math.pow(bmax[2]-bmin[2],2)) || 1;
+
+  /* Per-element bounds ride along quantised the same way the vertices
+     are, which is what makes "zoom to this element" and "fit what is
+     actually visible" possible without re-scanning every triangle. */
+  if (DATA.ebox){
+    var bb = b64Bytes(DATA.ebox);
+    if (!LITTLE) swap16(bb);
+    var q = new Uint16Array(bb.buffer, bb.byteOffset, bb.byteLength >> 1);
+    ebox = new Float32Array(q.length);
+    for (var b = 0; b < q.length; b++){
+      var ax = b % 3;
+      ebox[b] = DATA.qmin[ax] + q[b] * DATA.qscale[ax];
+    }
+  }
+
+  elHidden = new Uint8Array(els.length);
+  catOf = new Int32Array(els.length);
+
+  /* categories, in the order they first appear */
+  var seen = {}, i;
+  for (i = 0; i < els.length; i++){
+    var cs = els[i][0];
+    if (seen[cs] === undefined){ seen[cs] = catList.length; catList.push({ s:cs, n:0 }); }
+    var ci = seen[cs];
+    catOf[i] = ci;
+    catList[ci].n++;
+  }
+  catList.sort(function(a,b){ return strs[a.s] < strs[b.s] ? -1 : 1; });
+  var remap = {};
+  for (i = 0; i < catList.length; i++){ remap[catList[i].s] = i; catOn.push(true); }
+  for (i = 0; i < els.length; i++) catOf[i] = remap[els[i][0]];
+}
+
+function stepNormals(){
+  /* Colours and per-vertex attributes are expanded here rather than
+     shipped in the file - recomputing them costs a few milliseconds and
+     saves several megabytes of download/AirDrop/WhatsApp. */
+  colU8   = new Uint8Array(nVerts * 4);
+  partF32 = new Float32Array(nVerts);
+  visArr  = new Uint8Array(nVerts);
+  nrmI8   = new Int8Array(nVerts * 4);
+
+  var qs = DATA.qscale;
+  var p, v0, v1, v2, i, j;
+
+  for (p = 0; p < nParts; p++){
+    var col = colors[parts[p*4+1]] || [190,190,190,255];
+    var vs = parts[p*4+2] * 3, vc = parts[p*4+3] * 3;
+    for (i = vs; i < vs + vc; i++){
+      colU8[i*4] = col[0]; colU8[i*4+1] = col[1]; colU8[i*4+2] = col[2]; colU8[i*4+3] = col[3];
+      partF32[i] = p;
+      visArr[i] = 255;
+    }
+  }
+
+  for (i = 0; i < nVerts; i += 3){
+    v0 = i*3; v1 = v0+3; v2 = v0+6;
+    var ax = (pos16[v1]  -pos16[v0])  *qs[0], ay = (pos16[v1+1]-pos16[v0+1])*qs[1], az = (pos16[v1+2]-pos16[v0+2])*qs[2];
+    var bx = (pos16[v2]  -pos16[v0])  *qs[0], by = (pos16[v2+1]-pos16[v0+1])*qs[1], bz = (pos16[v2+2]-pos16[v0+2])*qs[2];
+    var nx = ay*bz - az*by, ny = az*bx - ax*bz, nz = ax*by - ay*bx;
+    var l = Math.sqrt(nx*nx + ny*ny + nz*nz);
+    if (l > 0){ nx/=l; ny/=l; nz/=l; } else { nz = 1; }
+    var qx = Math.round(nx*127), qy = Math.round(ny*127), qz = Math.round(nz*127);
+    for (j = 0; j < 3; j++){
+      var o = (i+j)*4;
+      nrmI8[o] = qx; nrmI8[o+1] = qy; nrmI8[o+2] = qz;
+    }
+  }
+}
+
+function shader(type, src){
+  var s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+
+function stepGL(){
+  var cv = $("gl");
+  var opts = { antialias:true, alpha:false, depth:true, preserveDrawingBuffer:false };
+  gl = cv.getContext("webgl", opts) || cv.getContext("experimental-webgl", opts);
+  if (!gl) throw new Error(
+    "This browser has no WebGL support, so 3D cannot be drawn. Try Chrome, Edge, Safari or Firefox, " +
+    "and make sure hardware acceleration is enabled.");
+
+  prog = gl.createProgram();
+  gl.attachShader(prog, shader(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+
+  ["a_pos","a_nrm","a_col","a_part","a_vis"].forEach(function(n){
+    A[n] = gl.getAttribLocation(prog, n);
+  });
+  ["u_mvp","u_qmin","u_qscale","u_sel","u_cmin","u_cmax","u_eye","u_pick"].forEach(function(n){
+    U[n] = gl.getUniformLocation(prog, n);
+  });
+
+  function vbo(data, usage){
+    var b = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, data, usage || gl.STATIC_DRAW);
+    return b;
+  }
+  buf.pos  = vbo(pos16);
+  buf.nrm  = vbo(nrmI8);
+  buf.col  = vbo(colU8);
+  buf.part = vbo(partF32);
+  buf.vis  = vbo(visArr, gl.DYNAMIC_DRAW);
+
+  /* CPU copies of the static attributes are no longer needed - releasing
+     them matters on a phone with a big model. */
+  pos16 = null; nrmI8 = null; colU8 = null; partF32 = null;
+
+  gl.enable(gl.DEPTH_TEST);
+  /* Deliberately NOT culling: Revit solids and especially imported CAD
+     meshes are not reliably wound outward, and a missing wall face reads
+     as a modelling error to whoever opens this. */
+  gl.disable(gl.CULL_FACE);
+  gl.uniform3fv(U.u_qmin, new Float32Array(DATA.qmin));
+  gl.uniform3fv(U.u_qscale, new Float32Array(DATA.qscale));
+}
+
+function stepFinish(){
+  buildCats();
+  buildClips();
+  buildMeta();
+  wireUI();
+  resetClip();
+  viewPreset("iso");
+  fitAll();
+  window.setTimeout(function(){
+    $("splash").style.display = "none";
+  }, 60);
+  resize();
+  loop();
+}
+
+/* ==================================================================
+   drawing
+   ================================================================== */
+function bindAttribs(){
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf.pos);
+  gl.enableVertexAttribArray(A.a_pos);
+  gl.vertexAttribPointer(A.a_pos, 3, gl.UNSIGNED_SHORT, false, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf.nrm);
+  gl.enableVertexAttribArray(A.a_nrm);
+  gl.vertexAttribPointer(A.a_nrm, 3, gl.BYTE, true, 4, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf.col);
+  gl.enableVertexAttribArray(A.a_col);
+  gl.vertexAttribPointer(A.a_col, 4, gl.UNSIGNED_BYTE, true, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf.part);
+  gl.enableVertexAttribArray(A.a_part);
+  gl.vertexAttribPointer(A.a_part, 1, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf.vis);
+  gl.enableVertexAttribArray(A.a_vis);
+  gl.vertexAttribPointer(A.a_vis, 1, gl.UNSIGNED_BYTE, true, 0, 0);
+}
+
+function camEye(){
+  var cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+  return [cam.tx + cam.dist*cp*Math.cos(cam.yaw),
+          cam.ty + cam.dist*cp*Math.sin(cam.yaw),
+          cam.tz + cam.dist*sp];
+}
+
+function clipBox(){
+  return {
+    min:[bmin[0] + (bmax[0]-bmin[0])*clip[0],
+         bmin[1] + (bmax[1]-bmin[1])*clip[1],
+         bmin[2] + (bmax[2]-bmin[2])*clip[2]],
+    max:[bmin[0] + (bmax[0]-bmin[0])*clip[3],
+         bmin[1] + (bmax[1]-bmin[1])*clip[4],
+         bmin[2] + (bmax[2]-bmin[2])*clip[5]]
+  };
+}
+
+function draw(pickPass){
+  var w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+  gl.viewport(0, 0, w, h);
+  if (pickPass){
+    gl.clearColor(0, 0, 0, 1);
+  } else {
+    var lt = document.documentElement.className === "light";
+    gl.clearColor(lt ? 0.874 : 0.102, lt ? 0.894 : 0.110, lt ? 0.918 : 0.125, 1);
+  }
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  var eye = camEye();
+  var near = Math.max(cam.dist * 0.002, diag * 0.0004);
+  var far  = cam.dist * 4 + diag * 6;
+  var mvp  = mMul(mPersp(0.86, w / (h || 1), near, far),
+                  mLook(eye, [cam.tx, cam.ty, cam.tz], [0, 0, 1]));
+  var cb = clipBox();
+
+  gl.uniformMatrix4fv(U.u_mvp, false, mvp);
+  gl.uniform3fv(U.u_eye, new Float32Array(eye));
+  gl.uniform3fv(U.u_cmin, new Float32Array(cb.min));
+  gl.uniform3fv(U.u_cmax, new Float32Array(cb.max));
+  gl.uniform1f(U.u_sel, pickPass ? -1 : selPart);
+  gl.uniform1f(U.u_pick, pickPass ? 1 : 0);
+
+  bindAttribs();
+
+  gl.depthMask(true);
+  gl.disable(gl.BLEND);
+  if (nOpaqueVerts > 0) gl.drawArrays(gl.TRIANGLES, 0, nOpaqueVerts);
+
+  var transCount = nVerts - nOpaqueVerts;
+  if (transCount > 0){
+    if (!pickPass){
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+    }
+    gl.drawArrays(gl.TRIANGLES, nOpaqueVerts, transCount);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+  }
+}
+
+function loop(){
+  if (needDraw){ needDraw = false; draw(false); }
+  requestAnimationFrame(loop);
+}
+function invalidate(){ needDraw = true; }
+
+function resize(){
+  var cv = $("gl");
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var w = Math.max(1, Math.round(cv.clientWidth * dpr));
+  var h = Math.max(1, Math.round(cv.clientHeight * dpr));
+  if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  invalidate();
+}
+
+/* ==================================================================
+   picking - render part ids to an offscreen buffer, read one pixel
+   ================================================================== */
+function ensurePickTarget(w, h){
+  if (pickFB && pickW === w && pickH === h) return;
+  if (pickFB){ gl.deleteFramebuffer(pickFB); gl.deleteTexture(pickTex); gl.deleteRenderbuffer(pickRB); }
+  pickW = w; pickH = h;
+  pickTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, pickTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  pickRB = gl.createRenderbuffer();
+  gl.bindRenderbuffer(gl.RENDERBUFFER, pickRB);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, w, h);
+  pickFB = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, pickFB);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pickTex, 0);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, pickRB);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+function pickAt(cssX, cssY){
+  var cv = $("gl"), w = cv.width, h = cv.height;
+  ensurePickTarget(w, h);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, pickFB);
+  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return -1;
+  }
+  draw(true);
+  var px = Math.round(cssX * dpr), py = Math.round(h - cssY * dpr);
+  px = Math.max(0, Math.min(w - 1, px));
+  py = Math.max(0, Math.min(h - 1, py));
+  var buf4 = new Uint8Array(4);
+  gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  invalidate();
+  var id = buf4[0] + buf4[1] * 256 + buf4[2] * 65536;
+  return id === 0 ? -1 : (id - 1);
+}
+
+/* ==================================================================
+   visibility
+   ================================================================== */
+function partVisible(p){
+  var e = parts[p*4];
+  if (elHidden[e]) return false;
+  if (isoSet && !isoSet[e]) return false;
+  return !!catOn[catOf[e]];
+}
+
+function refreshVisibility(){
+  for (var p = 0; p < nParts; p++){
+    var vs = parts[p*4+2] * 3, vc = parts[p*4+3] * 3;
+    visArr.fill(partVisible(p) ? 255 : 0, vs, vs + vc);
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf.vis);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, visArr);
+  invalidate();
+}
+
+/* ==================================================================
+   camera helpers
+   ================================================================== */
+function visibleBounds(){
+  var lo = [1e30,1e30,1e30], hi = [-1e30,-1e30,-1e30], any = false;
+  /* Part bounds are not stored per part, so fitting uses the element
+     bounds the writer emitted (cheap) and falls back to the model box. */
+  var eb = ebox;
+  if (eb){
+    for (var e = 0; e < els.length; e++){
+      if (elHidden[e]) continue;
+      if (isoSet && !isoSet[e]) continue;
+      if (!catOn[catOf[e]]) continue;
+      var o = e * 6;
+      if (!(eb[o+3] >= eb[o])) continue;   /* element contributed no geometry */
+      any = true;
+      for (var k = 0; k < 3; k++){
+        if (eb[o+k]   < lo[k]) lo[k] = eb[o+k];
+        if (eb[o+3+k] > hi[k]) hi[k] = eb[o+3+k];
+      }
+    }
+  }
+  if (!any) return { min:bmin.slice(), max:bmax.slice() };
+  return { min:lo, max:hi };
+}
+
+function frame(box){
+  var cx = (box.min[0]+box.max[0])/2, cy = (box.min[1]+box.max[1])/2, cz = (box.min[2]+box.max[2])/2;
+  var r = Math.sqrt(Math.pow(box.max[0]-box.min[0],2) +
+                    Math.pow(box.max[1]-box.min[1],2) +
+                    Math.pow(box.max[2]-box.min[2],2)) / 2;
+  if (!(r > 0)) r = diag * 0.05 || 1;
+  cam.tx = cx; cam.ty = cy; cam.tz = cz;
+  cam.dist = (r / Math.sin(0.43)) * 1.18;
+  invalidate();
+}
+function fitAll(){ frame(visibleBounds()); }
+
+function viewPreset(k){
+  var P = {
+    iso:   [-2.356, 0.52], top:  [-1.5708, 1.5533], front:[-1.5708, 0],
+    back:  [1.5708, 0],    left: [3.1416, 0],       right:[0, 0]
+  };
+  var v = P[k] || P.iso;
+  cam.yaw = v[0]; cam.pitch = v[1];
+  invalidate();
+}
+
+/* ==================================================================
+   input
+   ================================================================== */
+function wireInput(){
+  var cv = $("gl");
+  var drag = null, moved = 0;
+
+  function orbit(dx, dy){
+    cam.yaw -= dx * 0.0075;
+    cam.pitch += dy * 0.0075;
+    var lim = 1.5533;
+    cam.pitch = Math.max(-lim, Math.min(lim, cam.pitch));
+    invalidate();
+  }
+  function pan(dx, dy){
+    var cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+    var fx = -cp*Math.cos(cam.yaw), fy = -cp*Math.sin(cam.yaw), fz = -sp;
+    var rx = -fy, ry = fx, rl = Math.sqrt(rx*rx + ry*ry) || 1;
+    rx /= rl; ry /= rl;
+    var ux = ry*fz, uy = -rx*fz, uz = rx*fy - ry*fx;
+    var s = cam.dist * 0.0016;
+    cam.tx += (-rx*dx + ux*dy) * s;
+    cam.ty += (-ry*dx + uy*dy) * s;
+    cam.tz += ( uz*dy) * s;
+    invalidate();
+  }
+  function dolly(f){
+    cam.dist = Math.max(diag * 0.002, Math.min(diag * 24, cam.dist * f));
+    invalidate();
+  }
+
+  on(cv, "mousedown", function(e){
+    drag = { x:e.clientX, y:e.clientY, b:e.button };
+    moved = 0;
+    cv.className = "grabbing";
+    e.preventDefault();
+  });
+  on(window, "mousemove", function(e){
+    if (!drag) return;
+    var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    drag.x = e.clientX; drag.y = e.clientY;
+    moved += Math.abs(dx) + Math.abs(dy);
+    if (drag.b === 0 && !e.shiftKey) orbit(dx, dy); else pan(dx, dy);
+  });
+  on(window, "mouseup", function(e){
+    if (!drag) return;
+    var wasClick = moved < 5;
+    var b = drag.b;
+    drag = null;
+    cv.className = "";
+    if (wasClick && b === 0){
+      var r = cv.getBoundingClientRect();
+      select(pickAt(e.clientX - r.left, e.clientY - r.top));
+    }
+  });
+  on(cv, "contextmenu", function(e){ e.preventDefault(); });
+  on(cv, "wheel", function(e){
+    e.preventDefault();
+    dolly(e.deltaY > 0 ? 1.11 : 0.9);
+  }, { passive:false });
+
+  /* --- touch --- */
+  var tPrev = null, tStart = 0, tMoved = 0;
+  function tDist(t){
+    var dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY;
+    return Math.sqrt(dx*dx + dy*dy);
+  }
+  function tMid(t){
+    return [(t[0].clientX + t[1].clientX)/2, (t[0].clientY + t[1].clientY)/2];
+  }
+  on(cv, "touchstart", function(e){
+    e.preventDefault();
+    var t = e.touches;
+    tStart = Date.now(); tMoved = 0;
+    tPrev = (t.length >= 2)
+      ? { n:2, d:tDist(t), m:tMid(t) }
+      : { n:1, x:t[0].clientX, y:t[0].clientY };
+  }, { passive:false });
+  on(cv, "touchmove", function(e){
+    e.preventDefault();
+    var t = e.touches;
+    if (!tPrev) return;
+    if (t.length >= 2){
+      var d = tDist(t), m = tMid(t);
+      if (tPrev.n === 2){
+        if (tPrev.d > 0) dolly(tPrev.d / d);
+        pan(m[0] - tPrev.m[0], m[1] - tPrev.m[1]);
+        tMoved += 20;
+      }
+      tPrev = { n:2, d:d, m:m };
+    } else {
+      if (tPrev.n === 1){
+        var dx = t[0].clientX - tPrev.x, dy = t[0].clientY - tPrev.y;
+        tMoved += Math.abs(dx) + Math.abs(dy);
+        orbit(dx, dy);
+      }
+      tPrev = { n:1, x:t[0].clientX, y:t[0].clientY };
+    }
+  }, { passive:false });
+  on(cv, "touchend", function(e){
+    if (tPrev && tPrev.n === 1 && tMoved < 12 && (Date.now() - tStart) < 350){
+      var r = cv.getBoundingClientRect();
+      var t = e.changedTouches[0];
+      select(pickAt(t.clientX - r.left, t.clientY - r.top));
+    }
+    if (e.touches.length === 0) tPrev = null;
+  });
+
+  on(window, "resize", resize);
+  on(window, "orientationchange", function(){ setTimeout(resize, 250); });
+  on(window, "keydown", function(e){
+    var k = e.key.toLowerCase();
+    if (k === "f") fitAll();
+    else if (k === "h" && selElem >= 0) hideSel();
+    else if (k === "i" && selElem >= 0) isolateSel();
+    else if (k === "escape") { clearSel(); isoSet = null; refreshVisibility(); }
+  });
+}
+
+/* ==================================================================
+   selection + info panel
+   ================================================================== */
+function S(i){ return (i === undefined || i === null || i < 0) ? "" : (strs[i] || ""); }
+
+function select(part){
+  if (part < 0 || part >= nParts){ clearSel(); return; }
+  selPart = part;
+  selElem = parts[part*4];
+  showInfo();
+  invalidate();
+}
+function clearSel(){
+  selPart = -1; selElem = -1;
+  $("info").className = "";
+  invalidate();
+}
+
+function showInfo(){
+  var e = els[selElem];
+  if (!e){ clearSel(); return; }
+  $("i_ttl").textContent = S(e[2]) || S(e[0]) || "Element";
+  var rows = [
+    ["Category", S(e[0])], ["Family", S(e[1])], ["Type", S(e[2])],
+    ["Level", S(e[3])], ["Source", S(e[5])], ["Element id", String(e[4])]
+  ];
+  var prm = DATA.prm ? DATA.prm[String(selElem)] : null;
+  if (prm){
+    for (var i = 0; i < prm.length; i++) rows.push([S(prm[i][0]), S(prm[i][1])]);
+  }
+  var html = "";
+  for (var j = 0; j < rows.length; j++){
+    if (rows[j][1] === "" || rows[j][1] === null) continue;
+    html += '<div class="kv"><div class="k">' + esc(rows[j][0]) +
+            '</div><div class="v">' + esc(rows[j][1]) + "</div></div>";
+  }
+  $("i_body").innerHTML = html || '<div class="kv"><div class="v">No data stored for this element.</div></div>';
+  $("info").className = "show";
+  $("i_hide").textContent = elHidden[selElem] ? "Show" : "Hide";
+  $("i_iso").textContent = isoSet ? "Un-isolate" : "Isolate";
+}
+
+function esc(s){
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function hideSel(){
+  if (selElem < 0) return;
+  elHidden[selElem] = elHidden[selElem] ? 0 : 1;
+  refreshVisibility();
+  showInfo();
+  toast(elHidden[selElem] ? "Element hidden" : "Element shown");
+}
+function isolateSel(){
+  if (selElem < 0) return;
+  if (isoSet){ isoSet = null; toast("Isolation cleared"); }
+  else {
+    isoSet = new Uint8Array(els.length);
+    isoSet[selElem] = 1;
+    toast("Isolated 1 element");
+  }
+  refreshVisibility();
+  showInfo();
+}
+function zoomSel(){
+  if (selElem < 0) return;
+  var eb = ebox;
+  if (!eb){ toast("No bounds stored"); return; }
+  var o = selElem * 6;
+  frame({ min:[eb[o], eb[o+1], eb[o+2]], max:[eb[o+3], eb[o+4], eb[o+5]] });
+}
+
+/* ==================================================================
+   drawer contents
+   ================================================================== */
+function buildCats(){
+  var host = $("cats"), html = "";
+  for (var i = 0; i < catList.length; i++){
+    html += '<label class="row"><input type="checkbox" data-c="' + i + '" checked>' +
+            '<span class="nm">' + esc(strs[catList[i].s]) + "</span>" +
+            '<span class="ct">' + catList[i].n + "</span></label>";
+  }
+  host.innerHTML = html;
+  var boxes = host.querySelectorAll("input");
+  for (var j = 0; j < boxes.length; j++){
+    on(boxes[j], "change", function(ev){
+      catOn[parseInt(ev.target.getAttribute("data-c"), 10)] = ev.target.checked;
+      refreshVisibility();
+    });
+  }
+}
+function setAllCats(v){
+  catOn = catOn.map(function(){ return v; });
+  var boxes = $("cats").querySelectorAll("input");
+  for (var i = 0; i < boxes.length; i++) boxes[i].checked = v;
+  refreshVisibility();
+}
+
+var AXES = ["X", "Y", "Z"];
+function buildClips(){
+  var html = "";
+  for (var a = 0; a < 3; a++){
+    html += '<div style="margin-bottom:7px">' +
+      '<div class="slab"><span>' + AXES[a] + " min</span><span>" + AXES[a] + " max</span></div>" +
+      '<input type="range" min="0" max="1000" value="0" data-k="' + a + '">' +
+      '<input type="range" min="0" max="1000" value="1000" data-k="' + (a+3) + '">' +
+      "</div>";
+  }
+  $("clips").innerHTML = html;
+  var rs = $("clips").querySelectorAll("input");
+  for (var i = 0; i < rs.length; i++){
+    on(rs[i], "input", function(ev){
+      var k = parseInt(ev.target.getAttribute("data-k"), 10);
+      clip[k] = parseInt(ev.target.value, 10) / 1000;
+      /* Keep a sliver between min and max on each axis. Letting them
+         meet is worse than it sounds: the model vanishes completely and
+         nothing on screen explains why, so it reads as the file being
+         broken rather than as the section box being shut. Values are
+         deliberately allowed to sit slightly outside 0..1 - clipBox()
+         interpolates, so that just means "past the edge of the model" -
+         while the slider itself still shows an in-range position. */
+      var GAP = 0.012;
+      if (k < 3){
+        if (clip[k] > clip[k+3] - GAP) clip[k] = clip[k+3] - GAP;
+      } else {
+        if (clip[k] < clip[k-3] + GAP) clip[k] = clip[k-3] + GAP;
+      }
+      ev.target.value = Math.round(Math.max(0, Math.min(1, clip[k])) * 1000);
+      invalidate();
+    });
+  }
+}
+function resetClip(){
+  clip = [0,0,0,1,1,1];
+  var rs = $("clips").querySelectorAll("input");
+  for (var i = 0; i < rs.length; i++){
+    rs[i].value = parseInt(rs[i].getAttribute("data-k"), 10) < 3 ? 0 : 1000;
+  }
+  invalidate();
+}
+
+function buildMeta(){
+  var f = DATA.dispPerM || 1000, u = DATA.dispUnit || "mm";
+  function dim(i){ return Math.round((bmax[i]-bmin[i]) * f).toLocaleString() + " " + u; }
+  var rows = [
+    ["Model", DATA.model], ["View", DATA.view], ["Exported", DATA.date],
+    ["Elements", (els.length || 0).toLocaleString()],
+    ["Triangles", (DATA.tris || 0).toLocaleString()],
+    ["Size", dim(0) + " \u00d7 " + dim(1) + " \u00d7 " + dim(2)]
+  ];
+  var html = "";
+  for (var i = 0; i < rows.length; i++){
+    if (!rows[i][1]) continue;
+    html += '<div class="kv"><div class="k">' + esc(rows[i][0]) +
+            '</div><div class="v">' + esc(rows[i][1]) + "</div></div>";
+  }
+  $("meta").innerHTML = html;
+  $("t_name").textContent = DATA.model || "BIM model";
+  $("t_sub").textContent = DATA.view || "";
+  document.title = (DATA.model || "BIM model") + (DATA.view ? " - " + DATA.view : "");
+}
+
+function search(q){
+  var host = $("hits");
+  q = (q || "").trim().toLowerCase();
+  if (q.length < 2){ host.innerHTML = ""; return; }
+  var out = [], i;
+  for (i = 0; i < els.length && out.length < 200; i++){
+    var e = els[i];
+    var hay = (S(e[2]) + " " + S(e[1]) + " " + S(e[0])).toLowerCase();
+    if (hay.indexOf(q) >= 0) out.push(i);
+  }
+  if (!out.length){ host.innerHTML = '<div class="kv"><div class="v">Nothing found.</div></div>'; return; }
+  var html = "";
+  for (i = 0; i < out.length; i++){
+    var el = els[out[i]];
+    html += '<div class="row" data-e="' + out[i] + '"><span class="nm">' + esc(S(el[2])) +
+            "<br><span>" + esc(S(el[0])) + "</span></span></div>";
+  }
+  html += '<div class="mini" style="margin-top:6px"><button id="iso_hits">Isolate ' +
+          out.length + " result" + (out.length === 1 ? "" : "s") + "</button></div>";
+  host.innerHTML = html;
+
+  var rows = host.querySelectorAll(".row");
+  for (i = 0; i < rows.length; i++){
+    on(rows[i], "click", function(ev){
+      var e = parseInt(ev.currentTarget.getAttribute("data-e"), 10);
+      selElem = e;
+      selPart = firstPartOf(e);
+      showInfo();
+      zoomSel();
+      invalidate();
+    });
+  }
+  on($("iso_hits"), "click", function(){
+    isoSet = new Uint8Array(els.length);
+    for (var k = 0; k < out.length; k++) isoSet[out[k]] = 1;
+    refreshVisibility();
+    fitAll();
+    toast("Isolated " + out.length + " element" + (out.length === 1 ? "" : "s"));
+  });
+}
+
+function firstPartOf(e){
+  for (var p = 0; p < nParts; p++) if (parts[p*4] === e) return p;
+  return -1;
+}
+
+function resetAll(){
+  catOn = catOn.map(function(){ return true; });
+  var boxes = $("cats").querySelectorAll("input");
+  for (var i = 0; i < boxes.length; i++) boxes[i].checked = true;
+  elHidden = new Uint8Array(els.length);
+  isoSet = null;
+  resetClip();
+  clearSel();
+  refreshVisibility();
+  fitAll();
+  toast("Everything restored");
+}
+
+/* ==================================================================
+   wiring
+   ================================================================== */
+function wireUI(){
+  wireInput();
+  on($("b_menu"), "click", function(){
+    var d = $("drawer");
+    d.className = d.className === "open" ? "" : "open";
+    $("b_menu").className = d.className === "open" ? "ic on" : "ic";
+  });
+  on($("b_theme"), "click", function(){
+    var h = document.documentElement;
+    h.className = h.className === "light" ? "" : "light";
+    try { localStorage.setItem("dee3d_theme", h.className); } catch (err) {}
+    invalidate();
+  });
+  on($("b_help"), "click", function(){ $("help").className = "show"; });
+  on($("help_close"), "click", function(){ $("help").className = ""; });
+  on($("help"), "click", function(e){ if (e.target === $("help")) $("help").className = ""; });
+
+  on($("v_fit"), "click", fitAll);
+  on($("v_reset"), "click", resetAll);
+  ["iso3","top","front","back","left","right"].forEach(function(k){
+    on($("v_" + k), "click", function(){
+      viewPreset(k === "iso3" ? "iso" : k);
+    });
+  });
+
+  on($("c_all"), "click", function(){ setAllCats(true); });
+  on($("c_none"), "click", function(){ setAllCats(false); });
+  on($("clip_reset"), "click", resetClip);
+
+  on($("i_close"), "click", clearSel);
+  on($("i_hide"), "click", hideSel);
+  on($("i_iso"), "click", isolateSel);
+  on($("i_zoom"), "click", zoomSel);
+
+  var qEl = $("q"), qT = null;
+  on(qEl, "input", function(){
+    if (qT) clearTimeout(qT);
+    qT = setTimeout(function(){ search(qEl.value); }, 180);
+  });
+
+  try {
+    var th = localStorage.getItem("dee3d_theme");
+    if (th === "light") document.documentElement.className = "light";
+  } catch (err) {}
+
+  on($("gl"), "webglcontextlost", function(e){
+    e.preventDefault();
+    toast("3D context lost - reload the page");
+  });
+}
+
+/* go */
+if (!DATA){
+  fail("This file was not written correctly - the model data is missing.");
+} else {
+  runNext();
+}
+</script>
+</body>
+</html>

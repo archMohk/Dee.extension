@@ -356,6 +356,15 @@ GLYPHS = {
         ln(60, 22, 60, 80, "accent", 1.5),
     ],
     "DeeNWCs": lambda: cube(40, 46, 19, "ink", 0.9) + arrow(64, 70, 86, 48, "accent", 1.3, 12),
+    # A browser window with the model inside it - the accent is on the
+    # cube because the model is what actually travels to the phone; the
+    # frame is only there to say "this ends up as a web page", which is
+    # what separates it from DeeNWCs (cube + export arrow) at 16px.
+    "Dee3D": lambda: [
+        rc(10, 18, 86, 74, "ink", 1.0, 5),
+        ln(10, 31, 86, 31, "ink", 0.8),
+        cf(18, 24.5, 2.6, "ink"), cf(27, 24.5, 2.6, "ink"),
+    ] + cube(48, 54, 17, "accent", 1.25),
     "DeeScheduleXL": lambda: table(18, 22, 66, 72, 3, 2, "ink", 0.95) + [
         ln(58, 58, 84, 84, "accent", 1.5), ln(84, 58, 58, 84, "accent", 1.5),
     ],

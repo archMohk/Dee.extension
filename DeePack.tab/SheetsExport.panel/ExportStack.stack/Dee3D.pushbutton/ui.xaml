@@ -1,0 +1,137 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Dee3D - Export 3D View to HTML"
+        ShowInTaskbar="False"
+        MinHeight="600" MinWidth="900" Height="680" Width="980"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="status_tb" Text="Pick a 3D view to export."/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
+            <Button x:Name="export_b" Content="Export HTML..." Width="180" Height="32"
+                    FontWeight="Bold" Click="export_click"/>
+            <Button x:Name="close_b" Content="Close" Width="90" Height="32"
+                    Margin="14,0,0,0" Click="close_click"/>
+            <TextBlock x:Name="estimate_tb" VerticalAlignment="Center" Margin="18,0,0,0"
+                       Foreground="#555555" TextWrapping="Wrap" Text=""/>
+        </StackPanel>
+
+        <Border DockPanel.Dock="Top" Background="#EEF3F8" Padding="8" Margin="0,0,0,10">
+            <StackPanel>
+                <TextBlock FontWeight="Bold"
+                           Text="Export a 3D view as one self-contained HTML file"/>
+                <TextBlock TextWrapping="Wrap" Margin="0,3,0,0"
+                           Text="The exported file carries the model, the element data and the 3D viewer all inside it. Save it anywhere - your PC, a network drive or a OneDrive folder - then share that one file. It opens in any browser on Windows, Android and iPhone, and needs no internet connection, no app and no login to view."/>
+            </StackPanel>
+        </Border>
+
+        <GroupBox DockPanel.Dock="Bottom" Header="Export options" Margin="0,0,0,6">
+            <Grid Margin="6,4,6,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="250"/>
+                    <ColumnDefinition Width="24"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="230"/>
+                    <ColumnDefinition Width="24"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Mesh quality:" Margin="0,0,6,0"
+                           VerticalAlignment="Center"/>
+                <ComboBox Grid.Row="0" Grid.Column="1" x:Name="quality_cb" Height="24"
+                          ToolTip="Controls how finely curved surfaces are broken into triangles. Coarse gives a much smaller file, which matters most on a phone."/>
+
+                <TextBlock Grid.Row="0" Grid.Column="3" Text="Colour by:" Margin="0,0,6,0"
+                           VerticalAlignment="Center"/>
+                <ComboBox Grid.Row="0" Grid.Column="4" x:Name="color_cb" Height="24"
+                          ToolTip="Material uses each surface's real Revit material, falling back to a per-category colour where no material is assigned."/>
+
+                <StackPanel Grid.Row="0" Grid.Column="6" Orientation="Horizontal">
+                    <TextBlock Text="Triangle limit:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBox x:Name="limit_tb" Width="90" Height="24" Text="1500000"
+                             VerticalContentAlignment="Center"
+                             ToolTip="A safety stop. The export ends cleanly at this many triangles and tells you what it left out, instead of producing a file too big to open."/>
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="7"
+                            Orientation="Horizontal" Margin="0,10,0,0">
+                    <CheckBox x:Name="links_cb" Content="Include linked models"
+                              VerticalAlignment="Center"
+                              ToolTip="Adds every loaded Revit link visible in this view. Much larger file, and slower to export."/>
+                    <CheckBox x:Name="params_cb" Content="Include element parameters"
+                              VerticalAlignment="Center" Margin="22,0,0,0"
+                              ToolTip="Stores each element's instance parameters so they can be read in the viewer. This is the option most likely to make the file very large."/>
+                    <CheckBox x:Name="open_cb" Content="Open in browser when finished"
+                              VerticalAlignment="Center" Margin="22,0,0,0"/>
+                </StackPanel>
+            </Grid>
+        </GroupBox>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="330"/>
+            </Grid.ColumnDefinitions>
+
+            <DockPanel Grid.Column="0">
+                <TextBlock DockPanel.Dock="Top" FontWeight="Bold" Margin="0,0,0,4"
+                           Text="1. Choose the 3D view to export"/>
+                <TextBox DockPanel.Dock="Top" x:Name="view_filter_tb" Height="24" Margin="0,0,0,5"
+                         VerticalContentAlignment="Center" TextChanged="view_filter_changed"
+                         ToolTip="Type to filter the list of 3D views."/>
+                <DataGrid x:Name="views_grid" AutoGenerateColumns="False" IsReadOnly="True"
+                          CanUserAddRows="False" HeadersVisibility="Column"
+                          SelectionMode="Single" GridLinesVisibility="Horizontal"
+                          SelectionChanged="views_selection_changed">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="3D view" Binding="{Binding label}" Width="*"/>
+                        <DataGridTextColumn Header="Detail" Binding="{Binding detail}" Width="80"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+
+            <DockPanel Grid.Column="2">
+                <TextBlock DockPanel.Dock="Top" FontWeight="Bold" Margin="0,0,0,4"
+                           Text="2. Categories to include"/>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,5">
+                    <Button x:Name="cats_all_b" Content="All" Width="60" Height="24"
+                            Click="cats_all_click"/>
+                    <Button x:Name="cats_none_b" Content="None" Width="60" Height="24"
+                            Margin="6,0,0,0" Click="cats_none_click"/>
+                    <TextBlock x:Name="cats_count_tb" VerticalAlignment="Center" Margin="10,0,0,0"
+                               Foreground="#555555" Text=""/>
+                </StackPanel>
+                <DataGrid x:Name="cats_grid" AutoGenerateColumns="False"
+                          CanUserAddRows="False" HeadersVisibility="Column"
+                          SelectionMode="Single" GridLinesVisibility="Horizontal">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="Use" Width="42" SortMemberPath="included">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <CheckBox IsChecked="{Binding included, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Click="cat_toggle_click"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="Category" Binding="{Binding name}"
+                                            IsReadOnly="True" Width="*"/>
+                        <DataGridTextColumn Header="Count" Binding="{Binding count}"
+                                            IsReadOnly="True" Width="60"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</Window>
