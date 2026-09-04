@@ -85,6 +85,10 @@ SCOPE_LABELS = [
 # elements per parameter.
 _PARAM_PROBE_LIMIT = 20000
 
+# Elements per transaction when clearing identity data. One transaction
+# across a whole model is a memory risk and an all-or-nothing bet.
+_IDENTITY_BATCH = 5000
+
 
 class SilentDeletionFailures(IFailuresPreprocessor):
     """Deleting content in bulk legitimately raises errors that Revit
@@ -456,24 +460,82 @@ def delete_point_clouds(doc):
 # ==========================================================================
 # project parameters
 # ==========================================================================
-def _project_parameter_bindings(doc):
-    """[(definition, name)] captured into a list BEFORE anything is
-    removed - mutating a BindingMap while its own iterator is live is
-    asking for trouble."""
-    found = []
+def _project_parameter_names(doc):
+    """Just the NAMES - plain strings, nothing owned by Revit.
+
+    An earlier version captured the InternalDefinition objects here and
+    removed them in a loop afterwards. It solved the obvious problem
+    (mutating a BindingMap while its own iterator is live) and walked
+    into a far worse one: holding 200-odd live API objects across 200-odd
+    removals. Revit CRASHED OUTRIGHT on a real model - journal.0166
+    shows the "Remove All Project Parameters" transaction opening and
+    never finishing, with no exception anywhere, because a stale API
+    wrapper takes the process down natively and no try/except can catch
+    it. This codebase already had that rule written down; the fix is to
+    hold nothing."""
+    names = []
     try:
         it = doc.ParameterBindings.ForwardIterator()
         it.Reset()
         while it.MoveNext():
             try:
                 definition = it.Key
-                if definition is not None:
-                    found.append((definition, definition.Name))
+                if definition is not None and definition.Name:
+                    names.append(definition.Name)
             except Exception:
                 continue
     except Exception:
         pass
-    return found
+    return names
+
+
+def _find_binding(doc, name):
+    """A FRESH definition for `name`, fetched immediately before it is
+    used and never kept afterwards."""
+    try:
+        it = doc.ParameterBindings.ForwardIterator()
+        it.Reset()
+        while it.MoveNext():
+            try:
+                definition = it.Key
+                if definition is not None and definition.Name == name:
+                    return definition
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
+def remove_bindings_by_name(doc, names, transaction_name):
+    """Removes project-parameter bindings one at a time, each looked up
+    from a NEW iterator right before its own removal. Returns the count
+    removed."""
+    if not names:
+        return 0
+    removed = 0
+    t = None
+    try:
+        t = start_transaction(doc, transaction_name)
+        for name in names:
+            definition = _find_binding(doc, name)
+            if definition is None:
+                continue
+            try:
+                if doc.ParameterBindings.Remove(definition):
+                    removed += 1
+            except Exception:
+                continue
+            definition = None
+        t.Commit()
+    except Exception:
+        try:
+            if t is not None and t.HasStarted() and not t.HasEnded():
+                t.RollBack()
+        except Exception:
+            pass
+        return removed
+    return removed
 
 
 def _parameter_has_any_value(doc, definition):
@@ -515,41 +577,29 @@ def _parameter_has_any_value(doc, definition):
 def delete_project_parameters(doc, scope, progress=None):
     if scope == SCOPE_NONE:
         return 0
-    bindings = _project_parameter_bindings(doc)
-    if not bindings:
-        return 0
-    targets = []
-    for i, (definition, name) in enumerate(bindings):
-        if progress is not None:
-            progress(i, len(bindings), name)
-        if scope == SCOPE_ALL:
-            targets.append((definition, name))
-            continue
-        used = _parameter_has_any_value(doc, definition)
-        if _wanted(scope, used):
-            targets.append((definition, name))
-    if not targets:
+    names = _project_parameter_names(doc)
+    if not names:
         return 0
 
-    removed = 0
-    t = None
-    try:
-        t = start_transaction(doc, "DeeTransmit - Delete Project Parameters")
-        for definition, _name in targets:
-            try:
-                if doc.ParameterBindings.Remove(definition):
-                    removed += 1
-            except Exception:
-                continue
-        t.Commit()
-    except Exception:
-        try:
-            if t is not None and t.HasStarted() and not t.HasEnded():
-                t.RollBack()
-        except Exception:
-            pass
-        return 0
-    return removed
+    targets = []
+    for i, name in enumerate(names):
+        if progress is not None:
+            progress(i, len(names), name)
+        if scope == SCOPE_ALL:
+            targets.append(name)
+            continue
+        # Fetched fresh, used immediately, dropped - never carried
+        # across the element scan or into the removal below.
+        definition = _find_binding(doc, name)
+        if definition is None:
+            continue
+        used = _parameter_has_any_value(doc, definition)
+        definition = None
+        if _wanted(scope, used):
+            targets.append(name)
+
+    return remove_bindings_by_name(
+        doc, targets, "DeeTransmit - Delete Project Parameters")
 
 
 # ==========================================================================
@@ -723,18 +773,43 @@ def strip_to_geometry(doc, progress=None):
     or type behaviour (height, width, level, family and type names)
     cannot be removed without destroying the model, so those stay. This
     strips what a recipient would read as information, not the model."""
-    removed = 0
-    bindings = _project_parameter_bindings(doc)
-    if bindings:
+    removed = remove_bindings_by_name(
+        doc, _project_parameter_names(doc),
+        "DeeTransmit - Remove All Project Parameters")
+
+    # Committed in batches rather than one enormous transaction. A model
+    # this tool is aimed at can hold hundreds of thousands of elements,
+    # and a single transaction holding every one of those edits is both
+    # a memory risk and an all-or-nothing bet on the whole pass.
+    cleared = 0
+    # ElementIds, not Elements. Batching means these now span SEVERAL
+    # transactions, and an Element wrapper held across a transaction
+    # boundary is the same stale-wrapper trap that crashed the parameter
+    # pass - the elements are re-fetched by id inside each batch.
+    ids = [e.Id for e in _collect(doc, instances_only=True)]
+    total = len(ids)
+    for start in range(0, total, _IDENTITY_BATCH):
+        chunk = ids[start:start + _IDENTITY_BATCH]
+        if progress is not None:
+            progress(start, total, "identity data")
         t = None
         try:
-            t = start_transaction(doc, "DeeTransmit - Remove All Project Parameters")
-            for definition, _name in bindings:
-                try:
-                    if doc.ParameterBindings.Remove(definition):
-                        removed += 1
-                except Exception:
+            t = start_transaction(doc, "DeeTransmit - Clear Identity Data")
+            for element_id in chunk:
+                element = doc.GetElement(element_id)
+                if element is None:
                     continue
+                for bip in _IDENTITY_PARAMS:
+                    try:
+                        p = element.get_Parameter(bip)
+                        if p is None or p.IsReadOnly:
+                            continue
+                        if p.StorageType == StorageType.String:
+                            if (p.AsString() or "") != "":
+                                p.Set("")
+                                cleared += 1
+                    except Exception:
+                        continue
             t.Commit()
         except Exception:
             try:
@@ -742,33 +817,7 @@ def strip_to_geometry(doc, progress=None):
                     t.RollBack()
             except Exception:
                 pass
-
-    cleared = 0
-    elements = _collect(doc, instances_only=True)
-    t = None
-    try:
-        t = start_transaction(doc, "DeeTransmit - Clear Identity Data")
-        for i, element in enumerate(elements):
-            if progress is not None and i % 500 == 0:
-                progress(i, len(elements), "identity data")
-            for bip in _IDENTITY_PARAMS:
-                try:
-                    p = element.get_Parameter(bip)
-                    if p is None or p.IsReadOnly:
-                        continue
-                    if p.StorageType == StorageType.String:
-                        if (p.AsString() or "") != "":
-                            p.Set("")
-                            cleared += 1
-                except Exception:
-                    continue
-        t.Commit()
-    except Exception:
-        try:
-            if t is not None and t.HasStarted() and not t.HasEnded():
-                t.RollBack()
-        except Exception:
-            pass
+            continue
     return removed + cleared
 
 
