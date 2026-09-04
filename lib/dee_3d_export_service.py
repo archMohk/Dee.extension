@@ -119,6 +119,7 @@ PHONE_COMFORT_TRIANGLES = 600000
 
 _PARAM_LIMIT = 40  # per element, when parameters are requested
 _TOKEN = "__DEE3D_PAYLOAD__"
+BACKSLASH = chr(92)
 _INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
 
 
@@ -170,12 +171,10 @@ def to_text(value):
     """Force anything into a real unicode string. EVERY string that
     reaches the JSON payload goes through here.
 
-    Revit hands back .NET strings, which IronPython 2.7 surfaces as
-    `str`, not `unicode`. json.dumps(ensure_ascii=True) reacts to a
-    non-ASCII `str` by calling s.decode("utf-8") on it (json/encoder.py,
-    py_encode_basestring_ascii). For a value like a volume in "m3" with
-    a real superscript, that decode dies inside json with an unhelpful
-    codec error - which is the crash this function exists to stop.
+    This normalises genuine BYTE strings, which do turn up. It is NOT
+    what protects json from non-ASCII: under IronPython every Revit
+    string already satisfies the isinstance check below and passes
+    through untouched, so _ascii_script_safe() does that job instead.
 
     The order matters: genuine UTF-8 bytes decode correctly first, and
     only then does it fall back to rebuilding from code points, which
@@ -184,6 +183,12 @@ def to_text(value):
     if value is None:
         return u""
     if isinstance(value, TEXT):
+        # NOTE: in IronPython 2.7 this matches EVERY Revit string, because
+        # str and unicode are the SAME TYPE there (.NET strings are already
+        # Unicode). So this guard cannot be what keeps non-ASCII away from
+        # json - an earlier version of this module assumed it could, and
+        # crashed in exactly the same place twice. The real protection is
+        # _ascii_script_safe() below.
         return value
     for encoding in ("utf-8", "latin-1"):
         try:
@@ -926,13 +931,20 @@ def render_html(payload, template_text):
         raise ValueError(
             "The viewer template is not usable: expected exactly one {0} "
             "placeholder, found {1}.".format(_TOKEN, occurrences))
-    # ensure_ascii keeps the whole output file pure ASCII even when the
-    # model is full of Arabic room names - every non-ASCII character
-    # becomes a \\uXXXX escape inside the JavaScript string, which
-    # removes any chance of the file arriving mojibaked on a phone that
-    # guessed the wrong encoding.
+    # The finished file is pure ASCII even when the model is full of
+    # Arabic room names - _ascii_script_safe() turns every non-ASCII
+    # character into an escape inside the JavaScript string, removing any
+    # chance of the file arriving mojibaked on a phone that guessed the
+    # wrong encoding at a file:// URL.
     try:
-        blob = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+        # ensure_ascii is deliberately FALSE. With it True, json reacts
+        # to a non-ASCII string by calling s.decode("utf-8") on it
+        # (json/encoder.py, py_encode_basestring_ascii) - and under
+        # IronPython that raises "'unknown' codec can't decode byte 0xb3",
+        # a live crash this tool hit on a cubic-metre parameter value.
+        # The escaping json would have done happens in
+        # _ascii_script_safe() instead, where it cannot fail.
+        blob = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     except (UnicodeDecodeError, UnicodeEncodeError, TypeError):
         # Something reached the payload as a non-ASCII byte string
         # despite to_text() at every known source. IronPython raises
@@ -941,9 +953,51 @@ def render_html(payload, template_text):
         # stray parameter value, normalise the structure and try again -
         # an odd value showing up as text in the file is a far better
         # outcome for the person waiting on the export than no file.
-        blob = json.dumps(sanitize_payload(payload), ensure_ascii=True,
+        blob = json.dumps(sanitize_payload(payload), ensure_ascii=False,
                           separators=(",", ":"))
-    return template_text.replace(_TOKEN, blob)
+    return template_text.replace(_TOKEN, _ascii_script_safe(blob))
+
+
+_NON_ASCII_RE = re.compile(u"[^\u0000-\u007f]")
+
+
+def _escape_one(match):
+    """A JSON u-escape is exactly four hex digits, so anything above the
+    BMP has to become a surrogate PAIR. Under IronPython this branch
+    never fires - .NET strings are UTF-16, so an astral character is
+    already two units - but on a wide Python build ord() returns the
+    whole code point and a naive five-digit escape would silently
+    corrupt the file."""
+    cp = ord(match.group(0))
+    if cp > 0xFFFF:
+        cp -= 0x10000
+        return "{0}u{1:04x}{0}u{2:04x}".format(
+            BACKSLASH, 0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF))
+    return "{0}u{1:04x}".format(BACKSLASH, cp)
+
+
+def _ascii_script_safe(blob):
+    """Make a JSON document pure ASCII and safe to paste inside a <script>
+    block. Two problems, one pass:
+
+    1. Non-ASCII. Doing it here instead of via ensure_ascii keeps json off
+       its decode path entirely (see render_html above). A regex
+       substitution scans at native speed and only calls back on real
+       matches, which matters because the blob can be tens of megabytes of
+       base64 that needs no work at all. A surrogate pair escapes as two
+       units, which is exactly what JSON wants.
+    2. '<' and '>'. json escapes quotes and backslashes but not these, so
+       a Revit type name or comment containing a close-tag would end the
+       script block early and leave a blank white page - the viewer
+       silently gone, with no error anywhere.
+
+    Both rewrites are lossless: the blob is JSON, so these characters can
+    only occur inside string literals, where a u-escape means exactly the
+    same thing.
+    """
+    blob = _NON_ASCII_RE.sub(_escape_one, blob)
+    blob = blob.replace("<", "{0}u003c".format(BACKSLASH))
+    return blob.replace(">", "{0}u003e".format(BACKSLASH))
 
 
 def write_html(payload, out_path, template_file=None):
