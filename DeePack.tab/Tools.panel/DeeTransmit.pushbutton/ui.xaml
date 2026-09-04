@@ -1,0 +1,149 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeTransmit - Clean models for issuing"
+        ShowInTaskbar="False"
+        MinHeight="620" MinWidth="940" Height="720" Width="1000"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="status_tb" Text="Choose what to strip out, then press Run."/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
+            <Button x:Name="run_b" Content="Run cleaning..." Width="170" Height="32"
+                    FontWeight="Bold" Click="run_click"/>
+            <Button x:Name="cancel_b" Content="Cancel" Width="90" Height="32"
+                    Margin="14,0,0,0" Click="cancel_click"/>
+            <Button x:Name="all_b" Content="Tick everything" Width="120" Height="32"
+                    Margin="24,0,0,0" Click="all_click"/>
+            <Button x:Name="none_b" Content="Clear all" Width="90" Height="32"
+                    Margin="8,0,0,0" Click="none_click"/>
+            <Button x:Name="preset_b" Content="Issue preset" Width="110" Height="32"
+                    Margin="8,0,0,0" Click="preset_click"
+                    ToolTip="A sensible starting point for sending a model out: strip drawings, links, imports and clutter, keep the model and its data."/>
+        </StackPanel>
+
+        <Border DockPanel.Dock="Top" Background="#FDECEA" Padding="8" Margin="0,0,0,8"
+                BorderBrush="#E0B4B0" BorderThickness="1">
+            <StackPanel>
+                <TextBlock x:Name="source_tb" FontWeight="Bold" TextWrapping="Wrap"
+                           Text="Models selected"/>
+                <TextBlock TextWrapping="Wrap" Margin="0,3,0,0" Foreground="#8B2C24"
+                           Text="Everything ticked below is DELETED from each model. You will be shown exactly what was chosen, and asked to confirm, before anything runs. Nothing is saved until you choose Save or Synchronize at the end."/>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <GroupBox Grid.Row="0" Grid.Column="0" Header="Drawings and views" Margin="0,0,0,8">
+                    <Grid Margin="6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Sheets:" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Row="0" Grid.Column="1" x:Name="sheets_cb" Height="24" Margin="0,3"
+                                  ToolTip="A sheet counts as used when it carries at least one viewport or schedule."/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Views:" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Row="1" Grid.Column="1" x:Name="views_cb" Height="24" Margin="0,3"
+                                  ToolTip="A view counts as used when it is placed on a sheet."/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Legends:" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Row="2" Grid.Column="1" x:Name="legends_cb" Height="24" Margin="0,3"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Schedules:" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Row="3" Grid.Column="1" x:Name="schedules_cb" Height="24" Margin="0,3"/>
+
+                        <CheckBox Grid.Row="4" Grid.Column="1" x:Name="revisions_cb" Margin="0,8,0,0"
+                                  Content="Revisions and revision clouds"/>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Grid.Row="1" Grid.Column="0" Header="Links and imports" Margin="0,0,0,8">
+                    <StackPanel Margin="8,4,8,8">
+                        <CheckBox x:Name="images_cb" Content="Images (linked and imported)" Margin="0,3"/>
+                        <CheckBox x:Name="cad_cb" Content="CAD - DWG, DXF, DGN (linked and imported)" Margin="0,3"/>
+                        <CheckBox x:Name="links_cb" Content="Revit links" Margin="0,3"/>
+                        <CheckBox x:Name="clouds_cb" Content="Point clouds" Margin="0,3"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Grid.Row="2" Grid.Column="0" Header="Model state" Margin="0,0,0,8">
+                    <StackPanel Margin="8,4,8,8">
+                        <CheckBox x:Name="design_cb" Margin="0,3"
+                                  Content="Secondary design options"
+                                  ToolTip="Only the non-primary options. Revit has no public 'accept primary' call, so primaries are left exactly as they are."/>
+                        <CheckBox x:Name="phases_cb" Content="Unused phases" Margin="0,3"
+                                  ToolTip="Revit refuses to delete a phase anything still references, and that refusal is the answer - the model always keeps at least one phase."/>
+                        <CheckBox x:Name="rooms_cb" Margin="0,3"
+                                  Content="Unplaced / unenclosed rooms, spaces and areas"/>
+                        <CheckBox x:Name="groups_cb" Content="Unused groups" Margin="0,3"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Grid.Row="0" Grid.Column="2" Header="Model data" Margin="0,0,0,8">
+                    <Grid Margin="6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Parameters:" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Row="0" Grid.Column="1" x:Name="params_cb" Height="24" Margin="0,3"
+                                  ToolTip="Project and shared parameters. 'Used' means at least one element carries a value; 'unused' means every element is empty."/>
+                        <CheckBox Grid.Row="1" Grid.Column="1" x:Name="geometry_cb" Margin="0,10,0,0"
+                                  Content="Geometry only - strip ALL data" Click="geometry_click"
+                                  ToolTip="Removes every project and shared parameter and clears Mark, Comments, Description, Manufacturer, Model, Cost and URL on every element. Built-in parameters that define the geometry itself (height, level, type) have to stay, or there would be no model left."/>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Grid.Row="1" Grid.Column="2" Header="Clutter Revit's own Purge leaves behind" Margin="0,0,0,8">
+                    <StackPanel Margin="8,4,8,8">
+                        <CheckBox x:Name="templates_cb" Content="Unused view templates" Margin="0,3"/>
+                        <CheckBox x:Name="filters_cb" Content="Unused view filters" Margin="0,3"/>
+                        <CheckBox x:Name="scope_cb" Content="Scope boxes" Margin="0,3"/>
+                        <CheckBox x:Name="grids_cb" Content="Sheet guide grids" Margin="0,3"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Grid.Row="2" Grid.Column="2" Header="Purge" Margin="0,0,0,8">
+                    <StackPanel Margin="8,4,8,8">
+                        <CheckBox x:Name="families_cb" Content="Unused family types" Margin="0,3"/>
+                        <CheckBox x:Name="materials_cb" Margin="0,3"
+                                  Content="Unused materials"
+                                  ToolTip="Reads the material list of every element to decide. Thorough, but the slowest option here on a large model."/>
+                        <CheckBox x:Name="purge_cb" Margin="0,3"
+                                  Content="Revit Purge Unused (runs last, repeatedly)"
+                                  ToolTip="Needs Revit 2024 or newer. Runs after everything else, because every deletion above frees more for it to reclaim."/>
+                    </StackPanel>
+                </GroupBox>
+            </Grid>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

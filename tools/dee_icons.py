@@ -484,6 +484,16 @@ GLYPHS = {
     ] + arrow(46, 48, 62, 48, "accent", 1.3, 11) + [
         pl([(70, 30), (90, 42), (90, 62), (70, 74), (68, 62), (68, 42)], "ink", 1.0, True),
     ],
+    # A box with its lid open and an accent arrow leaving it - the
+    # "send this out" motif. Deliberately NOT the shared cube(): this is
+    # a package being issued, not a 3D model, and at 16px the open flaps
+    # are what separate it from DeeNWCs and Dee3D.
+    "DeeTransmit": lambda: [
+        pl([(16, 44), (48, 30), (80, 44), (80, 76), (48, 90), (16, 76)], "ink", 1.0, True),
+        ln(16, 44, 48, 58, "ink", 0.9), ln(80, 44, 48, 58, "ink", 0.9),
+        ln(48, 58, 48, 90, "ink", 0.9),
+        pl([(16, 44), (30, 24), (58, 20)], "ink", 0.85),
+    ] + arrow(48, 74, 48, 40, "accent", 1.35, 13),
     "DeeAssemb": lambda: cube(34, 40, 18, "ink", 0.9) + [
         rc(52, 44, 88, 86, "accent", 1.2, 3), ln(58, 56, 82, 56, "ink", 0.8),
         ln(58, 66, 82, 66, "ink", 0.8), ln(58, 76, 72, 76, "ink", 0.8),

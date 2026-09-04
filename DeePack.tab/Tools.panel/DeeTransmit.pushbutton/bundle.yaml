@@ -1,0 +1,3 @@
+title: DeeTransmit
+tooltip: Strip models down ready to issue - from the models you already have open, from local files, or from an ACC project. Deletes sheets, views, legends and schedules (used, unused or all), images, CAD, Revit links, point clouds, revisions, parameters and every kind of clutter Revit's own Purge leaves behind, with a geometry-only mode that removes all data. Nothing is saved until you choose Save, Synchronize or a cleaned copy at the end.
+context: zero-doc
