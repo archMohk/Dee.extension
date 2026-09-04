@@ -39,6 +39,8 @@ clr.AddReference("System.Windows.Forms")
 from System.Windows.Forms import (
     FolderBrowserDialog, OpenFileDialog, DialogResult, MessageBox
 )
+from Autodesk.Revit.UI import TaskDialogResult
+
 from pyrevit import forms, script
 
 import dee_branding
@@ -67,11 +69,68 @@ OPEN_MODES = [
     ("Open with All Worksets Closed", None, False),
 ]
 
-FINISH_COPY = "Save a cleaned COPY into a folder (originals untouched)"
-FINISH_SAVE = "Save each model in place"
-FINISH_SYNC = "Synchronize With Central"
-FINISH_NONE = "Save nothing - leave them open so I can look first"
-FINISH_MODES = [FINISH_COPY, FINISH_SAVE, FINISH_SYNC, FINISH_NONE]
+# The finish modes and which of them are possible live in the service,
+# so the rule can be tested without a Revit session.
+FINISH_COPY = core.FINISH_COPY
+FINISH_COPY_OPEN = core.FINISH_COPY_OPEN
+FINISH_SAVE = core.FINISH_SAVE
+FINISH_SYNC = core.FINISH_SYNC
+FINISH_DISCARD = core.FINISH_DISCARD
+FINISH_BACKGROUND = core.FINISH_BACKGROUND
+FINISH_LEAVE = core.FINISH_LEAVE
+_KEEP_OPEN = core.KEEP_OPEN
+
+
+# Revit dialogs this tool answers on its own, matched against the dialog
+# id and the message text together. Deleting content in bulk raises a lot
+# of these, and a batch that stops on every one is unusable.
+#
+# Anything NOT listed here is answered Cancel - the non-destructive
+# default - and then reported by name afterwards, so an unknown dialog
+# surfaces as something to add to this list rather than as a mystery.
+_DIALOG_ANSWERS = [
+    ("serious error", int(TaskDialogResult.CommandLink2)),   # Continue Without Save
+    ("unresolved", int(TaskDialogResult.CommandLink2)),
+    ("could not find or read", int(TaskDialogResult.CommandLink2)),
+    ("duplicate", int(TaskDialogResult.Ok)),
+    ("group instance", int(TaskDialogResult.Ok)),
+    ("extents greater than", int(TaskDialogResult.Ok)),
+    ("truncated", int(TaskDialogResult.Ok)),
+    ("have been deleted", int(TaskDialogResult.Ok)),
+    ("will be upgraded", int(TaskDialogResult.Ok)),
+    ("missing", int(TaskDialogResult.Close)),
+    ("save", int(TaskDialogResult.Ok)),
+]
+
+
+def _make_dialog_handler(log):
+    """uiapp.DialogBoxShowing fires just before Revit puts a native
+    dialog on screen, which is the only chance to answer it without a
+    human. The failure preprocessor in dee_transmit_service handles the
+    other kind - failures raised inside a transaction - and between them
+    they cover everything a cleaning run produces."""
+    def handler(sender, args):
+        try:
+            try:
+                dialog_id = args.DialogId or ""
+            except Exception:
+                dialog_id = ""
+            try:
+                message = args.Message or ""
+            except Exception:
+                message = ""
+            text = (dialog_id + " " + message).lower()
+
+            for needle, answer in _DIALOG_ANSWERS:
+                if needle in text:
+                    args.OverrideResult(answer)
+                    log.append((True, dialog_id, message))
+                    return
+            args.OverrideResult(int(TaskDialogResult.Cancel))
+            log.append((False, dialog_id, message))
+        except Exception:
+            pass
+    return handler
 
 
 class Target(object):
@@ -418,42 +477,51 @@ def _acc_targets(app):
 # ==========================================================================
 # finishing
 # ==========================================================================
+def _finish_choices(live_targets):
+    opened = [t for t in live_targets if t.opened_by_us]
+    return core.finish_choices(
+        len(opened),
+        len([t for t in live_targets if not t.opened_by_us]),
+        len([t for t in opened if t.detached]))
+
+
 def _finish(targets, live_targets):
-    """Asked at the END on purpose: by this point the user can see what
-    the cleaning did, and choosing 'save nothing' throws it all away."""
-    has_detached = any(t.detached for t in live_targets)
-    has_session = any(not t.opened_by_us for t in live_targets)
-
-    choices = list(FINISH_MODES)
-    if has_detached:
-        # A detached model has no central to reach, and saving it in
-        # place would write over the file it was detached FROM.
-        choices = [FINISH_COPY, FINISH_NONE]
-
+    """Asked at the END on purpose: by this point the result is known,
+    and keeping nothing costs a single click."""
     chosen = forms.CommandSwitchWindow.show(
-        choices, message="The models are cleaned. What now?")
-    if not chosen or chosen == FINISH_NONE:
-        return FINISH_NONE, ""
+        _finish_choices(live_targets), message="The models are cleaned. What now?")
+    if not chosen:
+        return FINISH_BACKGROUND, ""
+    if chosen in _KEEP_OPEN:
+        return chosen, ""
 
-    if chosen == FINISH_COPY:
+    if chosen in (FINISH_COPY, FINISH_COPY_OPEN):
         dlg = FolderBrowserDialog()
         dlg.Description = "Choose a folder for the cleaned copies"
         if dlg.ShowDialog() != DialogResult.OK:
-            return FINISH_NONE, ""
-        return FINISH_COPY, dlg.SelectedPath
+            return FINISH_BACKGROUND, ""
+        return chosen, dlg.SelectedPath
 
-    if has_session and not forms.alert(
+    if chosen == FINISH_DISCARD:
+        return chosen, ""
+
+    if any(not t.opened_by_us for t in live_targets) and not forms.alert(
             "This writes over the models you had open before running DeeTransmit.\n\n"
             "Are you sure?", title=_TOOL, yes=True, no=True):
-        return FINISH_NONE, ""
+        return FINISH_BACKGROUND, ""
     return chosen, ""
 
 
 def _commit(target, mode, folder):
-    if mode == FINISH_NONE:
-        return "left open, nothing saved"
+    if mode in _KEEP_OPEN:
+        return ("loaded in the background, nothing saved"
+                if target.opened_by_us else "left as it was, nothing saved")
+    if mode == FINISH_DISCARD:
+        return "discarded without saving"
+    if target.detached and mode in (FINISH_SAVE, FINISH_SYNC):
+        return "detached copy - cannot save in place or synchronize"
     try:
-        if mode == FINISH_COPY:
+        if mode in (FINISH_COPY, FINISH_COPY_OPEN):
             stem = os.path.splitext(os.path.basename(target.label))[0]
             path = dm.unique_target_path(folder, "{0}_CLEANED.rvt".format(stem))
             ok, detail = dm.save_copy_as(target.doc, path)
@@ -479,7 +547,7 @@ def _commit(target, mode, folder):
 
 
 # ==========================================================================
-def _report(targets, options, finish_mode):
+def _report(targets, options, finish_mode, dialogs=None):
     html = '<h2 style="font-family:sans-serif;">DeeTransmit</h2>'
     html += ('<div style="font-family:sans-serif;font-size:12px;color:#888;'
              'margin-bottom:8px;">Removed: {0}<br>Finished with: {1}</div>'.format(
@@ -505,6 +573,25 @@ def _report(targets, options, finish_mode):
                  '<b>{1}</b> &nbsp; {2}</div>'.format(bg, t.label, detail))
     html += ('<hr><b style="font-family:sans-serif;">{0} model(s) cleaned, {1} '
              'failed.</b>'.format(ok, fail))
+
+    if dialogs:
+        answered = [d for d in dialogs if d[0]]
+        unknown = [d for d in dialogs if not d[0]]
+        html += ('<div style="margin-top:8px;padding:7px 11px;background:#37474f;'
+                 'color:#fff;border-radius:4px;font-family:sans-serif;font-size:12px;">'
+                 '<b>{0} Revit dialog(s) answered automatically</b>'.format(len(dialogs)))
+        if unknown:
+            # Named on purpose: an unrecognised dialog was answered
+            # Cancel, which is safe but may not be what it needed. This
+            # is the list to grow _DIALOG_ANSWERS from.
+            seen = []
+            for _ok, did, msg in unknown:
+                text = (did or msg or "?")[:90]
+                if text not in seen:
+                    seen.append(text)
+            html += ('<br>{0} were not recognised and were cancelled: {1}'.format(
+                len(unknown), "; ".join(seen[:5])))
+        html += "</div>"
     output.print_html(html)
 
 
@@ -546,43 +633,93 @@ def main():
             title=_TOOL, yes=True, no=True):
         return
 
-    with forms.ProgressBar(title="DeeTransmit - cleaning...", cancellable=True) as pb:
-        for i, target in enumerate(live):
-            if pb.cancelled:
-                target.error = "Cancelled before this model"
-                continue
-            pb.update_progress(i, len(live))
-            try:
-                target.result = core.clean_document(target.doc, options)
-            except Exception as e:
-                target.error = "Cleaning failed: {0}".format(e)
+    # Two different mechanisms, both needed. The preprocessor inside
+    # dee_transmit_service answers failures raised INSIDE a transaction
+    # (invalid dimension references, "Can't cut joined element",
+    # duplicate Type Marks). This handler answers Revit's own native
+    # dialogs, which never reach a preprocessor at all.
+    dialogs = []
+    handler = _make_dialog_handler(dialogs)
+    uiapp.DialogBoxShowing += handler
+    try:
+        with forms.ProgressBar(title="DeeTransmit - cleaning...",
+                               cancellable=True) as pb:
+            for i, target in enumerate(live):
+                if pb.cancelled:
+                    target.error = "Cancelled before this model"
+                    continue
+                pb.update_progress(i, len(live))
+                try:
+                    target.result = core.clean_document(target.doc, options)
+                except Exception as e:
+                    target.error = "Cleaning failed: {0}".format(e)
+    finally:
+        uiapp.DialogBoxShowing -= handler
 
     finish_mode, folder = _finish(targets, live)
-    if finish_mode != FINISH_NONE:
-        with forms.ProgressBar(title="DeeTransmit - saving...", cancellable=False) as pb:
-            for i, target in enumerate(live):
-                pb.update_progress(i, len(live))
-                if target.error:
-                    continue
-                note = _commit(target, finish_mode, folder)
-                if target.result:
-                    target.result.notes.append(note)
+    if finish_mode not in _KEEP_OPEN:
+        # The saving pass raises the same dialogs the cleaning pass did,
+        # so it needs the same handler over it.
+        uiapp.DialogBoxShowing += handler
+        try:
+            with forms.ProgressBar(title="DeeTransmit - saving...",
+                                   cancellable=False) as pb:
+                for i, target in enumerate(live):
+                    pb.update_progress(i, len(live))
+                    if target.error:
+                        continue
+                    note = _commit(target, finish_mode, folder)
+                    if target.result:
+                        target.result.notes.append(note)
+        finally:
+            uiapp.DialogBoxShowing -= handler
 
+    # Only ever close what this tool opened, and only when the user did
+    # NOT ask to keep them. A document the user already had open before
+    # running DeeTransmit is never closed.
     closed = 0
-    if finish_mode != FINISH_NONE:
+    if finish_mode not in _KEEP_OPEN:
         for target in live:
             if not target.opened_by_us:
                 continue
             if dm.close_document(target.doc, save_modified=False):
                 closed += 1
 
-    _report(targets, options, finish_mode)
+    # "Let me look at it" is only deliverable by opening the saved copy:
+    # the cleaned document itself is headless and Revit cannot promote a
+    # background document into the UI.
+    opened_copy = ""
+    if finish_mode == FINISH_COPY_OPEN:
+        for target in live:
+            if target.saved_to and os.path.isfile(target.saved_to):
+                try:
+                    uiapp.OpenAndActivateDocument(target.saved_to)
+                    opened_copy = target.saved_to
+                    break
+                except Exception as e:
+                    opened_copy = "could not open the copy: {0}".format(e)
+                    break
+
+    _report(targets, options, finish_mode, dialogs)
+
+    if finish_mode in _KEEP_OPEN:
+        tail = ("The cleaned models are still loaded, but they were opened in the "
+                "background so Revit shows no window for them - that is what let "
+                "every view be deleted. To look at a result, run again and choose "
+                "the option that saves a copy and opens it."
+                if any(t.opened_by_us for t in live)
+                else "Your models are exactly as the cleaning left them. Nothing was saved.")
+    elif opened_copy:
+        tail = "Opened for review: {0}".format(opened_copy)
+    else:
+        tail = ("{0} model(s) closed.".format(closed) if closed
+                else "Nothing was closed.")
+
     MessageBox.Show(
-        "DeeTransmit finished.\n\n{0} model(s) processed.\n{1}\n\n"
+        "DeeTransmit finished.\n\n{0} model(s) processed.\n"
+        "{1} Revit dialog(s) answered automatically.\n\n{2}\n\n"
         "Full details are in the pyRevit output window.".format(
-            len(live),
-            "{0} model(s) closed.".format(closed) if closed
-            else "Nothing was closed."),
+            len(live), len(dialogs), tail),
         _TOOL)
 
 

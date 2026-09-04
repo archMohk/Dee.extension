@@ -61,6 +61,7 @@ from Autodesk.Revit.DB import (
     RevitLinkType, FamilySymbol, FamilyInstance, Material,
     ParameterFilterElement, Revision, RevisionCloud, DesignOption, Phase,
     ImageType, StorageType,
+    IFailuresPreprocessor, FailureProcessingResult, FailureSeverity,
 )
 
 import deew_clean_service as base
@@ -85,6 +86,105 @@ SCOPE_LABELS = [
 _PARAM_PROBE_LIMIT = 20000
 
 
+class SilentDeletionFailures(IFailuresPreprocessor):
+    """Deleting content in bulk legitimately raises errors that Revit
+    already knows how to fix - a dimension losing its reference, a
+    joined element that can no longer be cut, the last member leaving a
+    group. Revit offers the fix as a RESOLUTION ("Remove Reference(s)",
+    "Delete Dimension(s)", "Unjoin Elements") and then blocks on a modal
+    waiting for someone to click it. This applies those resolutions
+    itself so a batch never stops.
+
+    Deliberately NOT deew_failure_handler.DeeWFailuresPreprocessor:
+    that one returns ProceedWithRollBack on ANY error, which is right
+    for a tool syncing changes back to a central model and exactly
+    wrong here - it would roll back the very deletion that raised the
+    failure, so nothing would ever actually be removed.
+    """
+
+    def __init__(self, stats):
+        self.stats = stats
+
+    def PreprocessFailures(self, failures_accessor):
+        try:
+            messages = list(failures_accessor.GetFailureMessages())
+        except Exception:
+            return FailureProcessingResult.Continue
+        if not messages:
+            return FailureProcessingResult.Continue
+
+        acted = False
+        for message in messages:
+            try:
+                severity = message.GetSeverity()
+            except Exception:
+                continue
+            if severity == FailureSeverity.Warning:
+                try:
+                    failures_accessor.DeleteWarning(message)
+                    self.stats["warnings"] += 1
+                    acted = True
+                except Exception:
+                    pass
+                continue
+            try:
+                if message.HasResolutions():
+                    failures_accessor.ResolveFailure(message)
+                    self.stats["resolved"] += 1
+                    acted = True
+                else:
+                    self.stats["unresolved"] += 1
+                    self._remember(message)
+            except Exception:
+                self.stats["unresolved"] += 1
+                self._remember(message)
+
+        if acted:
+            return FailureProcessingResult.ProceedWithCommit
+        return FailureProcessingResult.Continue
+
+    def _remember(self, message):
+        """An error Revit offers no fix for is the one thing worth
+        naming in the report, rather than vanishing silently."""
+        try:
+            text = message.GetDescriptionText()
+        except Exception:
+            return
+        if text and text not in self.stats["messages"]:
+            self.stats["messages"].append(text)
+
+
+def new_failure_stats():
+    return {"warnings": 0, "resolved": 0, "unresolved": 0, "messages": []}
+
+
+# Set by clean_document for the length of one document, so the deep
+# helpers that open transactions can attach the preprocessor without
+# every one of them taking a parameter it would only pass along.
+_STATS = new_failure_stats()
+
+
+def start_transaction(doc, name):
+    """A started transaction with the failure preprocessor attached.
+
+    The attach MUST happen after Start() - calling
+    SetFailureHandlingOptions() before it silently does nothing, which
+    this codebase established the hard way while building DeeReLevel."""
+    t = Transaction(doc, name)
+    t.Start()
+    try:
+        options = t.GetFailureHandlingOptions()
+        options.SetFailuresPreprocessor(SilentDeletionFailures(_STATS))
+        options.SetClearAfterRollback(True)
+        t.SetFailureHandlingOptions(options)
+    except Exception:
+        # Never lose the transaction over the handler not attaching -
+        # worst case Revit shows its own dialog, which is what happened
+        # before any of this existed.
+        pass
+    return t
+
+
 class TransmitResult(object):
     """Plain counters. The report never needs to know how any of this
     was found, only how much went."""
@@ -93,6 +193,7 @@ class TransmitResult(object):
         self.counts = {}
         self.errors = []
         self.notes = []
+        self.failures = new_failure_stats()
 
     def add(self, key, count):
         if count:
@@ -106,6 +207,44 @@ class TransmitResult(object):
             return "nothing removed"
         parts = ["{0}: {1}".format(k, v) for k, v in sorted(self.counts.items())]
         return ", ".join(parts)
+
+
+# ==========================================================================
+# what can be done with a document once it is cleaned
+# ==========================================================================
+FINISH_COPY = "Save a cleaned COPY into a folder (originals untouched)"
+FINISH_COPY_OPEN = "Save cleaned COPIES and open one so I can look at it"
+FINISH_SAVE = "Save each model in place"
+FINISH_SYNC = "Synchronize With Central"
+FINISH_DISCARD = "Close them and keep nothing"
+FINISH_BACKGROUND = "Leave them loaded in the background - nothing saved"
+FINISH_LEAVE = "Leave them exactly as they are - nothing saved"
+KEEP_OPEN = (FINISH_BACKGROUND, FINISH_LEAVE)
+
+
+def finish_choices(opened_count, session_count, detached_count):
+    """Which endings are genuinely possible, given how the documents got
+    here. Counts rather than objects, so this stays pure.
+
+    A model DeeTransmit opened was opened HEADLESS - loaded, but with no
+    window. That is precisely why every one of its views can be deleted
+    (Revit refuses to delete the active view of a visible document), and
+    a live run removing 121,855 views is the proof. The cost is that
+    "leave it open" cannot mean "let me look at it": Revit offers no way
+    to promote a background document into the UI. So the honest way to
+    inspect a result is to save a copy and open THAT - FINISH_COPY_OPEN.
+    """
+    choices = [FINISH_COPY]
+    if opened_count:
+        choices.append(FINISH_COPY_OPEN)
+    # Save-in-place and Synchronize need a document that still knows
+    # where it came from. A detached one does not.
+    if session_count or (opened_count and not detached_count):
+        choices += [FINISH_SAVE, FINISH_SYNC]
+    if opened_count:
+        choices.append(FINISH_DISCARD)
+    choices.append(FINISH_BACKGROUND if opened_count else FINISH_LEAVE)
+    return choices
 
 
 # ==========================================================================
@@ -132,9 +271,9 @@ def delete_ids(doc, ids, name):
     if not ids:
         return 0
     deleted = 0
-    t = Transaction(doc, name)
+    t = None
     try:
-        t.Start()
+        t = start_transaction(doc, name)
         try:
             from System.Collections.Generic import List
             bundle = List[ElementId](ids)
@@ -151,7 +290,7 @@ def delete_ids(doc, ids, name):
         t.Commit()
     except Exception:
         try:
-            if t.HasStarted() and not t.HasEnded():
+            if t is not None and t.HasStarted() and not t.HasEnded():
                 t.RollBack()
         except Exception:
             pass
@@ -393,9 +532,9 @@ def delete_project_parameters(doc, scope, progress=None):
         return 0
 
     removed = 0
-    t = Transaction(doc, "DeeTransmit - Delete Project Parameters")
+    t = None
     try:
-        t.Start()
+        t = start_transaction(doc, "DeeTransmit - Delete Project Parameters")
         for definition, _name in targets:
             try:
                 if doc.ParameterBindings.Remove(definition):
@@ -405,7 +544,7 @@ def delete_project_parameters(doc, scope, progress=None):
         t.Commit()
     except Exception:
         try:
-            if t.HasStarted() and not t.HasEnded():
+            if t is not None and t.HasStarted() and not t.HasEnded():
                 t.RollBack()
         except Exception:
             pass
@@ -587,9 +726,9 @@ def strip_to_geometry(doc, progress=None):
     removed = 0
     bindings = _project_parameter_bindings(doc)
     if bindings:
-        t = Transaction(doc, "DeeTransmit - Remove All Project Parameters")
+        t = None
         try:
-            t.Start()
+            t = start_transaction(doc, "DeeTransmit - Remove All Project Parameters")
             for definition, _name in bindings:
                 try:
                     if doc.ParameterBindings.Remove(definition):
@@ -599,16 +738,16 @@ def strip_to_geometry(doc, progress=None):
             t.Commit()
         except Exception:
             try:
-                if t.HasStarted() and not t.HasEnded():
+                if t is not None and t.HasStarted() and not t.HasEnded():
                     t.RollBack()
             except Exception:
                 pass
 
     cleared = 0
     elements = _collect(doc, instances_only=True)
-    t = Transaction(doc, "DeeTransmit - Clear Identity Data")
+    t = None
     try:
-        t.Start()
+        t = start_transaction(doc, "DeeTransmit - Clear Identity Data")
         for i, element in enumerate(elements):
             if progress is not None and i % 500 == 0:
                 progress(i, len(elements), "identity data")
@@ -626,7 +765,7 @@ def strip_to_geometry(doc, progress=None):
         t.Commit()
     except Exception:
         try:
-            if t.HasStarted() and not t.HasEnded():
+            if t is not None and t.HasStarted() and not t.HasEnded():
                 t.RollBack()
         except Exception:
             pass
@@ -651,6 +790,12 @@ def clean_document(doc, options, progress=None):
     The ORDER here is deliberate and is not the caller's business - see
     the module docstring."""
     result = TransmitResult()
+
+    # One tally per document. The deep helpers reach it through the
+    # module global rather than every one of them taking a parameter it
+    # would only pass straight through.
+    global _STATS
+    _STATS = new_failure_stats()
 
     def note(step):
         if progress is not None:
@@ -739,6 +884,17 @@ def clean_document(doc, options, progress=None):
         except Exception as e:
             result.errors.append("Purge failed: {0}".format(e))
 
+    result.failures = _STATS
+    handled = _STATS["warnings"] + _STATS["resolved"]
+    if handled:
+        result.notes.append(
+            "{0} Revit prompt(s) answered automatically ({1} warning(s), "
+            "{2} error(s) resolved)".format(
+                handled, _STATS["warnings"], _STATS["resolved"]))
+    if _STATS["unresolved"]:
+        result.notes.append(
+            "{0} failure(s) Revit offered no fix for: {1}".format(
+                _STATS["unresolved"], "; ".join(_STATS["messages"][:3])))
     return result
 
 
