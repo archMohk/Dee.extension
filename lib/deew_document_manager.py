@@ -103,6 +103,16 @@ def is_workshared(document):
         return False
 
 
+def is_detached(document):
+    """True for a document opened with a detach option. Treated as NOT
+    detached if the property is missing, which keeps the previous
+    behaviour on any Revit version that lacks it."""
+    try:
+        return bool(document.IsDetached)
+    except Exception:
+        return False
+
+
 def enable_worksharing(document, logger=None):
     """Enables worksharing using Revit's own default workset names
     ("Shared Levels and Grids" / "Workset1"), matching Revit's own
@@ -128,11 +138,24 @@ def compact_and_save_local(document, logger=None):
     separate compact flag) - offered as its own step since the spec
     lists Compact as an independent processing option."""
     try:
-        options = SaveAsOptions()
-        options.Compact = True
         current_path = document.PathName
         if not current_path:
             return False
+
+        # A DETACHED document has no local file to compact - it is not
+        # associated with the path it came from any more. Revit refuses
+        # SaveAs on a detached workshared document unless told to make
+        # it a central, and doing THAT here would convert the user's
+        # local file into a central, which is the opposite of what
+        # "compact the local" means. So this step simply does not apply.
+        if is_detached(document):
+            if logger is not None:
+                logger.debug("Compact skipped - document is detached, "
+                             "so there is no local file to compact")
+            return False
+
+        options = SaveAsOptions()
+        options.Compact = True
         document.SaveAs(current_path, options)
         return True
     except Exception as e:
@@ -219,6 +242,12 @@ def save_standalone(document, logger=None):
     SynchronizeWithCentral only applies to workshared models, so this
     covers the other branch of DeeW.Clean's per-file save decision."""
     try:
+        # Document.Save() needs somewhere to save to. A detached model
+        # has never been written anywhere, and Revit's own exception for
+        # it says nothing useful, so answer plainly instead.
+        if not document.PathName:
+            return False, ("this document has no file of its own yet - save a "
+                           "copy instead of saving in place")
         document.Save()
         return True, "Saved"
     except Exception as e:
