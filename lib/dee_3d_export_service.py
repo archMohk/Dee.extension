@@ -84,8 +84,12 @@ from Autodesk.Revit.DB import (
 # is also imported by the standalone tests under CPython 3.
 try:
     TEXT = unicode  # noqa: F821
+    UCHR = unichr   # noqa: F821
+    NUMS = (int, long, float)  # noqa: F821
 except NameError:
     TEXT = str
+    UCHR = chr
+    NUMS = (int, float)
 
 FEET_TO_M = 0.3048
 QUANT_MAX = 65535.0
@@ -162,6 +166,53 @@ def category_palette_color(name):
     return (int(rgb[0] * 255), int(rgb[1] * 255), int(rgb[2] * 255), 255)
 
 
+def to_text(value):
+    """Force anything into a real unicode string. EVERY string that
+    reaches the JSON payload goes through here.
+
+    Revit hands back .NET strings, which IronPython 2.7 surfaces as
+    `str`, not `unicode`. json.dumps(ensure_ascii=True) reacts to a
+    non-ASCII `str` by calling s.decode("utf-8") on it (json/encoder.py,
+    py_encode_basestring_ascii). For a value like a volume in "m3" with
+    a real superscript, that decode dies inside json with an unhelpful
+    codec error - which is the crash this function exists to stop.
+
+    The order matters: genuine UTF-8 bytes decode correctly first, and
+    only then does it fall back to rebuilding from code points, which
+    cannot fail but would mangle real UTF-8 if it ran too early.
+    """
+    if value is None:
+        return u""
+    if isinstance(value, TEXT):
+        return value
+    for encoding in ("utf-8", "latin-1"):
+        try:
+            return value.decode(encoding)
+        except Exception:
+            continue
+    try:
+        return u"".join([UCHR(ord(c)) for c in value])
+    except Exception:
+        pass
+    try:
+        return TEXT(value)
+    except Exception:
+        return u""
+
+
+def sanitize_payload(obj):
+    """Deep copy with every string forced through to_text(). Only used
+    as a retry after json refuses the fast path, so the usual export
+    never pays for the walk."""
+    if isinstance(obj, dict):
+        return dict((to_text(k), sanitize_payload(v)) for k, v in obj.items())
+    if isinstance(obj, (list, tuple)):
+        return [sanitize_payload(v) for v in obj]
+    if obj is None or isinstance(obj, bool) or isinstance(obj, NUMS):
+        return obj
+    return to_text(obj)
+
+
 def _arr_bytes(arr):
     # tobytes() on newer builds, tostring() on IronPython 2.7.
     try:
@@ -222,13 +273,7 @@ class StringTable(object):
         self._index = {}
 
     def add(self, text):
-        if text is None:
-            text = ""
-        if not isinstance(text, TEXT):
-            try:
-                text = TEXT(text)
-            except Exception:
-                text = ""
+        text = to_text(text)
         got = self._index.get(text)
         if got is None:
             got = len(self.items)
@@ -311,7 +356,7 @@ def display_units(doc):
         fmt = doc.GetUnits().GetFormatOptions(SpecTypeId.Length)
         unit_id = fmt.GetUnitTypeId()
         per_foot = UnitUtils.ConvertFromInternalUnits(1.0, unit_id)
-        return per_foot / FEET_TO_M, LabelUtils.GetLabelForUnit(unit_id)
+        return per_foot / FEET_TO_M, to_text(LabelUtils.GetLabelForUnit(unit_id))
     except Exception:
         return 1000.0, "mm"
 
@@ -846,16 +891,16 @@ def build_payload(doc, scene, meta):
 
     payload = {
         "v": 1,
-        "model": meta.get("model", ""),
-        "view": meta.get("view", ""),
-        "date": meta.get("date", ""),
+        "model": to_text(meta.get("model", "")),
+        "view": to_text(meta.get("view", "")),
+        "date": to_text(meta.get("date", "")),
         "tris": scene.triangles,
         "qmin": origin,
         "qscale": scale,
         "bmin": list(origin),
         "bmax": hi,
         "dispPerM": disp_per_m,
-        "dispUnit": disp_unit,
+        "dispUnit": to_text(disp_unit),
         "opaqueVerts": scene.tri_opaque * 3,
         "pos": b64_array(quantised),
         "ebox": b64_array(ebox_q),
@@ -886,7 +931,18 @@ def render_html(payload, template_text):
     # becomes a \\uXXXX escape inside the JavaScript string, which
     # removes any chance of the file arriving mojibaked on a phone that
     # guessed the wrong encoding.
-    blob = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+    try:
+        blob = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+    except (UnicodeDecodeError, UnicodeEncodeError, TypeError):
+        # Something reached the payload as a non-ASCII byte string
+        # despite to_text() at every known source. IronPython raises
+        # UnicodeDecodeError here; CPython 3 raises TypeError for the
+        # same shape of problem. Rather than fail a whole export over one
+        # stray parameter value, normalise the structure and try again -
+        # an odd value showing up as text in the file is a far better
+        # outcome for the person waiting on the export than no file.
+        blob = json.dumps(sanitize_payload(payload), ensure_ascii=True,
+                          separators=(",", ":"))
     return template_text.replace(_TOKEN, blob)
 
 
