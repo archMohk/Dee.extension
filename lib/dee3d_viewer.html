@@ -162,6 +162,39 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   color:var(--fg);border-radius:8px;cursor:pointer}
 .brand{display:block;margin-top:10px;font-size:11px;color:var(--accent);text-decoration:none;text-align:center}
 
+/* ---------- keyplan ---------- */
+#kp{
+  position:fixed;right:8px;z-index:24;width:150px;height:112px;
+  bottom:calc(56px + env(safe-area-inset-bottom));
+  background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  box-shadow:var(--shadow);display:none;cursor:pointer
+}
+#kp.show{display:block}
+
+/* ---------- segmented control ---------- */
+.seg{display:flex;gap:0;margin:2px 0 6px;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{
+  flex:1;height:27px;border:0;border-right:1px solid var(--line);background:transparent;
+  color:var(--dim);font-size:11.5px;cursor:pointer
+}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--accent);color:#fff}
+select{
+  width:100%;height:28px;padding:0 6px;border:1px solid var(--line);border-radius:7px;
+  background:var(--panel);color:var(--fg);font-size:12px;outline:none
+}
+.now{
+  font-size:10.5px;color:var(--dim);line-height:1.55;margin-top:6px;
+  padding:6px 8px;border:1px dashed var(--line);border-radius:6px
+}
+.now b{color:var(--fg);font-weight:600}
+.row .gh{
+  flex:none;width:22px;height:18px;border:1px solid var(--line);border-radius:4px;
+  font-size:9.5px;color:var(--dim);background:transparent;cursor:pointer;padding:0;
+  display:flex;align-items:center;justify-content:center
+}
+.row .gh.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+
 /* ---------- overlay: measurements + comment pins ---------- */
 #ov{position:fixed;inset:0;z-index:20;pointer-events:none;overflow:visible}
 #ov .seg{stroke:var(--accent);stroke-width:2;fill:none}
@@ -229,6 +262,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
 
 <canvas id="gl"></canvas>
 <svg id="ov"></svg>
+<canvas id="kp" width="300" height="224" title="Keyplan - tap to fit"></canvas>
 
 <div id="top">
   <button class="ic" id="b_menu" title="Model tree">&#9776;</button>
@@ -249,8 +283,35 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
       <div class="mini">
         <button id="c_all">All on</button>
         <button id="c_none">All off</button>
+        <button id="c_ghostnone">Un-ghost</button>
       </div>
+      <div class="note" style="margin:0 0 5px">Tick to show a category. Press
+        <b>G</b> beside it to make that category see-through instead of hiding it.</div>
       <div id="cats"></div>
+    </div>
+    <div class="sec">
+      <h4>View</h4>
+      <div class="seg">
+        <button id="vw_persp">Perspective</button>
+        <button id="vw_ortho">Isometric</button>
+      </div>
+      <div class="slab"><span>Lens angle</span><span id="vw_fovlab">49&deg;</span></div>
+      <input type="range" id="vw_fov" min="10" max="100" value="49">
+      <div class="slab"><span>Turn (azimuth)</span><span id="vw_azlab">-135&deg;</span></div>
+      <input type="range" id="vw_az" min="-180" max="180" value="-135">
+      <div class="slab"><span>Height (elevation)</span><span id="vw_ellab">30&deg;</span></div>
+      <input type="range" id="vw_el" min="-89" max="89" value="30">
+      <div class="slab" style="margin-top:6px"><span>Measurement units</span><span></span></div>
+      <select id="vw_unit"></select>
+      <div class="slab" style="margin-top:8px"><span>See through everything</span><span id="vw_alphalab">off</span></div>
+      <input type="range" id="vw_alpha" min="10" max="100" value="100">
+      <div class="slab"><span>Ghosted category strength</span><span id="vw_ghostlab">22%</span></div>
+      <input type="range" id="vw_ghost" min="3" max="70" value="22">
+      <label class="row"><input type="checkbox" id="vw_kp" checked>
+        <span class="nm">Show the keyplan</span></label>
+      <label class="row"><input type="checkbox" id="vw_pivot" checked>
+        <span class="nm">Turn around the selected element</span></label>
+      <div class="now" id="vw_now"></div>
     </div>
     <div class="sec">
       <h4>Navigation</h4>
@@ -349,6 +410,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   <p><b>Select</b> an element to read its category, family, type and level, then <b>Isolate</b> it or <b>Hide</b> it.</p>
   <p><b>Measure</b> / <b>Angle</b> &mdash; tap points on the model. It snaps to corners, and shows the straight distance plus the X, Y and Z differences.</p>
   <p><b>Comment</b> &mdash; tap a spot to pin a note to it. Notes and saved viewpoints are kept in this browser; use <b>Copy all</b> in the menu to send them to someone else.</p>
+  <p><b>View</b> (in the menu) &mdash; switch between perspective and isometric, set the lens angle and the exact turn and height, choose the measuring units, and make the whole model or single categories see-through. The keyplan in the corner shows where you are looking from.</p>
   <p><b>Reset all</b> puts every category, every hidden element and the section box back to how the file opened.</p>
   <p style="margin-top:10px">This file works with no internet connection. It can be copied, emailed or shared like any other file.</p>
   <button class="close" id="help_close">Got it</button>
@@ -432,6 +494,15 @@ function mMul(a, b){
   }
   return o;
 }
+/* Parallel projection. near is pushed BEHIND the camera on purpose:
+   an orthographic view has no reason to slice away what is beside or
+   behind the eye, and not doing so is what makes flying inside a
+   building usable in isometric. */
+function mOrtho(halfH, aspect, near, far){
+  var halfW = halfH * aspect, nf = 1 / (near - far);
+  return new Float32Array([
+    1/halfW,0,0,0,  0,1/halfH,0,0,  0,0,2*nf,0,  0,0,(far+near)*nf,1]);
+}
 function mPersp(fovy, aspect, near, far){
   var f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
   return new Float32Array([
@@ -496,8 +567,9 @@ var FS = [
 "uniform vec3 u_cmax;",
 "uniform vec3 u_eye;",
 "uniform float u_pick;",
+"uniform float u_alpha;",
 "void main(){",
-"  if (v_vis < 0.5) discard;",
+"  if (v_vis < 0.01) discard;",
 "  if (any(lessThan(v_wld, u_cmin)) || any(greaterThan(v_wld, u_cmax))) discard;",
 "  if (u_pick > 0.5){ gl_FragColor = vec4(v_pick, 1.0); return; }",
 "  vec3 n = normalize(v_nrm);",
@@ -510,7 +582,7 @@ var FS = [
 "  float rim  = pow(1.0 - max(dot(n, vd), 0.0), 3.0) * 0.14;",
 "  vec3 c = v_col.rgb * (amb + diff * 0.56) + spec + rim;",
 "  c = mix(c, vec3(1.0, 0.60, 0.20), v_sel * 0.70);",
-"  gl_FragColor = vec4(c, v_col.a);",
+"  gl_FragColor = vec4(c, v_col.a * v_vis * u_alpha);",
 "}"].join("\n");
 
 /* ==================================================================
@@ -523,6 +595,7 @@ var parts = null, nParts = 0;     /* [elem, color, triStart, triCount] */
 var els = [], strs = [], colors = [];
 var nOpaqueVerts = 0, nVerts = 0;
 var catList = [], catOf = null;   /* per element: category index       */
+var catGhost = [];                /* per category: drawn see-through?    */
 var catOn = [], elHidden = null, isoSet = null;
 var selPart = -1, selElem = -1;
 var bmin = [0,0,0], bmax = [0,0,0], diag = 1;
@@ -531,9 +604,13 @@ var cam = { tx:0, ty:0, tz:0, dist:10, yaw:-2.36, pitch:0.52 };
 var ebox = null;                  /* per element: min xyz, max xyz      */
 var pickFB = null, pickTex = null, pickRB = null, pickW = 0, pickH = 0;
 var needDraw = true, dpr = 1;
-var FOV = 0.86;                   /* radians, vertical - matches mPersp  */
+var FOV = 0.86;                   /* radians, vertical - the lens angle  */
+var ORTHO = false;                /* parallel projection (isometric)     */
+var GLOBAL_ALPHA = 1.0;           /* see-through the whole model         */
+var GHOST = 0.22;                 /* how faint a ghosted category is     */
+var ghostActive = false;          /* set by refreshVisibility            */
 var lastMVP = null;               /* so the overlay projects exactly     */
-var nav = { zoom: 1.0, invert: false, cursor: true, move: 1.0 };
+var nav = { zoom: 1.0, invert: false, cursor: true, move: 1.0, pivot: true };
 
 /* clientWidth/Height go to ZERO whenever the canvas is momentarily not
    laid out - a hidden pane, a background tab, mid-transition. Falling
@@ -636,7 +713,11 @@ function stepDecode(){
   }
   catList.sort(function(a,b){ return strs[a.s] < strs[b.s] ? -1 : 1; });
   var remap = {};
-  for (i = 0; i < catList.length; i++){ remap[catList[i].s] = i; catOn.push(true); }
+  for (i = 0; i < catList.length; i++){
+    remap[catList[i].s] = i;
+    catOn.push(true);
+    catGhost.push(false);
+  }
   for (i = 0; i < els.length; i++) catOf[i] = remap[els[i][0]];
 }
 
@@ -703,7 +784,8 @@ function stepGL(){
   ["a_pos","a_nrm","a_col","a_part","a_vis"].forEach(function(n){
     A[n] = gl.getAttribLocation(prog, n);
   });
-  ["u_mvp","u_qmin","u_qscale","u_sel","u_cmin","u_cmax","u_eye","u_pick"].forEach(function(n){
+  ["u_mvp","u_qmin","u_qscale","u_sel","u_cmin","u_cmax","u_eye","u_pick",
+   "u_alpha"].forEach(function(n){
     U[n] = gl.getUniformLocation(prog, n);
   });
 
@@ -804,10 +886,16 @@ function draw(pickPass){
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   var eye = camEye();
-  var near = Math.max(cam.dist * 0.002, diag * 0.0004);
-  var far  = cam.dist * 4 + diag * 6;
-  var mvp  = mMul(mPersp(FOV, w / (h || 1), near, far),
-                  mLook(eye, [cam.tx, cam.ty, cam.tz], [0, 0, 1]));
+  var aspect = w / (h || 1);
+  var proj;
+  if (ORTHO){
+    proj = mOrtho(cam.dist * Math.tan(FOV / 2), aspect,
+                  -(diag * 4), cam.dist + diag * 4);
+  } else {
+    proj = mPersp(FOV, aspect, Math.max(cam.dist * 0.002, diag * 0.0004),
+                  cam.dist * 4 + diag * 6);
+  }
+  var mvp = mMul(proj, mLook(eye, [cam.tx, cam.ty, cam.tz], [0, 0, 1]));
   if (!pickPass) lastMVP = mvp;
   var cb = clipBox();
 
@@ -817,13 +905,28 @@ function draw(pickPass){
   gl.uniform3fv(U.u_cmax, new Float32Array(cb.max));
   gl.uniform1f(U.u_sel, pickPass ? -1 : selPart);
   gl.uniform1f(U.u_pick, pickPass ? 1 : 0);
+  gl.uniform1f(U.u_alpha, pickPass ? 1 : GLOBAL_ALPHA);
 
   bindAttribs();
 
   gl.depthMask(true);
   gl.disable(gl.BLEND);
-  if (nOpaqueVerts > 0) gl.drawArrays(gl.TRIANGLES, 0, nOpaqueVerts);
 
+  /* Once anything is see-through the opaque/transparent split stops
+     meaning anything, so the whole model goes through one blended pass.
+     The pick buffer never blends - a ghosted element must stay just as
+     clickable as a solid one. */
+  if (!pickPass && (GLOBAL_ALPHA < 0.999 || ghostActive)){
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.depthMask(false);
+    gl.drawArrays(gl.TRIANGLES, 0, nVerts);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    return;
+  }
+
+  if (nOpaqueVerts > 0) gl.drawArrays(gl.TRIANGLES, 0, nOpaqueVerts);
   var transCount = nVerts - nOpaqueVerts;
   if (transCount > 0){
     if (!pickPass){
@@ -841,7 +944,13 @@ function loop(ts){
   var dt = lastFrame ? Math.min((ts - lastFrame) / 1000, 0.1) : 0;
   lastFrame = ts;
   if (stepMove(dt)) needDraw = true;
-  if (needDraw){ needDraw = false; draw(false); updateOverlay(); }
+  if (needDraw){
+    needDraw = false;
+    draw(false);
+    updateOverlay();
+    drawKeyplan();
+    updateViewReadout();
+  }
   requestAnimationFrame(loop);
 }
 function invalidate(){ needDraw = true; }
@@ -915,13 +1024,25 @@ function partVisible(p){
   return !!catOn[catOf[e]];
 }
 
+/* a_vis is no longer a yes/no flag - it carries the per-part ALPHA, so
+   one buffer covers hidden (0), ghosted, and solid without needing a
+   second attribute or a second draw pass. */
+function partAlpha(p){
+  if (!partVisible(p)) return 0;
+  return catGhost[catOf[parts[p*4]]] ? GHOST : 1;
+}
+
 function refreshVisibility(){
+  ghostActive = false;
   for (var p = 0; p < nParts; p++){
+    var a = partAlpha(p);
+    if (a > 0 && a < 1) ghostActive = true;
     var vs = parts[p*4+2] * 3, vc = parts[p*4+3] * 3;
-    visArr.fill(partVisible(p) ? 255 : 0, vs, vs + vc);
+    visArr.fill(Math.round(a * 255), vs, vs + vc);
   }
   gl.bindBuffer(gl.ARRAY_BUFFER, buf.vis);
   gl.bufferSubData(gl.ARRAY_BUFFER, 0, visArr);
+  buildKeyplan();
   invalidate();
 }
 
@@ -958,7 +1079,7 @@ function frame(box){
                     Math.pow(box.max[2]-box.min[2],2)) / 2;
   if (!(r > 0)) r = diag * 0.05 || 1;
   cam.tx = cx; cam.ty = cy; cam.tz = cz;
-  cam.dist = (r / Math.sin(0.43)) * 1.18;
+  cam.dist = (r / Math.sin(FOV / 2)) * 1.18;
   invalidate();
 }
 function fitAll(){ frame(visibleBounds()); }
@@ -979,6 +1100,39 @@ function viewPreset(k){
 function wireInput(){
   var cv = $("gl");
   var drag = null, moved = 0;
+
+  /* Re-aims the camera at the given point WITHOUT moving it: the picture does not
+     shift at all, but every following orbit revolves around p. This is
+     the inverse of camEye(), which is why the eye lands exactly where
+     it already was. */
+  function setPivot(p){
+    var eye = camEye();
+    var vx = eye[0]-p[0], vy = eye[1]-p[1], vz = eye[2]-p[2];
+    var d = Math.sqrt(vx*vx + vy*vy + vz*vz);
+    if (!(d > 1e-6)) return;
+    cam.tx = p[0]; cam.ty = p[1]; cam.tz = p[2];
+    cam.dist = d;
+    cam.pitch = Math.asin(Math.max(-1, Math.min(1, vz / d)));
+    cam.yaw = Math.atan2(vy, vx);
+  }
+
+  /* What an orbit should turn around: the selected element if there is
+     one, otherwise whatever sits under the middle of the screen. Both
+     beat spinning around a stale target left behind by an earlier fit. */
+  function armPivot(){
+    if (!nav.pivot) return;
+    if (selElem >= 0 && ebox){
+      var o = selElem * 6;
+      if (ebox[o+3] >= ebox[o]){
+        setPivot([(ebox[o]+ebox[o+3])/2, (ebox[o+1]+ebox[o+4])/2,
+                  (ebox[o+2]+ebox[o+5])/2]);
+        return;
+      }
+    }
+    var hit = pickSurface(cssW() / 2, cssH() / 2);
+    if (hit) setPivot(hit.point);
+  }
+  window.__armPivot = armPivot;
 
   function orbit(dx, dy){
     cam.yaw -= dx * 0.0075;
@@ -1019,6 +1173,7 @@ function wireInput(){
   window.__dolly = dolly;
 
   on(cv, "mousedown", function(e){
+    if (e.button === 0 && !e.shiftKey) armPivot();
     drag = { x:e.clientX, y:e.clientY, b:e.button };
     moved = 0;
     cv.className = "grabbing";
@@ -1079,6 +1234,7 @@ function wireInput(){
     e.preventDefault();
     var t = e.touches;
     tStart = Date.now(); tMoved = 0;
+    if (t.length === 1) armPivot();
     tPrev = (t.length >= 2)
       ? { n:2, d:tDist(t), m:tMid(t) }
       : { n:1, x:t[0].clientX, y:t[0].clientY };
@@ -1200,9 +1356,15 @@ function zoomSel(){
 function buildCats(){
   var host = $("cats"), html = "";
   for (var i = 0; i < catList.length; i++){
-    html += '<label class="row"><input type="checkbox" data-c="' + i + '" checked>' +
-            '<span class="nm">' + esc(strs[catList[i].s]) + "</span>" +
-            '<span class="ct">' + catList[i].n + "</span></label>";
+    html += '<div class="row">' +
+            '<label style="display:flex;align-items:center;gap:7px;flex:1;' +
+            'min-width:0;cursor:pointer">' +
+            '<input type="checkbox" data-c="' + i + '" checked>' +
+            '<span class="nm">' + esc(strs[catList[i].s]) + "</span></label>" +
+            '<span class="ct">' + catList[i].n + "</span>" +
+            '<button class="gh" data-g="' + i +
+            '" title="Show this category see-through instead of hiding it">G</button>' +
+            "</div>";
   }
   host.innerHTML = html;
   var boxes = host.querySelectorAll("input");
@@ -1212,6 +1374,16 @@ function buildCats(){
       refreshVisibility();
     });
   }
+  var ghosts = host.querySelectorAll(".gh");
+  for (var k = 0; k < ghosts.length; k++){
+    on(ghosts[k], "click", function(ev){
+      var gi = parseInt(ev.currentTarget.getAttribute("data-g"), 10);
+      catGhost[gi] = !catGhost[gi];
+      applyGhostButtons();
+      refreshVisibility();
+    });
+  }
+  applyGhostButtons();
 }
 function setAllCats(v){
   catOn = catOn.map(function(){ return v; });
@@ -1392,6 +1564,7 @@ function wireUI(){
   } catch (err) {}
 
   wireTools();
+  wireView();
 
   on($("gl"), "webglcontextlost", function(e){
     e.preventDefault();
@@ -1424,6 +1597,22 @@ function rayThrough(x, y){
   var b = camBasis();
   var ndcX = (x / cssW()) * 2 - 1, ndcY = 1 - (y / cssH()) * 2;
   var tanH = Math.tan(FOV / 2), aspect = cssW() / cssH();
+
+  /* In a parallel projection every ray shares the same direction and it
+     is the ORIGIN that slides across the screen - the opposite of
+     perspective. Getting this wrong would not break the picture, it
+     would quietly put every measurement in the wrong place. */
+  if (ORTHO){
+    var halfH = cam.dist * tanH, halfW = halfH * aspect;
+    var ox = b.eye[0] + b.r[0]*ndcX*halfW + b.u[0]*ndcY*halfH;
+    var oy = b.eye[1] + b.r[1]*ndcX*halfW + b.u[1]*ndcY*halfH;
+    var oz = b.eye[2] + b.r[2]*ndcX*halfW + b.u[2]*ndcY*halfH;
+    /* start well behind the eye plane, since ortho sees behind it */
+    var back = diag * 4;
+    return { o: [ox - b.f[0]*back, oy - b.f[1]*back, oz - b.f[2]*back],
+             d: [b.f[0], b.f[1], b.f[2]] };
+  }
+
   var d = [b.f[0] + b.r[0]*ndcX*tanH*aspect + b.u[0]*ndcY*tanH,
            b.f[1] + b.r[1]*ndcX*tanH*aspect + b.u[1]*ndcY*tanH,
            b.f[2] + b.r[2]*ndcX*tanH*aspect + b.u[2]*ndcY*tanH];
@@ -1495,18 +1684,10 @@ function pickSurface(x, y){
   return hit;
 }
 
-/* ---------- units ---------- */
-function fmtLen(metres){
-  var f = DATA.dispPerM || 1000, u = DATA.dispUnit || "mm";
-  var dp = f >= 100 ? 0 : 3;
-  var v = metres * f;
-  try {
-    return v.toLocaleString(undefined,
-      { minimumFractionDigits: dp, maximumFractionDigits: dp }) + " " + u;
-  } catch (e) {
-    return v.toFixed(dp) + " " + u;
-  }
-}
+/* ---------- units ----------
+   fmtLen lives in the view module below, so it can follow the unit the
+   user picks. Defining it twice would leave whichever came last
+   silently winning. */
 function dist3(a, b){
   var dx = b[0]-a[0], dy = b[1]-a[1], dz = b[2]-a[2];
   return Math.sqrt(dx*dx + dy*dy + dz*dz);
@@ -1809,7 +1990,15 @@ function restore(){
   } catch (e) {}
 }
 function saveNav(){
-  try { localStorage.setItem("dee3d:nav", JSON.stringify(nav)); } catch (e) {}
+  try {
+    nav.ortho = ORTHO;
+    nav.fov = FOV;
+    nav.unit = unitIndex;
+    nav.alpha = GLOBAL_ALPHA;
+    nav.ghost = GHOST;
+    nav.keyplan = $("vw_kp") ? ($("vw_kp").checked !== false) : true;
+    localStorage.setItem("dee3d:nav", JSON.stringify(nav));
+  } catch (e) {}
 }
 function restoreNav(){
   try {
@@ -1819,6 +2008,13 @@ function restoreNav(){
       nav.invert = !!s.invert;
       nav.cursor = s.cursor !== false;
       if (s.move) nav.move = s.move;
+      nav.pivot = s.pivot !== false;
+      ORTHO = !!s.ortho;
+      if (s.fov) FOV = s.fov;
+      if (s.unit) unitIndex = s.unit;
+      if (typeof s.alpha === "number") GLOBAL_ALPHA = s.alpha;
+      if (typeof s.ghost === "number") GHOST = s.ghost;
+      if ($("vw_kp")) $("vw_kp").checked = s.keyplan !== false;
     }
   } catch (e) {}
 }
@@ -2003,6 +2199,292 @@ function wireKeys(){
   /* Losing focus mid-key would otherwise leave the camera flying off
      on its own with no key held down to stop it. */
   on(window, "blur", function(){ keys = {}; });
+}
+
+/* ==================================================================
+   projection, lens angle, units, keyplan and see-through
+   ================================================================== */
+
+/* [label, metres multiplier, suffix]. 0 means "whatever the model was
+   drawn in", -1 is feet-and-inches, which needs its own formatter. */
+var UNITS = [
+  ["Model default", 0, ""],
+  ["Millimetres", 1000, "mm"],
+  ["Centimetres", 100, "cm"],
+  ["Metres", 1, "m"],
+  ["Feet and inches", -1, ""],
+  ["Decimal feet", 3.280839895, "ft"],
+  ["Inches", 39.37007874, "in"]
+];
+var unitIndex = 0;
+var kpBase = null;
+var viewTouched = 0;              /* when a view slider was last dragged */
+
+function fmtFeetInches(metres){
+  var total = metres * 39.37007874;
+  var sign = total < 0 ? "-" : "";
+  total = Math.abs(total);
+  var feet = Math.floor(total / 12);
+  var sixteenths = Math.round((total - feet * 12) * 16);
+  if (sixteenths >= 192){ feet += 1; sixteenths -= 192; }
+  var whole = Math.floor(sixteenths / 16);
+  var frac = sixteenths - whole * 16;
+  var out = sign + feet + "'";
+  if (whole || frac) out += " " + whole;
+  if (frac){
+    var n = frac, d = 16;
+    while (n % 2 === 0){ n /= 2; d /= 2; }
+    out += " " + n + "/" + d;
+  }
+  if (whole || frac) out += '"';
+  return out;
+}
+
+/* Replaces the original fmtLen - same name, so every caller (the
+   measurement readout, the labels, the model panel) follows the unit
+   the user picked without knowing anything changed. */
+function fmtLen(metres){
+  var unit = UNITS[unitIndex] || UNITS[0];
+  if (unit[1] === -1) return fmtFeetInches(metres);
+  var per, label;
+  if (unit[1] === 0){
+    per = DATA.dispPerM || 1000;
+    label = DATA.dispUnit || "mm";
+  } else {
+    per = unit[1];
+    label = unit[2];
+  }
+  var dp = per >= 100 ? 0 : (per >= 10 ? 1 : (per >= 2 ? 2 : 3));
+  var value = metres * per;
+  try {
+    return value.toLocaleString(undefined,
+      { minimumFractionDigits: dp, maximumFractionDigits: dp }) + " " + label;
+  } catch (e) {
+    return value.toFixed(dp) + " " + label;
+  }
+}
+
+/* ---------- keyplan ---------- */
+function kpMap(){
+  var cv = $("kp");
+  var pad = 12;
+  var spanX = (bmax[0] - bmin[0]) || 1;
+  var spanY = (bmax[1] - bmin[1]) || 1;
+  var s = Math.min((cv.width - pad*2) / spanX, (cv.height - pad*2) / spanY);
+  return {
+    s: s,
+    ox: (cv.width - spanX * s) / 2,
+    oy: (cv.height - spanY * s) / 2,
+    /* model Y grows north, canvas Y grows down - so it is flipped, or
+       the plan comes out mirrored and nobody trusts it */
+    at: function(x, y){
+      return [this.ox + (x - bmin[0]) * this.s,
+              cv.height - (this.oy + (y - bmin[1]) * this.s)];
+    }
+  };
+}
+
+/* Drawn once into an offscreen canvas and blitted each frame - a plan of
+   20,000 footprints is fine to build on a toggle, and hopeless to
+   rebuild sixty times a second. */
+function buildKeyplan(){
+  var cv = $("kp");
+  if (!cv || !ebox) return;
+  kpBase = document.createElement("canvas");
+  kpBase.width = cv.width;
+  kpBase.height = cv.height;
+  var g = kpBase.getContext("2d");
+  if (!g) return;
+  var m = kpMap();
+  var light = document.documentElement.className === "light";
+  g.fillStyle = light ? "rgba(40,60,90,.30)" : "rgba(200,220,255,.30)";
+  for (var e = 0; e < els.length; e++){
+    if (elHidden[e]) continue;
+    if (isoSet && !isoSet[e]) continue;
+    if (!catOn[catOf[e]]) continue;
+    var o = e * 6;
+    if (!(ebox[o+3] >= ebox[o])) continue;
+    var a = m.at(ebox[o], ebox[o+1]);
+    var b = m.at(ebox[o+3], ebox[o+4]);
+    g.fillRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]),
+               Math.max(1, Math.abs(b[0]-a[0])), Math.max(1, Math.abs(b[1]-a[1])));
+  }
+}
+
+function drawKeyplan(){
+  var cv = $("kp");
+  if (!cv || cv.className !== "show") return;
+  var g = cv.getContext("2d");
+  if (!g) return;
+  g.clearRect(0, 0, cv.width, cv.height);
+  if (kpBase) g.drawImage(kpBase, 0, 0);
+
+  var m = kpMap();
+  var b = camBasis();
+  var eye = m.at(b.eye[0], b.eye[1]);
+  var tgt = m.at(cam.tx, cam.ty);
+
+  /* the cone of what is being looked at, so the plan answers "where am
+     I and which way am I facing" at a glance */
+  var dx = tgt[0] - eye[0], dy = tgt[1] - eye[1];
+  var len = Math.sqrt(dx*dx + dy*dy);
+  if (len > 1){
+    dx /= len; dy /= len;
+    var reach = Math.max(len, 26);
+    var spread = Math.tan(FOV / 2) * reach;
+    var px = -dy, py = dx;
+    g.beginPath();
+    g.moveTo(eye[0], eye[1]);
+    g.lineTo(eye[0] + dx*reach + px*spread, eye[1] + dy*reach + py*spread);
+    g.lineTo(eye[0] + dx*reach - px*spread, eye[1] + dy*reach - py*spread);
+    g.closePath();
+    g.fillStyle = "rgba(242,153,77,.22)";
+    g.fill();
+    g.strokeStyle = "rgba(242,153,77,.85)";
+    g.lineWidth = 2;
+    g.stroke();
+  }
+  g.beginPath();
+  g.arc(eye[0], eye[1], 5, 0, Math.PI * 2);
+  g.fillStyle = "#f2994d";
+  g.fill();
+  g.strokeStyle = "#fff";
+  g.lineWidth = 2;
+  g.stroke();
+}
+
+/* ---------- the current-view readout ---------- */
+function deg(rad){ return Math.round(rad * 180 / Math.PI); }
+
+function updateViewReadout(){
+  var now = $("vw_now");
+  if (!now) return;
+  var unit = UNITS[unitIndex] || UNITS[0];
+  var unitName = unit[1] === 0
+    ? ("model default (" + (DATA.dispUnit || "mm") + ")") : unit[0].toLowerCase();
+  var ghosted = 0, i;
+  for (i = 0; i < catGhost.length; i++) if (catGhost[i]) ghosted++;
+  now.innerHTML =
+    "<b>Now showing</b><br>" +
+    (ORTHO ? "Isometric (parallel)" : "Perspective, " + deg(FOV) + "&deg; lens") +
+    "<br>Turned " + deg(cam.yaw) + "&deg;, " + deg(cam.pitch) + "&deg; up" +
+    "<br>Measuring in " + unitName +
+    "<br>" + (GLOBAL_ALPHA < 0.999
+      ? ("Everything " + Math.round(GLOBAL_ALPHA * 100) + "% solid")
+      : "Everything solid") +
+    (ghosted ? ("<br>" + ghosted + " categor(y/ies) ghosted") : "");
+
+  /* keep the sliders honest as the camera moves, but not while they are
+     being dragged - that fight makes a slider feel broken */
+  if (Date.now() - viewTouched < 500) return;
+  var az = $("vw_az"), el = $("vw_el");
+  if (az) az.value = deg(cam.yaw);
+  if (el) el.value = deg(cam.pitch);
+}
+
+/* ---------- wiring ---------- */
+function setProjection(ortho){
+  ORTHO = ortho;
+  $("vw_persp").className = ortho ? "" : "on";
+  $("vw_ortho").className = ortho ? "on" : "";
+  $("vw_fov").disabled = ortho;
+  saveNav();
+  invalidate();
+}
+
+function applyGhostButtons(){
+  var host = $("cats");
+  if (!host) return;
+  var buttons = host.querySelectorAll(".gh");
+  for (var i = 0; i < buttons.length; i++){
+    var index = parseInt(buttons[i].getAttribute("data-g"), 10);
+    buttons[i].className = catGhost[index] ? "gh on" : "gh";
+  }
+}
+
+function wireView(){
+  var i;
+  var sel = $("vw_unit");
+  for (i = 0; i < UNITS.length; i++){
+    var opt = document.createElement("option");
+    opt.textContent = UNITS[i][0];
+    sel.appendChild(opt);
+  }
+  sel.selectedIndex = unitIndex;
+  on(sel, "change", function(){
+    unitIndex = sel.selectedIndex;
+    saveNav();
+    buildMeta();
+    updateMeasPanel();
+    invalidate();
+  });
+
+  on($("vw_persp"), "click", function(){ setProjection(false); });
+  on($("vw_ortho"), "click", function(){ setProjection(true); });
+
+  on($("vw_fov"), "input", function(ev){
+    viewTouched = Date.now();
+    FOV = parseInt(ev.target.value, 10) * Math.PI / 180;
+    $("vw_fovlab").innerHTML = deg(FOV) + "&deg;";
+    saveNav();
+    invalidate();
+  });
+  on($("vw_az"), "input", function(ev){
+    viewTouched = Date.now();
+    cam.yaw = parseInt(ev.target.value, 10) * Math.PI / 180;
+    $("vw_azlab").innerHTML = ev.target.value + "&deg;";
+    invalidate();
+  });
+  on($("vw_el"), "input", function(ev){
+    viewTouched = Date.now();
+    cam.pitch = parseInt(ev.target.value, 10) * Math.PI / 180;
+    $("vw_ellab").innerHTML = ev.target.value + "&deg;";
+    invalidate();
+  });
+
+  on($("vw_alpha"), "input", function(ev){
+    var pct = parseInt(ev.target.value, 10);
+    GLOBAL_ALPHA = pct / 100;
+    $("vw_alphalab").textContent = pct >= 100 ? "off" : (pct + "%");
+    saveNav();
+    invalidate();
+  });
+  on($("vw_ghost"), "input", function(ev){
+    GHOST = parseInt(ev.target.value, 10) / 100;
+    $("vw_ghostlab").textContent = ev.target.value + "%";
+    saveNav();
+    refreshVisibility();
+  });
+
+  on($("vw_kp"), "change", function(ev){
+    $("kp").className = ev.target.checked ? "show" : "";
+    if (ev.target.checked){ buildKeyplan(); drawKeyplan(); }
+    saveNav();
+  });
+  on($("vw_pivot"), "change", function(ev){
+    nav.pivot = ev.target.checked;
+    saveNav();
+  });
+  on($("kp"), "click", function(){ fitAll(); });
+  on($("c_ghostnone"), "click", function(){
+    for (var k = 0; k < catGhost.length; k++) catGhost[k] = false;
+    applyGhostButtons();
+    refreshVisibility();
+  });
+
+  /* restore whatever was saved */
+  setProjection(ORTHO);
+  $("vw_fov").value = deg(FOV);
+  $("vw_fovlab").innerHTML = deg(FOV) + "&deg;";
+  $("vw_alpha").value = Math.round(GLOBAL_ALPHA * 100);
+  $("vw_alphalab").textContent = GLOBAL_ALPHA >= 0.999
+    ? "off" : (Math.round(GLOBAL_ALPHA * 100) + "%");
+  $("vw_ghost").value = Math.round(GHOST * 100);
+  $("vw_ghostlab").textContent = Math.round(GHOST * 100) + "%";
+  $("vw_pivot").checked = nav.pivot !== false;
+  $("kp").className = $("vw_kp").checked ? "show" : "";
+  buildKeyplan();
+  updateViewReadout();
 }
 
 /* go */
