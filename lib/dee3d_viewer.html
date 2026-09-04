@@ -70,6 +70,7 @@ body{
 }
 #bot button:active{background:var(--accent);color:#fff;border-color:var(--accent)}
 #bot .sep{flex:none;width:1px;background:var(--line);margin:2px 3px}
+#bot button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 
 /* ---------- drawer ---------- */
 #drawer{
@@ -161,6 +162,58 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   color:var(--fg);border-radius:8px;cursor:pointer}
 .brand{display:block;margin-top:10px;font-size:11px;color:var(--accent);text-decoration:none;text-align:center}
 
+/* ---------- overlay: measurements + comment pins ---------- */
+#ov{position:fixed;inset:0;z-index:20;pointer-events:none;overflow:visible}
+#ov .seg{stroke:var(--accent);stroke-width:2;fill:none}
+#ov .seg.live{stroke-dasharray:5 4;opacity:.85}
+#ov .dot{fill:var(--accent);stroke:#fff;stroke-width:1.5}
+#ov .snap{fill:none;stroke:#fff;stroke-width:2}
+#ov .lbl{fill:#fff;font:600 11.5px system-ui,sans-serif;dominant-baseline:middle}
+#ov .lblbg{fill:rgba(20,22,25,.88);stroke:var(--accent);stroke-width:1;rx:4}
+#ov .pin{fill:#2f6fd0;stroke:#fff;stroke-width:1.5;pointer-events:auto;cursor:pointer}
+#ov .pinno{fill:#fff;font:600 10px system-ui,sans-serif;text-anchor:middle;
+           dominant-baseline:central;pointer-events:none}
+
+/* ---------- measurement readout ---------- */
+#meas{
+  position:fixed;left:8px;z-index:27;bottom:calc(56px + env(safe-area-inset-bottom));
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  box-shadow:var(--shadow);backdrop-filter:blur(10px);padding:8px 10px;display:none;
+  max-width:min(320px,calc(100% - 16px))
+}
+#meas.show{display:block}
+#meas .big{font-size:15px;font-weight:600;color:var(--accent)}
+#meas .sub{font-size:11px;color:var(--dim);margin-top:2px}
+#meas .hint{font-size:11px;color:var(--dim);margin-top:4px}
+#meas .mini{margin-top:7px;margin-bottom:0}
+
+/* ---------- note editor ---------- */
+#noteed{
+  position:fixed;inset:0;z-index:57;background:rgba(0,0,0,.55);
+  display:none;align-items:center;justify-content:center;padding:18px
+}
+#noteed.show{display:flex}
+#noteed .card{
+  background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;
+  width:100%;max-width:400px;box-shadow:var(--shadow)
+}
+#noteed h4{margin:0 0 8px;font-size:13px}
+#noteed textarea{
+  width:100%;height:88px;resize:vertical;padding:8px;border:1px solid var(--line);
+  border-radius:8px;background:transparent;color:var(--fg);font:13px/1.45 inherit;outline:none
+}
+#noteed textarea:focus{border-color:var(--accent)}
+#noteed .acts{display:flex;gap:6px;margin-top:10px}
+#noteed .acts button{
+  flex:1;height:32px;border:1px solid var(--line);background:transparent;color:var(--fg);
+  border-radius:8px;font-size:12px;cursor:pointer
+}
+#noteed .acts button.pri{background:var(--accent);color:#fff;border-color:var(--accent)}
+#noteed .acts button.del{color:#e57373}
+#io_box{width:100%;height:90px;resize:vertical;padding:7px;border:1px solid var(--line);
+  border-radius:8px;background:transparent;color:var(--fg);font:11px/1.4 monospace;outline:none}
+.note{font-size:10.5px;color:var(--dim);line-height:1.5;margin-top:5px}
+
 @media (max-width:640px){
   #drawer{width:min(84vw,320px)}
   #info{
@@ -175,6 +228,7 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
 <body>
 
 <canvas id="gl"></canvas>
+<svg id="ov"></svg>
 
 <div id="top">
   <button class="ic" id="b_menu" title="Model tree">&#9776;</button>
@@ -197,6 +251,30 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
         <button id="c_none">All off</button>
       </div>
       <div id="cats"></div>
+    </div>
+    <div class="sec">
+      <h4>Navigation</h4>
+      <div class="slab"><span>Zoom speed</span><span id="nv_zoomlab">1.0&times;</span></div>
+      <input type="range" id="nv_zoom" min="25" max="250" value="100">
+      <label class="row"><input type="checkbox" id="nv_invert">
+        <span class="nm">Invert wheel direction</span></label>
+      <label class="row"><input type="checkbox" id="nv_cursor" checked>
+        <span class="nm">Zoom towards the pointer</span></label>
+    </div>
+    <div class="sec">
+      <h4>Saved viewpoints</h4>
+      <div class="mini"><button id="vp_save">Save this view</button></div>
+      <div id="vp_list"></div>
+    </div>
+    <div class="sec">
+      <h4>Comments</h4>
+      <div id="nt_list"></div>
+      <div class="mini" style="margin-top:6px">
+        <button id="nt_export">Copy all</button>
+        <button id="nt_import">Paste in</button>
+      </div>
+      <textarea id="io_box" placeholder="Comments and viewpoints appear here to copy, or paste some in and press Paste in."></textarea>
+      <div class="note">Viewpoints and comments are saved in this browser only. To send them to someone else, use Copy all and paste the text into a message.</div>
     </div>
     <div class="sec">
       <h4>Section box</h4>
@@ -231,8 +309,32 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   <button id="v_left">Left</button>
   <button id="v_right">Right</button>
   <div class="sep"></div>
+  <button id="t_dist">Measure</button>
+  <button id="t_angle">Angle</button>
+  <button id="t_note">Comment</button>
+  <div class="sep"></div>
   <button id="v_reset">Reset all</button>
 </div>
+
+<div id="meas">
+  <div class="big" id="m_main">&mdash;</div>
+  <div class="sub" id="m_sub"></div>
+  <div class="hint" id="m_hint"></div>
+  <div class="mini">
+    <button id="m_undo">Undo point</button>
+    <button id="m_clear">Clear all</button>
+  </div>
+</div>
+
+<div id="noteed"><div class="card">
+  <h4 id="ne_ttl">Comment</h4>
+  <textarea id="ne_text" placeholder="What needs saying about this spot?"></textarea>
+  <div class="acts">
+    <button class="pri" id="ne_save">Save</button>
+    <button id="ne_cancel">Cancel</button>
+    <button class="del" id="ne_delete">Delete</button>
+  </div>
+</div></div>
 
 <div id="toast"></div>
 
@@ -242,6 +344,8 @@ input[type=range]{width:100%;height:22px;accent-color:var(--accent);background:t
   <p><b>Mouse</b> &mdash; left button orbits, right button or middle button pans, the wheel zooms, a click selects.</p>
   <p><b>Menu</b> (&#9776;) &mdash; search elements, switch whole categories on and off, and cut the model open with the section box.</p>
   <p><b>Select</b> an element to read its category, family, type and level, then <b>Isolate</b> it or <b>Hide</b> it.</p>
+  <p><b>Measure</b> / <b>Angle</b> &mdash; tap points on the model. It snaps to corners, and shows the straight distance plus the X, Y and Z differences.</p>
+  <p><b>Comment</b> &mdash; tap a spot to pin a note to it. Notes and saved viewpoints are kept in this browser; use <b>Copy all</b> in the menu to send them to someone else.</p>
   <p><b>Reset all</b> puts every category, every hidden element and the section box back to how the file opened.</p>
   <p style="margin-top:10px">This file works with no internet connection. It can be copied, emailed or shared like any other file.</p>
   <button class="close" id="help_close">Got it</button>
@@ -424,6 +528,31 @@ var cam = { tx:0, ty:0, tz:0, dist:10, yaw:-2.36, pitch:0.52 };
 var ebox = null;                  /* per element: min xyz, max xyz      */
 var pickFB = null, pickTex = null, pickRB = null, pickW = 0, pickH = 0;
 var needDraw = true, dpr = 1;
+var FOV = 0.86;                   /* radians, vertical - matches mPersp  */
+var lastMVP = null;               /* so the overlay projects exactly     */
+var nav = { zoom: 1.0, invert: false, cursor: true };
+
+/* clientWidth/Height go to ZERO whenever the canvas is momentarily not
+   laid out - a hidden pane, a background tab, mid-transition. Falling
+   back to the drawing buffer keeps picking and measuring correct
+   instead of projecting the whole model into a 1x1 viewport, which is
+   exactly the garbage-coordinates bug this replaced. */
+function cssW(){ var c = $("gl"); return c.clientWidth || (c.width / dpr) || 1; }
+function cssH(){ var c = $("gl"); return c.clientHeight || (c.height / dpr) || 1; }
+
+/* Camera basis vectors. Z is world up; pitch is clamped short of
+   vertical, so the right vector can never collapse to zero length. */
+function camBasis(){
+  var eye = camEye();
+  var fx = cam.tx - eye[0], fy = cam.ty - eye[1], fz = cam.tz - eye[2];
+  var fl = Math.sqrt(fx*fx + fy*fy + fz*fz) || 1;
+  fx /= fl; fy /= fl; fz /= fl;
+  var rx = fy, ry = -fx, rz = 0;
+  var rl = Math.sqrt(rx*rx + ry*ry) || 1;
+  rx /= rl; ry /= rl;
+  var ux = ry*fz - rz*fy, uy = rz*fx - rx*fz, uz = rx*fy - ry*fx;
+  return { f:[fx,fy,fz], r:[rx,ry,rz], u:[ux,uy,uz], eye:eye };
+}
 
 /* ==================================================================
    boot - staged so the splash actually paints between steps
@@ -587,9 +716,11 @@ function stepGL(){
   buf.part = vbo(partF32);
   buf.vis  = vbo(visArr, gl.DYNAMIC_DRAW);
 
-  /* CPU copies of the static attributes are no longer needed - releasing
-     them matters on a phone with a big model. */
-  pos16 = null; nrmI8 = null; colU8 = null; partF32 = null;
+  /* The normals/colours/ids are on the GPU now and releasing them
+     matters on a phone with a big model. pos16 is DELIBERATELY kept:
+     measuring ray-casts against the triangles on the CPU, and it is the
+     smallest of the four (6 bytes a vertex). */
+  nrmI8 = null; colU8 = null; partF32 = null;
 
   gl.enable(gl.DEPTH_TEST);
   /* Deliberately NOT culling: Revit solids and especially imported CAD
@@ -672,8 +803,9 @@ function draw(pickPass){
   var eye = camEye();
   var near = Math.max(cam.dist * 0.002, diag * 0.0004);
   var far  = cam.dist * 4 + diag * 6;
-  var mvp  = mMul(mPersp(0.86, w / (h || 1), near, far),
+  var mvp  = mMul(mPersp(FOV, w / (h || 1), near, far),
                   mLook(eye, [cam.tx, cam.ty, cam.tz], [0, 0, 1]));
+  if (!pickPass) lastMVP = mvp;
   var cb = clipBox();
 
   gl.uniformMatrix4fv(U.u_mvp, false, mvp);
@@ -703,7 +835,7 @@ function draw(pickPass){
 }
 
 function loop(){
-  if (needDraw){ needDraw = false; draw(false); }
+  if (needDraw){ needDraw = false; draw(false); updateOverlay(); }
   requestAnimationFrame(loop);
 }
 function invalidate(){ needDraw = true; }
@@ -714,6 +846,12 @@ function resize(){
   var w = Math.max(1, Math.round(cv.clientWidth * dpr));
   var h = Math.max(1, Math.round(cv.clientHeight * dpr));
   if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  var svg = $("ov");
+  if (svg){
+    svg.setAttribute("width", cssW());
+    svg.setAttribute("height", cssH());
+    svg.setAttribute("viewBox", "0 0 " + cssW() + " " + cssH());
+  }
   invalidate();
 }
 
@@ -843,28 +981,49 @@ function wireInput(){
     cam.pitch = Math.max(-lim, Math.min(lim, cam.pitch));
     invalidate();
   }
+  /* One screen pixel of drag moves the model exactly one pixel at the
+     pivot distance - the old fixed 0.0016 factor drifted away from the
+     cursor as you zoomed, which is most of what made panning feel wrong. */
   function pan(dx, dy){
-    var cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
-    var fx = -cp*Math.cos(cam.yaw), fy = -cp*Math.sin(cam.yaw), fz = -sp;
-    var rx = -fy, ry = fx, rl = Math.sqrt(rx*rx + ry*ry) || 1;
-    rx /= rl; ry /= rl;
-    var ux = ry*fz, uy = -rx*fz, uz = rx*fy - ry*fx;
-    var s = cam.dist * 0.0016;
-    cam.tx += (-rx*dx + ux*dy) * s;
-    cam.ty += (-ry*dx + uy*dy) * s;
-    cam.tz += ( uz*dy) * s;
+    var b = camBasis();
+    var s = 2 * cam.dist * Math.tan(FOV / 2) / cssH();
+    cam.tx += (-b.r[0]*dx + b.u[0]*dy) * s;
+    cam.ty += (-b.r[1]*dx + b.u[1]*dy) * s;
+    cam.tz += (-b.r[2]*dx + b.u[2]*dy) * s;
     invalidate();
   }
-  function dolly(f){
-    cam.dist = Math.max(diag * 0.002, Math.min(diag * 24, cam.dist * f));
+
+  /* Zoom towards the pointer rather than the centre of the screen: the
+     point under the cursor stays put, which is what makes diving into a
+     corner of a model feel controllable instead of a chase. */
+  function dolly(f, cx, cy){
+    var before = cam.dist;
+    var next = Math.max(diag * 0.0015, Math.min(diag * 24, cam.dist * f));
+    if (nav.cursor && cx !== undefined && cx !== null){
+      var ndcX = (cx / cssW()) * 2 - 1, ndcY = 1 - (cy / cssH()) * 2;
+      var tanH = Math.tan(FOV / 2), aspect = cssW() / cssH();
+      var b = camBasis(), shift = before - next;
+      cam.tx += (b.r[0]*ndcX*aspect + b.u[0]*ndcY) * tanH * shift;
+      cam.ty += (b.r[1]*ndcX*aspect + b.u[1]*ndcY) * tanH * shift;
+      cam.tz += (b.r[2]*ndcX*aspect + b.u[2]*ndcY) * tanH * shift;
+    }
+    cam.dist = next;
     invalidate();
   }
+  window.__dolly = dolly;
 
   on(cv, "mousedown", function(e){
     drag = { x:e.clientX, y:e.clientY, b:e.button };
     moved = 0;
     cv.className = "grabbing";
     e.preventDefault();
+  });
+  on(cv, "mousemove", function(e){
+    if (drag || !tool || tool === "note" || !mPts.length) return;
+    var r = cv.getBoundingClientRect();
+    var hit = pickSurface(e.clientX - r.left, e.clientY - r.top);
+    mHover = hit ? hit.point : null;
+    invalidate();
   });
   on(window, "mousemove", function(e){
     if (!drag) return;
@@ -881,13 +1040,24 @@ function wireInput(){
     cv.className = "";
     if (wasClick && b === 0){
       var r = cv.getBoundingClientRect();
-      select(pickAt(e.clientX - r.left, e.clientY - r.top));
+      onTap(e.clientX - r.left, e.clientY - r.top);
     }
   });
   on(cv, "contextmenu", function(e){ e.preventDefault(); });
+  /* deltaY is not comparable between devices: a mouse notch reports
+     lines or ~100 pixels, a trackpad reports a handful of pixels many
+     times a second. Normalising to pixels and running it through an
+     exponential makes one notch a predictable step while a trackpad
+     glide stays smooth - and the Navigation slider scales both. */
   on(cv, "wheel", function(e){
     e.preventDefault();
-    dolly(e.deltaY > 0 ? 1.11 : 0.9);
+    var d = e.deltaY;
+    if (e.deltaMode === 1) d *= 16;
+    else if (e.deltaMode === 2) d *= 400;
+    if (nav.invert) d = -d;
+    d = Math.max(-240, Math.min(240, d));
+    var r = cv.getBoundingClientRect();
+    dolly(Math.exp(d * 0.0011 * nav.zoom), e.clientX - r.left, e.clientY - r.top);
   }, { passive:false });
 
   /* --- touch --- */
@@ -914,7 +1084,11 @@ function wireInput(){
     if (t.length >= 2){
       var d = tDist(t), m = tMid(t);
       if (tPrev.n === 2){
-        if (tPrev.d > 0) dolly(tPrev.d / d);
+        if (tPrev.d > 0 && d > 0){
+          var rect = cv.getBoundingClientRect();
+          dolly(Math.pow(tPrev.d / d, nav.zoom),
+                m[0] - rect.left, m[1] - rect.top);
+        }
         pan(m[0] - tPrev.m[0], m[1] - tPrev.m[1]);
         tMoved += 20;
       }
@@ -932,7 +1106,7 @@ function wireInput(){
     if (tPrev && tPrev.n === 1 && tMoved < 12 && (Date.now() - tStart) < 350){
       var r = cv.getBoundingClientRect();
       var t = e.changedTouches[0];
-      select(pickAt(t.clientX - r.left, t.clientY - r.top));
+      onTap(t.clientX - r.left, t.clientY - r.top);
     }
     if (e.touches.length === 0) tPrev = null;
   });
@@ -944,7 +1118,11 @@ function wireInput(){
     if (k === "f") fitAll();
     else if (k === "h" && selElem >= 0) hideSel();
     else if (k === "i" && selElem >= 0) isolateSel();
-    else if (k === "escape") { clearSel(); isoSet = null; refreshVisibility(); }
+    else if (k === "escape") {
+      if (tool){ setTool(null); }
+      else { clearSel(); isoSet = null; refreshVisibility(); }
+    }
+    else if (k === "m") setTool(tool === "dist" ? null : "dist");
   });
 }
 
@@ -1217,10 +1395,521 @@ function wireUI(){
     if (th === "light") document.documentElement.className = "light";
   } catch (err) {}
 
+  wireTools();
+
   on($("gl"), "webglcontextlost", function(e){
     e.preventDefault();
     toast("3D context lost - reload the page");
   });
+}
+
+/* ==================================================================
+   measuring, saved viewpoints and comments
+   ==================================================================
+   All three need one thing the renderer did not previously provide: the
+   exact 3D point under the pointer. The id-buffer pick already says
+   WHICH part was hit, so a CPU ray/triangle test against just that
+   part's triangles gives the point cheaply - a few hundred triangles
+   instead of the whole model. That is why pos16 is kept after upload.
+   ================================================================== */
+var tool = null;                  /* null | "dist" | "angle" | "note"  */
+var mPts = [], mDone = [], mHover = null;
+var views = [], notes = [];
+var STORE = "dee3d:" + (DATA.model || "?") + "|" + (DATA.view || "?");
+
+/* ---------- geometry ---------- */
+function vtxAt(i){
+  return [DATA.qmin[0] + pos16[i*3]   * DATA.qscale[0],
+          DATA.qmin[1] + pos16[i*3+1] * DATA.qscale[1],
+          DATA.qmin[2] + pos16[i*3+2] * DATA.qscale[2]];
+}
+
+function rayThrough(x, y){
+  var b = camBasis();
+  var ndcX = (x / cssW()) * 2 - 1, ndcY = 1 - (y / cssH()) * 2;
+  var tanH = Math.tan(FOV / 2), aspect = cssW() / cssH();
+  var d = [b.f[0] + b.r[0]*ndcX*tanH*aspect + b.u[0]*ndcY*tanH,
+           b.f[1] + b.r[1]*ndcX*tanH*aspect + b.u[1]*ndcY*tanH,
+           b.f[2] + b.r[2]*ndcX*tanH*aspect + b.u[2]*ndcY*tanH];
+  var l = Math.sqrt(d[0]*d[0] + d[1]*d[1] + d[2]*d[2]) || 1;
+  return { o: b.eye, d: [d[0]/l, d[1]/l, d[2]/l] };
+}
+
+/* Moller-Trumbore. Returns the ray parameter, or -1 for a miss. */
+function rayTri(ro, rd, a, b, c){
+  var e1 = [b[0]-a[0], b[1]-a[1], b[2]-a[2]];
+  var e2 = [c[0]-a[0], c[1]-a[1], c[2]-a[2]];
+  var p = [rd[1]*e2[2]-rd[2]*e2[1], rd[2]*e2[0]-rd[0]*e2[2], rd[0]*e2[1]-rd[1]*e2[0]];
+  var det = e1[0]*p[0] + e1[1]*p[1] + e1[2]*p[2];
+  if (det > -1e-12 && det < 1e-12) return -1;
+  var inv = 1 / det;
+  var s = [ro[0]-a[0], ro[1]-a[1], ro[2]-a[2]];
+  var u = (s[0]*p[0] + s[1]*p[1] + s[2]*p[2]) * inv;
+  if (u < -1e-6 || u > 1.000001) return -1;
+  var q = [s[1]*e1[2]-s[2]*e1[1], s[2]*e1[0]-s[0]*e1[2], s[0]*e1[1]-s[1]*e1[0]];
+  var v = (rd[0]*q[0] + rd[1]*q[1] + rd[2]*q[2]) * inv;
+  if (v < -1e-6 || u + v > 1.000001) return -1;
+  var t = (e2[0]*q[0] + e2[1]*q[1] + e2[2]*q[2]) * inv;
+  return t > 1e-6 ? t : -1;
+}
+
+function raycastPart(p, ro, rd){
+  var vs = parts[p*4+2] * 3, vc = parts[p*4+3] * 3;
+  var bestT = 1e30, best = null;
+  for (var i = vs; i < vs + vc; i += 3){
+    var a = vtxAt(i), b = vtxAt(i+1), c = vtxAt(i+2);
+    var t = rayTri(ro, rd, a, b, c);
+    if (t > 0 && t < bestT){ bestT = t; best = [a, b, c]; }
+  }
+  if (!best) return null;
+  return { t: bestT, verts: best,
+           point: [ro[0]+rd[0]*bestT, ro[1]+rd[1]*bestT, ro[2]+rd[2]*bestT] };
+}
+
+function screenOf(p){
+  if (!lastMVP) return null;
+  var m = lastMVP;
+  var x = m[0]*p[0] + m[4]*p[1] + m[8]*p[2]  + m[12];
+  var y = m[1]*p[0] + m[5]*p[1] + m[9]*p[2]  + m[13];
+  var w = m[3]*p[0] + m[7]*p[1] + m[11]*p[2] + m[15];
+  if (w <= 1e-6) return null;
+  return { x: (x/w*0.5 + 0.5) * cssW(), y: (1 - (y/w*0.5 + 0.5)) * cssH() };
+}
+
+/* The exact surface point under the pointer, snapped to a triangle
+   corner when the pointer is near one - corner snapping is most of what
+   makes a measurement trustworthy rather than approximately right. */
+function pickSurface(x, y){
+  var part = pickAt(x, y);
+  if (part < 0) return null;
+  var ray = rayThrough(x, y);
+  var hit = raycastPart(part, ray.o, ray.d);
+  if (!hit) return null;
+  hit.part = part;
+  hit.elem = parts[part*4];
+  hit.snapped = false;
+  var bestD = 16, snap = null;
+  for (var k = 0; k < 3; k++){
+    var s = screenOf(hit.verts[k]);
+    if (!s) continue;
+    var dd = Math.abs(s.x - x) + Math.abs(s.y - y);
+    if (dd < bestD){ bestD = dd; snap = hit.verts[k]; }
+  }
+  if (snap){ hit.point = snap; hit.snapped = true; }
+  return hit;
+}
+
+/* ---------- units ---------- */
+function fmtLen(metres){
+  var f = DATA.dispPerM || 1000, u = DATA.dispUnit || "mm";
+  var dp = f >= 100 ? 0 : 3;
+  var v = metres * f;
+  try {
+    return v.toLocaleString(undefined,
+      { minimumFractionDigits: dp, maximumFractionDigits: dp }) + " " + u;
+  } catch (e) {
+    return v.toFixed(dp) + " " + u;
+  }
+}
+function dist3(a, b){
+  var dx = b[0]-a[0], dy = b[1]-a[1], dz = b[2]-a[2];
+  return Math.sqrt(dx*dx + dy*dy + dz*dz);
+}
+function angleAt(v, a, b){
+  var u1 = [a[0]-v[0], a[1]-v[1], a[2]-v[2]];
+  var u2 = [b[0]-v[0], b[1]-v[1], b[2]-v[2]];
+  var l1 = Math.sqrt(u1[0]*u1[0]+u1[1]*u1[1]+u1[2]*u1[2]) || 1;
+  var l2 = Math.sqrt(u2[0]*u2[0]+u2[1]*u2[1]+u2[2]*u2[2]) || 1;
+  var c = (u1[0]*u2[0] + u1[1]*u2[1] + u1[2]*u2[2]) / (l1*l2);
+  return Math.acos(Math.max(-1, Math.min(1, c))) * 180 / Math.PI;
+}
+
+/* ---------- tools ---------- */
+function setTool(next){
+  tool = (tool === next) ? null : next;
+  mPts = []; mHover = null;
+  $("t_dist").className = tool === "dist" ? "on" : "";
+  $("t_angle").className = tool === "angle" ? "on" : "";
+  $("t_note").className = tool === "note" ? "on" : "";
+  $("gl").style.cursor = tool ? "crosshair" : "";
+  updateMeasPanel();
+  invalidate();
+  if (tool === "dist") toast("Tap two points to measure");
+  else if (tool === "angle") toast("Tap three points - the middle one is the corner");
+  else if (tool === "note") toast("Tap the spot you want to comment on");
+}
+
+function onTap(x, y){
+  if (!tool){ select(pickAt(x, y)); return; }
+  var hit = pickSurface(x, y);
+  if (!hit){ toast("Nothing there - tap on the model"); return; }
+  if (tool === "note"){ openNote(null, hit.point, hit.elem); return; }
+  mPts.push(hit.point);
+  var need = tool === "angle" ? 3 : 2;
+  if (mPts.length >= need){
+    mDone.push({ type: tool, pts: mPts.slice() });
+    mPts = [];
+  }
+  mHover = null;
+  updateMeasPanel();
+  invalidate();
+}
+
+function updateMeasPanel(){
+  var box = $("meas");
+  if (!tool && !mDone.length){ box.className = ""; return; }
+  box.className = "show";
+  var main = "\u2014", sub = "", hint = "";
+  var live = mPts.slice();
+  if (mHover) live = live.concat([mHover]);
+
+  if (tool === "angle" || (mDone.length && mDone[mDone.length-1].type === "angle" && !tool)){
+    var set = live.length >= 3 ? live : (mDone.length ? mDone[mDone.length-1].pts : live);
+    if (set.length >= 3){
+      main = angleAt(set[1], set[0], set[2]).toFixed(1) + "\u00b0";
+      sub = "corner at point 2";
+    } else {
+      hint = "Tap " + (3 - set.length) + " more point(s).";
+    }
+  } else {
+    var set2 = live.length >= 2 ? live : (mDone.length ? mDone[mDone.length-1].pts : live);
+    if (set2.length >= 2){
+      var a = set2[0], b = set2[1];
+      main = fmtLen(dist3(a, b));
+      sub = "dX " + fmtLen(Math.abs(b[0]-a[0])) +
+            "   dY " + fmtLen(Math.abs(b[1]-a[1])) +
+            "   dZ " + fmtLen(Math.abs(b[2]-a[2]));
+    } else if (tool){
+      hint = "Tap " + (2 - set2.length) + " more point(s).";
+    }
+  }
+  if (tool) hint = hint || "Snaps to corners. Esc to stop.";
+  $("m_main").textContent = main;
+  $("m_sub").textContent = sub;
+  $("m_hint").textContent = hint;
+}
+
+/* ---------- overlay ---------- */
+function svgLabel(x, y, text){
+  var w = text.length * 6.6 + 14;
+  return '<rect class="lblbg" x="' + (x - w/2) + '" y="' + (y - 11) +
+         '" width="' + w + '" height="22"/>' +
+         '<text class="lbl" x="' + x + '" y="' + y + '" text-anchor="middle">' +
+         esc(text) + "</text>";
+}
+function svgSeg(p, q, live){
+  return '<line class="seg' + (live ? " live" : "") + '" x1="' + p.x + '" y1="' + p.y +
+         '" x2="' + q.x + '" y2="' + q.y + '"/>';
+}
+function svgDot(s){
+  return '<circle class="dot" cx="' + s.x + '" cy="' + s.y + '" r="4"/>';
+}
+
+function drawMeasurement(item, live){
+  var pts = item.pts, out = "", i;
+  var scr = [];
+  for (i = 0; i < pts.length; i++){
+    var s = screenOf(pts[i]);
+    if (!s) return "";
+    scr.push(s);
+  }
+  for (i = 0; i + 1 < scr.length; i++) out += svgSeg(scr[i], scr[i+1], live);
+  for (i = 0; i < scr.length; i++) out += svgDot(scr[i]);
+  if (item.type === "angle" && pts.length >= 3){
+    out += svgLabel(scr[1].x, scr[1].y - 20, angleAt(pts[1], pts[0], pts[2]).toFixed(1) + "\u00b0");
+  } else if (pts.length >= 2){
+    out += svgLabel((scr[0].x + scr[1].x)/2, (scr[0].y + scr[1].y)/2 - 16,
+                    fmtLen(dist3(pts[0], pts[1])));
+  }
+  return out;
+}
+
+function updateOverlay(){
+  var svg = $("ov");
+  if (!svg) return;
+  var out = [], i;
+  for (i = 0; i < mDone.length; i++) out.push(drawMeasurement(mDone[i], false));
+  if (mPts.length){
+    var live = { type: tool, pts: mPts.slice() };
+    if (mHover) live.pts = live.pts.concat([mHover]);
+    out.push(drawMeasurement(live, true));
+  }
+  for (i = 0; i < notes.length; i++){
+    var s = screenOf(notes[i].p);
+    if (!s) continue;
+    out.push('<circle class="pin" data-n="' + notes[i].id + '" cx="' + s.x +
+             '" cy="' + s.y + '" r="11"/>' +
+             '<text class="pinno" x="' + s.x + '" y="' + s.y + '">' + (i+1) + "</text>");
+  }
+  svg.innerHTML = out.join("");
+}
+
+/* ---------- one modal, used for comments and viewpoint names ---------- */
+var editorSave = null, editorDelete = null;
+function openEditor(title, text, placeholder, onSave, onDelete){
+  $("ne_ttl").textContent = title;
+  $("ne_text").value = text || "";
+  $("ne_text").placeholder = placeholder || "";
+  $("ne_delete").style.display = onDelete ? "" : "none";
+  editorSave = onSave; editorDelete = onDelete;
+  $("noteed").className = "show";
+  try { $("ne_text").focus(); } catch (e) {}
+}
+function closeEditor(){
+  $("noteed").className = "";
+  editorSave = null; editorDelete = null;
+}
+
+/* ---------- comments ---------- */
+function openNote(id, point, elem){
+  var existing = null, i;
+  for (i = 0; i < notes.length; i++) if (notes[i].id === id) existing = notes[i];
+  openEditor(existing ? "Edit comment" : "New comment",
+             existing ? existing.t : "",
+             "What needs saying about this spot?",
+             function(text){
+               if (!text){ toast("Nothing typed - not saved"); return; }
+               if (existing){ existing.t = text; }
+               else {
+                 notes.push({ id: "n" + Date.now() + Math.floor(Math.random()*999),
+                              t: text, p: point, e: elem,
+                              d: new Date().toISOString().slice(0, 16).replace("T", " ") });
+               }
+               persist(); buildNotes(); invalidate();
+               toast(existing ? "Comment updated" : "Comment added");
+               if (tool === "note") setTool(null);
+             },
+             existing ? function(){
+               for (var k = 0; k < notes.length; k++){
+                 if (notes[k].id === id){ notes.splice(k, 1); break; }
+               }
+               persist(); buildNotes(); invalidate(); toast("Comment deleted");
+             } : null);
+}
+
+function buildNotes(){
+  var host = $("nt_list");
+  if (!notes.length){
+    host.innerHTML = '<div class="note">No comments yet. Use the Comment button, then tap a spot on the model.</div>';
+    return;
+  }
+  var html = "", i;
+  for (i = 0; i < notes.length; i++){
+    html += '<div class="row" data-n="' + notes[i].id + '"><span class="nm">' +
+            (i+1) + ". " + esc(notes[i].t) +
+            "<br><span>" + esc(notes[i].d) + "</span></span></div>";
+  }
+  host.innerHTML = html;
+  var rows = host.querySelectorAll(".row");
+  for (i = 0; i < rows.length; i++){
+    on(rows[i], "click", function(ev){
+      var id = ev.currentTarget.getAttribute("data-n");
+      for (var k = 0; k < notes.length; k++){
+        if (notes[k].id === id){ frame({ min: notes[k].p, max: notes[k].p }); openNote(id); return; }
+      }
+    });
+  }
+}
+
+/* ---------- saved viewpoints ---------- */
+function currentState(){
+  var hidden = [], k;
+  for (k = 0; k < elHidden.length; k++) if (elHidden[k]) hidden.push(k);
+  var iso = null;
+  if (isoSet){
+    iso = [];
+    for (k = 0; k < isoSet.length; k++) if (isoSet[k]) iso.push(k);
+  }
+  return { cam: { tx:cam.tx, ty:cam.ty, tz:cam.tz, dist:cam.dist,
+                  yaw:cam.yaw, pitch:cam.pitch },
+           cats: catOn.slice(), hidden: hidden, iso: iso, clip: clip.slice() };
+}
+
+function applyState(s){
+  if (!s) return;
+  if (s.cam){
+    cam.tx = s.cam.tx; cam.ty = s.cam.ty; cam.tz = s.cam.tz;
+    cam.dist = s.cam.dist; cam.yaw = s.cam.yaw; cam.pitch = s.cam.pitch;
+  }
+  var i;
+  if (s.cats && s.cats.length === catOn.length){
+    catOn = s.cats.slice();
+    var boxes = $("cats").querySelectorAll("input");
+    for (i = 0; i < boxes.length; i++) boxes[i].checked = !!catOn[i];
+  }
+  elHidden = new Uint8Array(els.length);
+  if (s.hidden) for (i = 0; i < s.hidden.length; i++) elHidden[s.hidden[i]] = 1;
+  isoSet = null;
+  if (s.iso){
+    isoSet = new Uint8Array(els.length);
+    for (i = 0; i < s.iso.length; i++) isoSet[s.iso[i]] = 1;
+  }
+  if (s.clip && s.clip.length === 6){
+    clip = s.clip.slice();
+    var rs = $("clips").querySelectorAll("input");
+    for (i = 0; i < rs.length; i++){
+      rs[i].value = Math.round(Math.max(0, Math.min(1, clip[parseInt(rs[i].getAttribute("data-k"), 10)])) * 1000);
+    }
+  }
+  refreshVisibility();
+  invalidate();
+}
+
+function buildViews(){
+  var host = $("vp_list");
+  if (!views.length){
+    host.innerHTML = '<div class="note">Nothing saved yet. Set up a view you want to come back to, then press Save this view.</div>';
+    return;
+  }
+  var html = "", i;
+  for (i = 0; i < views.length; i++){
+    html += '<div class="row" data-v="' + views[i].id + '"><span class="nm">' +
+            esc(views[i].n) + "<br><span>" + esc(views[i].d) + "</span></span>" +
+            '<span class="ct" data-del="' + views[i].id + '">&times;</span></div>';
+  }
+  host.innerHTML = html;
+  var rows = host.querySelectorAll(".row");
+  for (i = 0; i < rows.length; i++){
+    on(rows[i], "click", function(ev){
+      var del = ev.target.getAttribute("data-del");
+      var id = del || ev.currentTarget.getAttribute("data-v");
+      var k;
+      if (del){
+        for (k = 0; k < views.length; k++) if (views[k].id === id){ views.splice(k, 1); break; }
+        persist(); buildViews(); toast("Viewpoint deleted");
+        return;
+      }
+      for (k = 0; k < views.length; k++){
+        if (views[k].id === id){ applyState(views[k].s); toast("Restored: " + views[k].n); return; }
+      }
+    });
+  }
+}
+
+function saveViewpoint(){
+  var state = currentState();
+  openEditor("Name this viewpoint", "View " + (views.length + 1),
+             "e.g. Entrance lobby, level 3 clash", function(name){
+    views.push({ id: "v" + Date.now(), n: name || ("View " + (views.length + 1)),
+                 d: new Date().toISOString().slice(0, 16).replace("T", " "),
+                 s: state });
+    persist(); buildViews(); toast("Viewpoint saved");
+  }, null);
+}
+
+/* ---------- persistence ---------- */
+function persist(){
+  try {
+    localStorage.setItem(STORE + ":views", JSON.stringify(views));
+    localStorage.setItem(STORE + ":notes", JSON.stringify(notes));
+  } catch (e) {}
+}
+function restore(){
+  try {
+    var v = JSON.parse(localStorage.getItem(STORE + ":views") || "[]");
+    if (v && v.length) views = v;
+    var t = JSON.parse(localStorage.getItem(STORE + ":notes") || "[]");
+    if (t && t.length) notes = t;
+  } catch (e) {}
+}
+function saveNav(){
+  try { localStorage.setItem("dee3d:nav", JSON.stringify(nav)); } catch (e) {}
+}
+function restoreNav(){
+  try {
+    var s = JSON.parse(localStorage.getItem("dee3d:nav") || "null");
+    if (s){
+      if (s.zoom) nav.zoom = s.zoom;
+      nav.invert = !!s.invert;
+      nav.cursor = s.cursor !== false;
+    }
+  } catch (e) {}
+}
+
+/* ---------- wiring ---------- */
+function byId(list, id){
+  for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+  return null;
+}
+
+function wireTools(){
+  on($("t_dist"), "click", function(){ setTool("dist"); });
+  on($("t_angle"), "click", function(){ setTool("angle"); });
+  on($("t_note"), "click", function(){ setTool("note"); });
+  on($("m_undo"), "click", function(){
+    if (mPts.length) mPts.pop();
+    else if (mDone.length) mDone.pop();
+    mHover = null; updateMeasPanel(); invalidate();
+  });
+  on($("m_clear"), "click", function(){
+    mPts = []; mDone = []; mHover = null; updateMeasPanel(); invalidate();
+  });
+
+  restoreNav();
+  $("nv_zoom").value = Math.round(nav.zoom * 100);
+  $("nv_zoomlab").textContent = nav.zoom.toFixed(1) + "\u00d7";
+  $("nv_invert").checked = nav.invert;
+  $("nv_cursor").checked = nav.cursor;
+  on($("nv_zoom"), "input", function(ev){
+    nav.zoom = parseInt(ev.target.value, 10) / 100;
+    $("nv_zoomlab").textContent = nav.zoom.toFixed(1) + "\u00d7";
+    saveNav();
+  });
+  on($("nv_invert"), "change", function(ev){ nav.invert = ev.target.checked; saveNav(); });
+  on($("nv_cursor"), "change", function(ev){ nav.cursor = ev.target.checked; saveNav(); });
+
+  on($("vp_save"), "click", saveViewpoint);
+
+  on($("ov"), "click", function(ev){
+    var id = ev.target.getAttribute && ev.target.getAttribute("data-n");
+    if (id) openNote(id);
+  });
+
+  on($("ne_save"), "click", function(){
+    var fn = editorSave, text = $("ne_text").value.replace(/^\s+|\s+$/g, "");
+    closeEditor();
+    if (fn) fn(text);
+  });
+  on($("ne_cancel"), "click", closeEditor);
+  on($("ne_delete"), "click", function(){
+    var fn = editorDelete;
+    closeEditor();
+    if (fn) fn();
+  });
+  on($("noteed"), "click", function(e){ if (e.target === $("noteed")) closeEditor(); });
+
+  on($("nt_export"), "click", function(){
+    $("io_box").value = JSON.stringify(
+      { model: DATA.model, view: DATA.view, views: views, notes: notes });
+    try {
+      $("io_box").focus(); $("io_box").select();
+      document.execCommand("copy");
+      toast("Copied - paste it into a message");
+    } catch (e) {
+      toast("Select the text above and copy it");
+    }
+  });
+  on($("nt_import"), "click", function(){
+    var text = $("io_box").value;
+    if (!text){ toast("Paste the text in first"); return; }
+    try {
+      var d = JSON.parse(text), added = 0, i;
+      if (d.views) for (i = 0; i < d.views.length; i++){
+        if (!byId(views, d.views[i].id)){ views.push(d.views[i]); added++; }
+      }
+      if (d.notes) for (i = 0; i < d.notes.length; i++){
+        if (!byId(notes, d.notes[i].id)){ notes.push(d.notes[i]); added++; }
+      }
+      persist(); buildViews(); buildNotes(); invalidate();
+      toast(added ? ("Added " + added + " item(s)") : "Nothing new in that text");
+    } catch (e) {
+      toast("That text could not be read");
+    }
+  });
+
+  restore();
+  buildViews();
+  buildNotes();
 }
 
 /* go */
