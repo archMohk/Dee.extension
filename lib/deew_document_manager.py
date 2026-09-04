@@ -45,7 +45,7 @@ import os
 
 from Autodesk.Revit.DB import (
     OpenOptions, DetachFromCentralOption, ModelPathUtils, SaveAsOptions,
-    WorksetConfiguration, WorksetConfigurationOption,
+    WorksetConfiguration, WorksetConfigurationOption, WorksharingSaveAsOptions,
     TransactWithCentralOptions, SynchronizeWithCentralOptions, RelinquishOptions,
 )
 
@@ -297,6 +297,22 @@ def save_copy_as(document, target_path, compact=False, overwrite=False, logger=N
         options = SaveAsOptions()
         options.Compact = bool(compact)
         options.OverwriteExistingFile = bool(overwrite)
+
+        # A document opened DETACHED but with its worksets PRESERVED is
+        # still workshared, and Revit refuses SaveAs on one outright:
+        #   "The document just had worksharing enabled or was opened
+        #    detached, so WorksharingSaveAsOptions.SaveAsCentral must be
+        #    set to true for SaveAs. Parameter name: options"
+        # That is a hard refusal, not a warning - every copy fails and
+        # the batch reports zero files written, which is exactly how this
+        # was found. Detach-and-DISCARD leaves a plain non-workshared
+        # document, where these options must NOT be set, so the check is
+        # on the document itself rather than on how it was opened.
+        if is_workshared(document):
+            worksharing = WorksharingSaveAsOptions()
+            worksharing.SaveAsCentral = True
+            options.SetWorksharingOptions(worksharing)
+
         model_path = ModelPathUtils.ConvertUserVisiblePathToModelPath(target_path)
         document.SaveAs(model_path, options)
         return True, target_path
