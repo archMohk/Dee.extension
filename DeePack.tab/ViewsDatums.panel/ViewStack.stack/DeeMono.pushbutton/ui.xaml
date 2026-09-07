@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeMono - Monochrome View Theme"
         ShowInTaskbar="False"
-        MinHeight="660" MinWidth="640" Height="760" Width="680"
+        MinHeight="680" MinWidth="640" Height="820" Width="680"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
 
@@ -36,6 +36,7 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
@@ -102,7 +103,40 @@
                           VerticalAlignment="Center"/>
             </StackPanel>
 
-            <GroupBox Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="2" Header="Preview">
+            <TextBlock Grid.Row="7" Grid.Column="0" Text="Shadows:" VerticalAlignment="Top"
+                       Margin="0,2,10,10"/>
+            <StackPanel Grid.Row="7" Grid.Column="1" Margin="0,0,0,10">
+                <CheckBox x:Name="shadows_cb" Content="Adjust shadows for this view"
+                          Click="shadows_cb_click"
+                          ToolTip="Off (default): leave this view's shadows exactly as they are. Revit's 'Show Ambient Shadows' checkbox itself has no public API and cannot be controlled here - Shadow/Sunlight intensity are the real, documented controls closest to it."/>
+                <Grid x:Name="shadows_grid" Margin="0,6,0,0" IsEnabled="False">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="120"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="34"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Shadow intensity:"
+                               VerticalAlignment="Center" Margin="0,0,8,4"/>
+                    <Slider Grid.Row="0" Grid.Column="1" x:Name="shadow_slider" Minimum="0"
+                            Maximum="100" Margin="0,0,8,4" ValueChanged="shadow_slider_changed"
+                            ToolTip="0 = no cast shadows, 100 = solid black."/>
+                    <TextBlock Grid.Row="0" Grid.Column="2" x:Name="shadow_value_tb"
+                               VerticalAlignment="Center" Margin="0,0,0,4"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Sunlight intensity:"
+                               VerticalAlignment="Center"/>
+                    <Slider Grid.Row="1" Grid.Column="1" x:Name="sunlight_slider" Minimum="0"
+                            Maximum="100" Margin="0,0,8,0" ValueChanged="sunlight_slider_changed"
+                            ToolTip="How strong the simulated directional sunlight is - controls how sharp/soft a cast shadow reads."/>
+                    <TextBlock Grid.Row="1" Grid.Column="2" x:Name="sunlight_value_tb"
+                               VerticalAlignment="Center"/>
+                </Grid>
+            </StackPanel>
+
+            <GroupBox Grid.Row="8" Grid.Column="0" Grid.ColumnSpan="2" Header="Preview">
                 <DockPanel Margin="4">
                     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
                         <Button DockPanel.Dock="Right" x:Name="reset_tints_b" Content="Reset All"

@@ -91,6 +91,28 @@ hide_categories_list - a real visibility toggle, not a graphic
 override, so a monochrome presentation render can drop datum/crop
 clutter entirely rather than merely recolour it to match everything
 else. Off by default, like every other opt-in in this tool.
+
+--------------------------------------------------------------------
+Shadows
+--------------------------------------------------------------------
+A user request for "shadows and ambient shadows" control prompted a
+second research pass. View.ShadowIntensity and View.SunlightIntensity
+are real, documented int (0-100) properties - "Adjust shadows for this
+view" reveals two sliders that read/write them straight through
+apply_theme's shadow_intensity/sunlight_intensity parameters. The
+"Show Ambient Shadows" checkbox from the Graphic Display Options dialog
+specifically is NOT wired up here: researched directly and confirmed,
+via an on-the-record Autodesk dev-team forum response, to have no
+public API at all (an open, unresolved feature request) - not
+attempted, rather than faked with the wrong property.
+
+Unlike the theme colour, nothing about shadows is persisted across
+sessions or carried over between views: the two sliders are seeded from
+the SELECTED view's own live current values every time the view
+selection changes (_seed_shadow_sliders_from_view), since Revit already
+holds the real answer on the view itself - there is nothing to
+remember. The checkbox starts unticked and the section starts disabled,
+same as every other opt-in control in this window.
 """
 import os
 import traceback
@@ -238,12 +260,22 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             cb = getattr(self, _HIDE_CB_NAMES[label])
             cb.IsChecked = bic_name in saved_hide
 
+        # Shadows: NEVER persisted and NEVER defaults to "on" - unlike
+        # the theme colour, Revit already holds the real current value
+        # on the view itself, so there is nothing to remember here; the
+        # sliders are seeded from the SELECTED view's own live
+        # ShadowIntensity/SunlightIntensity (see _seed_shadow_sliders_
+        # from_view), not a saved preference from a different view.
+        self.shadows_cb.IsChecked = False
+        self.shadows_grid.IsEnabled = False
+
         self._ready = True
         self._update_colour_display()
         self._update_outline_display()
         self._refresh_style_description()
         self._refresh_restore_button()
         self._build_preview_cells()
+        self._seed_shadow_sliders_from_view()
 
     def _guard(self, fn, *args):
         """WPF swallows exceptions raised inside an event handler, which
@@ -277,11 +309,66 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                 names.append(bic_name)
         return names
 
+    # ---------------- shadows ----------------
+    def _seed_shadow_sliders_from_view(self):
+        """Shows the SELECTED view's own live shadow values, not a
+        remembered preference - Revit already holds the real current
+        state, so reading it fresh is more honest than a stale saved
+        number from a different view. Setting .Value on an XAML-wired
+        Slider DOES fire its own ValueChanged (unlike a Button's Click,
+        which only fires from real user interaction) - harmless here
+        since that handler only repaints a text label, never writes
+        into apply_theme's own parameters (those are read straight off
+        the sliders at Apply time, not cached into a side dict)."""
+        view = self._selected_view()
+        if view is None:
+            return
+        try:
+            self.shadow_slider.Value = core._clamp_pct(view.ShadowIntensity)
+        except Exception:
+            pass
+        try:
+            self.sunlight_slider.Value = core._clamp_pct(view.SunlightIntensity)
+        except Exception:
+            pass
+
+    def shadows_cb_click(self, sender, args):
+        if not self._ready:
+            return
+        def run():
+            self.shadows_grid.IsEnabled = self.shadows_cb.IsChecked is True
+        self._guard(run)
+
+    def shadow_slider_changed(self, sender, args):
+        if not self._ready:
+            return
+        self.shadow_value_tb.Text = str(int(round(sender.Value)))
+
+    def sunlight_slider_changed(self, sender, args):
+        if not self._ready:
+            return
+        self.sunlight_value_tb.Text = str(int(round(sender.Value)))
+
+    def _effective_shadow_intensity(self):
+        """None means 'leave it as it is' - same tri-state shape as
+        _effective_outline_rgb, for the same reason: the checkbox is the
+        real on/off switch, the slider position underneath it is only
+        meaningful once that switch is on."""
+        if self.shadows_cb.IsChecked is True:
+            return int(round(self.shadow_slider.Value))
+        return None
+
+    def _effective_sunlight_intensity(self):
+        if self.shadows_cb.IsChecked is True:
+            return int(round(self.sunlight_slider.Value))
+        return None
+
     # ---------------- view ----------------
     def view_cb_changed(self, sender, args):
         if not self._ready:
             return
         self._guard(self._refresh_restore_button)
+        self._guard(self._seed_shadow_sliders_from_view)
 
     def _refresh_restore_button(self):
         view = self._selected_view()
@@ -581,7 +668,9 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                     flatten_shading=self.flatten_cb.IsChecked is True,
                     tint_adjust=self.tint_adjust, line_rgb=self._effective_outline_rgb(),
                     line_overrides=self.line_overrides,
-                    hide_categories_list=self._selected_hide_categories())
+                    hide_categories_list=self._selected_hide_categories(),
+                    shadow_intensity=self._effective_shadow_intensity(),
+                    sunlight_intensity=self._effective_sunlight_intensity())
 
             self._refresh_restore_button()
             self._report(view, result, "Apply")
@@ -644,6 +733,15 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                 labels = [label for label, bic in core.HIDE_CATEGORY_OPTIONS
                          if bic in hide_list]
                 html += "<br><b>Hidden categories:</b> " + ", ".join(labels)
+            shadow_i = self._effective_shadow_intensity()
+            sun_i = self._effective_sunlight_intensity()
+            if shadow_i is not None or sun_i is not None:
+                parts = []
+                if shadow_i is not None:
+                    parts.append("shadow intensity {0}%".format(shadow_i))
+                if sun_i is not None:
+                    parts.append("sunlight intensity {0}%".format(sun_i))
+                html += "<br><b>Shadows:</b> " + ", ".join(parts)
         html += "</div>"
         bg = "#2e7d32" if not result.errors else "#8d6e19"
         hidden_note = ""

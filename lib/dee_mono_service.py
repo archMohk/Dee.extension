@@ -36,16 +36,30 @@ WebSearch against revitapidocs.com, not guessed):
     style rather than photorealistic, which is why it is offered here
     as the "flatten shading" option.
 
-Deliberately NOT attempted: Silhouette Edges colour/weight, Depth
-Cueing, Ambient Shadows, Sketchy Lines - the rest of the "Graphic
-Display Options" dialog. Multiple searches this session found no
-documented public API for reading or writing these settings. The dark
+Deliberately NOT attempted: Silhouette Edges colour/weight - no
+documented public API found for it across several searches. The dark
 line-work effect in the reference image is achieved here instead by
 forcing every category's own ProjectionLineColor/CutLineColor to a
 fixed dark neutral and relying on ShadingWithEdges/FlatColors to draw
 those lines at every face edge - a fully supported, already-proven
 mechanism that reaches the same visual result without depending on an
 API that may not exist.
+
+Shadows ARE now attempted, on a second, later research pass specifically
+prompted by a user request for shadow control: View.ShadowIntensity and
+View.SunlightIntensity are real, documented int (0-100) properties on
+View (revitapidocs.com's own View class member list) - see the "shadows"
+section below apply_theme/restore_theme. The one shadow-related control
+still NOT attempted is the "Show Ambient Shadows" checkbox specifically:
+searched for directly this round and found a direct, on-the-record
+Autodesk dev-team forum response stating it is not exposed by the public
+API, tracked as an unresolved feature request (REVIT-222419) - a
+confirmed gap, not an unchecked assumption. Depth Cueing and Sketchy
+Lines DO have documented View methods (GetDepthCueing/SetDepthCueing/
+CanUseDepthCueing, GetSketchyLines/SetSketchyLines) found during this
+same later pass - NOT wired up here, since no request has asked for them
+yet; noted so a future request for either does not need to re-research
+whether they exist.
 
 Line WEIGHT (SetProjectionLineWeight/SetCutLineWeight, added for the
 preset system's "thin lines" vs "heavy black lines" distinction) was
@@ -813,6 +827,31 @@ def hide_categories(doc, view, bic_names):
     return applied, skipped, previous
 
 
+# ==========================================================================
+# shadows - View.ShadowIntensity and View.SunlightIntensity, both plain
+# int properties (0-100) confirmed on revitapidocs.com's View class page.
+# ShadowIntensity: "0 = no shadows, 100 = black" - the actual "Cast
+# Shadows" darkness slider from the Graphic Display Options dialog.
+# SunlightIntensity: "the intensity of the simulated (directional)
+# sunlight" - what actually controls how SHARP/soft a cast shadow reads,
+# closest real lever to what most users mean by "the shadows look".
+#
+# Deliberately NOT attempted: the "Show Ambient Shadows" checkbox itself.
+# Searched specifically for it this round (WebSearch/WebFetch against the
+# Revit API forum and revitapidocs.com's own View class member list) and
+# found a direct, on-the-record Autodesk dev-team response: ambient
+# shadows are NOT exposed by the public API, tracked as an unresolved
+# feature request (REVIT-222419). Not guessed around with a stand-in
+# property - stated as a real gap, same as this module already does for
+# Silhouette Edges/Depth Cueing's remaining unexposed pieces above.
+# ==========================================================================
+def _clamp_pct(value):
+    """0-100 int, same clamp both ShadowIntensity and SunlightIntensity
+    use - out-of-range throws ArgumentOutOfRangeException on the real
+    API, so this is enforced here rather than trusting every caller."""
+    return max(0, min(100, int(round(value))))
+
+
 def restore_hidden_categories(doc, view, previous):
     """The inverse of hide_categories - puts each category back to
     whatever GetCategoryHidden reported BEFORE DeeMono touched it, not
@@ -847,6 +886,8 @@ class MonoResult(object):
         # one count would make either result harder to read, not easier.
         self.hidden_applied = 0
         self.hidden_skipped = 0
+        self.shadow_intensity_set = False
+        self.sunlight_intensity_set = False
 
 
 def _display_style_enum(flat):
@@ -858,7 +899,8 @@ def _display_style_enum(flat):
 
 def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading=True,
                 glazing_transparency=None, tint_adjust=None, line_rgb=None,
-                line_overrides=None, hide_categories_list=None):
+                line_overrides=None, hide_categories_list=None,
+                shadow_intensity=None, sunlight_intensity=None):
     """Captures the view's current graphics FIRST (always, even on a
     first-ever run, so Restore is available immediately afterwards),
     then applies the theme. One Transaction: the number of categories
@@ -876,7 +918,13 @@ def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading
     HIDE_CATEGORY_OPTIONS) to hide outright in this view - a real
     visibility change via View.SetCategoryHidden, not a graphic
     override, and captured/restored the same way everything else here
-    is."""
+    is.
+
+    `shadow_intensity`/`sunlight_intensity`: optional 0-100 ints for
+    View.ShadowIntensity/View.SunlightIntensity. None (the default)
+    means 'leave it exactly as it is' - the CURRENT value is still
+    captured into the snapshot either way, so a later run that DOES
+    touch shadows can still Restore correctly back past it."""
     result = MonoResult()
     categories = view_categories(doc, view)
     result.category_count = len(categories)
@@ -910,6 +958,12 @@ def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading
         snapshot["display_style"] = view.DisplayStyle.ToString()
     except Exception:
         snapshot["display_style"] = None
+
+    # Always captured, whether or not THIS run touches them - so a
+    # later run that turns shadows on/off for the first time can still
+    # Restore back to whatever they were before DeeMono ever ran.
+    snapshot["shadow_intensity"] = _safe_int(lambda: view.ShadowIntensity, invalid=None)
+    snapshot["sunlight_intensity"] = _safe_int(lambda: view.SunlightIntensity, invalid=None)
 
     t = Transaction(doc, "DeeMono - Apply Theme")
     try:
@@ -963,6 +1017,20 @@ def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading
             result.hidden_skipped = hidden_skipped
             snapshot["hidden_categories"] = previous_hidden
 
+        if shadow_intensity is not None:
+            try:
+                view.ShadowIntensity = _clamp_pct(shadow_intensity)
+                result.shadow_intensity_set = True
+            except Exception as e:
+                result.errors.append("Shadow intensity: {0}".format(e))
+
+        if sunlight_intensity is not None:
+            try:
+                view.SunlightIntensity = _clamp_pct(sunlight_intensity)
+                result.sunlight_intensity_set = True
+            except Exception as e:
+                result.errors.append("Sunlight intensity: {0}".format(e))
+
         t.Commit()
     except Exception as e:
         try:
@@ -1012,6 +1080,22 @@ def restore_theme(doc, view):
                 doc, view, hidden_snapshot)
             result.hidden_applied = hidden_applied
             result.hidden_skipped = hidden_skipped
+
+        shadow_prev = snapshot.get("shadow_intensity")
+        if shadow_prev is not None:
+            try:
+                view.ShadowIntensity = _clamp_pct(shadow_prev)
+                result.shadow_intensity_set = True
+            except Exception as e:
+                result.errors.append("Shadow intensity: {0}".format(e))
+
+        sunlight_prev = snapshot.get("sunlight_intensity")
+        if sunlight_prev is not None:
+            try:
+                view.SunlightIntensity = _clamp_pct(sunlight_prev)
+                result.sunlight_intensity_set = True
+            except Exception as e:
+                result.errors.append("Sunlight intensity: {0}".format(e))
 
         t.Commit()
     except Exception as e:
