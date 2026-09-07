@@ -1,0 +1,3 @@
+title: DeeLinkDist
+tooltip: Distribute Revit links across a masterplan from an Excel sheet - download the empty template, fill in one row per building (X/Y/Z, rotation angle, Building Typology, Parcel ID, Developer ID), load it back, map each typology to an already-loaded Revit link, then place. Creates new link instances only - it never moves or touches links already placed in the model.
+context: zero-doc

@@ -1,0 +1,302 @@
+# -*- coding: utf-8 -*-
+"""
+dee_link_dist_service
+Places many NEW instances of already-loaded Revit links across a
+masterplan, one per row of a user-supplied Excel sheet - "distribute"
+in the sense DeeLinkDist's own name promises: many instances created
+from a few link TYPES, not one existing link instance being nudged
+around. Two phases, matching the button's own two-page wizard:
+  1. Excel round trip (write an empty template, read a filled one back).
+  2. Map each LOADED link type to a Building Typology string found in
+     the sheet, then create+place one instance per matching row.
+
+--------------------------------------------------------------------
+Revit API facts this module relies on, and how each was confirmed
+--------------------------------------------------------------------
+All confirmed via WebSearch/WebFetch against revitapidocs.com and the
+Revit API forum this session, not guessed - this is genuinely new API
+surface for this codebase (no prior tool here has ever CREATED a link
+instance, only moved CAD imports/links (dee_getdwg_service.py) or
+rotated placed FamilyInstances (dee_block_to_family_service.py)):
+
+- RevitLinkInstance.Create(Document, ElementId) - a static factory that
+  places a NEW instance of an already-loaded RevitLinkType, origin-to-
+  origin by default (i.e. at (0,0,0) in the host document). Returns the
+  new RevitLinkInstance. Documented as unable to create instances of
+  NESTED links - not a concern here, every link this tool discovers via
+  FilteredElementCollector(doc).OfClass(RevitLinkType) is a top-level
+  loaded link type.
+- ElementTransformUtils.MoveElement(doc, ElementId, XYZ) - a pure
+  translation, confirmed to throw InvalidOperationException only for a
+  PINNED element (the one documented restriction) - never for a
+  specific element TYPE. Already proven LIVE in this codebase on
+  ImportInstance (dee_getdwg_service.py's "move CAD back to Internal
+  Origin"), a sibling Instance subtype to RevitLinkInstance with the
+  same placement-via-Transform shape. Since RevitLinkInstance.Create
+  places the new instance at the origin, the move TRANSLATION vector is
+  simply the target XYZ itself - no need to query the instance's own
+  transform first.
+- ElementTransformUtils.RotateElement(doc, ElementId, Line axis, angle
+  radians) - already proven LIVE in this codebase on a placed
+  FamilyInstance (dee_block_to_family_service.py's _apply_rotation),
+  rotating around a vertical axis through the instance's OWN location -
+  the identical pattern used here, through the just-placed instance's
+  new position (target XYZ), so "place then spin in place" reads
+  correctly rather than orbiting some other point.
+- UnitUtils.ConvertToInternalUnits(value, UnitTypeId.Meters) - the
+  exact call already proven live in dee_getdwg_service.py for a
+  different unit conversion. X/Y/Z in the Excel sheet are meters (the
+  masterplan-coordinate convention this is built for); rotation is
+  degrees, converted via plain math.radians - both stated explicitly in
+  the template's own column headers so nothing is ambiguous to whoever
+  fills the sheet in.
+
+NEEDS LIVE-REVIT VERIFICATION (per this codebase's own convention -
+everything above is confirmed via documentation/proven sibling code,
+not by running Revit): this is the FIRST time this codebase creates a
+RevitLinkInstance via the API rather than just reading or moving one
+already placed by a user - RevitLinkInstance.Create's exact behaviour
+for a link type whose file is currently unloaded/needs-reload, and
+whether MoveElement/RotateElement behave identically on a freshly
+created link instance as they do on the ImportInstance/FamilyInstance
+cases already proven, are both unverified until run for real.
+"""
+import math
+
+from Autodesk.Revit.DB import (
+    FilteredElementCollector, RevitLinkType, RevitLinkInstance,
+    ElementTransformUtils, XYZ, Line, Transaction,
+    UnitUtils, UnitTypeId,
+)
+
+import xlsx_writer
+import xlsx_reader
+
+TEMPLATE_HEADERS = [
+    "X (m)", "Y (m)", "Z (m)", "Rotation Angle (deg)",
+    "Building Typology", "Parcel ID", "Developer ID",
+]
+_TEMPLATE_COL_WIDTHS = [12, 12, 12, 18, 26, 16, 16]
+_TEMPLATE_TITLE = "DeeLinkDist - Masterplan Building Locations"
+
+# Column order is FIXED - the reader below matches by POSITION, not by
+# re-parsing whatever header text happens to be in row 2, so a sheet
+# built from this exact template (even after a user reorders columns
+# in Excel) either matches column-for-column or is rejected plainly
+# rather than silently misreading a rotation as an X value.
+_X_COL, _Y_COL, _Z_COL, _ROT_COL, _TYPOLOGY_COL, _PARCEL_COL, _DEVELOPER_COL = range(7)
+
+
+def write_template(path):
+    """Writes an EMPTY workbook (title + header row only, no data rows)
+    with the 7 required columns, via xlsx_writer.write_themed_xlsx -
+    reused as-is rather than a new writer, since an empty template is
+    just the zero-rows case of the same function every other DeePack
+    export already uses."""
+    xlsx_writer.write_themed_xlsx(
+        path, _TEMPLATE_TITLE, TEMPLATE_HEADERS, _TEMPLATE_COL_WIDTHS, rows=[])
+
+
+# ==========================================================================
+# reading a filled-in sheet
+# ==========================================================================
+class BuildingRow(object):
+    """One parsed, VALID Excel row - x/y/z in METERS (not yet converted
+    to feet; that happens right before the Revit API call, keeping this
+    class a plain data holder with no Revit dependency, so it stays
+    testable standalone)."""
+    def __init__(self, row_number, x, y, z, rotation_deg, typology, parcel_id, developer_id):
+        self.row_number = row_number
+        self.x = x
+        self.y = y
+        self.z = z
+        self.rotation_deg = rotation_deg
+        self.typology = typology
+        self.parcel_id = parcel_id
+        self.developer_id = developer_id
+
+
+def _to_float(text):
+    try:
+        return float(str(text).strip())
+    except (ValueError, TypeError):
+        return None
+
+
+def read_building_rows(path):
+    """(rows, errors) - `rows` is every row that parsed cleanly
+    (BuildingRow list), `errors` is a list of human-readable strings for
+    every row that did not (missing/non-numeric X/Y/Z, or a blank
+    Building Typology) - one bad row never discards the rest, matching
+    this codebase's established "one failure never aborts the rest"
+    convention, extended here to PARSING rather than only Revit calls."""
+    rows = []
+    errors = []
+    try:
+        sheets = xlsx_reader.read_xlsx_sheets(path)
+    except Exception as e:
+        return [], ["Could not open the file as an .xlsx workbook: {0}".format(e)]
+
+    grid = None
+    for _name, sheet_grid in sheets.items():
+        grid = sheet_grid
+        break
+    if not grid:
+        return [], ["The workbook has no readable sheet."]
+
+    # Row 1 = title (merged), Row 2 = headers, data starts at row 3 -
+    # matching exactly what write_template (via write_themed_xlsx)
+    # itself produces, so a template downloaded from this same tool and
+    # filled in without restructuring always lines up.
+    for i, data_row in enumerate(grid[2:]):
+        row_number = i + 3
+        if not any((cell or "").strip() for cell in data_row):
+            continue  # a fully blank row (trailing Excel rows) - skip silently, not an error
+
+        def cell(col):
+            return data_row[col].strip() if col < len(data_row) and data_row[col] is not None else ""
+
+        x = _to_float(cell(_X_COL))
+        y = _to_float(cell(_Y_COL))
+        z = _to_float(cell(_Z_COL))
+        rot = _to_float(cell(_ROT_COL))
+        typology = cell(_TYPOLOGY_COL)
+        parcel_id = cell(_PARCEL_COL)
+        developer_id = cell(_DEVELOPER_COL)
+
+        row_errors = []
+        if x is None:
+            row_errors.append("X")
+        if y is None:
+            row_errors.append("Y")
+        if z is None:
+            row_errors.append("Z")
+        if not typology:
+            row_errors.append("Building Typology")
+        if row_errors:
+            errors.append("Row {0}: missing/invalid {1}.".format(
+                row_number, ", ".join(row_errors)))
+            continue
+
+        rows.append(BuildingRow(row_number, x, y, z, rot or 0.0, typology,
+                                parcel_id, developer_id))
+
+    return rows, errors
+
+
+def distinct_typologies(rows):
+    """Sorted, de-duplicated (case-insensitive) list of every Building
+    Typology value actually present in the parsed rows - what the
+    mapping page's per-link dropdown is populated with, so the user is
+    only ever offered typologies that genuinely need a link, never a
+    blank list to type into by hand."""
+    seen = {}
+    for row in rows:
+        key = row.typology.strip().lower()
+        if key and key not in seen:
+            seen[key] = row.typology.strip()
+    return sorted(seen.values(), key=lambda s: s.lower())
+
+
+# ==========================================================================
+# link types available to map
+# ==========================================================================
+def list_link_types(doc):
+    """[RevitLinkType] present in the document, name-sorted - what the
+    mapping page's link list is built from. Every LOADED link type this
+    document currently has, whether or not it happens to have any
+    instances placed yet - this tool exists specifically to CREATE new
+    instances, so a link type with zero instances so far is exactly as
+    valid a candidate as one already placed once."""
+    try:
+        types = list(FilteredElementCollector(doc).OfClass(RevitLinkType))
+    except Exception:
+        return []
+    def _name(lt):
+        try:
+            return lt.Name or ""
+        except Exception:
+            return ""
+    types.sort(key=lambda lt: _name(lt).lower())
+    return types
+
+
+def link_type_display_name(link_type):
+    try:
+        return link_type.Name or "(unnamed link)"
+    except Exception:
+        return "(unnamed link)"
+
+
+# ==========================================================================
+# placement
+# ==========================================================================
+class RowResult(object):
+    def __init__(self, row, ok, message):
+        self.row = row
+        self.ok = ok
+        self.message = message
+
+
+class PlacementResult(object):
+    def __init__(self):
+        self.applied = 0
+        self.skipped = 0
+        self.row_results = []
+        self.errors = []
+
+
+def place_links(doc, rows, typology_to_link_type):
+    """rows: [BuildingRow]. typology_to_link_type: {typology_lower:
+    RevitLinkType} - built by the window from the user's per-link
+    dropdown picks. One Transaction for the whole batch (creating +
+    moving + rotating a link instance is lightweight - nowhere near the
+    scale that calls for DeeTransmit-style multi-transaction batching).
+    Every row is wrapped in its own try/except so one failure never
+    aborts the rest, matching this codebase's convention throughout
+    (dee_mono_service.apply_theme's per-category loop, dee_transmit_
+    service's per-model loop, etc.)."""
+    result = PlacementResult()
+    if not rows:
+        result.errors.append("No building rows to place.")
+        return result
+
+    t = Transaction(doc, "DeeLinkDist - Place Links")
+    try:
+        t.Start()
+        for row in rows:
+            link_type = typology_to_link_type.get(row.typology.strip().lower())
+            if link_type is None:
+                msg = "No link mapped for typology '{0}'.".format(row.typology)
+                result.row_results.append(RowResult(row, False, msg))
+                result.skipped += 1
+                continue
+            try:
+                instance = RevitLinkInstance.Create(doc, link_type.Id)
+                target = XYZ(
+                    UnitUtils.ConvertToInternalUnits(row.x, UnitTypeId.Meters),
+                    UnitUtils.ConvertToInternalUnits(row.y, UnitTypeId.Meters),
+                    UnitUtils.ConvertToInternalUnits(row.z, UnitTypeId.Meters))
+                # Created origin-to-origin at (0,0,0), so the move
+                # TRANSLATION is simply the target point itself.
+                ElementTransformUtils.MoveElement(doc, instance.Id, target)
+                if abs(row.rotation_deg) > 1e-9:
+                    axis = Line.CreateBound(target, target + XYZ.BasisZ)
+                    ElementTransformUtils.RotateElement(
+                        doc, instance.Id, axis, math.radians(row.rotation_deg))
+                result.row_results.append(RowResult(row, True, "Placed"))
+                result.applied += 1
+            except Exception as e:
+                result.row_results.append(RowResult(row, False, "{0}".format(e)))
+                result.skipped += 1
+        t.Commit()
+    except Exception as e:
+        try:
+            if t.HasStarted() and not t.HasEnded():
+                t.RollBack()
+        except Exception:
+            pass
+        result.errors.append("Placement failed: {0}".format(e))
+        return result
+
+    return result

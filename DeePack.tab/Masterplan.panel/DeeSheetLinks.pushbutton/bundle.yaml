@@ -1,0 +1,4 @@
+title: DeeSheetLinks
+tooltip: Coming soon - frozen until DeeLinkDist is finished and confirmed working live. Will be built next in the Masterplan panel.
+context:
+  rule: "(zero-doc)&!(zero-doc)"
