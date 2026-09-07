@@ -30,6 +30,25 @@ _build_preview_cells" pattern rather than a fixed row count baked into
 the XAML. "Place Links" reads every ComboBox's current pick, resolves
 it back to the actual RevitLinkType, and hands the whole batch to
 dee_link_dist_service.place_links in one call.
+
+--------------------------------------------------------------------
+X/Y/Z unit and shared parameters
+--------------------------------------------------------------------
+A ComboBox on page 1 (unit_cb, defaulting to Meters) picks which of
+dee_link_dist_service.UNIT_OPTIONS the sheet's X/Y/Z values are in -
+the template's own column headers are unit-agnostic ("X", not "X (m)")
+precisely so the SAME downloaded template works whichever unit is
+chosen, rather than needing a different template per unit.
+
+Three text boxes on page 2 (param_typology_tb/param_parcel_tb/
+param_developer_tb, pre-filled with the same default names the service
+module itself falls back to) let the user rename the Shared Parameters
+written onto every placed link instance - read at Place time via
+_selected_param_names() and handed straight to place_links'
+param_names argument. Creating/binding those parameters (to the Revit
+Links category) is entirely dee_link_dist_service.ensure_link_
+parameters' job, called automatically from inside place_links - this
+window never touches the Revit API for that itself.
 """
 import os
 import traceback
@@ -76,8 +95,28 @@ class DeeLinkDistWindow(dee_branding.DeeBrandedWindow):
         self.doc = doc
         self.rows = []
         self._mapping_combos = {}
+
+        for label, _unit_type_id in core.UNIT_OPTIONS:
+            self.unit_cb.Items.Add(label)
+        self.unit_cb.SelectedIndex = [l for l, _u in core.UNIT_OPTIONS].index(
+            core.DEFAULT_UNIT_LABEL)
+
         self._refresh_link_types()
         self._ready = True
+
+    def _selected_unit_label(self):
+        i = self.unit_cb.SelectedIndex
+        options = core.UNIT_OPTIONS
+        if 0 <= i < len(options):
+            return options[i][0]
+        return core.DEFAULT_UNIT_LABEL
+
+    def _selected_param_names(self):
+        return {
+            "typology": (self.param_typology_tb.Text or "").strip() or "Building Typology",
+            "parcel_id": (self.param_parcel_tb.Text or "").strip() or "Parcel ID",
+            "developer_id": (self.param_developer_tb.Text or "").strip() or "Developer ID",
+        }
 
     def _guard(self, fn, *args):
         try:
@@ -176,7 +215,10 @@ class DeeLinkDistWindow(dee_branding.DeeBrandedWindow):
                 return
 
             with forms.ProgressBar(title="DeeLinkDist - placing links...", indeterminate=True):
-                result = core.place_links(self.doc, self.rows, mapping)
+                result = core.place_links(
+                    self.doc, self.rows, mapping,
+                    unit_label=self._selected_unit_label(),
+                    param_names=self._selected_param_names())
 
             report_rows = [PlacementReportRow(r) for r in result.row_results]
             self.report_grid.ItemsSource = None
@@ -189,9 +231,17 @@ class DeeLinkDistWindow(dee_branding.DeeBrandedWindow):
 
     def _report(self, result):
         html = '<h2 style="font-family:sans-serif;">DeeLinkDist</h2>'
+        html += ('<div style="font-family:sans-serif;font-size:12px;">'
+                 '<b>X/Y/Z unit:</b> {0}'.format(self._selected_unit_label()))
+        if result.parameter_setup:
+            parts = []
+            for name, (ok, detail) in sorted(result.parameter_setup.items()):
+                parts.append("{0}: {1}".format(name, detail if ok else "FAILED - " + detail))
+            html += "<br><b>Link parameters:</b> " + "; ".join(parts)
+        html += "</div>"
         bg = "#2e7d32" if not result.errors else "#8d6e19"
-        html += ('<div style="padding:7px 11px;background:{0};color:#fff;border-radius:4px;'
-                 'font-family:monospace;font-size:12px;">'
+        html += ('<div style="margin-top:8px;padding:7px 11px;background:{0};color:#fff;'
+                 'border-radius:4px;font-family:monospace;font-size:12px;">'
                  '{1} link(s) placed, {2} skipped, out of {3} row(s).</div>'.format(
                      bg, result.applied, result.skipped, len(self.rows)))
         if result.errors:

@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeLinkDist - Masterplan Link Distribution"
         ShowInTaskbar="False"
-        MinHeight="600" MinWidth="820" Height="680" Width="880"
+        MinHeight="640" MinWidth="820" Height="740" Width="880"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
 
@@ -28,12 +28,15 @@
             <TabItem Header="1. Building Data (Excel)">
                 <DockPanel Margin="8">
                     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10"
-                               Text="Download the empty template, fill in one row per building (X/Y/Z in METRES, rotation in DEGREES, plus its Building Typology, Parcel ID and Developer ID), save it, then load it back here."/>
+                               Text="Download the empty template, fill in one row per building (X/Y/Z in whichever unit you pick below, rotation in DEGREES, plus its Building Typology, Parcel ID and Developer ID), save it, then load it back here."/>
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
                         <Button x:Name="download_template_b" Content="Download Empty Template..." Width="200"
                                 Height="28" Click="download_template_click"/>
                         <Button x:Name="load_excel_b" Content="Load Filled Excel..." Width="160" Height="28"
                                 Margin="10,0,0,0" Click="load_excel_click"/>
+                        <TextBlock Text="X/Y/Z unit:" VerticalAlignment="Center" Margin="20,0,6,0"/>
+                        <ComboBox x:Name="unit_cb" Width="120" Height="26"
+                                  ToolTip="What unit the X/Y/Z columns in the Excel sheet are in - converted to Revit's own internal units when you Place. Change this any time before placing; it does not affect a sheet already loaded, only how its numbers are read."/>
                         <TextBlock x:Name="excel_status_tb" VerticalAlignment="Center" Margin="14,0,0,0"
                                    FontStyle="Italic"/>
                     </StackPanel>
@@ -41,9 +44,9 @@
                               IsReadOnly="True" CanUserAddRows="False" RowHeaderWidth="0" Margin="0,0,0,10">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Row" Binding="{Binding row_number}" Width="50"/>
-                            <DataGridTextColumn Header="X (m)" Binding="{Binding x}" Width="70"/>
-                            <DataGridTextColumn Header="Y (m)" Binding="{Binding y}" Width="70"/>
-                            <DataGridTextColumn Header="Z (m)" Binding="{Binding z}" Width="70"/>
+                            <DataGridTextColumn Header="X" Binding="{Binding x}" Width="70"/>
+                            <DataGridTextColumn Header="Y" Binding="{Binding y}" Width="70"/>
+                            <DataGridTextColumn Header="Z" Binding="{Binding z}" Width="70"/>
                             <DataGridTextColumn Header="Rotation (deg)" Binding="{Binding rotation_deg}" Width="100"/>
                             <DataGridTextColumn Header="Building Typology" Binding="{Binding typology}" Width="150"/>
                             <DataGridTextColumn Header="Parcel ID" Binding="{Binding parcel_id}" Width="100"/>
@@ -62,7 +65,40 @@
                                Text="Pick which already-loaded Revit link each Building Typology below should use. A typology left as '(not mapped)' is skipped when you place. Load a link into this model first (native Revit 'Link Revit') if the one you need is not offered here."/>
                     <Button DockPanel.Dock="Top" x:Name="refresh_links_b" Content="Refresh Link List"
                             Width="140" Height="26" Click="refresh_links_click" Margin="0,0,0,10"/>
-                    <ScrollViewer DockPanel.Dock="Top" Height="180" VerticalScrollBarVisibility="Auto"
+
+                    <GroupBox DockPanel.Dock="Top" Header="Parameters written onto every placed link"
+                              Margin="0,0,0,10">
+                        <StackPanel Margin="6">
+                            <TextBlock TextWrapping="Wrap" Foreground="#888" FontSize="11" Margin="0,0,0,6"
+                                       Text="Each placed link instance gets its own Shared Parameter with these names, set to that row's value - a new Revit link category parameter is created and bound automatically if it does not exist yet. Rename any of them below before you Place."/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="140"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Typology parameter:"
+                                           VerticalAlignment="Center" Margin="0,0,8,4"/>
+                                <TextBox Grid.Row="0" Grid.Column="1" x:Name="param_typology_tb" Height="24"
+                                         VerticalContentAlignment="Center" Text="Building Typology"
+                                         Margin="0,0,0,4"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Parcel ID parameter:"
+                                           VerticalAlignment="Center" Margin="0,0,8,4"/>
+                                <TextBox Grid.Row="1" Grid.Column="1" x:Name="param_parcel_tb" Height="24"
+                                         VerticalContentAlignment="Center" Text="Parcel ID" Margin="0,0,0,4"/>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Developer ID parameter:"
+                                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBox Grid.Row="2" Grid.Column="1" x:Name="param_developer_tb" Height="24"
+                                         VerticalContentAlignment="Center" Text="Developer ID"/>
+                            </Grid>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <ScrollViewer DockPanel.Dock="Top" Height="140" VerticalScrollBarVisibility="Auto"
                                   Margin="0,0,0,10">
                         <StackPanel x:Name="mapping_panel"/>
                     </ScrollViewer>

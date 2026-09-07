@@ -62,22 +62,53 @@ created link instance as they do on the ImportInstance/FamilyInstance
 cases already proven, are both unverified until run for real.
 """
 import math
+import os
+import tempfile
 
 from Autodesk.Revit.DB import (
     FilteredElementCollector, RevitLinkType, RevitLinkInstance,
     ElementTransformUtils, XYZ, Line, Transaction,
-    UnitUtils, UnitTypeId,
+    UnitUtils, UnitTypeId, BuiltInCategory,
+    ExternalDefinitionCreationOptions, SpecTypeId, BuiltInParameterGroup,
 )
 
 import xlsx_writer
 import xlsx_reader
 
 TEMPLATE_HEADERS = [
-    "X (m)", "Y (m)", "Z (m)", "Rotation Angle (deg)",
+    "X", "Y", "Z", "Rotation Angle (deg)",
     "Building Typology", "Parcel ID", "Developer ID",
 ]
 _TEMPLATE_COL_WIDTHS = [12, 12, 12, 18, 26, 16, 16]
 _TEMPLATE_TITLE = "DeeLinkDist - Masterplan Building Locations"
+
+# X/Y/Z's unit is picked in the window at load/place time, not baked
+# into the template - the header above is deliberately unit-agnostic
+# ("X", not "X (m)") since the same downloaded template now works
+# whichever unit the user's own masterplan coordinates happen to be in.
+# (label, UnitTypeId) - every option UnitUtils.ConvertToInternalUnits
+# already accepts, offered rather than assuming metric because this
+# codebase's own dee_getdwg_service.py keeps the identical set for the
+# same reason (a masterplan's site survey could be in any of these).
+UNIT_OPTIONS = [
+    ("Millimeters", UnitTypeId.Millimeters),
+    ("Centimeters", UnitTypeId.Centimeters),
+    ("Meters", UnitTypeId.Meters),
+    ("Feet", UnitTypeId.Feet),
+    ("Inches", UnitTypeId.Inches),
+]
+DEFAULT_UNIT_LABEL = "Meters"
+
+
+def resolve_unit(label):
+    """The UnitTypeId for a UNIT_OPTIONS label, or Meters if the label
+    is unrecognised - never raises, same 'a stale/unknown choice falls
+    back to a sane default rather than being the reason nothing
+    happens' convention as core.resolve_preset in dee_mono_service.py."""
+    for opt_label, unit_type_id in UNIT_OPTIONS:
+        if opt_label == label:
+            return unit_type_id
+    return UnitTypeId.Meters
 
 # Column order is FIXED - the reader below matches by POSITION, not by
 # re-parsing whatever header text happens to be in row 2, so a sheet
@@ -199,6 +230,139 @@ def distinct_typologies(rows):
 
 
 # ==========================================================================
+# Shared parameters written onto every placed link instance - Building
+# Typology / Parcel ID / Developer ID, USER-NAMED (the window offers
+# editable text boxes defaulting to those three names, per the request
+# "let me decide the name of this parameters").
+#
+# Route and reasoning copied from this codebase's ONE existing precedent
+# for creating/binding a shared parameter - DeeLazy's DeeViewsheet
+# module (dee_viewsheet.py's create_shared_view_parameter/
+# _ensure_shared_param_file) - generalised here from a single Views-
+# category parameter to N parameters bound to OST_RvtLinks (the
+# category for Revit Link instances) instead. Copied rather than
+# imported, matching this codebase's established "local copy per file"
+# convention for small pieces of logic reused across unrelated tools
+# (the same reasoning list_3d_views's own docstring gives - an earlier
+# tool crashed Revit when a shared helper's location changed under it).
+#
+#   Application.OpenSharedParameterFile()  -> DefinitionFile
+#   DefinitionFile.Groups.Create(group)    -> DefinitionGroup
+#   group.Definitions.Create(ExternalDefinitionCreationOptions(name, type))
+#                                           -> ExternalDefinition
+#   Application.Create.NewInstanceBinding(CategorySet with OST_RvtLinks)
+#   doc.ParameterBindings.Insert(definition, binding, group)
+#
+# Creation/binding runs in its OWN Transaction, committed BEFORE
+# place_links' own placement Transaction starts - mirroring
+# dee_viewsheet.py's own explicit reasoning: whether a freshly-inserted
+# binding is visible to LookupParameter within the SAME transaction it
+# was created in is unconfirmed, so this never depends on the answer.
+# ==========================================================================
+_SP_GROUP_NAME = "DeePack"
+
+
+def _ensure_shared_param_file(app, doc):
+    """Returns (DefinitionFile, detail). Uses the existing shared
+    parameter file when one is already set; otherwise creates a new one
+    next to the project file (or in the user's temp folder for an
+    unsaved project) rather than writing to an arbitrary location. An
+    existing shared parameter file is never overwritten or replaced."""
+    try:
+        existing = app.OpenSharedParameterFile()
+        if existing is not None:
+            return existing, "using your existing shared parameter file"
+    except Exception:
+        pass
+
+    try:
+        base = ""
+        try:
+            if doc.PathName:
+                base = os.path.dirname(doc.PathName)
+        except Exception:
+            base = ""
+        if not base or not os.path.isdir(base):
+            base = tempfile.gettempdir()
+        path = os.path.join(base, "DeePack_SharedParameters.txt")
+        if not os.path.exists(path):
+            with open(path, "w") as fh:
+                fh.write("")
+        app.SharedParametersFilename = path
+        created = app.OpenSharedParameterFile()
+        if created is None:
+            return None, "Revit would not open the new shared parameter file at {0}".format(path)
+        return created, "created a new shared parameter file at {0}".format(path)
+    except Exception as e:
+        return None, "could not prepare a shared parameter file: {0}".format(e)
+
+
+def ensure_link_parameters(doc, app, param_names):
+    """param_names: list of text parameter names to create (if missing)
+    and bind (if not already bound) to the OST_RvtLinks category as
+    INSTANCE parameters, so each placed link instance can carry its OWN
+    typology/parcel/developer value even when many instances share the
+    same link TYPE. Returns {name: (ok, detail)}. Never raises - one
+    parameter failing to bind is reported per-name, not fatal to the
+    others or to the placement that follows."""
+    results = {}
+    def_file, file_detail = _ensure_shared_param_file(app, doc)
+    if def_file is None:
+        return dict((name, (False, file_detail)) for name in param_names)
+
+    try:
+        group = None
+        for g in def_file.Groups:
+            if g.Name == _SP_GROUP_NAME:
+                group = g
+                break
+        if group is None:
+            group = def_file.Groups.Create(_SP_GROUP_NAME)
+    except Exception as e:
+        detail = "could not open/create the '{0}' definition group: {1}".format(
+            _SP_GROUP_NAME, e)
+        return dict((name, (False, detail)) for name in param_names)
+
+    t = Transaction(doc, "DeeLinkDist - Create Link Parameters")
+    t.Start()
+    try:
+        cats = doc.Application.Create.NewCategorySet()
+        links_cat = doc.Settings.Categories.get_Item(BuiltInCategory.OST_RvtLinks)
+        cats.Insert(links_cat)
+
+        for name in param_names:
+            try:
+                definition = None
+                for d in group.Definitions:
+                    if d.Name == name:
+                        definition = d
+                        break
+                if definition is None:
+                    opts = ExternalDefinitionCreationOptions(name, SpecTypeId.String.Text)
+                    definition = group.Definitions.Create(opts)
+
+                binding = doc.Application.Create.NewInstanceBinding(cats)
+                bindings = doc.ParameterBindings
+                if bindings.Contains(definition):
+                    results[name] = (True, "already bound to Revit Links ({0})".format(
+                        file_detail))
+                    continue
+                inserted = bindings.Insert(definition, binding, BuiltInParameterGroup.PG_IDENTITY_DATA)
+                results[name] = ((True, "created and bound to Revit Links ({0})".format(
+                    file_detail)) if inserted else
+                    (False, "Revit refused to bind '{0}' to Revit Links".format(name)))
+            except Exception as e:
+                results[name] = (False, "{0}".format(e))
+        t.Commit()
+    except Exception as e:
+        t.RollBack()
+        return dict((name, (False, "could not create link parameters: {0}".format(e)))
+                   for name in param_names)
+
+    return results
+
+
+# ==========================================================================
 # link types available to map
 # ==========================================================================
 def list_link_types(doc):
@@ -244,22 +408,84 @@ class PlacementResult(object):
         self.skipped = 0
         self.row_results = []
         self.errors = []
+        # {param_name: (ok, detail)} from ensure_link_parameters, kept
+        # separate from row_results - "3 parameters bound" and "40 links
+        # placed" are different operations about different things, same
+        # reasoning dee_mono_service.MonoResult already applies to
+        # hidden_applied vs. applied.
+        self.parameter_setup = {}
 
 
-def place_links(doc, rows, typology_to_link_type):
+_DEFAULT_PARAM_NAMES = {
+    "typology": "Building Typology",
+    "parcel_id": "Parcel ID",
+    "developer_id": "Developer ID",
+}
+
+
+def _set_link_parameters(instance, names, row):
+    """Best-effort - a parameter that failed to bind (or a link
+    instance that, for whatever reason, does not expose it) is simply
+    skipped rather than failing the whole row: the LINK itself is still
+    correctly placed either way, which is what actually matters most.
+    Returns a short suffix for the row's own status message noting how
+    many of the 3 values were actually written, so a silent partial
+    write is never invisible in the report."""
+    values = {
+        names["typology"]: row.typology,
+        names["parcel_id"]: row.parcel_id,
+        names["developer_id"]: row.developer_id,
+    }
+    written = 0
+    for name, value in values.items():
+        try:
+            p = instance.LookupParameter(name)
+            if p is not None and not p.IsReadOnly:
+                p.Set(value or "")
+                written += 1
+        except Exception:
+            pass
+    if written == len(values):
+        return ""
+    return " ({0}/{1} parameters written)".format(written, len(values))
+
+
+def place_links(doc, rows, typology_to_link_type, unit_label=DEFAULT_UNIT_LABEL,
+                param_names=None):
     """rows: [BuildingRow]. typology_to_link_type: {typology_lower:
     RevitLinkType} - built by the window from the user's per-link
-    dropdown picks. One Transaction for the whole batch (creating +
-    moving + rotating a link instance is lightweight - nowhere near the
-    scale that calls for DeeTransmit-style multi-transaction batching).
-    Every row is wrapped in its own try/except so one failure never
-    aborts the rest, matching this codebase's convention throughout
-    (dee_mono_service.apply_theme's per-category loop, dee_transmit_
-    service's per-model loop, etc.)."""
+    dropdown picks. unit_label: one of UNIT_OPTIONS' labels - what the
+    sheet's X/Y/Z values are IN, converted to Revit's internal feet via
+    UnitUtils.ConvertToInternalUnits before use. param_names: optional
+    {"typology"/"parcel_id"/"developer_id": custom_name} - any key left
+    out (or the whole dict left None) falls back to
+    _DEFAULT_PARAM_NAMES, so an old caller passing nothing behaves
+    exactly as before this option existed.
+
+    Creating/binding the three shared parameters happens FIRST, in its
+    own Transaction (see ensure_link_parameters) - a parameter that
+    fails to bind is recorded in the result and simply never gets SET
+    on any instance below, it does not stop placement.
+
+    One Transaction for the placement batch itself (creating + moving +
+    rotating + setting 3 parameters on a link instance is lightweight -
+    nowhere near the scale that calls for DeeTransmit-style multi-
+    transaction batching). Every row is wrapped in its own try/except
+    so one failure never aborts the rest, matching this codebase's
+    convention throughout (dee_mono_service.apply_theme's per-category
+    loop, dee_transmit_service's per-model loop, etc.)."""
     result = PlacementResult()
     if not rows:
         result.errors.append("No building rows to place.")
         return result
+
+    names = dict(_DEFAULT_PARAM_NAMES)
+    if param_names:
+        names.update(dict((k, v) for k, v in param_names.items() if v))
+    unit_type_id = resolve_unit(unit_label)
+
+    result.parameter_setup = ensure_link_parameters(
+        doc, doc.Application, [names["typology"], names["parcel_id"], names["developer_id"]])
 
     t = Transaction(doc, "DeeLinkDist - Place Links")
     try:
@@ -274,9 +500,9 @@ def place_links(doc, rows, typology_to_link_type):
             try:
                 instance = RevitLinkInstance.Create(doc, link_type.Id)
                 target = XYZ(
-                    UnitUtils.ConvertToInternalUnits(row.x, UnitTypeId.Meters),
-                    UnitUtils.ConvertToInternalUnits(row.y, UnitTypeId.Meters),
-                    UnitUtils.ConvertToInternalUnits(row.z, UnitTypeId.Meters))
+                    UnitUtils.ConvertToInternalUnits(row.x, unit_type_id),
+                    UnitUtils.ConvertToInternalUnits(row.y, unit_type_id),
+                    UnitUtils.ConvertToInternalUnits(row.z, unit_type_id))
                 # Created origin-to-origin at (0,0,0), so the move
                 # TRANSLATION is simply the target point itself.
                 ElementTransformUtils.MoveElement(doc, instance.Id, target)
@@ -284,7 +510,10 @@ def place_links(doc, rows, typology_to_link_type):
                     axis = Line.CreateBound(target, target + XYZ.BasisZ)
                     ElementTransformUtils.RotateElement(
                         doc, instance.Id, axis, math.radians(row.rotation_deg))
-                result.row_results.append(RowResult(row, True, "Placed"))
+
+                param_note = _set_link_parameters(instance, names, row)
+
+                result.row_results.append(RowResult(row, True, "Placed" + param_note))
                 result.applied += 1
             except Exception as e:
                 result.row_results.append(RowResult(row, False, "{0}".format(e)))
