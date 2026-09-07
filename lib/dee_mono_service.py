@@ -418,14 +418,81 @@ def _ensure_line_contrast(fill_rgb, line_rgb=None):
     return fill_rgb
 
 
+_AUTO_OUTLINE_MAX_NUDGES = 24
+
+# Named shortcuts for auto_outline_delta - a signed lightness shift
+# applied to a category's OWN fill (see auto_outline_color below), not
+# a separate mechanism from the plain numeric delta: picking a name in
+# the window just seeds the slider to one of these values, exactly the
+# same "preset seeds a control the user can still fine-tune afterward"
+# pattern the style presets already use with the tint sliders.
+AUTO_OUTLINE_PRESETS = {
+    "Subtle (darker)": -0.18,
+    "Balanced (darker)": -0.32,
+    "Bold (darker)": -0.50,
+    "Sketch (lighter)": 0.35,
+}
+AUTO_OUTLINE_PRESET_ORDER = ["Subtle (darker)", "Balanced (darker)", "Bold (darker)",
+                            "Sketch (lighter)"]
+DEFAULT_AUTO_OUTLINE_PRESET = "Balanced (darker)"
+
+
+def auto_outline_color(fill_rgb, delta):
+    """A category's outline derived from THAT category's own fill,
+    shifted lighter(+)/darker(-) by `delta` - so every category reads
+    as a shade of its own colour rather than everything sharing one
+    flat neutral line. If the requested delta does not clear the same
+    contrast floor every other outline source in this module guarantees
+    (_LINE_CONTRAST_FLOOR), the delta is pushed FURTHER in the SAME
+    direction rather than nudging the fill instead - nudging the fill
+    would break the one promise this mode makes ("this outline IS a
+    shade of this fill"), which is the entire point of the feature.
+
+    That push can run out of room: a fill that is ALREADY close to
+    black cannot be pushed any darker (shift_lightness itself floors at
+    lightness 0.02) and pure black still may not clear the floor against
+    a dark-but-not-black fill - found by a test with fill=(30,28,26),
+    delta=-0.02, which plateaus around contrast ratio 1.2, short of the
+    1.5 floor, however far the darker push continues. In that case -
+    detected by hitting the +/-0.98 extreme without success - this falls
+    back to the OPPOSITE extreme instead of returning a line that still
+    fails the guarantee. This only ever triggers for a fill already very
+    near black (darker requested) or very near white (lighter
+    requested), and the opposite extreme is guaranteed to clear the
+    floor precisely because the fill is confirmed far from it."""
+    delta = max(-0.95, min(0.95, delta))
+    line = shift_lightness(fill_rgb, delta)
+    if contrast_ratio(fill_rgb, line) >= _LINE_CONTRAST_FLOOR:
+        return line
+    step = 0.08 if delta >= 0 else -0.08
+    for _ in range(_AUTO_OUTLINE_MAX_NUDGES):
+        delta = max(-0.98, min(0.98, delta + step))
+        line = shift_lightness(fill_rgb, delta)
+        if contrast_ratio(fill_rgb, line) >= _LINE_CONTRAST_FLOOR:
+            return line
+        if delta <= -0.98 or delta >= 0.98:
+            break
+    fallback_delta = 0.98 if step < 0 else -0.98
+    return shift_lightness(fill_rgb, fallback_delta)
+
+
 def plan_for_category(base_rgb, category_name, preset=None, glazing_transparency=None,
-                      tint_adjust=None, line_rgb=None, line_overrides=None):
+                      tint_adjust=None, line_rgb=None, line_overrides=None,
+                      auto_outline_delta=None, transparency_adjust=None):
     """Pure: (fill_rgb, line_rgb, transparency_pct) for one category
     under one preset. No Revit objects in or out, so this is exactly
     what the tests exercise - the Revit-facing function below only ever
     wraps this. `preset` defaults to Presentation - Balanced, so old
     callers (and old saved snapshots with no preset recorded) keep
     behaving exactly as before this option existed.
+
+    `transparency_adjust`: an optional {role_name: extra_pct} dict,
+    ADDITIVE on top of whatever this role's own base transparency
+    already is (0 for every role except glazing, which starts partly
+    see-through) - the same "nudge on top of the preset's own default"
+    shape as tint_adjust, extended to cover every category rather than
+    only glazing. Clamped to 0-100 after adding, same range Revit's own
+    SetSurfaceTransparency accepts.
 
     `tint_adjust`: an optional {role_name: extra_delta} dict. Lets the
     user nudge one TONE ROLE's own lightness by hand, on top of
@@ -441,22 +508,27 @@ def plan_for_category(base_rgb, category_name, preset=None, glazing_transparency
     place of the module's fixed LINE_RGB default.
 
     `line_overrides`: an optional {role_name: rgb} dict for a PER-ROLE
-    outline colour, taking precedence over `line_rgb` for whichever
-    role it names. Resolution order, most to least specific:
-    line_overrides[role] -> line_rgb -> LINE_RGB.
+    outline colour.
+
+    `auto_outline_delta`: an optional signed float (-1..1) - when given,
+    the outline becomes THIS category's own fill tinted by that amount
+    (auto_outline_color), instead of one flat colour shared by every
+    category. Resolution order, most to least specific:
+    line_overrides[role] -> auto_outline_delta -> line_rgb -> LINE_RGB.
+    Auto sits ABOVE the global override on purpose: it is a per-category
+    computed source, strictly more specific than one flat colour used
+    everywhere, but a user's own explicit per-category pick still wins
+    over even that.
 
     Whichever line colour ends up in effect, the contrast floor still
-    applies against it - overriding the outline colour, globally or
-    per role, does not opt out of the "the outline must stay legible"
-    guarantee, it just changes what it is measured against."""
+    applies against it - overriding the outline colour, globally,
+    per role, or automatically, does not opt out of the "the outline
+    must stay legible" guarantee, it just changes what it is measured
+    against (or, for auto mode, how it is enforced - see
+    auto_outline_color)."""
     preset = preset or PRESETS[DEFAULT_PRESET]
     role = role_for_category(category_name)
     tone = ROLE_TONE[role]
-
-    if line_overrides and role in line_overrides:
-        line_rgb = line_overrides[role]
-    elif line_rgb is None:
-        line_rgb = LINE_RGB
 
     extra = float(tint_adjust.get(role, 0.0)) if tint_adjust else 0.0
     delta = max(-0.95, min(0.95, tone["lightness"] * preset["intensity"] + preset["bias"] + extra))
@@ -470,12 +542,25 @@ def plan_for_category(base_rgb, category_name, preset=None, glazing_transparency
     if preset["saturation"] != 1.0:
         fill = scale_saturation(fill, preset["saturation"])
 
-    # The contrast floor is NEVER optional and never scaled by the
-    # preset or a tint/outline override - an invisible outline is a
-    # correctness bug, not a style, regardless of how far Bold/High
-    # Contrast, a manual tint nudge, or a custom outline colour push
-    # everything else.
-    fill = _ensure_line_contrast(fill, line_rgb)
+    # Resolve the outline colour AFTER the fill above is finalised (bar
+    # the contrast-floor nudge just below) - most to least specific:
+    # per-category manual pick -> auto (a tint of THIS fill) -> global
+    # override -> the module's own fixed default. The contrast floor is
+    # NEVER optional and never scaled by the preset or any override -
+    # an invisible outline is a correctness bug, not a style, regardless
+    # of how far Bold/High Contrast, a manual tint nudge, or a custom
+    # outline source push everything else.
+    if line_overrides and role in line_overrides:
+        line_rgb = line_overrides[role]
+        fill = _ensure_line_contrast(fill, line_rgb)
+    elif auto_outline_delta is not None:
+        line_rgb = auto_outline_color(fill, auto_outline_delta)
+        # No _ensure_line_contrast call here on purpose - auto_outline_
+        # color already guarantees the same floor itself, by pushing the
+        # LINE further rather than the fill (see its own docstring).
+    else:
+        line_rgb = line_rgb if line_rgb is not None else LINE_RGB
+        fill = _ensure_line_contrast(fill, line_rgb)
 
     transparency = tone["transparency"]
     if role == "glazing":
@@ -488,15 +573,21 @@ def plan_for_category(base_rgb, category_name, preset=None, glazing_transparency
         # silently overridden by it.
         transparency = max(0, min(90, int(round(transparency * (0.7 + 0.6 * preset["intensity"])))))
 
+    if transparency_adjust and role in transparency_adjust:
+        transparency = transparency + float(transparency_adjust[role])
+    transparency = max(0, min(100, int(round(transparency))))
+
     return fill, line_rgb, transparency
 
 
 def build_plan(base_rgb, category_names, preset=None, glazing_transparency=None,
-               tint_adjust=None, line_rgb=None, line_overrides=None):
+               tint_adjust=None, line_rgb=None, line_overrides=None,
+               auto_outline_delta=None, transparency_adjust=None):
     """{category_name: (fill_rgb, line_rgb, transparency_pct)} for a
     whole view - what apply_theme() turns into real API calls."""
     return dict((name, plan_for_category(base_rgb, name, preset, glazing_transparency,
-                                         tint_adjust, line_rgb, line_overrides))
+                                         tint_adjust, line_rgb, line_overrides,
+                                         auto_outline_delta, transparency_adjust))
                for name in category_names)
 
 
@@ -900,7 +991,8 @@ def _display_style_enum(flat):
 def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading=True,
                 glazing_transparency=None, tint_adjust=None, line_rgb=None,
                 line_overrides=None, hide_categories_list=None,
-                shadow_intensity=None, sunlight_intensity=None):
+                shadow_intensity=None, sunlight_intensity=None,
+                auto_outline_delta=None, transparency_adjust=None):
     """Captures the view's current graphics FIRST (always, even on a
     first-ever run, so Restore is available immediately afterwards),
     then applies the theme. One Transaction: the number of categories
@@ -908,11 +1000,12 @@ def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading
     is nowhere near the scale that would call for DeeTransmit-style
     batching.
 
-    `tint_adjust`, `line_rgb` and `line_overrides` are the manual
-    per-role and outline-colour overrides from the preview window - see
-    plan_for_category() for what each one means. All default to None,
-    reproducing the exact behaviour of every call made before these
-    options existed.
+    `tint_adjust`, `line_rgb`, `line_overrides` and `auto_outline_delta`
+    are the manual/automatic outline-colour options from the preview
+    window - see plan_for_category() for what each one means and how
+    they resolve against each other. All default to None, reproducing
+    the exact behaviour of every call made before these options
+    existed.
 
     `hide_categories_list`: BuiltInCategory member names (see
     HIDE_CATEGORY_OPTIONS) to hide outright in this view - a real
@@ -936,7 +1029,8 @@ def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading
     line_weight = max(1, min(16, int(preset["line_weight"])))
     solid_id = solid_fill_pattern_id(doc)
     plan = build_plan(base_rgb, [cat.Name for cat, _count in categories],
-                      preset, glazing_transparency, tint_adjust, line_rgb, line_overrides)
+                      preset, glazing_transparency, tint_adjust, line_rgb, line_overrides,
+                      auto_outline_delta, transparency_adjust)
 
     snapshot = {
         "categories": {}, "display_style": None, "preset_applied": preset_name,
@@ -947,6 +1041,8 @@ def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading
         "tint_adjust": dict(tint_adjust) if tint_adjust else {},
         "outline_override": list(line_rgb) if line_rgb else None,
         "line_overrides": dict((k, list(v)) for k, v in (line_overrides or {}).items()),
+        "auto_outline_delta": auto_outline_delta,
+        "transparency_adjust": dict(transparency_adjust) if transparency_adjust else {},
     }
     try:
         # The enum's NAME, not its integer value__: restoring it is then
@@ -1108,3 +1204,66 @@ def restore_theme(doc, view):
         return result
 
     return result
+
+
+# ==========================================================================
+# view template creation - turns a themed view's CURRENT graphics into a
+# reusable Revit View Template, so the look can be applied to many other
+# views via Revit's own template mechanism instead of running DeeMono
+# again per view.
+#
+# View.CreateViewTemplate() and View.IsViewValidForTemplateCreation() are
+# confirmed real, documented instance methods on View (revitapidocs.com) -
+# CreateViewTemplate() creates a SEPARATE NEW View element (IsTemplate
+# True) that snapshots the calling view's CURRENT settings; the calling
+# view itself is left as an ordinary view, untouched by the call. There
+# is no documented way to build a template "from settings alone" without
+# first having a real view carrying those settings - which is why this is
+# always called AFTER apply_theme() has actually themed the chosen view,
+# never as an alternative to it. IsViewValidForTemplateCreation() is
+# checked first so an invalid view (already a template itself, a view
+# type templates cannot be made from) is reported plainly rather than
+# surfacing as a raised InvalidOperationException.
+# ==========================================================================
+def create_view_template(doc, view, name=None):
+    """(template_view_or_None, error_message_or_None). Must be called
+    with an OPEN document (owns its own Transaction, same pattern as
+    apply_theme/restore_theme) - typically right after apply_theme() has
+    committed, on the same view."""
+    try:
+        if not view.IsViewValidForTemplateCreation():
+            return None, "This view is not valid for view template creation."
+    except Exception as e:
+        return None, "Could not check view template validity: {0}".format(e)
+
+    t = Transaction(doc, "DeeMono - Create View Template")
+    try:
+        t.Start()
+        template = view.CreateViewTemplate()
+        if name:
+            _rename_view_template(template, name)
+        t.Commit()
+    except Exception as e:
+        try:
+            if t.HasStarted() and not t.HasEnded():
+                t.RollBack()
+        except Exception:
+            pass
+        return None, "Could not create the view template: {0}".format(e)
+    return template, None
+
+
+def _rename_view_template(template, base_name):
+    """Best-effort rename, appending ' (2)', ' (3)', ... on a name
+    collision - view/template names must be unique within a document,
+    the same constraint every other named Revit element has. Never
+    raises: if every variant tried is somehow also taken, the template
+    simply keeps whatever name CreateViewTemplate auto-generated for it
+    rather than failing the whole operation over a cosmetic detail."""
+    name = base_name
+    for i in range(1, 51):
+        try:
+            template.Name = name
+            return
+        except Exception:
+            name = "{0} ({1})".format(base_name, i + 1)

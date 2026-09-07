@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeMono - Monochrome View Theme"
         ShowInTaskbar="False"
-        MinHeight="680" MinWidth="640" Height="820" Width="680"
+        MinHeight="700" MinWidth="640" Height="880" Width="700"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
 
@@ -22,6 +22,14 @@
                     Margin="10,0,0,0" Click="close_click"/>
         </StackPanel>
 
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,0,0,4">
+            <CheckBox x:Name="save_template_cb" Content="Also create a View Template from this"
+                      VerticalAlignment="Center" Click="save_template_cb_click"
+                      ToolTip="Applies the theme to the selected view (same as Apply), then saves that view's look as a brand new, reusable Revit View Template - so it can be assigned to other views from Revit's own Properties panel without running DeeMono again."/>
+            <TextBox x:Name="template_name_tb" Width="220" Height="24" Margin="10,0,0,0"
+                     VerticalContentAlignment="Center" IsEnabled="False"/>
+        </StackPanel>
+
         <Border DockPanel.Dock="Top" Background="#EEF3F8" Padding="8" Margin="0,0,0,10">
             <StackPanel>
                 <TextBlock FontWeight="Bold" Text="Recolour a 3D view into one theme colour"/>
@@ -36,6 +44,8 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
@@ -68,17 +78,26 @@
             <ComboBox Grid.Row="2" Grid.Column="1" x:Name="style_cb" Height="26" Margin="0,0,0,4"
                       SelectionChanged="style_cb_changed"/>
 
-            <TextBlock Grid.Row="3" Grid.Column="1" x:Name="style_desc_tb" TextWrapping="Wrap"
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="" VerticalAlignment="Center"/>
+            <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,4">
+                <TextBox x:Name="custom_preset_name_tb" Width="160" Height="24"
+                         VerticalContentAlignment="Center"
+                         ToolTip="Name for a new preset that captures the current style plus every tint, per-category outline, auto-outline and transparency adjustment below - not the theme colour or per-view options like hide-categories/shadows."/>
+                <Button x:Name="save_preset_b" Content="Save as Preset" Width="120" Height="24"
+                        Margin="8,0,0,0" Click="save_preset_click"/>
+            </StackPanel>
+
+            <TextBlock Grid.Row="4" Grid.Column="1" x:Name="style_desc_tb" TextWrapping="Wrap"
                        Foreground="#666" FontStyle="Italic" Margin="0,0,0,10"/>
 
-            <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,10">
+            <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,10">
                 <CheckBox x:Name="flatten_cb" IsChecked="True" Click="flatten_cb_click"
                           Content="Flatten shading to 'Consistent Colors' (matches the poster look)"/>
             </StackPanel>
 
-            <TextBlock Grid.Row="5" Grid.Column="0" Text="Outline colour:" VerticalAlignment="Center"
+            <TextBlock Grid.Row="6" Grid.Column="0" Text="Outline colour:" VerticalAlignment="Center"
                        Margin="0,0,10,10"/>
-            <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,10">
+            <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,10">
                 <CheckBox x:Name="outline_override_cb" Click="outline_override_click"
                           Content="Override" VerticalAlignment="Center"
                           ToolTip="Off (default): the tool's own dark neutral, chosen to stay legible against any fill colour. On: pick your own - the same legibility check still applies to whichever colour you choose."/>
@@ -90,9 +109,36 @@
                            Foreground="#666" FontFamily="Consolas"/>
             </StackPanel>
 
-            <TextBlock Grid.Row="6" Grid.Column="0" Text="Hide in view:" VerticalAlignment="Center"
+            <TextBlock Grid.Row="7" Grid.Column="0" Text="Auto outline:" VerticalAlignment="Top"
+                       Margin="0,2,10,10"/>
+            <StackPanel Grid.Row="7" Grid.Column="1" Margin="0,0,0,10">
+                <CheckBox x:Name="auto_outline_cb" Content="Auto - tint each category's outline from its own fill"
+                          Click="auto_outline_cb_click"
+                          ToolTip="Instead of one flat outline colour for the whole view, each category's outline becomes a lighter/darker shade of THAT category's own fill. Turning this on turns the Override above off - only one outline source applies to the whole view at a time; a per-category pick in the preview below still wins over either."/>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <TextBlock Text="Style:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="auto_outline_style_cb" Width="150" Height="24"
+                              SelectionChanged="auto_outline_style_cb_changed" IsEnabled="False"/>
+                </StackPanel>
+                <Grid Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="120"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="40"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Lighter / darker:" VerticalAlignment="Center"/>
+                    <Slider Grid.Column="1" x:Name="auto_outline_slider" Minimum="-90" Maximum="90"
+                            Margin="0,0,8,0" ValueChanged="auto_outline_slider_changed"
+                            IsEnabled="False"
+                            ToolTip="Negative = darker than the category's own fill, positive = lighter. Always stays legible against that fill, same guarantee as every other outline source."/>
+                    <TextBlock Grid.Column="2" x:Name="auto_outline_value_tb"
+                               VerticalAlignment="Center"/>
+                </Grid>
+            </StackPanel>
+
+            <TextBlock Grid.Row="8" Grid.Column="0" Text="Hide in view:" VerticalAlignment="Center"
                        Margin="0,0,10,10"/>
-            <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,10">
+            <StackPanel Grid.Row="8" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,10">
                 <CheckBox x:Name="hide_levels_cb" Content="Levels" Margin="0,0,16,0"
                           VerticalAlignment="Center"/>
                 <CheckBox x:Name="hide_grids_cb" Content="Grids" Margin="0,0,16,0"
@@ -103,9 +149,9 @@
                           VerticalAlignment="Center"/>
             </StackPanel>
 
-            <TextBlock Grid.Row="7" Grid.Column="0" Text="Shadows:" VerticalAlignment="Top"
+            <TextBlock Grid.Row="9" Grid.Column="0" Text="Shadows:" VerticalAlignment="Top"
                        Margin="0,2,10,10"/>
-            <StackPanel Grid.Row="7" Grid.Column="1" Margin="0,0,0,10">
+            <StackPanel Grid.Row="9" Grid.Column="1" Margin="0,0,0,10">
                 <CheckBox x:Name="shadows_cb" Content="Adjust shadows for this view"
                           Click="shadows_cb_click"
                           ToolTip="Off (default): leave this view's shadows exactly as they are. Revit's 'Show Ambient Shadows' checkbox itself has no public API and cannot be controlled here - Shadow/Sunlight intensity are the real, documented controls closest to it."/>
@@ -136,14 +182,14 @@
                 </Grid>
             </StackPanel>
 
-            <GroupBox Grid.Row="8" Grid.Column="0" Grid.ColumnSpan="2" Header="Preview">
+            <GroupBox Grid.Row="10" Grid.Column="0" Grid.ColumnSpan="2" Header="Preview">
                 <DockPanel Margin="4">
                     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
                         <Button DockPanel.Dock="Right" x:Name="reset_tints_b" Content="Reset All"
                                 Width="90" Height="24" Click="reset_tints_click"
-                                ToolTip="Puts every category's tint slider back to this style's own default and clears every per-category outline override below."/>
+                                ToolTip="Puts every category's tint and transparency slider back to this style's own default and clears every per-category outline override below."/>
                         <TextBlock Foreground="#888" FontSize="11" TextWrapping="Wrap"
-                                   Text="A sample of categories under the current colour and style - the same calculation Apply uses. Drag a slider to nudge that whole tone group lighter or darker. The thin bar under each slider is that category's own outline colour - left-click to set one, right-click to clear it."/>
+                                   Text="A sample of categories under the current colour and style - the same calculation Apply uses. Top slider nudges that tone group lighter/darker; bottom slider nudges its transparency. The thin bar is that category's own outline colour - left-click to set one, right-click to clear it."/>
                     </DockPanel>
                     <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto">
                         <WrapPanel x:Name="preview_panel"/>

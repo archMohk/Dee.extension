@@ -113,6 +113,40 @@ selection changes (_seed_shadow_sliders_from_view), since Revit already
 holds the real answer on the view itself - there is nothing to
 remember. The checkbox starts unticked and the section starts disabled,
 same as every other opt-in control in this window.
+
+--------------------------------------------------------------------
+Auto outline, per-category transparency, and custom presets
+--------------------------------------------------------------------
+"Auto outline" is a THIRD outline source (core.auto_outline_color),
+alongside the fixed default and the global Override - each category's
+outline becomes a lighter/darker shade of THAT category's OWN fill
+instead of one flat colour shared by everything. It is mutually
+exclusive with the global Override in this window (ticking one
+force-unticks the other, enforced both directions in
+auto_outline_cb_click/outline_override_click) purely for UI clarity -
+core.plan_for_category's own precedence already resolves the two
+correctly either way, a per-category manual pick still wins over both.
+
+Every preview cell gained a second slider for transparency
+(core.transparency_adjust), additive on top of that role's own base -
+previously only glazing had any transparency at all. The swatch
+Border's own Opacity now reflects the resulting percentage, so
+transparency is something the preview actually SHOWS, not just a
+number Apply would use unseen.
+
+"Save as Preset" captures the FULL current adjustment state - base
+style, every tint/transparency/per-category-outline change, the auto
+outline and global override settings - as one named, reusable bundle,
+stored under a SEPARATE deew_settings key ("dee_mono_custom_presets")
+from the window's own small settings blob. Deliberately does NOT
+capture the theme colour or the per-view options (hide-categories,
+shadows) - those are per-run choices, not part of what most people mean
+by "a preset". Saved presets appear in the SAME style_cb dropdown,
+below a plain-text divider - selecting one loads the whole bundle back
+(_load_custom_preset_into_window) rather than just switching a style
+name. The name field is a permanently-visible inline TextBox, not
+forms.ask_for_string or a second window - the established reason
+neither of those may be opened from inside this already-modal window.
 """
 import os
 import traceback
@@ -126,7 +160,7 @@ from System.Windows.Forms import ColorDialog, DialogResult
 from System.Drawing import Color as DrawingColor
 from System.Windows import Thickness, CornerRadius, TextWrapping
 from System.Windows.Controls import Border, TextBlock, Slider, StackPanel, Orientation
-from System.Windows.Media import SolidColorBrush, Color as MediaColor, Brushes
+from System.Windows.Media import SolidColorBrush, Color as MediaColor
 from System.Windows.Input import Cursors
 
 from pyrevit import forms, script
@@ -175,6 +209,26 @@ _HIDE_CB_NAMES = {
     "Scope Boxes": "hide_scopebox_cb",
 }
 
+# Custom presets live under a SEPARATE deew_settings key from the
+# window's own small settings blob (_SETTINGS) - a different kind of
+# data (a growing, named collection the user curates) than "the last
+# few choices this window remembers", worth keeping in its own file.
+_CUSTOM_PRESET_SETTINGS = "dee_mono_custom_presets"
+# Plain-text divider shown in style_cb between the 6 built-in presets
+# and any saved custom ones - not a real choice; selecting it is caught
+# in style_cb_changed and reverts to whatever was selected before.
+_CUSTOM_PRESET_DIVIDER = "---- Custom Presets ----"
+
+
+def _load_custom_presets():
+    data = deew_settings.load(_CUSTOM_PRESET_SETTINGS, {"presets": {}})
+    presets = data.get("presets")
+    return presets if isinstance(presets, dict) else {}
+
+
+def _save_custom_presets(presets):
+    deew_settings.save(_CUSTOM_PRESET_SETTINGS, {"presets": presets})
+
 
 def _mcolor(rgb):
     return MediaColor.FromRgb(rgb[0], rgb[1], rgb[2])
@@ -199,7 +253,11 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             "outline_enabled": False,
             "outline_rgb": None,
             "hide_categories": [],
+            "auto_outline_enabled": False,
+            "auto_outline_style": core.DEFAULT_AUTO_OUTLINE_PRESET,
+            "auto_outline_delta": None,
         })
+        self._custom_presets = _load_custom_presets()
         self.base_rgb = tuple(saved.get("base_rgb", _DEFAULT_RGB))
         self.preset_name = saved.get("preset_name", core.DEFAULT_PRESET)
         if self.preset_name not in core.PRESETS:
@@ -222,9 +280,16 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         # session, so each run starts clean and the user re-applies it
         # if still wanted.
         self.line_overrides = {}
+        # {role: extra_pct}, additive on top of that role's own base
+        # transparency - same "live fine-tune, never persisted" shape as
+        # tint_adjust/line_overrides, extended to cover every category
+        # rather than only glazing (the only role with any base
+        # transparency at all before this).
+        self.transparency_adjust = {}
         self._swatch_cells = {}
         self._swatch_labels = {}
         self._tint_sliders = {}
+        self._transparency_sliders = {}
         self._outline_bars = {}
 
         active_label = None
@@ -244,11 +309,43 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
 
         for name in core.PRESET_ORDER:
             self.style_cb.Items.Add(name)
+        if self._custom_presets:
+            self.style_cb.Items.Add(_CUSTOM_PRESET_DIVIDER)
+            for name in sorted(self._custom_presets.keys(), key=lambda s: s.lower()):
+                self.style_cb.Items.Add(name)
         self.style_cb.SelectedIndex = core.PRESET_ORDER.index(self.preset_name)
+        self._last_style_index = self.style_cb.SelectedIndex
+
+        for name in core.AUTO_OUTLINE_PRESET_ORDER:
+            self.auto_outline_style_cb.Items.Add(name)
+        saved_auto_style = saved.get("auto_outline_style", core.DEFAULT_AUTO_OUTLINE_PRESET)
+        if saved_auto_style not in core.AUTO_OUTLINE_PRESETS:
+            saved_auto_style = core.DEFAULT_AUTO_OUTLINE_PRESET
+        self.auto_outline_style_cb.SelectedIndex = core.AUTO_OUTLINE_PRESET_ORDER.index(
+            saved_auto_style)
+        saved_auto_delta = saved.get("auto_outline_delta")
+        self._auto_outline_delta_init = (
+            float(saved_auto_delta) if saved_auto_delta is not None
+            else core.AUTO_OUTLINE_PRESETS[saved_auto_style])
 
         self.flatten_cb.IsChecked = bool(saved.get("flatten", True))
         self.outline_override_cb.IsChecked = bool(saved.get("outline_enabled", False))
         self.outline_b.IsEnabled = self.outline_override_cb.IsChecked is True
+
+        self.auto_outline_cb.IsChecked = bool(saved.get("auto_outline_enabled", False))
+        self.auto_outline_style_cb.IsEnabled = self.auto_outline_cb.IsChecked is True
+        self.auto_outline_slider.IsEnabled = self.auto_outline_cb.IsChecked is True
+        # Mutual exclusivity is enforced going forward by the click
+        # handlers, but a settings file predating one of these two
+        # features (or a manually edited one) could in principle have
+        # both saved True - guard the load itself too, auto outline
+        # loses the tiebreak since it is the newer, more specific
+        # feature and the global Override is the one this session was
+        # told explicitly to "make... as it is".
+        if self.auto_outline_cb.IsChecked is True and self.outline_override_cb.IsChecked is True:
+            self.auto_outline_cb.IsChecked = False
+            self.auto_outline_style_cb.IsEnabled = False
+            self.auto_outline_slider.IsEnabled = False
 
         # Defaults to nothing selected - this codebase's own "nothing
         # happens unless the user asks for it" convention, same as
@@ -276,6 +373,10 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         self._refresh_restore_button()
         self._build_preview_cells()
         self._seed_shadow_sliders_from_view()
+        # Fires auto_outline_slider_changed now that _ready is True, so
+        # the value label ends up correct - same reasoning as the
+        # shadow sliders just above.
+        self.auto_outline_slider.Value = self._auto_outline_delta_init * 100.0
 
     def _guard(self, fn, *args):
         """WPF swallows exceptions raised inside an event handler, which
@@ -410,17 +511,157 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             return
         def run():
             i = self.style_cb.SelectedIndex
+            if i < 0 or i >= self.style_cb.Items.Count:
+                return
+            name = self.style_cb.Items[i]
+            if name == _CUSTOM_PRESET_DIVIDER:
+                # Not a real choice - a plain-text separator. Revert to
+                # whatever was actually selected before, without letting
+                # THIS revert itself re-trigger the handler.
+                self._ready = False
+                try:
+                    self.style_cb.SelectedIndex = self._last_style_index
+                finally:
+                    self._ready = True
+                return
+            self._last_style_index = i
+            if name in self._custom_presets:
+                self._load_custom_preset_into_window(name)
+                return
             if 0 <= i < len(core.PRESET_ORDER):
                 self.preset_name = core.PRESET_ORDER[i]
             self.tint_adjust = {}
+            self.transparency_adjust = {}
             self._refresh_style_description()
             self._build_preview_cells()
-            self.status_tb.Text = ("Switched style - tint sliders reset to this "
-                                   "style's own defaults.")
+            self.status_tb.Text = ("Switched style - tint/transparency sliders reset to "
+                                   "this style's own defaults.")
         self._guard(run)
 
+    def _current_style_name(self):
+        i = self.style_cb.SelectedIndex
+        if 0 <= i < self.style_cb.Items.Count:
+            return self.style_cb.Items[i]
+        return None
+
     def _refresh_style_description(self):
-        self.style_desc_tb.Text = self._selected_preset().get("description", "")
+        name = self._current_style_name()
+        if name in self._custom_presets:
+            self.style_desc_tb.Text = "Custom preset, based on '{0}'.".format(self.preset_name)
+        else:
+            self.style_desc_tb.Text = self._selected_preset().get("description", "")
+
+    def _load_custom_preset_into_window(self, name):
+        """Loads a FULL saved bundle back into the window's own state -
+        the custom-preset counterpart of picking a built-in style, just
+        restoring more than one axis at once. Rebuilds the preview from
+        scratch afterwards (same as any other style change), so every
+        slider/swatch reflects the loaded values, not stale ones."""
+        bundle = self._custom_presets.get(name)
+        if not bundle:
+            return
+        base_preset = bundle.get("base_preset", core.DEFAULT_PRESET)
+        if base_preset not in core.PRESETS:
+            base_preset = core.DEFAULT_PRESET
+        self.preset_name = base_preset
+        self.tint_adjust = dict(bundle.get("tint_adjust") or {})
+        self.transparency_adjust = dict(bundle.get("transparency_adjust") or {})
+        self.line_overrides = dict(
+            (k, tuple(v)) for k, v in (bundle.get("line_overrides") or {}).items())
+        self.flatten_cb.IsChecked = bool(bundle.get("flatten", True))
+
+        self.outline_override_cb.IsChecked = bool(bundle.get("outline_enabled", False))
+        outline_rgb = bundle.get("outline_rgb")
+        if outline_rgb:
+            self._outline_rgb_value = tuple(outline_rgb)
+        self.outline_b.IsEnabled = self.outline_override_cb.IsChecked is True
+
+        auto_on = bool(bundle.get("auto_outline_enabled", False))
+        self.auto_outline_cb.IsChecked = auto_on
+        self.auto_outline_style_cb.IsEnabled = auto_on
+        self.auto_outline_slider.IsEnabled = auto_on
+        delta = bundle.get("auto_outline_delta")
+        if delta is not None:
+            self.auto_outline_slider.Value = float(delta) * 100.0
+        if auto_on and self.outline_override_cb.IsChecked is True:
+            self.outline_override_cb.IsChecked = False
+            self.outline_b.IsEnabled = False
+
+        self._update_outline_display()
+        self._refresh_style_description()
+        self._build_preview_cells()
+        self.status_tb.Text = "Loaded custom preset '{0}'.".format(name)
+
+    def _rebuild_style_items(self, select_name=None):
+        """Rebuilds style_cb's full item list (6 built-ins, then the
+        divider and every custom preset name, alphabetical) - used after
+        Save adds or overwrites one. Suppresses _ready around the
+        rebuild since Items.Clear()/Add() on a ComboBox with something
+        selected can itself raise SelectionChanged partway through."""
+        self._ready = False
+        try:
+            self.style_cb.Items.Clear()
+            for name in core.PRESET_ORDER:
+                self.style_cb.Items.Add(name)
+            if self._custom_presets:
+                self.style_cb.Items.Add(_CUSTOM_PRESET_DIVIDER)
+                for name in sorted(self._custom_presets.keys(), key=lambda s: s.lower()):
+                    self.style_cb.Items.Add(name)
+            target = select_name if select_name in self._custom_presets else self.preset_name
+            idx = 0
+            for i in range(self.style_cb.Items.Count):
+                if self.style_cb.Items[i] == target:
+                    idx = i
+                    break
+            self.style_cb.SelectedIndex = idx
+            self._last_style_index = idx
+        finally:
+            self._ready = True
+
+    def save_preset_click(self, sender, args):
+        def run():
+            name = (self.custom_preset_name_tb.Text or "").strip()
+            if not name:
+                forms.alert("Type a name for the preset first.", title=_TOOL)
+                return
+            if name == _CUSTOM_PRESET_DIVIDER:
+                forms.alert("That name is reserved - pick a different one.", title=_TOOL)
+                return
+            bundle = {
+                "base_preset": self.preset_name,
+                "tint_adjust": dict(self.tint_adjust),
+                "transparency_adjust": dict(self.transparency_adjust),
+                "line_overrides": dict((k, list(v)) for k, v in self.line_overrides.items()),
+                "flatten": self.flatten_cb.IsChecked is True,
+                "outline_enabled": self.outline_override_cb.IsChecked is True,
+                "outline_rgb": list(self._outline_rgb_value),
+                "auto_outline_enabled": self.auto_outline_cb.IsChecked is True,
+                "auto_outline_delta": float(self.auto_outline_slider.Value) / 100.0,
+            }
+            was_new = name not in self._custom_presets
+            self._custom_presets[name] = bundle
+            _save_custom_presets(self._custom_presets)
+            self._rebuild_style_items(select_name=name)
+            self.status_tb.Text = (
+                "Saved new preset '{0}'.".format(name) if was_new else
+                "Updated preset '{0}'.".format(name))
+        self._guard(run)
+
+    # ---------------- view template ----------------
+    def _default_template_name(self):
+        view = self._selected_view()
+        label = core.view_label(view) if view is not None else "View"
+        return "DeeMono - {0} - {1}".format(self.preset_name, label)
+
+    def save_template_cb_click(self, sender, args):
+        if not self._ready:
+            return
+        def run():
+            is_on = self.save_template_cb.IsChecked is True
+            self.template_name_tb.IsEnabled = is_on
+            if is_on and not (self.template_name_tb.Text or "").strip():
+                self.template_name_tb.Text = self._default_template_name()
+        self._guard(run)
 
     def flatten_cb_click(self, sender, args):
         if not self._ready:
@@ -465,6 +706,15 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         def run():
             is_on = self.outline_override_cb.IsChecked is True
             self.outline_b.IsEnabled = is_on
+            # Only one outline SOURCE applies to the whole view at once -
+            # this global override and Auto outline below are
+            # alternatives, not layers, so turning one on turns the
+            # other off. A per-category manual pick still wins over
+            # either regardless.
+            if is_on and self.auto_outline_cb.IsChecked is True:
+                self.auto_outline_cb.IsChecked = False
+                self.auto_outline_style_cb.IsEnabled = False
+                self.auto_outline_slider.IsEnabled = False
             # Ticking the box alone changes nothing VISIBLE the first
             # time: the remembered colour still equals the module's own
             # default outline, so the preview would look identical to
@@ -482,6 +732,47 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             if self._pick_outline_colour():
                 self._update_swatch_colours()
         self._guard(run)
+
+    # ---------------- auto outline ----------------
+    def auto_outline_cb_click(self, sender, args):
+        if not self._ready:
+            return
+        def run():
+            is_on = self.auto_outline_cb.IsChecked is True
+            self.auto_outline_style_cb.IsEnabled = is_on
+            self.auto_outline_slider.IsEnabled = is_on
+            if is_on and self.outline_override_cb.IsChecked is True:
+                self.outline_override_cb.IsChecked = False
+                self.outline_b.IsEnabled = False
+            self._update_swatch_colours()
+        self._guard(run)
+
+    def auto_outline_style_cb_changed(self, sender, args):
+        if not self._ready:
+            return
+        def run():
+            i = self.auto_outline_style_cb.SelectedIndex
+            if 0 <= i < len(core.AUTO_OUTLINE_PRESET_ORDER):
+                name = core.AUTO_OUTLINE_PRESET_ORDER[i]
+                # Setting .Value fires auto_outline_slider_changed, which
+                # updates the label and repaints - same "preset seeds a
+                # control, then the slider takes over" pattern the style
+                # presets already use with the tint sliders.
+                self.auto_outline_slider.Value = core.AUTO_OUTLINE_PRESETS[name] * 100.0
+        self._guard(run)
+
+    def auto_outline_slider_changed(self, sender, args):
+        if not self._ready:
+            return
+        self.auto_outline_value_tb.Text = "{0:+d}%".format(int(round(sender.Value)))
+        self._update_swatch_colours()
+
+    def _effective_auto_outline_delta(self):
+        """None means 'not in effect' - same tri-state shape as
+        _effective_outline_rgb/_effective_shadow_intensity."""
+        if self.auto_outline_cb.IsChecked is True:
+            return float(self.auto_outline_slider.Value) / 100.0
+        return None
 
     # ---------------- per-category outline overrides ----------------
     def _make_role_outline_handler(self, role):
@@ -518,9 +809,10 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         def run():
             self.tint_adjust = {}
             self.line_overrides = {}
+            self.transparency_adjust = {}
             self._build_preview_cells()
-            self.status_tb.Text = ("Tints and per-category outlines reset to this "
-                                   "style's own defaults.")
+            self.status_tb.Text = ("Tints, transparency and per-category outlines reset "
+                                   "to this style's own defaults.")
         self._guard(run)
 
     def _make_tint_handler(self, role):
@@ -532,6 +824,17 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         if not self._ready:
             return
         self.tint_adjust[role] = float(slider_value) / 100.0
+        self._update_swatch_colours()
+
+    def _make_transparency_handler(self, role):
+        def handler(sender, args):
+            self._guard(self._on_transparency_changed, role, sender.Value)
+        return handler
+
+    def _on_transparency_changed(self, role, slider_value):
+        if not self._ready:
+            return
+        self.transparency_adjust[role] = float(slider_value)
         self._update_swatch_colours()
 
     # ---------------- preview ----------------
@@ -547,6 +850,7 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         self._swatch_cells = {}
         self._swatch_labels = {}
         self._tint_sliders = {}
+        self._transparency_sliders = {}
         self._outline_bars = {}
 
         for role, _cat_name, group_label in PREVIEW_ROLES:
@@ -582,6 +886,19 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             slider.ValueChanged += self._make_tint_handler(role)
             outer.Children.Add(slider)
 
+            transparency_slider = Slider()
+            transparency_slider.Minimum = -100
+            transparency_slider.Maximum = 100
+            transparency_slider.Width = 108
+            transparency_slider.Margin = Thickness(0, 3, 0, 0)
+            transparency_slider.ToolTip = (
+                "Nudge '{0}' more (right) or less (left) see-through, on top of "
+                "this style's own default (0 for every category except "
+                "Windows/Glazing)".format(group_label))
+            transparency_slider.Value = self.transparency_adjust.get(role, 0.0)
+            transparency_slider.ValueChanged += self._make_transparency_handler(role)
+            outer.Children.Add(transparency_slider)
+
             # A thin clickable bar for this ONE role's own outline
             # colour - left-click sets it, right-click clears it back to
             # "use the outline above" (global override, or the module's
@@ -603,6 +920,7 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             self._swatch_cells[role] = cell
             self._swatch_labels[role] = label
             self._tint_sliders[role] = slider
+            self._transparency_sliders[role] = transparency_slider
             self._outline_bars[role] = outline_bar
             self.preview_panel.Children.Add(outer)
 
@@ -614,34 +932,52 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         this being called from its own ValueChanged handler."""
         preset = self._selected_preset()
         outline = self._effective_outline_rgb()
+        auto_delta = self._effective_auto_outline_delta()
         for role, cat_name, _group_label in PREVIEW_ROLES:
             cell = self._swatch_cells.get(role)
             if cell is None:
                 continue
-            fill_rgb, line_rgb, _transparency = core.plan_for_category(
+            fill_rgb, line_rgb, transparency = core.plan_for_category(
                 self.base_rgb, cat_name, preset, tint_adjust=self.tint_adjust,
-                line_rgb=outline, line_overrides=self.line_overrides)
+                line_rgb=outline, line_overrides=self.line_overrides,
+                auto_outline_delta=auto_delta, transparency_adjust=self.transparency_adjust)
             cell.Background = SolidColorBrush(_mcolor(fill_rgb))
             cell.BorderBrush = SolidColorBrush(_mcolor(line_rgb))
+            # A floor, not 0 - a fully-transparent swatch would just be
+            # blank, which reads as "this cell broke", not "this
+            # category is very see-through". The label stays legible at
+            # every setting.
+            cell.Opacity = max(0.15, 1.0 - transparency / 100.0)
             self._swatch_labels[role].Foreground = SolidColorBrush(_mcolor(line_rgb))
 
             bar = self._outline_bars.get(role)
             if bar is not None:
+                # Always shows the EFFECTIVE outline colour, whichever
+                # source produced it - not just "blank unless manually
+                # overridden" - so Auto mode's whole point (a different
+                # computed colour per category) is something the preview
+                # actually demonstrates, not just a number Apply uses
+                # unseen.
+                bar.Background = SolidColorBrush(_mcolor(line_rgb))
                 if role in self.line_overrides:
-                    rgb = self.line_overrides[role]
-                    bar.Background = SolidColorBrush(_mcolor(rgb))
-                    bar.ToolTip = ("This category's own outline: #{0:02X}{1:02X}{2:02X}. "
-                                   "Right-click to clear it (falls back to the outline "
-                                   "above).".format(*rgb))
+                    bar.ToolTip = (
+                        "This category's own outline: #{0:02X}{1:02X}{2:02X}. "
+                        "Right-click to clear it (falls back to the outline "
+                        "above).".format(*line_rgb))
                 else:
-                    bar.Background = Brushes.Transparent
-                    bar.ToolTip = ("No outline override for this category - it uses the "
-                                   "outline colour above. Left-click to set one, "
-                                   "right-click to clear once set.")
+                    source = "Auto" if auto_delta is not None else "the outline above"
+                    bar.ToolTip = (
+                        "Current outline for this category: #{0:02X}{1:02X}{2:02X} "
+                        "(from {3}). Left-click to set your own just for this "
+                        "category.".format(line_rgb[0], line_rgb[1], line_rgb[2], source))
 
     # ---------------- apply / restore ----------------
     def _save_settings(self):
         try:
+            auto_style_i = self.auto_outline_style_cb.SelectedIndex
+            auto_style_name = (core.AUTO_OUTLINE_PRESET_ORDER[auto_style_i]
+                               if 0 <= auto_style_i < len(core.AUTO_OUTLINE_PRESET_ORDER)
+                               else core.DEFAULT_AUTO_OUTLINE_PRESET)
             deew_settings.save(_SETTINGS, {
                 "base_rgb": list(self.base_rgb),
                 "preset_name": self.preset_name,
@@ -649,6 +985,9 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                 "outline_enabled": self.outline_override_cb.IsChecked is True,
                 "outline_rgb": list(self._outline_rgb_value),
                 "hide_categories": self._selected_hide_categories(),
+                "auto_outline_enabled": self.auto_outline_cb.IsChecked is True,
+                "auto_outline_style": auto_style_name,
+                "auto_outline_delta": float(self.auto_outline_slider.Value) / 100.0,
             })
         except Exception:
             pass
@@ -670,10 +1009,22 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                     line_overrides=self.line_overrides,
                     hide_categories_list=self._selected_hide_categories(),
                     shadow_intensity=self._effective_shadow_intensity(),
-                    sunlight_intensity=self._effective_sunlight_intensity())
+                    sunlight_intensity=self._effective_sunlight_intensity(),
+                    auto_outline_delta=self._effective_auto_outline_delta(),
+                    transparency_adjust=self.transparency_adjust)
+
+            template_result = None
+            if self.save_template_cb.IsChecked is True and result.applied > 0:
+                template_name = (self.template_name_tb.Text or "").strip() \
+                    or self._default_template_name()
+                with forms.ProgressBar(title="DeeMono - creating view template...",
+                                       indeterminate=True):
+                    template_view, template_error = core.create_view_template(
+                        self.doc, view, name=template_name)
+                template_result = (template_view, template_error)
 
             self._refresh_restore_button()
-            self._report(view, result, "Apply")
+            self._report(view, result, "Apply", template_result=template_result)
 
             try:
                 uidoc = __revit__.ActiveUIDocument
@@ -683,8 +1034,14 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             except Exception:
                 pass
 
-            self.status_tb.Text = "Applied '{0}' to '{1}': {2} categor(y/ies) recoloured.".format(
+            status = "Applied '{0}' to '{1}': {2} categor(y/ies) recoloured.".format(
                 self.preset_name, core.view_label(view), result.applied)
+            if template_result is not None:
+                template_view, template_error = template_result
+                status += (" View Template '{0}' created.".format(template_view.Name)
+                          if template_view is not None else
+                          " View Template NOT created: {0}".format(template_error))
+            self.status_tb.Text = status
         self._guard(run)
 
     def restore_click(self, sender, args):
@@ -708,7 +1065,7 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             self.status_tb.Text = "Restored '{0}'.".format(core.view_label(view))
         self._guard(run)
 
-    def _report(self, view, result, mode):
+    def _report(self, view, result, mode, template_result=None):
         html = '<h2 style="font-family:sans-serif;">DeeMono</h2>'
         html += ('<div style="font-family:sans-serif;font-size:12px;">'
                  '<b>View:</b> {0}<br><b>Mode:</b> {1}'.format(core.view_label(view), mode))
@@ -720,10 +1077,18 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             if outline:
                 html += "<br><b>Outline colour:</b> #{0:02X}{1:02X}{2:02X} (overridden)".format(
                     *outline)
+            auto_delta = self._effective_auto_outline_delta()
+            if auto_delta is not None:
+                html += "<br><b>Auto outline:</b> {0:+d}% (per category, from its own fill)".format(
+                    int(round(auto_delta * 100)))
             if self.tint_adjust:
                 parts = ["{0} {1:+d}%".format(role, int(round(v * 100)))
                         for role, v in sorted(self.tint_adjust.items())]
                 html += "<br><b>Manual tints:</b> " + ", ".join(parts)
+            if self.transparency_adjust:
+                parts = ["{0} {1:+d}%".format(role, int(round(v)))
+                        for role, v in sorted(self.transparency_adjust.items())]
+                html += "<br><b>Manual transparency:</b> " + ", ".join(parts)
             if self.line_overrides:
                 parts = ["{0} #{1:02X}{2:02X}{3:02X}".format(role, *rgb)
                         for role, rgb in sorted(self.line_overrides.items())]
@@ -761,6 +1126,16 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             for e in result.errors[:12]:
                 html += "&bull; {0}<br>".format(e)
             html += "</div>"
+        if template_result is not None:
+            template_view, template_error = template_result
+            if template_view is not None:
+                html += ('<div style="margin-top:8px;padding:7px 11px;background:#2e7d32;'
+                         'color:#fff;border-radius:4px;font-family:monospace;font-size:12px;">'
+                         'View Template created: {0}</div>'.format(template_view.Name))
+            else:
+                html += ('<div style="margin-top:8px;padding:7px 11px;background:#8d6e19;'
+                         'color:#fff;border-radius:4px;font-family:monospace;font-size:12px;">'
+                         'View Template NOT created: {0}</div>'.format(template_error))
         output.print_html(html)
 
     def close_click(self, sender, args):
