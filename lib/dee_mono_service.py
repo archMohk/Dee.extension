@@ -992,7 +992,8 @@ def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading
                 glazing_transparency=None, tint_adjust=None, line_rgb=None,
                 line_overrides=None, hide_categories_list=None,
                 shadow_intensity=None, sunlight_intensity=None,
-                auto_outline_delta=None, transparency_adjust=None):
+                auto_outline_delta=None, transparency_adjust=None,
+                line_weight=None):
     """Captures the view's current graphics FIRST (always, even on a
     first-ever run, so Restore is available immediately afterwards),
     then applies the theme. One Transaction: the number of categories
@@ -1017,7 +1018,12 @@ def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading
     View.ShadowIntensity/View.SunlightIntensity. None (the default)
     means 'leave it exactly as it is' - the CURRENT value is still
     captured into the snapshot either way, so a later run that DOES
-    touch shadows can still Restore correctly back past it."""
+    touch shadows can still Restore correctly back past it.
+
+    `line_weight`: an optional 1-16 Revit pen number, overriding the
+    chosen preset's own line_weight for every category's outline in
+    this view - the preset's value is still the DEFAULT (used when this
+    is None), matching every other preset-relative control here."""
     result = MonoResult()
     categories = view_categories(doc, view)
     result.category_count = len(categories)
@@ -1026,7 +1032,9 @@ def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading
         return result
 
     preset = resolve_preset(preset_name)
-    line_weight = max(1, min(16, int(preset["line_weight"])))
+    line_weight_override = line_weight
+    resolved_line_weight = line_weight if line_weight is not None else preset["line_weight"]
+    line_weight = max(1, min(16, int(resolved_line_weight)))
     solid_id = solid_fill_pattern_id(doc)
     plan = build_plan(base_rgb, [cat.Name for cat, _count in categories],
                       preset, glazing_transparency, tint_adjust, line_rgb, line_overrides,
@@ -1043,6 +1051,8 @@ def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading
         "line_overrides": dict((k, list(v)) for k, v in (line_overrides or {}).items()),
         "auto_outline_delta": auto_outline_delta,
         "transparency_adjust": dict(transparency_adjust) if transparency_adjust else {},
+        "line_weight_override": line_weight_override,
+        "line_weight_applied": line_weight,
     }
     try:
         # The enum's NAME, not its integer value__: restoring it is then

@@ -147,6 +147,40 @@ below a plain-text divider - selecting one loads the whole bundle back
 name. The name field is a permanently-visible inline TextBox, not
 forms.ask_for_string or a second window - the established reason
 neither of those may be opened from inside this already-modal window.
+
+--------------------------------------------------------------------
+Outline thickness, split shadow ticks, and a redesigned outline box
+--------------------------------------------------------------------
+"Outline thickness" is a new slider (1-16, the real Revit pen-weight
+range) applied through apply_theme's line_weight parameter, ABOVE the
+chosen style's own line_weight - starts at that style's value and
+resets to it on a style change, same "preset-relative, live, resets on
+switch" treatment as tint_adjust. Unlike outline COLOUR, thickness has
+no meaningful "off" state, so there is no checkbox for it - the slider
+always reads as the currently effective value.
+
+The per-category outline control (previously a thin, unlabelled 9px
+strip) is rebuilt to mirror the fill swatch above it: a bordered Border
+with a text Child ("Outline"), sized like a real box rather than a
+sliver - "make the bar like a fill bar, with a box inside it, like the
+fill box" was the request. Its own border thickness, and the fill
+swatch's border thickness, now both scale with the resolved outline
+weight (previously a fixed Thickness(3) regardless of the real value) -
+thickness is something the preview visibly demonstrates, not only a
+number Apply uses unseen. The "Outline" label's own text colour is
+picked via core.contrast_ratio against whichever colour the box
+currently shows (module-level _contrast_text_color) - the same
+"measure both candidates, don't assume" approach the rest of this
+module's legibility logic already uses, since the box's own background
+is whatever the current outline colour happens to be.
+
+Shadows: the single "Adjust shadows for this view" checkbox is split
+into two INDEPENDENT ticks, "Cast Shadows" (ShadowIntensity) and
+"Ambient Shadows" (SunlightIntensity, honestly labelled via its own
+tooltip as a proxy for the real Ambient Shadows setting, which still
+has no public API - unchanged fact from the earlier research pass) -
+each enables only its own slider, so adjusting one no longer forces the
+other into scope.
 """
 import os
 import traceback
@@ -158,7 +192,7 @@ clr.AddReference("PresentationFramework")
 clr.AddReference("PresentationCore")
 from System.Windows.Forms import ColorDialog, DialogResult
 from System.Drawing import Color as DrawingColor
-from System.Windows import Thickness, CornerRadius, TextWrapping
+from System.Windows import Thickness, CornerRadius, TextWrapping, HorizontalAlignment, VerticalAlignment
 from System.Windows.Controls import Border, TextBlock, Slider, StackPanel, Orientation
 from System.Windows.Media import SolidColorBrush, Color as MediaColor
 from System.Windows.Input import Cursors
@@ -234,6 +268,18 @@ def _mcolor(rgb):
     return MediaColor.FromRgb(rgb[0], rgb[1], rgb[2])
 
 
+def _contrast_text_color(rgb):
+    """Near-white or near-black, whichever actually reads better against
+    `rgb` - measured with the SAME core.contrast_ratio the service
+    module's own legibility guarantees use, not a guessed lightness
+    threshold, for the "Outline" label painted directly on the outline
+    box (whose own background IS the colour being labelled)."""
+    white, black = (255, 255, 255), (20, 20, 20)
+    if core.contrast_ratio(rgb, white) >= core.contrast_ratio(rgb, black):
+        return white
+    return black
+
+
 class DeeMonoWindow(dee_branding.DeeBrandedWindow):
     # Exists before the base class loads the XAML, which fires
     # SelectionChanged on the combo boxes during InitializeComponent -
@@ -262,6 +308,10 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         self.preset_name = saved.get("preset_name", core.DEFAULT_PRESET)
         if self.preset_name not in core.PRESETS:
             self.preset_name = core.DEFAULT_PRESET
+        # Outline thickness starts at the CHOSEN style's own pen weight,
+        # same "preset-relative, resets on style change, never persisted
+        # standalone" treatment as tint_adjust - see style_cb_changed.
+        self._outline_weight_init = core.PRESETS[self.preset_name]["line_weight"]
 
         # tint_adjust is deliberately NEVER persisted across sessions -
         # it is a live fine-tune on top of the CURRENT colour/style, and
@@ -362,9 +412,16 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         # on the view itself, so there is nothing to remember here; the
         # sliders are seeded from the SELECTED view's own live
         # ShadowIntensity/SunlightIntensity (see _seed_shadow_sliders_
-        # from_view), not a saved preference from a different view.
-        self.shadows_cb.IsChecked = False
-        self.shadows_grid.IsEnabled = False
+        # from_view), not a saved preference from a different view. Two
+        # INDEPENDENT ticks, not one shared toggle - a user adjusting
+        # Cast Shadows should not be forced to also touch the Sunlight
+        # Intensity slider (labelled "Ambient Shadows" - see its own
+        # tooltip for why that is a proxy, not the literal Revit
+        # setting) and vice versa.
+        self.cast_shadows_cb.IsChecked = False
+        self.shadow_slider.IsEnabled = False
+        self.ambient_shadows_cb.IsChecked = False
+        self.sunlight_slider.IsEnabled = False
 
         self._ready = True
         self._update_colour_display()
@@ -377,6 +434,7 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         # the value label ends up correct - same reasoning as the
         # shadow sliders just above.
         self.auto_outline_slider.Value = self._auto_outline_delta_init * 100.0
+        self.outline_weight_slider.Value = self._outline_weight_init
 
     def _guard(self, fn, *args):
         """WPF swallows exceptions raised inside an event handler, which
@@ -433,11 +491,18 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         except Exception:
             pass
 
-    def shadows_cb_click(self, sender, args):
+    def cast_shadows_cb_click(self, sender, args):
         if not self._ready:
             return
         def run():
-            self.shadows_grid.IsEnabled = self.shadows_cb.IsChecked is True
+            self.shadow_slider.IsEnabled = self.cast_shadows_cb.IsChecked is True
+        self._guard(run)
+
+    def ambient_shadows_cb_click(self, sender, args):
+        if not self._ready:
+            return
+        def run():
+            self.sunlight_slider.IsEnabled = self.ambient_shadows_cb.IsChecked is True
         self._guard(run)
 
     def shadow_slider_changed(self, sender, args):
@@ -455,12 +520,12 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         _effective_outline_rgb, for the same reason: the checkbox is the
         real on/off switch, the slider position underneath it is only
         meaningful once that switch is on."""
-        if self.shadows_cb.IsChecked is True:
+        if self.cast_shadows_cb.IsChecked is True:
             return int(round(self.shadow_slider.Value))
         return None
 
     def _effective_sunlight_intensity(self):
-        if self.shadows_cb.IsChecked is True:
+        if self.ambient_shadows_cb.IsChecked is True:
             return int(round(self.sunlight_slider.Value))
         return None
 
@@ -532,10 +597,11 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                 self.preset_name = core.PRESET_ORDER[i]
             self.tint_adjust = {}
             self.transparency_adjust = {}
+            self.outline_weight_slider.Value = core.PRESETS[self.preset_name]["line_weight"]
             self._refresh_style_description()
             self._build_preview_cells()
-            self.status_tb.Text = ("Switched style - tint/transparency sliders reset to "
-                                   "this style's own defaults.")
+            self.status_tb.Text = ("Switched style - tint/transparency sliders and outline "
+                                   "thickness reset to this style's own defaults.")
         self._guard(run)
 
     def _current_style_name(self):
@@ -587,6 +653,10 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             self.outline_override_cb.IsChecked = False
             self.outline_b.IsEnabled = False
 
+        weight = bundle.get("line_weight")
+        self.outline_weight_slider.Value = (
+            float(weight) if weight is not None else core.PRESETS[base_preset]["line_weight"])
+
         self._update_outline_display()
         self._refresh_style_description()
         self._build_preview_cells()
@@ -637,6 +707,7 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                 "outline_rgb": list(self._outline_rgb_value),
                 "auto_outline_enabled": self.auto_outline_cb.IsChecked is True,
                 "auto_outline_delta": float(self.auto_outline_slider.Value) / 100.0,
+                "line_weight": self._effective_line_weight(),
             }
             was_new = name not in self._custom_presets
             self._custom_presets[name] = bundle
@@ -774,6 +845,21 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             return float(self.auto_outline_slider.Value) / 100.0
         return None
 
+    # ---------------- outline thickness ----------------
+    def outline_weight_slider_changed(self, sender, args):
+        if not self._ready:
+            return
+        self.outline_weight_value_tb.Text = str(int(round(sender.Value)))
+        self._update_swatch_colours()
+
+    def _effective_line_weight(self):
+        """Always effective, no on/off state - unlike outline COLOUR,
+        which has a real 'off' meaning (the module's own fixed default),
+        thickness always resolves to SOME pen weight (the style's own,
+        until the user drags this away from it), so there is nothing
+        for a None/'not set' state to usefully mean here."""
+        return int(round(self.outline_weight_slider.Value))
+
     # ---------------- per-category outline overrides ----------------
     def _make_role_outline_handler(self, role):
         def handler(sender, args):
@@ -852,6 +938,7 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         self._tint_sliders = {}
         self._transparency_sliders = {}
         self._outline_bars = {}
+        self._outline_bar_labels = {}
 
         for role, _cat_name, group_label in PREVIEW_ROLES:
             outer = StackPanel()
@@ -899,20 +986,32 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             transparency_slider.ValueChanged += self._make_transparency_handler(role)
             outer.Children.Add(transparency_slider)
 
-            # A thin clickable bar for this ONE role's own outline
-            # colour - left-click sets it, right-click clears it back to
-            # "use the outline above" (global override, or the module's
-            # own default if that is off too). Built here rather than in
-            # ui.xaml for the same reason the Slider above is: one entry
-            # per PREVIEW_ROLES role, not one hand-written XAML row per
-            # role.
+            # A clickable BOX for this ONE role's own outline colour -
+            # deliberately built to mirror the fill swatch `cell` above
+            # (a bordered Border with a text label as its Child) rather
+            # than the thin unlabelled strip this used to be, so it
+            # reads as "a second fill box, for the outline" rather than
+            # a decorative sliver. Left-click sets a per-category
+            # override, right-click clears it back to "use the outline
+            # above" (global/auto, or the module's own default if
+            # neither is on). Built here rather than in ui.xaml for the
+            # same reason the Slider above is: one entry per
+            # PREVIEW_ROLES role, not one hand-written XAML row per role.
             outline_bar = Border()
-            outline_bar.Height = 9
-            outline_bar.CornerRadius = CornerRadius(2)
+            outline_bar.Height = 24
+            outline_bar.CornerRadius = CornerRadius(3)
             outline_bar.BorderBrush = SolidColorBrush(_mcolor((150, 150, 150)))
             outline_bar.BorderThickness = Thickness(1)
             outline_bar.Margin = Thickness(0, 4, 0, 0)
             outline_bar.Cursor = Cursors.Hand
+
+            outline_bar_label = TextBlock()
+            outline_bar_label.Text = "Outline"
+            outline_bar_label.FontSize = 9.5
+            outline_bar_label.HorizontalAlignment = HorizontalAlignment.Center
+            outline_bar_label.VerticalAlignment = VerticalAlignment.Center
+            outline_bar.Child = outline_bar_label
+
             outline_bar.MouseLeftButtonDown += self._make_role_outline_handler(role)
             outline_bar.MouseRightButtonDown += self._make_role_outline_clear_handler(role)
             outer.Children.Add(outline_bar)
@@ -922,6 +1021,7 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             self._tint_sliders[role] = slider
             self._transparency_sliders[role] = transparency_slider
             self._outline_bars[role] = outline_bar
+            self._outline_bar_labels[role] = outline_bar_label
             self.preview_panel.Children.Add(outer)
 
         self._update_swatch_colours()
@@ -933,6 +1033,15 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         preset = self._selected_preset()
         outline = self._effective_outline_rgb()
         auto_delta = self._effective_auto_outline_delta()
+        weight = self._effective_line_weight()
+        # Revit's 1-16 pen range doesn't map 1:1 onto sensible pixel
+        # widths for a 108x46 swatch - scaled down, but still ordered
+        # the same way, so a thicker style/override visibly reads as a
+        # thicker border here rather than the fixed Thickness(3) every
+        # swatch used to show regardless of the real weight. The outline
+        # BOX's own border is a lighter echo of the same scale.
+        fill_px = max(1, min(6, int(round(weight / 3.0))))
+        outline_px = max(1, min(4, int(round(weight / 4.0))))
         for role, cat_name, _group_label in PREVIEW_ROLES:
             cell = self._swatch_cells.get(role)
             if cell is None:
@@ -943,6 +1052,7 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                 auto_outline_delta=auto_delta, transparency_adjust=self.transparency_adjust)
             cell.Background = SolidColorBrush(_mcolor(fill_rgb))
             cell.BorderBrush = SolidColorBrush(_mcolor(line_rgb))
+            cell.BorderThickness = Thickness(fill_px)
             # A floor, not 0 - a fully-transparent swatch would just be
             # blank, which reads as "this cell broke", not "this
             # category is very see-through". The label stays legible at
@@ -959,17 +1069,23 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                 # actually demonstrates, not just a number Apply uses
                 # unseen.
                 bar.Background = SolidColorBrush(_mcolor(line_rgb))
+                bar.BorderThickness = Thickness(outline_px)
+                label = self._outline_bar_labels.get(role)
+                if label is not None:
+                    label.Foreground = SolidColorBrush(_mcolor(_contrast_text_color(line_rgb)))
                 if role in self.line_overrides:
                     bar.ToolTip = (
-                        "This category's own outline: #{0:02X}{1:02X}{2:02X}. "
-                        "Right-click to clear it (falls back to the outline "
-                        "above).".format(*line_rgb))
+                        "This category's own outline: #{0:02X}{1:02X}{2:02X}, "
+                        "thickness {3}. Right-click to clear it (falls back to "
+                        "the outline above).".format(line_rgb[0], line_rgb[1], line_rgb[2],
+                                                     weight))
                 else:
                     source = "Auto" if auto_delta is not None else "the outline above"
                     bar.ToolTip = (
-                        "Current outline for this category: #{0:02X}{1:02X}{2:02X} "
-                        "(from {3}). Left-click to set your own just for this "
-                        "category.".format(line_rgb[0], line_rgb[1], line_rgb[2], source))
+                        "Current outline for this category: #{0:02X}{1:02X}{2:02X}, "
+                        "thickness {3} (colour from {4}). Left-click to set your own "
+                        "colour just for this category.".format(
+                            line_rgb[0], line_rgb[1], line_rgb[2], weight, source))
 
     # ---------------- apply / restore ----------------
     def _save_settings(self):
@@ -1011,7 +1127,8 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                     shadow_intensity=self._effective_shadow_intensity(),
                     sunlight_intensity=self._effective_sunlight_intensity(),
                     auto_outline_delta=self._effective_auto_outline_delta(),
-                    transparency_adjust=self.transparency_adjust)
+                    transparency_adjust=self.transparency_adjust,
+                    line_weight=self._effective_line_weight())
 
             template_result = None
             if self.save_template_cb.IsChecked is True and result.applied > 0:
@@ -1077,6 +1194,8 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             if outline:
                 html += "<br><b>Outline colour:</b> #{0:02X}{1:02X}{2:02X} (overridden)".format(
                     *outline)
+            html += "<br><b>Outline thickness:</b> {0} (pen weight)".format(
+                self._effective_line_weight())
             auto_delta = self._effective_auto_outline_delta()
             if auto_delta is not None:
                 html += "<br><b>Auto outline:</b> {0:+d}% (per category, from its own fill)".format(
