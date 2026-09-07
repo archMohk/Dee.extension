@@ -21,14 +21,28 @@ System.Windows.Forms.ColorDialog with FullOpen=True, the identical
 call DeeSSelect already uses live.
 
 --------------------------------------------------------------------
+Style
+--------------------------------------------------------------------
+After the colour, one more native dialog offers six named presets
+(lib/dee_mono_service.py: PRESETS) that control how much categories
+vary from each other and from the theme colour - how far lightness
+spreads (Subtle/Balanced/Bold), a uniform light/dark bias (Pastel skews
+everything light), how much each category's own hue drifts toward its
+real-world material (wood-ish furniture, cool metal fixtures, blue-cyan
+glazing, green planting), overall saturation, and line weight (thin for
+Pastel, heavy for Sketch). Every preset still goes through the same
+guaranteed contrast floor, so no combination of choices can make the
+line work disappear against the fill.
+
+--------------------------------------------------------------------
 Restore
 --------------------------------------------------------------------
-Before anything is changed, the view's CURRENT category overrides and
-display style are captured and saved to disk (lib/.dee_mono/, one file
-per document+view, gitignored - same spirit as lib/.deew_settings/).
-Running this tool again on a view that already has a saved snapshot
-offers Restore as the first choice, so applying a theme is never a
-one-way trip.
+Before anything is changed, the view's CURRENT category overrides,
+display style and line weights are captured and saved to disk
+(lib/.dee_mono/, one file per document+view, gitignored - same spirit
+as lib/.deew_settings/). Running this tool again on a view that already
+has a saved snapshot offers Restore as the first choice, so applying a
+theme is never a one-way trip.
 """
 import os
 import traceback
@@ -51,6 +65,24 @@ APPLY = "Apply a theme colour"
 RESTORE = "Restore original graphics"
 FLATTEN_YES = "Flatten shading to 'Consistent Colors' (recommended - matches the poster look)"
 FLATTEN_NO = "Keep normal shaded-with-edges shading"
+
+# Each preset's own description is baked straight into its button label
+# (matching this codebase's own precedent, e.g. DeeOpener's open-mode
+# list) rather than shown separately - CommandSwitchWindow has no
+# established usage anywhere in this codebase of a per-button subtitle,
+# so this is the proven-safe way to put both in front of the user in
+# one native dialog.
+_PRESET_LABELS = ["{0} - {1}".format(name, core.PRESETS[name]["description"])
+                  for name in core.PRESET_ORDER]
+_PRESET_BY_LABEL = dict(zip(_PRESET_LABELS, core.PRESET_ORDER))
+
+
+def _pick_preset():
+    chosen = forms.CommandSwitchWindow.show(
+        _PRESET_LABELS, message="Style - how much should categories vary?")
+    if not chosen:
+        return None
+    return _PRESET_BY_LABEL.get(chosen, core.DEFAULT_PRESET)
 
 
 def _pick_view(doc, views, active_view):
@@ -93,7 +125,7 @@ def _pick_color(initial_rgb=(200, 120, 90)):
     return (int(c.R), int(c.G), int(c.B))
 
 
-def _report(view, base_rgb, result, mode):
+def _report(view, base_rgb, result, mode, preset_name=None):
     colour_line = ""
     if base_rgb is not None:
         hexcode = "#{0:02X}{1:02X}{2:02X}".format(*base_rgb)
@@ -101,10 +133,11 @@ def _report(view, base_rgb, result, mode):
                  'background:{0};border:1px solid #888;vertical-align:middle;'
                  'margin-right:6px;"></span>'.format(hexcode))
         colour_line = "<br><b>Theme colour:</b> {0}{1}".format(swatch, hexcode)
+    style_line = "<br><b>Style:</b> {0}".format(preset_name) if preset_name else ""
     html = '<h2 style="font-family:sans-serif;">DeeMono</h2>'
     html += ('<div style="font-family:sans-serif;font-size:12px;">'
-             '<b>View:</b> {0}<br><b>Mode:</b> {1}{2}</div>'.format(
-                 core.view_label(view), mode, colour_line))
+             '<b>View:</b> {0}<br><b>Mode:</b> {1}{2}{3}</div>'.format(
+                 core.view_label(view), mode, style_line, colour_line))
     bg = "#2e7d32" if not result.errors else "#8d6e19"
     html += ('<div style="margin-top:8px;padding:7px 11px;background:{0};color:#fff;'
              'border-radius:4px;font-family:monospace;font-size:12px;">'
@@ -192,6 +225,10 @@ def main():
     if base_rgb is None:
         return
 
+    preset_name = _pick_preset()
+    if preset_name is None:
+        return
+
     flatten_choice = forms.CommandSwitchWindow.show(
         [FLATTEN_YES, FLATTEN_NO], message="Shading style for '{0}'?".format(
             core.view_label(view)))
@@ -202,7 +239,8 @@ def main():
     try:
         with forms.ProgressBar(title="DeeMono - applying theme to '{0}'...".format(
                 core.view_label(view)), indeterminate=True):
-            result = core.apply_theme(doc, view, base_rgb, flatten_shading=flatten)
+            result = core.apply_theme(doc, view, base_rgb, preset_name=preset_name,
+                                      flatten_shading=flatten)
     except Exception as e:
         forms.alert("DeeMono hit an error while applying the theme:\n\n{0}\n\n{1}".format(
             e, traceback.format_exc()[-900:]), title=_TOOL)
@@ -219,7 +257,7 @@ def main():
     except Exception:
         pass
 
-    _report(view, base_rgb, result, "Apply")
+    _report(view, base_rgb, result, "Apply", preset_name=preset_name)
 
 
 main()
