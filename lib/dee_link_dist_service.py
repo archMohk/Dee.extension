@@ -70,6 +70,7 @@ from Autodesk.Revit.DB import (
     ElementTransformUtils, XYZ, Line, Transaction,
     UnitUtils, UnitTypeId, BuiltInCategory,
     ExternalDefinitionCreationOptions, SpecTypeId, BuiltInParameterGroup,
+    ModelPathUtils,
 )
 
 import xlsx_writer
@@ -366,30 +367,55 @@ def ensure_link_parameters(doc, app, param_names):
 # link types available to map
 # ==========================================================================
 def list_link_types(doc):
-    """[RevitLinkType] present in the document, name-sorted - what the
-    mapping page's link list is built from. Every LOADED link type this
-    document currently has, whether or not it happens to have any
-    instances placed yet - this tool exists specifically to CREATE new
-    instances, so a link type with zero instances so far is exactly as
-    valid a candidate as one already placed once."""
+    """[RevitLinkType] present in the document, sorted by the SAME
+    display name link_type_display_name shows (not raw .Name - see that
+    function's own docstring for why sorting by a value the user never
+    sees would make the mapping list look randomly ordered against what
+    is actually displayed). Every LOADED link type this document
+    currently has, whether or not it happens to have any instances
+    placed yet - this tool exists specifically to CREATE new instances,
+    so a link type with zero instances so far is exactly as valid a
+    candidate as one already placed once."""
     try:
         types = list(FilteredElementCollector(doc).OfClass(RevitLinkType))
     except Exception:
         return []
-    def _name(lt):
-        try:
-            return lt.Name or ""
-        except Exception:
-            return ""
-    types.sort(key=lambda lt: _name(lt).lower())
+    types.sort(key=lambda lt: link_type_display_name(lt).lower())
     return types
 
 
 def link_type_display_name(link_type):
+    """The linked FILE's actual name (e.g. "Villa_A.rvt") - confirmed
+    via WebSearch against Autodesk's own Revit API developer guide as
+    the documented, reliable route: Element.GetExternalFileReference()
+    -> ExternalFileReference.GetPath() -> a ModelPath, run through
+    ModelPathUtils.ConvertModelPathToUserVisiblePath to get the same
+    user-visible path string Revit's own Manage Links dialog shows.
+
+    NOT RevitLinkType.Name: a live test showed EVERY link type in a
+    real project reporting an empty/unhelpful .Name (every one showing
+    as "(unnamed link)" in the mapping dropdown) - confirmed as a real,
+    live-observed gap, not a hypothetical one, so this is a fix for an
+    actual reported bug, not a guessed improvement. .Name is kept only
+    as a second-choice fallback below GetExternalFileReference, for a
+    link type that genuinely has neither (never observed, but cheaper
+    to keep than to assume can't happen)."""
     try:
-        return link_type.Name or "(unnamed link)"
+        ref = link_type.GetExternalFileReference()
+        if ref is not None:
+            model_path = ref.GetPath()
+            if model_path is not None:
+                visible_path = ModelPathUtils.ConvertModelPathToUserVisiblePath(model_path)
+                if visible_path:
+                    return os.path.basename(visible_path)
     except Exception:
-        return "(unnamed link)"
+        pass
+    try:
+        if link_type.Name:
+            return link_type.Name
+    except Exception:
+        pass
+    return "(unnamed link)"
 
 
 # ==========================================================================
