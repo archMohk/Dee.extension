@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeMono - Monochrome View Theme"
         ShowInTaskbar="False"
-        MinHeight="640" MinWidth="640" Height="720" Width="680"
+        MinHeight="660" MinWidth="640" Height="760" Width="680"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
 
@@ -36,6 +36,7 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
@@ -88,14 +89,27 @@
                            Foreground="#666" FontFamily="Consolas"/>
             </StackPanel>
 
-            <GroupBox Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="2" Header="Preview">
+            <TextBlock Grid.Row="6" Grid.Column="0" Text="Hide in view:" VerticalAlignment="Center"
+                       Margin="0,0,10,10"/>
+            <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,10">
+                <CheckBox x:Name="hide_levels_cb" Content="Levels" Margin="0,0,16,0"
+                          VerticalAlignment="Center"/>
+                <CheckBox x:Name="hide_grids_cb" Content="Grids" Margin="0,0,16,0"
+                          VerticalAlignment="Center"/>
+                <CheckBox x:Name="hide_sectionbox_cb" Content="Section Box" Margin="0,0,16,0"
+                          VerticalAlignment="Center"/>
+                <CheckBox x:Name="hide_scopebox_cb" Content="Scope Boxes"
+                          VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <GroupBox Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="2" Header="Preview">
                 <DockPanel Margin="4">
                     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-                        <Button DockPanel.Dock="Right" x:Name="reset_tints_b" Content="Reset tints"
+                        <Button DockPanel.Dock="Right" x:Name="reset_tints_b" Content="Reset All"
                                 Width="90" Height="24" Click="reset_tints_click"
-                                ToolTip="Puts every category's tint slider below back to this style's own default."/>
+                                ToolTip="Puts every category's tint slider back to this style's own default and clears every per-category outline override below."/>
                         <TextBlock Foreground="#888" FontSize="11" TextWrapping="Wrap"
-                                   Text="A sample of categories under the current colour and style - the same calculation Apply uses. Drag a slider to nudge that whole tone group lighter or darker by hand."/>
+                                   Text="A sample of categories under the current colour and style - the same calculation Apply uses. Drag a slider to nudge that whole tone group lighter or darker. The thin bar under each slider is that category's own outline colour - left-click to set one, right-click to clear it."/>
                     </DockPanel>
                     <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto">
                         <WrapPanel x:Name="preview_panel"/>

@@ -56,6 +56,41 @@ style redefines the baseline every tint adjustment is measured from,
 so old slider positions would otherwise mean something different than
 what they showed a moment ago - the sliders reset to 0 in that case,
 deliberately, not silently carried over.
+
+--------------------------------------------------------------------
+Per-category outline overrides, hide-categories, and event guards
+--------------------------------------------------------------------
+Every event handler that does not already start with `if not
+self._ready: return` (flatten_cb_click, outline_override_click,
+outline_click, reset_tints_click) now has that guard too, matching
+view_cb_changed/style_cb_changed - cheap insurance against a
+programmatic IsChecked/SelectedIndex assignment during __init__ firing
+before there is anything valid to react to, even though WPF's own
+Click semantics (only user interaction reaches OnClick, not a property
+setter) mean it is not certain this was ever the actual cause of a
+live "DeeMono hit an error" report against the outline-override
+feature.
+
+Each preview cell now carries a third small control below its tint
+Slider: a thin clickable bar for that ONE role's own outline colour -
+left-click opens the same ColorDialog the global Override button uses,
+scoped to just this role; right-click clears it back to "use the
+outline above". Stored in self.line_overrides ({role: rgb}), passed
+straight through to core.plan_for_category/apply_theme's own
+line_overrides parameter, which already resolves per-role before
+global before the module default (see plan_for_category's docstring).
+The global Override checkbox is untouched in behaviour - "make the
+Override as it is" - ticking it alone now also opens the colour picker
+immediately the FIRST time (only when the remembered colour still
+equals the module's own default), since ticking a box that changes
+nothing visible is exactly what a user would read as broken.
+
+Four checkboxes ("Hide in view: Levels / Grids / Section Box / Scope
+Boxes") call View.SetCategoryHidden through apply_theme's
+hide_categories_list - a real visibility toggle, not a graphic
+override, so a monochrome presentation render can drop datum/crop
+clutter entirely rather than merely recolour it to match everything
+else. Off by default, like every other opt-in in this tool.
 """
 import os
 import traceback
@@ -69,7 +104,8 @@ from System.Windows.Forms import ColorDialog, DialogResult
 from System.Drawing import Color as DrawingColor
 from System.Windows import Thickness, CornerRadius, TextWrapping
 from System.Windows.Controls import Border, TextBlock, Slider, StackPanel, Orientation
-from System.Windows.Media import SolidColorBrush, Color as MediaColor
+from System.Windows.Media import SolidColorBrush, Color as MediaColor, Brushes
+from System.Windows.Input import Cursors
 
 from pyrevit import forms, script
 
@@ -104,6 +140,19 @@ PREVIEW_ROLES = [
     ("planting", "Planting", "Planting"),
 ]
 
+# core.HIDE_CATEGORY_OPTIONS label -> the x:Name of that option's
+# CheckBox in ui.xaml. A plain dict, not a class, since the only thing
+# ever done with it is looking up the right control by the label the
+# service module already defines - keeping ONE list (the service
+# module's) as the source of truth for which four categories exist,
+# rather than a second, easy-to-drift copy here.
+_HIDE_CB_NAMES = {
+    "Levels": "hide_levels_cb",
+    "Grids": "hide_grids_cb",
+    "Section Box": "hide_sectionbox_cb",
+    "Scope Boxes": "hide_scopebox_cb",
+}
+
 
 def _mcolor(rgb):
     return MediaColor.FromRgb(rgb[0], rgb[1], rgb[2])
@@ -127,6 +176,7 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             "flatten": True,
             "outline_enabled": False,
             "outline_rgb": None,
+            "hide_categories": [],
         })
         self.base_rgb = tuple(saved.get("base_rgb", _DEFAULT_RGB))
         self.preset_name = saved.get("preset_name", core.DEFAULT_PRESET)
@@ -142,9 +192,18 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         self.tint_adjust = {}
         outline_rgb = saved.get("outline_rgb")
         self._outline_rgb_value = tuple(outline_rgb) if outline_rgb else core.LINE_RGB
+        # {role: rgb} per-category outline overrides - same "live
+        # fine-tune, never persisted" treatment as tint_adjust rather
+        # than the global outline's "stable preference" treatment: a
+        # per-role colour is a much more specific choice, easy to end up
+        # stale/confusing against a colour or style picked in a later
+        # session, so each run starts clean and the user re-applies it
+        # if still wanted.
+        self.line_overrides = {}
         self._swatch_cells = {}
         self._swatch_labels = {}
         self._tint_sliders = {}
+        self._outline_bars = {}
 
         active_label = None
         try:
@@ -168,6 +227,16 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         self.flatten_cb.IsChecked = bool(saved.get("flatten", True))
         self.outline_override_cb.IsChecked = bool(saved.get("outline_enabled", False))
         self.outline_b.IsEnabled = self.outline_override_cb.IsChecked is True
+
+        # Defaults to nothing selected - this codebase's own "nothing
+        # happens unless the user asks for it" convention, same as
+        # outline override starting off. A stable preference, unlike
+        # tint_adjust/line_overrides, so it IS remembered like the
+        # theme colour and global outline are.
+        saved_hide = set(saved.get("hide_categories", []) or [])
+        for label, bic_name in core.HIDE_CATEGORY_OPTIONS:
+            cb = getattr(self, _HIDE_CB_NAMES[label])
+            cb.IsChecked = bic_name in saved_hide
 
         self._ready = True
         self._update_colour_display()
@@ -197,6 +266,16 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
 
     def _selected_preset(self):
         return core.PRESETS.get(self.preset_name, core.PRESETS[core.DEFAULT_PRESET])
+
+    def _selected_hide_categories(self):
+        """BuiltInCategory member names for every ticked 'Hide in view'
+        checkbox - what apply_theme's hide_categories_list expects."""
+        names = []
+        for label, bic_name in core.HIDE_CATEGORY_OPTIONS:
+            cb = getattr(self, _HIDE_CB_NAMES[label])
+            if cb.IsChecked is True:
+                names.append(bic_name)
+        return names
 
     # ---------------- view ----------------
     def view_cb_changed(self, sender, args):
@@ -257,7 +336,8 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         self.style_desc_tb.Text = self._selected_preset().get("description", "")
 
     def flatten_cb_click(self, sender, args):
-        pass
+        if not self._ready:
+            return
 
     # ---------------- outline override ----------------
     def _update_outline_display(self):
@@ -274,32 +354,86 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             return self._outline_rgb_value
         return None
 
+    def _pick_outline_colour(self):
+        """The actual ColorDialog flow, factored out of outline_click so
+        outline_override_click can trigger the exact same picker the
+        moment the box is first ticked - see outline_override_click for
+        why. Returns True only if the user actually picked a colour
+        (pressed OK), so callers can tell 'ticked but cancelled the
+        picker' apart from 'picked a colour'."""
+        dlg = ColorDialog()
+        dlg.Color = DrawingColor.FromArgb(*self._outline_rgb_value)
+        dlg.FullOpen = True
+        dlg.AnyColor = True
+        if dlg.ShowDialog() != DialogResult.OK:
+            return False
+        c = dlg.Color
+        self._outline_rgb_value = (int(c.R), int(c.G), int(c.B))
+        self._update_outline_display()
+        return True
+
     def outline_override_click(self, sender, args):
+        if not self._ready:
+            return
         def run():
-            self.outline_b.IsEnabled = self.outline_override_cb.IsChecked is True
+            is_on = self.outline_override_cb.IsChecked is True
+            self.outline_b.IsEnabled = is_on
+            # Ticking the box alone changes nothing VISIBLE the first
+            # time: the remembered colour still equals the module's own
+            # default outline, so the preview would look identical to
+            # "off" and read as broken rather than "already on, at the
+            # default colour". Open the picker immediately in that one
+            # case only - once the user has actually chosen a colour,
+            # re-ticking later never force-reopens it again.
+            if is_on and self._outline_rgb_value == core.LINE_RGB:
+                self._pick_outline_colour()
             self._update_swatch_colours()
         self._guard(run)
 
     def outline_click(self, sender, args):
         def run():
-            dlg = ColorDialog()
-            dlg.Color = DrawingColor.FromArgb(*self._outline_rgb_value)
-            dlg.FullOpen = True
-            dlg.AnyColor = True
-            if dlg.ShowDialog() != DialogResult.OK:
-                return
-            c = dlg.Color
-            self._outline_rgb_value = (int(c.R), int(c.G), int(c.B))
-            self._update_outline_display()
-            self._update_swatch_colours()
+            if self._pick_outline_colour():
+                self._update_swatch_colours()
         self._guard(run)
+
+    # ---------------- per-category outline overrides ----------------
+    def _make_role_outline_handler(self, role):
+        def handler(sender, args):
+            self._guard(self._pick_role_outline, role)
+        return handler
+
+    def _pick_role_outline(self, role):
+        current = self.line_overrides.get(role) or self._outline_rgb_value
+        dlg = ColorDialog()
+        dlg.Color = DrawingColor.FromArgb(*current)
+        dlg.FullOpen = True
+        dlg.AnyColor = True
+        if dlg.ShowDialog() != DialogResult.OK:
+            return
+        c = dlg.Color
+        self.line_overrides[role] = (int(c.R), int(c.G), int(c.B))
+        self._update_swatch_colours()
+
+    def _make_role_outline_clear_handler(self, role):
+        def handler(sender, args):
+            self._guard(self._clear_role_outline, role)
+        return handler
+
+    def _clear_role_outline(self, role):
+        if role in self.line_overrides:
+            del self.line_overrides[role]
+            self._update_swatch_colours()
 
     # ---------------- tints ----------------
     def reset_tints_click(self, sender, args):
+        if not self._ready:
+            return
         def run():
             self.tint_adjust = {}
+            self.line_overrides = {}
             self._build_preview_cells()
-            self.status_tb.Text = "Tints reset to this style's own defaults."
+            self.status_tb.Text = ("Tints and per-category outlines reset to this "
+                                   "style's own defaults.")
         self._guard(run)
 
     def _make_tint_handler(self, role):
@@ -326,6 +460,7 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         self._swatch_cells = {}
         self._swatch_labels = {}
         self._tint_sliders = {}
+        self._outline_bars = {}
 
         for role, _cat_name, group_label in PREVIEW_ROLES:
             outer = StackPanel()
@@ -360,9 +495,28 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             slider.ValueChanged += self._make_tint_handler(role)
             outer.Children.Add(slider)
 
+            # A thin clickable bar for this ONE role's own outline
+            # colour - left-click sets it, right-click clears it back to
+            # "use the outline above" (global override, or the module's
+            # own default if that is off too). Built here rather than in
+            # ui.xaml for the same reason the Slider above is: one entry
+            # per PREVIEW_ROLES role, not one hand-written XAML row per
+            # role.
+            outline_bar = Border()
+            outline_bar.Height = 9
+            outline_bar.CornerRadius = CornerRadius(2)
+            outline_bar.BorderBrush = SolidColorBrush(_mcolor((150, 150, 150)))
+            outline_bar.BorderThickness = Thickness(1)
+            outline_bar.Margin = Thickness(0, 4, 0, 0)
+            outline_bar.Cursor = Cursors.Hand
+            outline_bar.MouseLeftButtonDown += self._make_role_outline_handler(role)
+            outline_bar.MouseRightButtonDown += self._make_role_outline_clear_handler(role)
+            outer.Children.Add(outline_bar)
+
             self._swatch_cells[role] = cell
             self._swatch_labels[role] = label
             self._tint_sliders[role] = slider
+            self._outline_bars[role] = outline_bar
             self.preview_panel.Children.Add(outer)
 
         self._update_swatch_colours()
@@ -379,10 +533,24 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                 continue
             fill_rgb, line_rgb, _transparency = core.plan_for_category(
                 self.base_rgb, cat_name, preset, tint_adjust=self.tint_adjust,
-                line_rgb=outline)
+                line_rgb=outline, line_overrides=self.line_overrides)
             cell.Background = SolidColorBrush(_mcolor(fill_rgb))
             cell.BorderBrush = SolidColorBrush(_mcolor(line_rgb))
             self._swatch_labels[role].Foreground = SolidColorBrush(_mcolor(line_rgb))
+
+            bar = self._outline_bars.get(role)
+            if bar is not None:
+                if role in self.line_overrides:
+                    rgb = self.line_overrides[role]
+                    bar.Background = SolidColorBrush(_mcolor(rgb))
+                    bar.ToolTip = ("This category's own outline: #{0:02X}{1:02X}{2:02X}. "
+                                   "Right-click to clear it (falls back to the outline "
+                                   "above).".format(*rgb))
+                else:
+                    bar.Background = Brushes.Transparent
+                    bar.ToolTip = ("No outline override for this category - it uses the "
+                                   "outline colour above. Left-click to set one, "
+                                   "right-click to clear once set.")
 
     # ---------------- apply / restore ----------------
     def _save_settings(self):
@@ -393,6 +561,7 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                 "flatten": self.flatten_cb.IsChecked is True,
                 "outline_enabled": self.outline_override_cb.IsChecked is True,
                 "outline_rgb": list(self._outline_rgb_value),
+                "hide_categories": self._selected_hide_categories(),
             })
         except Exception:
             pass
@@ -410,7 +579,9 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                 result = core.apply_theme(
                     self.doc, view, self.base_rgb, preset_name=self.preset_name,
                     flatten_shading=self.flatten_cb.IsChecked is True,
-                    tint_adjust=self.tint_adjust, line_rgb=self._effective_outline_rgb())
+                    tint_adjust=self.tint_adjust, line_rgb=self._effective_outline_rgb(),
+                    line_overrides=self.line_overrides,
+                    hide_categories_list=self._selected_hide_categories())
 
             self._refresh_restore_button()
             self._report(view, result, "Apply")
@@ -464,15 +635,29 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                 parts = ["{0} {1:+d}%".format(role, int(round(v * 100)))
                         for role, v in sorted(self.tint_adjust.items())]
                 html += "<br><b>Manual tints:</b> " + ", ".join(parts)
+            if self.line_overrides:
+                parts = ["{0} #{1:02X}{2:02X}{3:02X}".format(role, *rgb)
+                        for role, rgb in sorted(self.line_overrides.items())]
+                html += "<br><b>Per-category outlines:</b> " + ", ".join(parts)
+            hide_list = self._selected_hide_categories()
+            if hide_list:
+                labels = [label for label, bic in core.HIDE_CATEGORY_OPTIONS
+                         if bic in hide_list]
+                html += "<br><b>Hidden categories:</b> " + ", ".join(labels)
         html += "</div>"
         bg = "#2e7d32" if not result.errors else "#8d6e19"
+        hidden_note = ""
+        if result.hidden_applied or result.hidden_skipped:
+            hidden_note = " Visibility changed for {0} categor(y/ies).".format(
+                result.hidden_applied)
         html += ('<div style="margin-top:8px;padding:7px 11px;background:{0};color:#fff;'
                  'border-radius:4px;font-family:monospace;font-size:12px;">'
                  '{1} categor(y/ies) recoloured, {2} skipped, out of {3} in the view. '
-                 'Display style {4}. Background {5}.</div>'.format(
+                 'Display style {4}. Background {5}.{6}</div>'.format(
                      bg, result.applied, result.skipped, result.category_count,
                      "changed" if result.display_style_set else "unchanged",
-                     "set to white" if result.background_set else "left as it was"))
+                     "set to white" if result.background_set else "left as it was",
+                     hidden_note))
         if result.errors:
             html += '<div style="font-family:sans-serif;font-size:11px;color:#a55;margin-top:6px;">'
             for e in result.errors[:12]:

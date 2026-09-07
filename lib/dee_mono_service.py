@@ -107,7 +107,7 @@ import re
 from Autodesk.Revit.DB import (
     FilteredElementCollector, FillPatternElement, ElementId, View3D,
     OverrideGraphicSettings, Color as RevitColor, DisplayStyle,
-    ViewDisplayBackground, Transaction,
+    ViewDisplayBackground, Transaction, Category, BuiltInCategory,
 )
 
 _STORE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".dee_mono")
@@ -405,7 +405,7 @@ def _ensure_line_contrast(fill_rgb, line_rgb=None):
 
 
 def plan_for_category(base_rgb, category_name, preset=None, glazing_transparency=None,
-                      tint_adjust=None, line_rgb=None):
+                      tint_adjust=None, line_rgb=None, line_overrides=None):
     """Pure: (fill_rgb, line_rgb, transparency_pct) for one category
     under one preset. No Revit objects in or out, so this is exactly
     what the tests exercise - the Revit-facing function below only ever
@@ -423,15 +423,26 @@ def plan_for_category(base_rgb, category_name, preset=None, glazing_transparency
     "accent") - adjusting it once in the preview is meant to move all
     of them together when actually applied.
 
-    `line_rgb`: an optional override for the outline colour, in place
-    of the module's fixed LINE_RGB default. The contrast floor still
-    applies against WHICHEVER line colour is in effect - overriding the
-    outline colour does not opt out of the "the outline must stay
-    legible" guarantee, it just changes what it is measured against."""
+    `line_rgb`: an optional GLOBAL override for the outline colour, in
+    place of the module's fixed LINE_RGB default.
+
+    `line_overrides`: an optional {role_name: rgb} dict for a PER-ROLE
+    outline colour, taking precedence over `line_rgb` for whichever
+    role it names. Resolution order, most to least specific:
+    line_overrides[role] -> line_rgb -> LINE_RGB.
+
+    Whichever line colour ends up in effect, the contrast floor still
+    applies against it - overriding the outline colour, globally or
+    per role, does not opt out of the "the outline must stay legible"
+    guarantee, it just changes what it is measured against."""
     preset = preset or PRESETS[DEFAULT_PRESET]
     role = role_for_category(category_name)
     tone = ROLE_TONE[role]
-    line_rgb = line_rgb if line_rgb is not None else LINE_RGB
+
+    if line_overrides and role in line_overrides:
+        line_rgb = line_overrides[role]
+    elif line_rgb is None:
+        line_rgb = LINE_RGB
 
     extra = float(tint_adjust.get(role, 0.0)) if tint_adjust else 0.0
     delta = max(-0.95, min(0.95, tone["lightness"] * preset["intensity"] + preset["bias"] + extra))
@@ -467,11 +478,11 @@ def plan_for_category(base_rgb, category_name, preset=None, glazing_transparency
 
 
 def build_plan(base_rgb, category_names, preset=None, glazing_transparency=None,
-               tint_adjust=None, line_rgb=None):
+               tint_adjust=None, line_rgb=None, line_overrides=None):
     """{category_name: (fill_rgb, line_rgb, transparency_pct)} for a
     whole view - what apply_theme() turns into real API calls."""
     return dict((name, plan_for_category(base_rgb, name, preset, glazing_transparency,
-                                         tint_adjust, line_rgb))
+                                         tint_adjust, line_rgb, line_overrides))
                for name in category_names)
 
 
@@ -731,6 +742,95 @@ def list_snapshot_view_ids(doc_title):
 
 
 # ==========================================================================
+# hiding datum/annotation categories - a real VISIBILITY toggle, not a
+# graphic override. View.SetCategoryHidden(ElementId, bool) - confirmed
+# on revitapidocs.com, introduced Revit 2018 (this codebase targets
+# 2024+), with a matching GetCategoryHidden(ElementId) getter used here
+# to capture the ORIGINAL state before touching it. Deliberately a
+# DIFFERENT Revit call than SetCategoryOverrides: overriding a
+# category's graphics changes how it LOOKS but never whether it draws
+# at all, and a monochrome presentation render usually wants datums
+# (levels, grids) and the section/scope box crop indicators gone
+# entirely, not merely recoloured to match everything else.
+# ==========================================================================
+# (display label, BuiltInCategory member name). Matched by NAME via
+# getattr rather than imported as bare names, so a member missing on
+# some Revit version degrades to "skip that one" (resolve_hide_category_
+# id returns None) instead of failing this module's own import.
+# OST_VolumeOfInterest for Scope Boxes is not a guess - it is the exact
+# same category this codebase's own DeeTransmit already uses live
+# (dee_transmit_service.delete_scope_boxes).
+HIDE_CATEGORY_OPTIONS = [
+    ("Levels", "OST_Levels"),
+    ("Grids", "OST_Grids"),
+    ("Section Box", "OST_SectionBox"),
+    ("Scope Boxes", "OST_VolumeOfInterest"),
+]
+
+
+def resolve_hide_category_id(doc, bic_name):
+    """ElementId for a Category found by BuiltInCategory member NAME, or
+    None if that member does not exist on this Revit version or the
+    document has no such category."""
+    try:
+        bic = getattr(BuiltInCategory, bic_name, None)
+        if bic is None:
+            return None
+        cat = Category.GetCategory(doc, bic)
+        if cat is None:
+            return None
+        return cat.Id
+    except Exception:
+        return None
+
+
+def hide_categories(doc, view, bic_names):
+    """Hides each named category in `view`, capturing its PRIOR hidden
+    state first so restore_theme can put it back exactly as it was -
+    not just unconditionally un-hide it, in case the user had already
+    hidden it themselves before ever running DeeMono. Guarded per
+    category, same "one refusal never loses the rest" convention as
+    every other loop in this module. Returns (applied, skipped,
+    {cat_id_str: was_hidden_bool})."""
+    applied = 0
+    skipped = 0
+    previous = {}
+    for bic_name in bic_names or []:
+        cat_id = resolve_hide_category_id(doc, bic_name)
+        if cat_id is None:
+            skipped += 1
+            continue
+        try:
+            was_hidden = bool(view.GetCategoryHidden(cat_id))
+        except Exception:
+            was_hidden = False
+        try:
+            view.SetCategoryHidden(cat_id, True)
+            previous[str(_eid_value(cat_id))] = was_hidden
+            applied += 1
+        except Exception:
+            skipped += 1
+    return applied, skipped, previous
+
+
+def restore_hidden_categories(doc, view, previous):
+    """The inverse of hide_categories - puts each category back to
+    whatever GetCategoryHidden reported BEFORE DeeMono touched it, not
+    simply False, so a category the user had already hidden themselves
+    stays hidden after a Restore."""
+    applied = 0
+    skipped = 0
+    for cat_id_text, was_hidden in (previous or {}).items():
+        try:
+            cat_id = _id_from_value(int(cat_id_text))
+            view.SetCategoryHidden(cat_id, bool(was_hidden))
+            applied += 1
+        except Exception:
+            skipped += 1
+    return applied, skipped
+
+
+# ==========================================================================
 # orchestration
 # ==========================================================================
 class MonoResult(object):
@@ -741,6 +841,12 @@ class MonoResult(object):
         self.category_count = 0
         self.display_style_set = False
         self.background_set = False
+        # Tracked separately from applied/skipped above - "hid 2
+        # categories" and "recoloured 37 categories" are different
+        # numbers about different operations, and conflating them into
+        # one count would make either result harder to read, not easier.
+        self.hidden_applied = 0
+        self.hidden_skipped = 0
 
 
 def _display_style_enum(flat):
@@ -751,7 +857,8 @@ def _display_style_enum(flat):
 
 
 def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading=True,
-                glazing_transparency=None, tint_adjust=None, line_rgb=None):
+                glazing_transparency=None, tint_adjust=None, line_rgb=None,
+                line_overrides=None, hide_categories_list=None):
     """Captures the view's current graphics FIRST (always, even on a
     first-ever run, so Restore is available immediately afterwards),
     then applies the theme. One Transaction: the number of categories
@@ -759,10 +866,17 @@ def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading
     is nowhere near the scale that would call for DeeTransmit-style
     batching.
 
-    `tint_adjust` and `line_rgb` are the manual, per-role and outline-
-    colour overrides from the preview window - see plan_for_category()
-    for what each one means. Both default to None, which reproduces the
-    exact behaviour of every call made before these options existed."""
+    `tint_adjust`, `line_rgb` and `line_overrides` are the manual
+    per-role and outline-colour overrides from the preview window - see
+    plan_for_category() for what each one means. All default to None,
+    reproducing the exact behaviour of every call made before these
+    options existed.
+
+    `hide_categories_list`: BuiltInCategory member names (see
+    HIDE_CATEGORY_OPTIONS) to hide outright in this view - a real
+    visibility change via View.SetCategoryHidden, not a graphic
+    override, and captured/restored the same way everything else here
+    is."""
     result = MonoResult()
     categories = view_categories(doc, view)
     result.category_count = len(categories)
@@ -774,15 +888,17 @@ def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading
     line_weight = max(1, min(16, int(preset["line_weight"])))
     solid_id = solid_fill_pattern_id(doc)
     plan = build_plan(base_rgb, [cat.Name for cat, _count in categories],
-                      preset, glazing_transparency, tint_adjust, line_rgb)
+                      preset, glazing_transparency, tint_adjust, line_rgb, line_overrides)
 
     snapshot = {
         "categories": {}, "display_style": None, "preset_applied": preset_name,
+        "hidden_categories": {},
         # Informational only - restore_theme puts back the PRE-apply
         # values captured below, never recomputes from these, so a
         # missing/odd value here can never break a restore.
         "tint_adjust": dict(tint_adjust) if tint_adjust else {},
         "outline_override": list(line_rgb) if line_rgb else None,
+        "line_overrides": dict((k, list(v)) for k, v in (line_overrides or {}).items()),
     }
     try:
         # The enum's NAME, not its integer value__: restoring it is then
@@ -840,6 +956,13 @@ def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading
         except Exception:
             pass
 
+        if hide_categories_list:
+            hidden_applied, hidden_skipped, previous_hidden = hide_categories(
+                doc, view, hide_categories_list)
+            result.hidden_applied = hidden_applied
+            result.hidden_skipped = hidden_skipped
+            snapshot["hidden_categories"] = previous_hidden
+
         t.Commit()
     except Exception as e:
         try:
@@ -882,6 +1005,13 @@ def restore_theme(doc, view):
                     result.display_style_set = True
             except Exception as e:
                 result.errors.append("Display style: {0}".format(e))
+
+        hidden_snapshot = snapshot.get("hidden_categories")
+        if hidden_snapshot:
+            hidden_applied, hidden_skipped = restore_hidden_categories(
+                doc, view, hidden_snapshot)
+            result.hidden_applied = hidden_applied
+            result.hidden_skipped = hidden_skipped
 
         t.Commit()
     except Exception as e:
