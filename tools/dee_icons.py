@@ -385,6 +385,14 @@ GLYPHS = {
         pl([(66, 76), (78, 76), (78, 64)], "accent", 1.5),
         pl([(32, 42), (46, 32), (64, 44), (58, 66), (36, 62)], "ink", 1.1, True),
     ],
+    # The shared cube (a 3D view) with one bold accent dot standing in
+    # for "recoloured to a single theme colour" - kept to a plain
+    # filled circle rather than a paint-drop outline, since this icon
+    # set's own lesson (DeeControl) is that thin multi-part shapes turn
+    # to mush at 16px while one solid fill still reads.
+    "DeeMono": lambda: cube(42, 42, 19, "ink", 0.9) + [
+        cf(70, 68, 15),
+    ],
     "DeeLevels": lambda: [
         ln(14, 30, 68, 30, "ink", 1.0), ln(14, 50, 68, 50, "ink", 1.0),
         ln(14, 70, 68, 70, "ink", 1.0),

@@ -17,3 +17,4 @@ __pycache__/
 # names not meant for the public repo.
 lib/.deew_settings/
 logs/
+lib/.dee_mono/
