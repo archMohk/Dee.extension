@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeMono - Monochrome View Theme"
         ShowInTaskbar="False"
-        MinHeight="560" MinWidth="640" Height="620" Width="680"
+        MinHeight="640" MinWidth="640" Height="720" Width="680"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
 
@@ -41,6 +41,7 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
@@ -73,12 +74,32 @@
                           Content="Flatten shading to 'Consistent Colors' (matches the poster look)"/>
             </StackPanel>
 
-            <GroupBox Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="2" Header="Preview">
+            <TextBlock Grid.Row="5" Grid.Column="0" Text="Outline colour:" VerticalAlignment="Center"
+                       Margin="0,0,10,10"/>
+            <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,10">
+                <CheckBox x:Name="outline_override_cb" Click="outline_override_click"
+                          Content="Override" VerticalAlignment="Center"
+                          ToolTip="Off (default): the tool's own dark neutral, chosen to stay legible against any fill colour. On: pick your own - the same legibility check still applies to whichever colour you choose."/>
+                <Border x:Name="outline_swatch" Width="26" Height="26" BorderBrush="#888"
+                        BorderThickness="1" CornerRadius="3" Margin="10,0,0,0"/>
+                <Button x:Name="outline_b" Content="Change Colour..." Width="140" Height="26"
+                        Margin="10,0,0,0" Click="outline_click" IsEnabled="False"/>
+                <TextBlock x:Name="outline_hex_tb" VerticalAlignment="Center" Margin="10,0,0,0"
+                           Foreground="#666" FontFamily="Consolas"/>
+            </StackPanel>
+
+            <GroupBox Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="2" Header="Preview">
                 <DockPanel Margin="4">
-                    <TextBlock DockPanel.Dock="Top" Foreground="#888" FontSize="11" Margin="0,0,0,6"
-                               TextWrapping="Wrap"
-                               Text="A sample of categories under the current colour and style - the same calculation Apply uses, so this is exactly what the view will look like."/>
-                    <WrapPanel x:Name="preview_panel" DockPanel.Dock="Top"/>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <Button DockPanel.Dock="Right" x:Name="reset_tints_b" Content="Reset tints"
+                                Width="90" Height="24" Click="reset_tints_click"
+                                ToolTip="Puts every category's tint slider below back to this style's own default."/>
+                        <TextBlock Foreground="#888" FontSize="11" TextWrapping="Wrap"
+                                   Text="A sample of categories under the current colour and style - the same calculation Apply uses. Drag a slider to nudge that whole tone group lighter or darker by hand."/>
+                    </DockPanel>
+                    <ScrollViewer DockPanel.Dock="Top" VerticalScrollBarVisibility="Auto">
+                        <WrapPanel x:Name="preview_panel"/>
+                    </ScrollViewer>
                 </DockPanel>
             </GroupBox>
         </Grid>

@@ -31,6 +31,31 @@ The preview panel calls the exact same lib/dee_mono_service.plan_for_
 category() that Apply itself uses - not a separate approximation of
 it - so what is shown is provably what Apply will produce, not a
 best-effort guess at it.
+
+--------------------------------------------------------------------
+Tints and outline override
+--------------------------------------------------------------------
+Each preview swatch now carries its own Slider, letting the user nudge
+that ONE tone role's lightness by hand, on top of whatever the chosen
+style already computed for it - "make the furniture tone a bit darker
+than Balanced gives it" without switching style. The outline colour
+(fixed by default, deliberately not theme-derived - see LINE_RGB in
+lib/dee_mono_service.py) can now be overridden the same way the theme
+colour can.
+
+Both controls are built to survive being dragged: the swatches and
+sliders are constructed ONCE (_build_preview_cells), and every later
+change (colour, a slider drag, an outline pick) only repaints the
+EXISTING swatch Borders in place (_update_swatch_colours) rather than
+tearing down and rebuilding the WrapPanel's children. Rebuilding on
+every ValueChanged tick would have replaced the very Slider object the
+user's mouse is currently dragging out from under the drag itself - a
+real risk with a live slider that a one-shot dialog never has to worry
+about. Only a STYLE change rebuilds from scratch, because switching
+style redefines the baseline every tint adjustment is measured from,
+so old slider positions would otherwise mean something different than
+what they showed a moment ago - the sliders reset to 0 in that case,
+deliberately, not silently carried over.
 """
 import os
 import traceback
@@ -43,7 +68,7 @@ clr.AddReference("PresentationCore")
 from System.Windows.Forms import ColorDialog, DialogResult
 from System.Drawing import Color as DrawingColor
 from System.Windows import Thickness, CornerRadius, TextWrapping
-from System.Windows.Controls import Border, TextBlock
+from System.Windows.Controls import Border, TextBlock, Slider, StackPanel, Orientation
 from System.Windows.Media import SolidColorBrush, Color as MediaColor
 
 from pyrevit import forms, script
@@ -59,14 +84,25 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 _SETTINGS = "dee_mono"
 _DEFAULT_RGB = (200, 120, 90)
+_TINT_SLIDER_RANGE = 40  # +/- percentage points of extra lightness shift
 
-# A representative spread across every tone role this tool defines
+# One representative category per tone role this tool defines
 # (background/structure/structure_heavy/structure_light/accent/
-# accent_cool/glazing/planting) - the preview earns its keep by
-# actually showing every kind of variance the style dropdown controls,
-# not just one or two categories.
-PREVIEW_CATEGORIES = ["Floors", "Walls", "Structural Columns", "Stairs",
-                      "Furniture", "Lighting Fixtures", "Windows", "Planting"]
+# accent_cool/glazing/planting), with a short label naming the REAL
+# categories that role actually covers - a tint slider adjusts the
+# whole role, not just the one sample category shown, so the label
+# has to say so or "Furniture" would look like it only affects
+# furniture when it also retunes casework, appliances and more.
+PREVIEW_ROLES = [
+    ("background", "Floors", "Floors / Ceilings / Roofs"),
+    ("structure", "Walls", "Walls"),
+    ("structure_heavy", "Structural Columns", "Columns / Framing"),
+    ("structure_light", "Stairs", "Stairs / Railings"),
+    ("accent", "Furniture", "Furniture / Casework"),
+    ("accent_cool", "Lighting Fixtures", "Fixtures / Equipment"),
+    ("glazing", "Windows", "Windows / Glazing"),
+    ("planting", "Planting", "Planting"),
+]
 
 
 def _mcolor(rgb):
@@ -89,11 +125,26 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             "base_rgb": list(_DEFAULT_RGB),
             "preset_name": core.DEFAULT_PRESET,
             "flatten": True,
+            "outline_enabled": False,
+            "outline_rgb": None,
         })
         self.base_rgb = tuple(saved.get("base_rgb", _DEFAULT_RGB))
         self.preset_name = saved.get("preset_name", core.DEFAULT_PRESET)
         if self.preset_name not in core.PRESETS:
             self.preset_name = core.DEFAULT_PRESET
+
+        # tint_adjust is deliberately NEVER persisted across sessions -
+        # it is a live fine-tune on top of the CURRENT colour/style, and
+        # restoring stale slider offsets against a different colour
+        # picked later could look broken with nothing to explain why.
+        # The outline override, by contrast, is a stable preference like
+        # the theme colour itself, so it IS remembered.
+        self.tint_adjust = {}
+        outline_rgb = saved.get("outline_rgb")
+        self._outline_rgb_value = tuple(outline_rgb) if outline_rgb else core.LINE_RGB
+        self._swatch_cells = {}
+        self._swatch_labels = {}
+        self._tint_sliders = {}
 
         active_label = None
         try:
@@ -115,12 +166,15 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
         self.style_cb.SelectedIndex = core.PRESET_ORDER.index(self.preset_name)
 
         self.flatten_cb.IsChecked = bool(saved.get("flatten", True))
+        self.outline_override_cb.IsChecked = bool(saved.get("outline_enabled", False))
+        self.outline_b.IsEnabled = self.outline_override_cb.IsChecked is True
 
         self._ready = True
         self._update_colour_display()
+        self._update_outline_display()
         self._refresh_style_description()
         self._refresh_restore_button()
-        self._refresh_preview()
+        self._build_preview_cells()
 
     def _guard(self, fn, *args):
         """WPF swallows exceptions raised inside an event handler, which
@@ -181,7 +235,7 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             c = dlg.Color
             self.base_rgb = (int(c.R), int(c.G), int(c.B))
             self._update_colour_display()
-            self._refresh_preview()
+            self._update_swatch_colours()
         self._guard(run)
 
     # ---------------- style ----------------
@@ -192,8 +246,11 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             i = self.style_cb.SelectedIndex
             if 0 <= i < len(core.PRESET_ORDER):
                 self.preset_name = core.PRESET_ORDER[i]
+            self.tint_adjust = {}
             self._refresh_style_description()
-            self._refresh_preview()
+            self._build_preview_cells()
+            self.status_tb.Text = ("Switched style - tint sliders reset to this "
+                                   "style's own defaults.")
         self._guard(run)
 
     def _refresh_style_description(self):
@@ -202,36 +259,130 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
     def flatten_cb_click(self, sender, args):
         pass
 
+    # ---------------- outline override ----------------
+    def _update_outline_display(self):
+        self.outline_swatch.Background = SolidColorBrush(_mcolor(self._outline_rgb_value))
+        self.outline_hex_tb.Text = "#{0:02X}{1:02X}{2:02X}".format(*self._outline_rgb_value)
+
+    def _effective_outline_rgb(self):
+        """None means 'use the module's own safe default' - kept as a
+        real tri-state (off / on-with-a-remembered-colour) rather than
+        collapsing to a plain colour, so unticking Override and
+        reticking it later brings back the colour the user actually
+        chose instead of resetting to the default."""
+        if self.outline_override_cb.IsChecked is True:
+            return self._outline_rgb_value
+        return None
+
+    def outline_override_click(self, sender, args):
+        def run():
+            self.outline_b.IsEnabled = self.outline_override_cb.IsChecked is True
+            self._update_swatch_colours()
+        self._guard(run)
+
+    def outline_click(self, sender, args):
+        def run():
+            dlg = ColorDialog()
+            dlg.Color = DrawingColor.FromArgb(*self._outline_rgb_value)
+            dlg.FullOpen = True
+            dlg.AnyColor = True
+            if dlg.ShowDialog() != DialogResult.OK:
+                return
+            c = dlg.Color
+            self._outline_rgb_value = (int(c.R), int(c.G), int(c.B))
+            self._update_outline_display()
+            self._update_swatch_colours()
+        self._guard(run)
+
+    # ---------------- tints ----------------
+    def reset_tints_click(self, sender, args):
+        def run():
+            self.tint_adjust = {}
+            self._build_preview_cells()
+            self.status_tb.Text = "Tints reset to this style's own defaults."
+        self._guard(run)
+
+    def _make_tint_handler(self, role):
+        def handler(sender, args):
+            self._guard(self._on_tint_changed, role, sender.Value)
+        return handler
+
+    def _on_tint_changed(self, role, slider_value):
+        if not self._ready:
+            return
+        self.tint_adjust[role] = float(slider_value) / 100.0
+        self._update_swatch_colours()
+
     # ---------------- preview ----------------
-    def _refresh_preview(self):
-        """Rebuilt from scratch each time rather than updated in place -
-        there are only 8 small swatches, so the cost is trivial, and it
-        avoids any risk of a stale swatch left over from a previous
-        style/colour combination."""
-        preset = self._selected_preset()
+    def _build_preview_cells(self):
+        """Constructs every swatch + slider FROM SCRATCH - only called
+        on initial load and on a style change, both deliberate,
+        infrequent actions where resetting the sliders to 0 is the
+        correct behaviour, not an in-progress-drag risk. Every other
+        change (colour, a slider move, an outline pick) goes through
+        _update_swatch_colours instead, which touches only colours on
+        the ALREADY-EXISTING Border/Slider objects."""
         self.preview_panel.Children.Clear()
-        for cat_name in PREVIEW_CATEGORIES:
-            fill_rgb, line_rgb, _transparency = core.plan_for_category(
-                self.base_rgb, cat_name, preset)
+        self._swatch_cells = {}
+        self._swatch_labels = {}
+        self._tint_sliders = {}
+
+        for role, _cat_name, group_label in PREVIEW_ROLES:
+            outer = StackPanel()
+            outer.Orientation = Orientation.Vertical
+            outer.Width = 108
+            outer.Margin = Thickness(0, 0, 10, 10)
 
             cell = Border()
-            cell.Width = 92
-            cell.Height = 52
-            cell.Margin = Thickness(0, 0, 6, 6)
+            cell.Height = 46
             cell.CornerRadius = CornerRadius(3)
-            cell.Background = SolidColorBrush(_mcolor(fill_rgb))
-            cell.BorderBrush = SolidColorBrush(_mcolor(line_rgb))
             cell.BorderThickness = Thickness(3)
 
             label = TextBlock()
-            label.Text = cat_name
+            label.Text = group_label
             label.TextWrapping = TextWrapping.Wrap
-            label.FontSize = 11
+            label.FontSize = 10.5
             label.Margin = Thickness(5)
-            label.Foreground = SolidColorBrush(_mcolor(line_rgb))
             cell.Child = label
+            outer.Children.Add(cell)
 
-            self.preview_panel.Children.Add(cell)
+            slider = Slider()
+            slider.Minimum = -_TINT_SLIDER_RANGE
+            slider.Maximum = _TINT_SLIDER_RANGE
+            slider.Width = 108
+            slider.Margin = Thickness(0, 3, 0, 0)
+            slider.ToolTip = "Nudge '{0}' lighter or darker than this style's default".format(
+                group_label)
+            slider.Value = self.tint_adjust.get(role, 0.0) * 100.0
+            # Wired AFTER Value is set, so the initial seed never fires
+            # a spurious change - each slider's own handler only exists
+            # once its starting position is already correct.
+            slider.ValueChanged += self._make_tint_handler(role)
+            outer.Children.Add(slider)
+
+            self._swatch_cells[role] = cell
+            self._swatch_labels[role] = label
+            self._tint_sliders[role] = slider
+            self.preview_panel.Children.Add(outer)
+
+        self._update_swatch_colours()
+
+    def _update_swatch_colours(self):
+        """Repaints the EXISTING swatch Borders in place - never touches
+        the Slider objects, so a slider mid-drag is never disrupted by
+        this being called from its own ValueChanged handler."""
+        preset = self._selected_preset()
+        outline = self._effective_outline_rgb()
+        for role, cat_name, _group_label in PREVIEW_ROLES:
+            cell = self._swatch_cells.get(role)
+            if cell is None:
+                continue
+            fill_rgb, line_rgb, _transparency = core.plan_for_category(
+                self.base_rgb, cat_name, preset, tint_adjust=self.tint_adjust,
+                line_rgb=outline)
+            cell.Background = SolidColorBrush(_mcolor(fill_rgb))
+            cell.BorderBrush = SolidColorBrush(_mcolor(line_rgb))
+            self._swatch_labels[role].Foreground = SolidColorBrush(_mcolor(line_rgb))
 
     # ---------------- apply / restore ----------------
     def _save_settings(self):
@@ -240,6 +391,8 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                 "base_rgb": list(self.base_rgb),
                 "preset_name": self.preset_name,
                 "flatten": self.flatten_cb.IsChecked is True,
+                "outline_enabled": self.outline_override_cb.IsChecked is True,
+                "outline_rgb": list(self._outline_rgb_value),
             })
         except Exception:
             pass
@@ -256,7 +409,8 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                     core.view_label(view)), indeterminate=True):
                 result = core.apply_theme(
                     self.doc, view, self.base_rgb, preset_name=self.preset_name,
-                    flatten_shading=self.flatten_cb.IsChecked is True)
+                    flatten_shading=self.flatten_cb.IsChecked is True,
+                    tint_adjust=self.tint_adjust, line_rgb=self._effective_outline_rgb())
 
             self._refresh_restore_button()
             self._report(view, result, "Apply")
@@ -302,6 +456,14 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             hexcode = "#{0:02X}{1:02X}{2:02X}".format(*self.base_rgb)
             html += "<br><b>Style:</b> {0}<br><b>Theme colour:</b> {1}".format(
                 self.preset_name, hexcode)
+            outline = self._effective_outline_rgb()
+            if outline:
+                html += "<br><b>Outline colour:</b> #{0:02X}{1:02X}{2:02X} (overridden)".format(
+                    *outline)
+            if self.tint_adjust:
+                parts = ["{0} {1:+d}%".format(role, int(round(v * 100)))
+                        for role, v in sorted(self.tint_adjust.items())]
+                html += "<br><b>Manual tints:</b> " + ", ".join(parts)
         html += "</div>"
         bg = "#2e7d32" if not result.errors else "#8d6e19"
         html += ('<div style="margin-top:8px;padding:7px 11px;background:{0};color:#fff;'

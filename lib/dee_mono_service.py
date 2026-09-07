@@ -370,38 +370,71 @@ _LINE_CONTRAST_FLOOR = 1.5
 _MAX_CONTRAST_NUDGES = 24
 
 
-def _ensure_line_contrast(fill_rgb):
+def _ensure_line_contrast(fill_rgb, line_rgb=None):
     """If a dark or saturated theme colour lands a role's fill close
-    enough to LINE_RGB in luminance, the outline that role depends on
-    for readability all but disappears - and it happens exactly on
-    "structure" (delta 0.0, i.e. the picked colour unchanged), the role
-    carrying the MOST line work (walls). A fixed per-role delta only
-    reduces the odds of this; it does not rule it out for every colour
-    a user might pick. This nudges the fill lighter, a small step at a
-    time along its own hue/saturation, until the line colour is
-    guaranteed legible against it - the same "measure, do not assume"
-    approach this codebase's icon system already uses to guarantee
-    every icon colour clears its own contrast floor on both light and
-    dark grounds."""
+    enough to the line colour in luminance, the outline that role
+    depends on for readability all but disappears - and it happens
+    exactly on "structure" (delta 0.0, i.e. the picked colour
+    unchanged), the role carrying the MOST line work (walls). A fixed
+    per-role delta only reduces the odds of this; it does not rule it
+    out for every colour a user might pick. This nudges the fill a
+    small step at a time along its own hue/saturation until the line
+    colour is guaranteed legible against it - the same "measure, do not
+    assume" approach this codebase's icon system already uses to
+    guarantee every icon colour clears its own contrast floor on both
+    light and dark grounds.
+
+    `line_rgb` defaults to the module's fixed dark LINE_RGB, but can be
+    overridden by the caller (a user-chosen outline colour). Which
+    DIRECTION to nudge the fill is decided from the LINE's own
+    lightness, not assumed fixed: pushing a fill lighter only helps
+    against a DARK line - against a light line it would move the fill
+    toward matching it even more closely, making contrast worse and
+    burning through every iteration with no improvement. An earlier
+    version of this function hard-coded "always nudge lighter", which
+    was correct only because LINE_RGB happened to always be dark; that
+    assumption breaks the moment the line colour becomes user-chosen."""
+    line_rgb = line_rgb if line_rgb is not None else LINE_RGB
+    _h, _s, line_l = rgb_to_hsl(line_rgb)
+    step = -0.08 if line_l > 0.5 else 0.08
     for _ in range(_MAX_CONTRAST_NUDGES):
-        if contrast_ratio(fill_rgb, LINE_RGB) >= _LINE_CONTRAST_FLOOR:
+        if contrast_ratio(fill_rgb, line_rgb) >= _LINE_CONTRAST_FLOOR:
             return fill_rgb
-        fill_rgb = shift_lightness(fill_rgb, 0.08)
+        fill_rgb = shift_lightness(fill_rgb, step)
     return fill_rgb
 
 
-def plan_for_category(base_rgb, category_name, preset=None, glazing_transparency=None):
+def plan_for_category(base_rgb, category_name, preset=None, glazing_transparency=None,
+                      tint_adjust=None, line_rgb=None):
     """Pure: (fill_rgb, line_rgb, transparency_pct) for one category
     under one preset. No Revit objects in or out, so this is exactly
     what the tests exercise - the Revit-facing function below only ever
     wraps this. `preset` defaults to Presentation - Balanced, so old
     callers (and old saved snapshots with no preset recorded) keep
-    behaving exactly as before this option existed."""
+    behaving exactly as before this option existed.
+
+    `tint_adjust`: an optional {role_name: extra_delta} dict. Lets the
+    user nudge one TONE ROLE's own lightness by hand, on top of
+    whatever the preset already computed for it - e.g. "make the
+    furniture tone a bit darker than this preset's default" without
+    switching preset or touching any other role. Keyed by role (not by
+    category), because a role covers many real categories at once
+    (Furniture/Casework/Specialty Equipment/Appliances all share
+    "accent") - adjusting it once in the preview is meant to move all
+    of them together when actually applied.
+
+    `line_rgb`: an optional override for the outline colour, in place
+    of the module's fixed LINE_RGB default. The contrast floor still
+    applies against WHICHEVER line colour is in effect - overriding the
+    outline colour does not opt out of the "the outline must stay
+    legible" guarantee, it just changes what it is measured against."""
     preset = preset or PRESETS[DEFAULT_PRESET]
     role = role_for_category(category_name)
     tone = ROLE_TONE[role]
+    line_rgb = line_rgb if line_rgb is not None else LINE_RGB
 
-    delta = max(-0.95, min(0.95, tone["lightness"] * preset["intensity"] + preset["bias"]))
+    extra = float(tint_adjust.get(role, 0.0)) if tint_adjust else 0.0
+    delta = max(-0.95, min(0.95, tone["lightness"] * preset["intensity"] + preset["bias"] + extra))
     fill = shift_lightness(base_rgb, delta)
 
     if tone["hue_target"] is not None:
@@ -413,9 +446,11 @@ def plan_for_category(base_rgb, category_name, preset=None, glazing_transparency
         fill = scale_saturation(fill, preset["saturation"])
 
     # The contrast floor is NEVER optional and never scaled by the
-    # preset - an invisible outline is a correctness bug, not a style,
-    # regardless of how far Bold/High Contrast push everything else.
-    fill = _ensure_line_contrast(fill)
+    # preset or a tint/outline override - an invisible outline is a
+    # correctness bug, not a style, regardless of how far Bold/High
+    # Contrast, a manual tint nudge, or a custom outline colour push
+    # everything else.
+    fill = _ensure_line_contrast(fill, line_rgb)
 
     transparency = tone["transparency"]
     if role == "glazing":
@@ -428,13 +463,15 @@ def plan_for_category(base_rgb, category_name, preset=None, glazing_transparency
         # silently overridden by it.
         transparency = max(0, min(90, int(round(transparency * (0.7 + 0.6 * preset["intensity"])))))
 
-    return fill, LINE_RGB, transparency
+    return fill, line_rgb, transparency
 
 
-def build_plan(base_rgb, category_names, preset=None, glazing_transparency=None):
+def build_plan(base_rgb, category_names, preset=None, glazing_transparency=None,
+               tint_adjust=None, line_rgb=None):
     """{category_name: (fill_rgb, line_rgb, transparency_pct)} for a
     whole view - what apply_theme() turns into real API calls."""
-    return dict((name, plan_for_category(base_rgb, name, preset, glazing_transparency))
+    return dict((name, plan_for_category(base_rgb, name, preset, glazing_transparency,
+                                         tint_adjust, line_rgb))
                for name in category_names)
 
 
@@ -714,13 +751,18 @@ def _display_style_enum(flat):
 
 
 def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading=True,
-                glazing_transparency=None):
+                glazing_transparency=None, tint_adjust=None, line_rgb=None):
     """Captures the view's current graphics FIRST (always, even on a
     first-ever run, so Restore is available immediately afterwards),
     then applies the theme. One Transaction: the number of categories
     in even a large, messy view is small (tens, not thousands), so this
     is nowhere near the scale that would call for DeeTransmit-style
-    batching."""
+    batching.
+
+    `tint_adjust` and `line_rgb` are the manual, per-role and outline-
+    colour overrides from the preview window - see plan_for_category()
+    for what each one means. Both default to None, which reproduces the
+    exact behaviour of every call made before these options existed."""
     result = MonoResult()
     categories = view_categories(doc, view)
     result.category_count = len(categories)
@@ -732,9 +774,16 @@ def apply_theme(doc, view, base_rgb, preset_name=DEFAULT_PRESET, flatten_shading
     line_weight = max(1, min(16, int(preset["line_weight"])))
     solid_id = solid_fill_pattern_id(doc)
     plan = build_plan(base_rgb, [cat.Name for cat, _count in categories],
-                      preset, glazing_transparency)
+                      preset, glazing_transparency, tint_adjust, line_rgb)
 
-    snapshot = {"categories": {}, "display_style": None, "preset_applied": preset_name}
+    snapshot = {
+        "categories": {}, "display_style": None, "preset_applied": preset_name,
+        # Informational only - restore_theme puts back the PRE-apply
+        # values captured below, never recomputes from these, so a
+        # missing/odd value here can never break a restore.
+        "tint_adjust": dict(tint_adjust) if tint_adjust else {},
+        "outline_override": list(line_rgb) if line_rgb else None,
+    }
     try:
         # The enum's NAME, not its integer value__: restoring it is then
         # a plain getattr(DisplayStyle, name) - the same "read back by
