@@ -17,14 +17,21 @@ category is EXTENDED via ReInsert rather than re-bound).
 --------------------------------------------------------------------
 Revit API facts this module relies on, and how each was confirmed
 --------------------------------------------------------------------
-- Element.get_BoundingBox(None) on a RevitLinkInstance returns the
-  bounding box ALREADY TRANSFORMED into the HOST document's coordinate
-  system, and ALWAYS AXIS-ALIGNED to the host's own default axes (no
-  rotation applied to the return value even for a rotated link instance)
-  - confirmed via WebSearch against revitapidocs.com/Jeremy Tammik's own
-  coordinate-transform notes. This is exactly what a rectangular
-  "villa's footprint" crop needs: a plain world-space AABB, with no
-  extra transform math required regardless of the villa's own rotation.
+- Element.get_BoundingBox(None/view) on the WHOLE RevitLinkInstance is
+  documented to return the aggregate bounding box already transformed
+  into host coordinates - but this is NOT what resolve_villa_bbox uses
+  as its primary route any more, after a live run showed two separate
+  problems with it: (a) get_BoundingBox(None) alone returned null for
+  every villa (a documented "model box not known" case for this element
+  type - see feedback_link_instance_bounding_box memory), and (b) even
+  get_BoundingBox(active_view) succeeding folded in the site's Levels/
+  Grids/Reference Planes, producing a crop so oversized the actual
+  villa geometry was reduced to an invisible speck on the sheet. The
+  PRIMARY route now walks the linked document's own elements directly
+  (GetLinkDocument() + GetTotalTransform(), filtered to
+  Category.HasMaterialQuantities - see _model_element_world_bbox) and
+  only falls back to the whole-instance calls (flagged "approximate")
+  when the link cannot be traversed at all.
 - ViewPlan.Create(doc, viewFamilyTypeId, levelId) - confirmed via
   WebSearch/Autodesk sample code; the FloorPlan ViewFamilyType is found
   via FilteredElementCollector(doc).OfClass(ViewFamilyType) filtered on
@@ -523,20 +530,45 @@ def _compute_statuses(plan, existing_numbers):
 # apply_bbox_crop_from_world_points idiom, generalised from "an existing
 # view's crop" to "a brand new view's crop from a villa's world bbox".
 # ==========================================================================
-def _bbox_via_linked_elements(link_doc, transform):
-    """Fallback tier 3 - unions every model element's OWN bounding box
-    (in the LINKED document's local coordinates), then transforms the 8
-    corners of that union into host coordinates via the instance's own
-    GetTotalTransform(). Heavier than the other two tiers (walks the
-    whole linked model), so it is only reached - and CACHED per villa,
-    see create_sheets_and_views' bbox_cache - when both cheaper tiers
-    give up."""
+def _is_physical_model_element(el):
+    """True for a real, buildable piece of the villa - walls, floors,
+    roofs, doors, windows, columns, generic models, MEP equipment/
+    fixtures, and so on. Category.HasMaterialQuantities is the
+    documented Revit API property meant for exactly this distinction
+    (it is true only for categories with compound structure or
+    assignable materials - walls/roofs/floors/ceilings/stairs/3D
+    families) and, critically, is FALSE for every datum category
+    (Levels, Grids, Reference Planes, Scope Boxes) - those are not
+    "buildable" and carry no material. Filtering on it is what keeps a
+    site's Levels/Grids (which routinely span far beyond the actual
+    building footprint) out of the crop."""
+    try:
+        cat = el.Category
+        return cat is not None and bool(cat.HasMaterialQuantities)
+    except Exception:
+        return False
+
+
+def _model_element_world_bbox(link_doc, transform):
+    """Unions the bounding box of every PHYSICAL model element in the
+    linked document (see _is_physical_model_element), in the LINK's own
+    local coordinates, then transforms the union's 8 corners into host
+    coordinates via GetTotalTransform(). This is the PRIMARY route for
+    resolve_villa_bbox, not a fallback - a live-reported bug showed that
+    calling get_BoundingBox on the WHOLE link INSTANCE (Revit's own
+    aggregate, uncontrollable by category) silently folds in a site's
+    Levels/Grids/Reference Planes, producing a crop so oversized the
+    actual villa geometry was reduced to an invisible speck on the
+    sheet - only walking the linked model's own elements, filtered to
+    physical categories, gives a crop that actually hugs the building."""
     min_pt = max_pt = None
     try:
         elements = FilteredElementCollector(link_doc).WhereElementIsNotElementType()
     except Exception:
         return None
     for el in elements:
+        if not _is_physical_model_element(el):
+            continue
         try:
             b = el.get_BoundingBox(None)
         except Exception:
@@ -562,28 +594,48 @@ def _bbox_via_linked_elements(link_doc, transform):
 
 
 def resolve_villa_bbox(instance, active_view=None):
-    """(bbox_or_None, detail) - three tiers, cheapest first, since a
-    live-observed run showed tier 1 alone returning None for EVERY
-    villa link instance (Revit's own get_BoundingBox(None) is
-    documented to return None when "the model box is not known" for
-    certain element types, and this was confirmed live for
-    RevitLinkInstance specifically, not just a hypothetical):
+    """(bbox_or_None, detail).
 
-    1. get_BoundingBox(None) - cheapest, works for most elements.
-    2. get_BoundingBox(active_view) - the commonly-documented working
-       alternative when a real view is available (the view active when
-       DeeSheetLinks was opened, threaded in by the caller).
-    3. Union every element in the LINKED document's own bounding box,
-       transformed into host coordinates via GetTotalTransform() - the
-       most expensive but most reliable tier, independent of which view
-       happens to be active. Only reached if the link is genuinely
-       loaded (GetLinkDocument() returns a real Document) - an unloaded
-       link is reported plainly rather than silently producing a wrong
-       (all-zero) crop."""
+    PRIMARY route: walk the linked document's own physical model
+    elements (walls/floors/roofs/doors/windows/... - see
+    _model_element_world_bbox) and union their bounding boxes, so the
+    crop hugs the actual building. Requires the link to be genuinely
+    loaded (GetLinkDocument() returns a real Document).
+
+    FALLBACK (only when the link cannot be traversed directly - an
+    unloaded/broken link): the whole-instance get_BoundingBox(None),
+    then get_BoundingBox(active_view) - both APPROXIMATE, since Revit's
+    own aggregate box for a link instance is not filterable by category
+    and may include datums, but still better than nothing. Flagged as
+    "approximate" in the returned detail so a caller can tell which
+    villas got the imprecise treatment. An earlier version of this
+    function tried these two FIRST and used the linked-element union
+    only as a last resort - live testing showed that ordering produces
+    an oversized, mostly-empty crop whenever the link's own aggregate
+    box happens to include Levels/Grids, which is why the physical-
+    element union is now tried first, not last."""
+    try:
+        link_doc = instance.GetLinkDocument()
+    except Exception:
+        link_doc = None
+
+    if link_doc is not None:
+        try:
+            transform = instance.GetTotalTransform()
+        except Exception:
+            transform = None
+        if transform is not None:
+            result = _model_element_world_bbox(link_doc, transform)
+            if result is not None:
+                return result, ""
+            return None, ("the linked model has no physical (wall/floor/roof/door/...) "
+                          "elements to crop to")
+
     try:
         bbox = instance.get_BoundingBox(None)
         if bbox is not None:
-            return (bbox.Min, bbox.Max), ""
+            return (bbox.Min, bbox.Max), ("approximate - could not read the linked model's "
+                                          "own geometry directly, used the link's overall extents")
     except Exception:
         pass
 
@@ -591,24 +643,12 @@ def resolve_villa_bbox(instance, active_view=None):
         try:
             bbox = instance.get_BoundingBox(active_view)
             if bbox is not None:
-                return (bbox.Min, bbox.Max), ""
+                return (bbox.Min, bbox.Max), ("approximate - could not read the linked model's "
+                                              "own geometry directly, used the link's overall extents")
         except Exception:
             pass
 
-    try:
-        link_doc = instance.GetLinkDocument()
-    except Exception:
-        link_doc = None
-    if link_doc is None:
-        return None, "the link is not loaded - load/reload it first"
-    try:
-        transform = instance.GetTotalTransform()
-    except Exception:
-        return None, "could not read the link's placement transform"
-    result = _bbox_via_linked_elements(link_doc, transform)
-    if result is None:
-        return None, "the linked model has no elements with computable geometry"
-    return result, ""
+    return None, "the link is not loaded - load/reload it first"
 
 
 def _expanded_world_points(min_pt, max_pt, offset_internal):
@@ -801,7 +841,8 @@ def create_sheets_and_views(doc, plan_rows, floorplan_vft_id, titleblock_id,
     Revit's internal feet here, not by the caller, so this module stays
     the one place that knows how a raw number becomes Revit geometry.
     active_view: the view that was active when DeeSheetLinks was opened
-    - fed into resolve_villa_bbox's tier 2 fallback.
+    - fed into resolve_villa_bbox's approximate fallback (only used when
+    the link's own geometry cannot be read directly).
     Creates/extends the 3 shared parameters onto the Views category
     FIRST, in its own Transaction (see dee_shared_param_service), then
     ONE Transaction for the whole batch - every row wrapped in its own
@@ -888,13 +929,16 @@ def create_sheets_and_views(doc, plan_rows, floorplan_vft_id, titleblock_id,
                     pass
                 doc.Regenerate()
 
+                bbox_note = " (crop is {0})".format(bbox_detail) if bbox_detail else ""
+
                 vp = _fit_and_center_viewport(doc, sheet, view)
                 if vp is None:
                     result.row_results.append(SheetBuildRowResult(
-                        row, True, "Created" + param_note +
+                        row, True, "Created" + param_note + bbox_note +
                         " - view could not be placed on the sheet"))
                 else:
-                    result.row_results.append(SheetBuildRowResult(row, True, "Created" + param_note))
+                    result.row_results.append(SheetBuildRowResult(
+                        row, True, "Created" + param_note + bbox_note))
                 result.applied += 1
             except Exception as e:
                 result.row_results.append(SheetBuildRowResult(row, False, "{0}".format(e)))
