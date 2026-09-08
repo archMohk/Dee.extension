@@ -511,6 +511,45 @@ class DuplicateRoomRow(object):
         return "Group {0} ({1} rooms)".format(self.group_index, self.group_size)
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 # --------------------------------------------------------------------------
 # Window
 # --------------------------------------------------------------------------
@@ -526,7 +565,7 @@ class DeeCleanerWindow(dee_branding.DeeBrandedWindow):
         self._dup_rows = []
 
     def scan_click(self, sender, args):
-        with forms.ProgressBar(title="DeeCleaner — scanning project...", cancellable=True):
+        with _SafeProgress(title="DeeCleaner — scanning project...", cancellable=True):
             self._room_rows = _scan_zero_area_rooms(self.doc)
             self._inplace_rows = _scan_inplace_families(self.doc)
             self._group_rows = _scan_unused_groups(self.doc)
@@ -625,7 +664,7 @@ class DeeCleanerWindow(dee_branding.DeeBrandedWindow):
             return
 
         results = []
-        with forms.ProgressBar(title="DeeCleaner - deleting zero-area rooms...", indeterminate=True):
+        with _SafeProgress(title="DeeCleaner - deleting zero-area rooms...", indeterminate=True):
             t = Transaction(self.doc, "DeeCleaner - Delete Zero-Area Rooms")
             t.Start()
             for r in selected:
@@ -740,7 +779,7 @@ class DeeCleanerWindow(dee_branding.DeeBrandedWindow):
             return
 
         results = []
-        with forms.ProgressBar(title="DeeCleaner - deleting unused groups...", indeterminate=True):
+        with _SafeProgress(title="DeeCleaner - deleting unused groups...", indeterminate=True):
             t = Transaction(self.doc, "DeeCleaner - Delete Unused Groups")
             t.Start()
             for r in selected:
@@ -803,7 +842,7 @@ class DeeCleanerWindow(dee_branding.DeeBrandedWindow):
             return
 
         results = []
-        with forms.ProgressBar(title="DeeCleaner - deleting views...", indeterminate=True):
+        with _SafeProgress(title="DeeCleaner - deleting views...", indeterminate=True):
             t = Transaction(self.doc, "DeeCleaner - Delete Views")
             t.Start()
             for r in selected:
@@ -867,7 +906,7 @@ class DeeCleanerWindow(dee_branding.DeeBrandedWindow):
             return
 
         results = []
-        with forms.ProgressBar(title="DeeCleaner - deleting sheets...", indeterminate=True):
+        with _SafeProgress(title="DeeCleaner - deleting sheets...", indeterminate=True):
             t = Transaction(self.doc, "DeeCleaner - Delete Sheets")
             t.Start()
             for r in selected:
@@ -938,7 +977,7 @@ class DeeCleanerWindow(dee_branding.DeeBrandedWindow):
             return
 
         results = []
-        with forms.ProgressBar(title="DeeCleaner - deleting rooms...", indeterminate=True):
+        with _SafeProgress(title="DeeCleaner - deleting rooms...", indeterminate=True):
             t = Transaction(self.doc, "DeeCleaner - Delete Rooms on Same Placement")
             t.Start()
             for r in selected:

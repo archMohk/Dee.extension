@@ -440,6 +440,45 @@ def _create_views(doc, coord_view_name, navis_view_name, view_type_name):
 SCRIPT_VERSION = "2026-07-03-v1"
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 def main():
     try:
         token = acc_auth.get_access_token()
@@ -495,7 +534,7 @@ def main():
                 key = "{0}  [{1}]".format(iname, iid.split(":")[-1][:8])
             all_items[key] = iid
 
-        with forms.ProgressBar(title="Scanning project for Revit files...",
+        with _SafeProgress(title="Scanning project for Revit files...",
                                cancellable=True, indeterminate=True) as pb:
             pb.title = "Step 1/2 — Searching native cloud models..."
             for iid, iname in acc_api.search_cloud_models(project_id, token):
@@ -579,7 +618,7 @@ def main():
     uiapp.DialogBoxShowing += dialog_handler
 
     try:
-        with forms.ProgressBar(title="DeeBIMview — starting...", cancellable=True) as pb:
+        with _SafeProgress(title="DeeBIMview — starting...", cancellable=True) as pb:
             for i, name in enumerate(selected_names):
                 if pb.cancelled:
                     all_results.append((name, [("Cancelled", None)]))

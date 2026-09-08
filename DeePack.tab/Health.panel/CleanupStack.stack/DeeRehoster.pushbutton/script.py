@@ -480,6 +480,45 @@ class ElementRow(object):
         self.level_name = level_name or ""
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 class DeeRehosterWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
@@ -508,7 +547,7 @@ class DeeRehosterWindow(dee_branding.DeeBrandedWindow):
         elements_by_level = {}
         collector = list(FilteredElementCollector(doc).WhereElementIsNotElementType())
         total = len(collector)
-        with forms.ProgressBar(title="DeeRehoster — scanning model...", cancellable=True) as pb:
+        with _SafeProgress(title="DeeRehoster — scanning model...", cancellable=True) as pb:
             for i, el in enumerate(collector):
                 if pb.cancelled:
                     break
@@ -683,7 +722,7 @@ class DeeRehosterWindow(dee_branding.DeeBrandedWindow):
                         continue
 
         if show_progress:
-            with forms.ProgressBar(title="DeeRehoster — coloring elements...", cancellable=True) as pb:
+            with _SafeProgress(title="DeeRehoster — coloring elements...", cancellable=True) as pb:
                 _apply(pb)
         else:
             _apply(None)
@@ -778,7 +817,7 @@ class DeeRehosterWindow(dee_branding.DeeBrandedWindow):
         levels_sorted = self._levels
 
         mismatches = []
-        with forms.ProgressBar(title="DeeRehoster — checking physical location...", cancellable=True) as pb:
+        with _SafeProgress(title="DeeRehoster — checking physical location...", cancellable=True) as pb:
             total = len(self._elements)
             for i, row in enumerate(self._elements):
                 if pb.cancelled:
@@ -819,7 +858,7 @@ class DeeRehosterWindow(dee_branding.DeeBrandedWindow):
         corrected_ids = set()
         t = Transaction(self.doc, "DeeRehoster - Fix Mis-Hosted Elements")
         t.Start()
-        with forms.ProgressBar(title="DeeRehoster — correcting...", cancellable=True) as pb:
+        with _SafeProgress(title="DeeRehoster — correcting...", cancellable=True) as pb:
             total = len(mismatches)
             for i, (row, current_level, correct_level) in enumerate(mismatches):
                 if pb.cancelled:
@@ -920,7 +959,7 @@ class DeeRehosterWindow(dee_branding.DeeBrandedWindow):
         results = []
         t = Transaction(self.doc, "DeeRehoster - Rehost Elements")
         t.Start()
-        with forms.ProgressBar(title="DeeRehoster — rehosting...", cancellable=True) as pb:
+        with _SafeProgress(title="DeeRehoster — rehosting...", cancellable=True) as pb:
             done = 0
             for src_id, target_lvl in mapping.items():
                 src_lvl = level_by_id.get(src_id)
@@ -973,7 +1012,7 @@ class DeeRehosterWindow(dee_branding.DeeBrandedWindow):
         if dlg.ShowDialog() != DialogResult.OK:
             return
         try:
-            with forms.ProgressBar(title="DeeRehoster - exporting CSV...", indeterminate=True):
+            with _SafeProgress(title="DeeRehoster - exporting CSV...", indeterminate=True):
                 with open(dlg.FileName, "w") as f:
                     writer = csv.writer(f)
                     writer.writerow(["Id", "Category", "Family", "Type", "Level"])
