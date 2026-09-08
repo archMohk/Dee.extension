@@ -159,6 +159,7 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         self._levels = core.list_levels(self.doc)
         self._templates = core.list_view_templates(self.doc)
         self._refresh_titleblocks()
+        self._refresh_naming_presets()
 
         self._ready = True
         self._guard(self._scan_links, False)
@@ -372,6 +373,57 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         if 0 <= i < len(self._titleblocks):
             return self._titleblocks[i][0]
         return None
+
+    # ---------------- naming sets (presets) ----------------
+    def _refresh_naming_presets(self, select_name=None):
+        names = core.list_naming_presets()
+        self.naming_preset_cb.ItemsSource = None
+        self.naming_preset_cb.ItemsSource = names
+        if select_name:
+            self.naming_preset_cb.Text = select_name
+        elif names:
+            self.naming_preset_cb.SelectedIndex = 0
+
+    def load_preset_click(self, sender, args):
+        def run():
+            name = (self.naming_preset_cb.Text or "").strip()
+            if not name:
+                forms.alert("Pick or type a Naming Set name first.", title=_TOOL)
+                return
+            preset = core.load_naming_preset(name)
+            if preset is None:
+                forms.alert("No Naming Set called '{0}'.".format(name), title=_TOOL)
+                return
+            self.number_template_tb.Text = preset.get("number_template", "")
+            self.name_template_tb.Text = preset.get("name_template", "")
+            self.status_tb.Text = "Loaded Naming Set '{0}'.".format(name)
+        self._guard(run)
+
+    def save_preset_click(self, sender, args):
+        def run():
+            name = (self.naming_preset_cb.Text or "").strip()
+            if not name:
+                forms.alert("Type a name for this Naming Set in the box first.", title=_TOOL)
+                return
+            core.save_naming_preset(name, self.number_template_tb.Text or "",
+                                    self.name_template_tb.Text or "")
+            self._refresh_naming_presets(select_name=name)
+            self.status_tb.Text = "Saved Naming Set '{0}'.".format(name)
+        self._guard(run)
+
+    def delete_preset_click(self, sender, args):
+        def run():
+            name = (self.naming_preset_cb.Text or "").strip()
+            if not name:
+                return
+            if not forms.alert("Delete the Naming Set '{0}'?".format(name), title=_TOOL,
+                               yes=True, no=True):
+                return
+            core.delete_naming_preset(name)
+            self.naming_preset_cb.Text = ""
+            self._refresh_naming_presets()
+            self.status_tb.Text = "Deleted Naming Set '{0}'.".format(name)
+        self._guard(run)
 
     def preview_click(self, sender, args):
         def run():

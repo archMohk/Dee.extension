@@ -44,13 +44,22 @@ Revit API facts this module relies on, and how each was confirmed
   standard-scale loop here is a simplified, single-viewport version of
   DeeAssemb's own proven _fit_and_place_viewport (one villa's crop per
   sheet, so the whole sheet outline IS the one cell - no grid needed).
-- The rectangular-crop-from-world-points idiom (read the view's own
-  CropBox to get its Transform, inverse-transform world points into the
-  view's local frame, build a NEW BoundingBoxXYZ with the SAME Transform
-  and the new Min/Max, reassign) is a LOCAL COPY of DeeViewAdjust's own
-  proven-live apply_bbox_crop_from_world_points - mutating the read-back
-  box's Min/Max in place does not reliably take effect, per that
-  module's own docstring.
+- The crop is now a ROTATED rectangle, aligned to the villa's own
+  placement rotation, not a larger world-axis-aligned box around a
+  rotated building - a live run showed exactly that: a diagonal villa
+  sitting inside a much-too-big straight crop ("not adjusted to the
+  longest part"). Directly rotating BoundingBoxXYZ.Transform does NOT
+  visibly rotate a plan view's rectangular crop - confirmed via
+  WebSearch against Jeremy Tammik's own account of testing this exact
+  approach and finding it silently does nothing ("I do get the
+  transformation, but I am not able to apply it... Something fails and
+  the transformation remains unchanged"). Instead this reuses
+  DeeViewAdjust's own PROVEN-LIVE mechanism -
+  GetCropRegionShapeManager().SetCropShape(CurveLoop) - building a
+  simple 4-corner rectangle whose corners are placed directly via the
+  villa's own GetTotalTransform() (so the rotation comes for free from
+  the corner positions, no separate "rotate the crop element" step
+  needed at all). See apply_villa_crop.
 - Parameter creation/binding is dee_shared_param_service.
   ensure_shared_parameters(doc, app, names, OST_Views, "Views") - the
   SAME generic engine DeeLinkDist itself now goes through for
@@ -69,11 +78,12 @@ import os
 from Autodesk.Revit.DB import (
     FilteredElementCollector, RevitLinkInstance, Level,
     View, ViewPlan, ViewFamilyType, ViewFamily, ViewSheet, ViewSchedule,
-    Viewport, Transaction, BoundingBoxXYZ, XYZ, BuiltInCategory,
+    Viewport, Transaction, XYZ, Line, CurveLoop, BuiltInCategory,
     UnitUtils, UnitTypeId, ModelPathUtils,
 )
 
 import dee_shared_param_service
+import deew_settings
 
 # --------------------------------------------------------------------------
 # units - a local copy of dee_link_dist_service.UNIT_OPTIONS/resolve_unit
@@ -462,6 +472,41 @@ def render_template(template, ctx):
 
 
 # ==========================================================================
+# Naming Sets - saved (Sheet Number template, Sheet Name template) pairs,
+# named by the user, so a naming scheme built once does not need
+# retyping every run. Reuses deew_settings.py's generic per-tool JSON
+# store - the SAME persistence layer DeeSheet Renamer's own presets
+# already use, rather than a second, parallel implementation.
+# ==========================================================================
+_NAMING_PRESET_TOOL_NAME = "dee_sheet_links_naming_presets"
+
+
+def list_naming_presets():
+    data = deew_settings.load(_NAMING_PRESET_TOOL_NAME, {})
+    return sorted(data.keys())
+
+
+def load_naming_preset(name):
+    """{"number_template": ..., "name_template": ...} or None."""
+    data = deew_settings.load(_NAMING_PRESET_TOOL_NAME, {})
+    return data.get(name)
+
+
+def save_naming_preset(name, number_template, name_template):
+    data = deew_settings.load(_NAMING_PRESET_TOOL_NAME, {})
+    data[name] = {"number_template": number_template, "name_template": name_template}
+    return deew_settings.save(_NAMING_PRESET_TOOL_NAME, data)
+
+
+def delete_naming_preset(name):
+    data = deew_settings.load(_NAMING_PRESET_TOOL_NAME, {})
+    if name in data:
+        del data[name]
+        return deew_settings.save(_NAMING_PRESET_TOOL_NAME, data)
+    return True
+
+
+# ==========================================================================
 # Plan - the (villa x sheet type) cartesian product, rendered and
 # validated BEFORE any Revit call - "report before action, always".
 # ==========================================================================
@@ -551,10 +596,20 @@ def revalidate_plan(plan_rows, existing_numbers=None):
 
 
 # ==========================================================================
-# Crop - local copy of DeeViewAdjust's proven
-# apply_bbox_crop_from_world_points idiom, generalised from "an existing
-# view's crop" to "a brand new view's crop from a villa's world bbox".
+# Crop - a ROTATED rectangle aligned to the villa's OWN placement
+# rotation via DeeViewAdjust's proven-live SetCropShape mechanism (see
+# module docstring for why directly rotating BoundingBoxXYZ.Transform
+# does NOT work).
 # ==========================================================================
+def _identity_transform():
+    """Transform.Identity - imported locally (not at module top level)
+    so this module's own import surface stays exactly what the rest of
+    it already declares; Transform is only ever needed for this one
+    fallback case (no rotation info available)."""
+    from Autodesk.Revit.DB import Transform
+    return Transform.Identity
+
+
 def _is_physical_model_element(el):
     """True for a real, buildable piece of the villa - walls, floors,
     roofs, doors, windows, columns, generic models, MEP equipment/
@@ -574,18 +629,16 @@ def _is_physical_model_element(el):
         return False
 
 
-def _model_element_world_bbox(link_doc, transform):
+def _model_element_local_bbox(link_doc):
     """Unions the bounding box of every PHYSICAL model element in the
-    linked document (see _is_physical_model_element), in the LINK's own
-    local coordinates, then transforms the union's 8 corners into host
-    coordinates via GetTotalTransform(). This is the PRIMARY route for
-    resolve_villa_bbox, not a fallback - a live-reported bug showed that
-    calling get_BoundingBox on the WHOLE link INSTANCE (Revit's own
-    aggregate, uncontrollable by category) silently folds in a site's
-    Levels/Grids/Reference Planes, producing a crop so oversized the
-    actual villa geometry was reduced to an invisible speck on the
-    sheet - only walking the linked model's own elements, filtered to
-    physical categories, gives a crop that actually hugs the building."""
+    linked document (see _is_physical_model_element), in the LINK's OWN
+    local coordinate frame - deliberately NOT transformed into host
+    coordinates here (unlike an earlier version of this function): a
+    box measured along the BUILDING's own axes stays minimal-area even
+    when the villa is placed at an angle, which is exactly what makes a
+    ROTATED crop possible - resolve_villa_bbox pairs this local box with
+    the villa's own GetTotalTransform() so the caller can place it
+    (still rotated) directly in the model."""
     min_pt = max_pt = None
     try:
         elements = FilteredElementCollector(link_doc).WhereElementIsNotElementType()
@@ -607,25 +660,27 @@ def _model_element_world_bbox(link_doc, transform):
             max_pt = XYZ(max(max_pt.X, b.Max.X), max(max_pt.Y, b.Max.Y), max(max_pt.Z, b.Max.Z))
     if min_pt is None:
         return None
-    corners = [XYZ(x, y, z)
-              for x in (min_pt.X, max_pt.X)
-              for y in (min_pt.Y, max_pt.Y)
-              for z in (min_pt.Z, max_pt.Z)]
-    world_corners = [transform.OfPoint(c) for c in corners]
-    xs = [p.X for p in world_corners]
-    ys = [p.Y for p in world_corners]
-    zs = [p.Z for p in world_corners]
-    return XYZ(min(xs), min(ys), min(zs)), XYZ(max(xs), max(ys), max(zs))
+    return min_pt, max_pt
 
 
 def resolve_villa_bbox(instance, active_view=None):
-    """(bbox_or_None, detail).
+    """((local_min, local_max, transform), detail).
+
+    local_min/local_max are the villa's TIGHT bounding box in its OWN
+    local coordinate frame (before rotation/translation) - measured
+    along the BUILDING's own axes, so it stays minimal-area even for a
+    rotated villa. transform carries that local frame into host/world
+    coordinates: instance.GetTotalTransform() for the PRIMARY route
+    (which also gives apply_villa_crop the villa's own rotation, for
+    free, from the corner positions it produces), or an IDENTITY
+    Transform for the FALLBACK route below - local_min/max are then
+    simply the world-space box (no rotation info available), which
+    degrades correctly to a plain axis-aligned crop, exactly the
+    original behaviour.
 
     PRIMARY route: walk the linked document's own physical model
-    elements (walls/floors/roofs/doors/windows/... - see
-    _model_element_world_bbox) and union their bounding boxes, so the
-    crop hugs the actual building. Requires the link to be genuinely
-    loaded (GetLinkDocument() returns a real Document).
+    elements (see _model_element_local_bbox) - requires the link to be
+    genuinely loaded (GetLinkDocument() returns a real Document).
 
     FALLBACK (only when the link cannot be traversed directly - an
     unloaded/broken link): the whole-instance get_BoundingBox(None),
@@ -633,12 +688,7 @@ def resolve_villa_bbox(instance, active_view=None):
     own aggregate box for a link instance is not filterable by category
     and may include datums, but still better than nothing. Flagged as
     "approximate" in the returned detail so a caller can tell which
-    villas got the imprecise treatment. An earlier version of this
-    function tried these two FIRST and used the linked-element union
-    only as a last resort - live testing showed that ordering produces
-    an oversized, mostly-empty crop whenever the link's own aggregate
-    box happens to include Levels/Grids, which is why the physical-
-    element union is now tried first, not last."""
+    villas got the imprecise treatment."""
     try:
         link_doc = instance.GetLinkDocument()
     except Exception:
@@ -650,17 +700,19 @@ def resolve_villa_bbox(instance, active_view=None):
         except Exception:
             transform = None
         if transform is not None:
-            result = _model_element_world_bbox(link_doc, transform)
+            result = _model_element_local_bbox(link_doc)
             if result is not None:
-                return result, ""
+                return (result[0], result[1], transform), ""
             return None, ("the linked model has no physical (wall/floor/roof/door/...) "
                           "elements to crop to")
 
+    identity = _identity_transform()
     try:
         bbox = instance.get_BoundingBox(None)
         if bbox is not None:
-            return (bbox.Min, bbox.Max), ("approximate - could not read the linked model's "
-                                          "own geometry directly, used the link's overall extents")
+            return (bbox.Min, bbox.Max, identity), (
+                "approximate - could not read the linked model's own geometry directly, "
+                "used the link's overall extents (not rotation-aligned)")
     except Exception:
         pass
 
@@ -668,56 +720,78 @@ def resolve_villa_bbox(instance, active_view=None):
         try:
             bbox = instance.get_BoundingBox(active_view)
             if bbox is not None:
-                return (bbox.Min, bbox.Max), ("approximate - could not read the linked model's "
-                                              "own geometry directly, used the link's overall extents")
+                return (bbox.Min, bbox.Max, identity), (
+                    "approximate - could not read the linked model's own geometry directly, "
+                    "used the link's overall extents (not rotation-aligned)")
         except Exception:
             pass
 
     return None, "the link is not loaded - load/reload it first"
 
 
-def _expanded_world_points(min_pt, max_pt, offset_internal):
-    """8 corners of the villa's bbox expanded outward by offset_internal
-    on X/Y only - Z is left alone, since the crop is a plan footprint,
-    not a 3D box."""
-    x0, x1 = min_pt.X - offset_internal, max_pt.X + offset_internal
-    y0, y1 = min_pt.Y - offset_internal, max_pt.Y + offset_internal
-    z0, z1 = min_pt.Z, max_pt.Z
-    return [XYZ(x0, y0, z0), XYZ(x1, y0, z0), XYZ(x1, y1, z0), XYZ(x0, y1, z0),
-            XYZ(x0, y0, z1), XYZ(x1, y0, z1), XYZ(x1, y1, z1), XYZ(x0, y1, z1)]
+def apply_villa_crop(view, local_min, local_max, transform, offset_internal):
+    """Sets the view's Crop Region to a rectangle tightly hugging the
+    villa, ALIGNED TO THE VILLA'S OWN ROTATION - not a larger world-
+    axis-aligned box around a rotated building (a live run showed
+    exactly that: a diagonal villa sitting inside a much-too-big
+    straight crop). offset_internal pads local_min/local_max along the
+    villa's OWN local X/Y axes (so the margin looks even all the way
+    around the building regardless of its rotation) before the 4
+    corners are placed via `transform` - the rotation comes for free
+    from the corner positions, no separate "rotate the crop" step.
 
+    Uses GetCropRegionShapeManager().SetCropShape(CurveLoop) - the SAME
+    mechanism DeeViewAdjust already proved live for room-boundary crops
+    - rather than trying to rotate BoundingBoxXYZ.Transform directly,
+    which does not visibly rotate a plan view's crop (see module
+    docstring)."""
+    x0 = local_min.X - offset_internal
+    x1 = local_max.X + offset_internal
+    y0 = local_min.Y - offset_internal
+    y1 = local_max.Y + offset_internal
+    z = local_min.Z
 
-def apply_villa_crop(view, min_pt, max_pt, offset_internal):
-    """Sets view.CropBox to an absolute rectangle covering the villa's
-    (expanded) bbox - local copy of DeeViewAdjust's own
-    apply_bbox_crop_from_world_points: read the view's OWN CropBox first
-    to get its Transform, inverse-transform the world points into the
-    view's local frame, rebuild a NEW BoundingBoxXYZ with the SAME
-    Transform and the new Min/Max, then reassign - mutating the read-
-    back box's Min/Max in place does not reliably take effect."""
-    world_points = _expanded_world_points(min_pt, max_pt, offset_internal)
+    local_corners = [XYZ(x0, y0, z), XYZ(x1, y0, z), XYZ(x1, y1, z), XYZ(x0, y1, z)]
+    try:
+        world_corners = [transform.OfPoint(c) for c in local_corners]
+    except Exception as e:
+        return False, "Could not place the crop corners: {0}".format(e)
+
     try:
         if not view.CropBoxActive:
             view.CropBoxActive = True
     except Exception:
         pass
+
     try:
-        bbox = view.CropBox
-        if bbox is None:
-            return False, "New view has no crop box"
-        transform = bbox.Transform
-        inv = transform.Inverse
-        local_pts = [inv.OfPoint(p) for p in world_points]
-        xs = [p.X for p in local_pts]
-        ys = [p.Y for p in local_pts]
-        new_box = BoundingBoxXYZ()
-        new_box.Transform = transform
-        new_box.Min = XYZ(min(xs), min(ys), bbox.Min.Z)
-        new_box.Max = XYZ(max(xs), max(ys), bbox.Max.Z)
-        view.CropBox = new_box
+        crsm = view.GetCropRegionShapeManager()
+    except Exception as e:
+        return False, "Could not access this view's crop region shape manager: {0}".format(e)
+    try:
+        if not crsm.CanHaveShape:
+            return False, "This view does not support a shaped crop region"
+    except Exception:
+        pass
+
+    try:
+        loop = CurveLoop()
+        for i in range(4):
+            loop.Append(Line.CreateBound(world_corners[i], world_corners[(i + 1) % 4]))
+    except Exception as e:
+        return False, "Could not build the crop rectangle: {0}".format(e)
+
+    try:
+        valid = crsm.IsCropRegionShapeValid(loop)
+    except Exception as e:
+        return False, "Could not validate the crop shape ({0}) - not applied".format(e)
+    if not valid:
+        return False, "Revit rejected the villa's crop rectangle as a crop shape"
+
+    try:
+        crsm.SetCropShape(loop)
         return True, "Crop set to the villa's footprint"
     except Exception as e:
-        return False, str(e)
+        return False, "Could not set the crop shape: {0}".format(e)
 
 
 # ==========================================================================
@@ -967,7 +1041,7 @@ def create_sheets_and_views(doc, plan_rows, floorplan_vft_id, titleblock_id,
                 view = ViewPlan.Create(doc, floorplan_vft_id, row.sheet_type.level_id)
                 doc.Regenerate()
 
-                ok, detail = apply_villa_crop(view, bbox[0], bbox[1], offset_internal)
+                ok, detail = apply_villa_crop(view, bbox[0], bbox[1], bbox[2], offset_internal)
                 if not ok:
                     result.row_results.append(SheetBuildRowResult(row, False, detail))
                     result.skipped += 1

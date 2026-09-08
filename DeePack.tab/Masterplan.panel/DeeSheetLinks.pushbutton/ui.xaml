@@ -103,6 +103,18 @@
                             <TextBox Grid.Row="1" Grid.Column="1" x:Name="name_template_tb" Height="24"
                                      VerticalContentAlignment="Center" Text="{}{Typology} - {SheetType}"/>
                         </Grid>
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <TextBlock Text="Naming Set:" VerticalAlignment="Center"/>
+                            <ComboBox x:Name="naming_preset_cb" Width="180" Height="26" Margin="6,0,10,0"
+                                      IsEditable="True"
+                                      ToolTip="Pick a saved Naming Set, or type a new name here and click Save As..."/>
+                            <Button x:Name="load_preset_b" Content="Load" Width="70" Height="26" Margin="0,0,6,0"
+                                    Click="load_preset_click"/>
+                            <Button x:Name="save_preset_b" Content="Save As..." Width="90" Height="26" Margin="0,0,6,0"
+                                    Click="save_preset_click"/>
+                            <Button x:Name="delete_preset_b" Content="Delete" Width="70" Height="26"
+                                    Click="delete_preset_click"/>
+                        </StackPanel>
                     </GroupBox>
 
                     <GroupBox DockPanel.Dock="Top" Header="Crop and placement" Margin="0,0,0,10">
