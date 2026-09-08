@@ -80,6 +80,45 @@ def matches_search(row, query):
     return all(term in haystack for term in query.lower().split())
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 class DeeAssembWindow(dee_branding.DeeBrandedWindow):
     # See the module docstring - must exist BEFORE the base class loads the
     # XAML, because loading it fires the handlers below.
@@ -105,9 +144,9 @@ class DeeAssembWindow(dee_branding.DeeBrandedWindow):
         self._schedule_templates = []
         self._categories = []
 
-        with forms.ProgressBar(title="DeeAssemb - scanning assemblies...", cancellable=True) as pb:
+        with _SafeProgress(title="DeeAssemb - scanning assemblies...", cancellable=True) as pb:
             self._rows = core.collect_assemblies(self.doc, self._progress_cb(pb))
-        with forms.ProgressBar(title="DeeAssemb - reading title blocks and templates...",
+        with _SafeProgress(title="DeeAssemb - reading title blocks and templates...",
                                indeterminate=True):
             self._titleblocks = core.collect_titleblocks(self.doc)
             self._model_templates, self._schedule_templates = core.collect_view_templates(self.doc)
@@ -306,7 +345,7 @@ class DeeAssembWindow(dee_branding.DeeBrandedWindow):
         self._update_status()
 
     def rescan_click(self, sender, args):
-        with forms.ProgressBar(title="DeeAssemb - re-scanning assemblies...", cancellable=True) as pb:
+        with _SafeProgress(title="DeeAssemb - re-scanning assemblies...", cancellable=True) as pb:
             self._rows = core.collect_assemblies(self.doc, self._progress_cb(pb))
         self._refresh_grid()
         self._update_status()
@@ -808,7 +847,7 @@ class DeeAssembWindow(dee_branding.DeeBrandedWindow):
 
         core.print_report(results, output)
 
-        with forms.ProgressBar(title="DeeAssemb - refreshing assembly list...",
+        with _SafeProgress(title="DeeAssemb - refreshing assembly list...",
                                indeterminate=True):
             self._rows = core.collect_assemblies(self.doc)
         self._refresh_grid()

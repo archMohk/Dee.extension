@@ -923,6 +923,45 @@ def print_report(action_title, result):
     output.print_html("".join(html))
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 # ==========================================================================
 # Window - UI wiring only; all real work happens in the plain functions
 # above (same separation as fill_conversion.py/view_cropping.py)
@@ -936,7 +975,7 @@ class DeeSSelectWindow(dee_branding.DeeBrandedWindow):
         self.view = view
         self._rows = []
 
-        with forms.ProgressBar(title="DeeSSelect - scanning categories...", indeterminate=True):
+        with _SafeProgress(title="DeeSSelect - scanning categories...", indeterminate=True):
             self._categories = scan_categories(self.doc, self.view)
         self.category_cb.ItemsSource = self._categories
         self.param_cb.ItemsSource = []
@@ -961,7 +1000,7 @@ class DeeSSelectWindow(dee_branding.DeeBrandedWindow):
         param = self.param_cb.SelectedItem
         if cat is None or param is None:
             return
-        with forms.ProgressBar(title="DeeSSelect - scanning values...", indeterminate=True):
+        with _SafeProgress(title="DeeSSelect - scanning values...", indeterminate=True):
             self._rows = scan_values(self.doc, self.view, cat, param)
         self.values_grid.ItemsSource = None
         self.values_grid.ItemsSource = self._rows
@@ -991,7 +1030,7 @@ class DeeSSelectWindow(dee_branding.DeeBrandedWindow):
         if dlg.ShowDialog() != DialogResult.OK:
             return
         try:
-            with forms.ProgressBar(title="DeeSSelect - saving color scheme...", indeterminate=True):
+            with _SafeProgress(title="DeeSSelect - saving color scheme...", indeterminate=True):
                 save_scheme(dlg.FileName, self._rows)
         except Exception as e:
             forms.alert("Could not save the color scheme: {0}".format(e))
@@ -1005,7 +1044,7 @@ class DeeSSelectWindow(dee_branding.DeeBrandedWindow):
         if dlg.ShowDialog() != DialogResult.OK:
             return
         try:
-            with forms.ProgressBar(title="DeeSSelect - loading color scheme...", indeterminate=True):
+            with _SafeProgress(title="DeeSSelect - loading color scheme...", indeterminate=True):
                 load_scheme(dlg.FileName, self._rows, by_value=True)
         except Exception as e:
             forms.alert("Could not load the color scheme: {0}".format(e))
@@ -1046,7 +1085,7 @@ class DeeSSelectWindow(dee_branding.DeeBrandedWindow):
         if not checked_rows:
             forms.alert("Check at least one value first.")
             return
-        with forms.ProgressBar(title="DeeSSelect - selecting elements...", indeterminate=True):
+        with _SafeProgress(title="DeeSSelect - selecting elements...", indeterminate=True):
             ids = elements_for_checked(self._rows)
             select_ids(self.uidoc, ids)
         self.status_tb.Text = "Selected {0} element(s) across {1} checked value(s).".format(
@@ -1055,11 +1094,11 @@ class DeeSSelectWindow(dee_branding.DeeBrandedWindow):
     def revit_select_all_click(self, sender, args):
         if not self._rows:
             return
-        with forms.ProgressBar(title="DeeSSelect - selecting elements...", indeterminate=True):
+        with _SafeProgress(title="DeeSSelect - selecting elements...", indeterminate=True):
             select_ids(self.uidoc, all_elements(self._rows))
 
     def revit_select_none_click(self, sender, args):
-        with forms.ProgressBar(title="DeeSSelect - clearing selection...", indeterminate=True):
+        with _SafeProgress(title="DeeSSelect - clearing selection...", indeterminate=True):
             clear_selection(self.uidoc)
 
     # ---------------- main actions ----------------
@@ -1077,7 +1116,7 @@ class DeeSSelectWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Pick a category and parameter first.")
             return
         apply_line, apply_fg, apply_bg = self._channel_flags()
-        with forms.ProgressBar(title="DeeSSelect - applying colors...", indeterminate=True):
+        with _SafeProgress(title="DeeSSelect - applying colors...", indeterminate=True):
             result = apply_colors(self.doc, self.view, cat, self._rows, apply_line, apply_fg, apply_bg)
         print_report("Apply Colors", result)
 
@@ -1091,7 +1130,7 @@ class DeeSSelectWindow(dee_branding.DeeBrandedWindow):
                 "DeeSSelect created for '{0}'? This cannot be undone from this dialog.".format(cat.name),
                 title="DeeSSelect - Confirm", yes=True, no=True):
             return
-        with forms.ProgressBar(title="DeeSSelect - resetting colors...", indeterminate=True):
+        with _SafeProgress(title="DeeSSelect - resetting colors...", indeterminate=True):
             result = reset_colors(self.doc, self.view, cat)
         print_report("Reset Colors", result)
 
@@ -1102,7 +1141,7 @@ class DeeSSelectWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Pick a category and parameter first.")
             return
         apply_line, apply_fg, apply_bg = self._channel_flags()
-        with forms.ProgressBar(title="DeeSSelect - creating view filters...", indeterminate=True):
+        with _SafeProgress(title="DeeSSelect - creating view filters...", indeterminate=True):
             result = create_view_filters(
                 self.doc, self.view, cat, param, self._rows, apply_line, apply_fg, apply_bg)
         print_report("Create View Filters", result)
@@ -1115,7 +1154,7 @@ class DeeSSelectWindow(dee_branding.DeeBrandedWindow):
             return
         apply_line, apply_fg, apply_bg = self._channel_flags()
         try:
-            with forms.ProgressBar(title="DeeSSelect - creating legend...", indeterminate=True):
+            with _SafeProgress(title="DeeSSelect - creating legend...", indeterminate=True):
                 result = create_legend(self.doc, cat, param, self._rows, apply_line, apply_fg, apply_bg)
         except Exception as e:
             forms.alert("Could not create the legend: {0}".format(e), title="DeeSSelect")

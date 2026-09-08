@@ -480,6 +480,45 @@ def print_report(result):
     output.print_html("".join(html))
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 # ==========================================================================
 # Window
 # ==========================================================================
@@ -497,7 +536,7 @@ class DeeViewsheetWindow(dee_branding.DeeBrandedWindow):
 
     # ---------------- scan ----------------
     def scan_click(self, sender, args):
-        with forms.ProgressBar(title="DeeViewsheet - scanning sheets and views...", indeterminate=True):
+        with _SafeProgress(title="DeeViewsheet - scanning sheets and views...", indeterminate=True):
             self._rows = scan_placed_views(self.doc)
             names = list_view_text_parameters(self.doc, self._rows)
         self.param_cb.ItemsSource = names
@@ -582,7 +621,7 @@ class DeeViewsheetWindow(dee_branding.DeeBrandedWindow):
                 "This adds it to your shared parameter file and to this project.".format(name),
                 title="DeeViewsheet - Create Parameter", yes=True, no=True):
             return
-        with forms.ProgressBar(title="DeeViewsheet - creating parameter...", indeterminate=True):
+        with _SafeProgress(title="DeeViewsheet - creating parameter...", indeterminate=True):
             ok, detail = create_shared_view_parameter(self.doc, self.uiapp.Application, name)
         if not ok:
             forms.alert("Could not create the parameter:\n\n{0}".format(detail))
@@ -632,12 +671,12 @@ class DeeViewsheetWindow(dee_branding.DeeBrandedWindow):
 
         unlock_notes = []
         if template_ids:
-            with forms.ProgressBar(title="DeeViewsheet - excluding parameter from view templates...",
+            with _SafeProgress(title="DeeViewsheet - excluding parameter from view templates...",
                                     indeterminate=True):
                 _changed, unlock_notes = exclude_param_from_templates(
                     self.doc, template_ids, get_param_element_id(self.doc, self._rows, param))
 
-        with forms.ProgressBar(title="DeeViewsheet - writing...", indeterminate=True):
+        with _SafeProgress(title="DeeViewsheet - writing...", indeterminate=True):
             result = apply_rows(self.doc, self._rows, param, source)
         result.template_notes = unlock_notes
         print_report(result)

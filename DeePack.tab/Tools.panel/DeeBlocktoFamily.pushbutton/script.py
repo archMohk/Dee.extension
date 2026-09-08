@@ -117,6 +117,45 @@ class MatchDisplayRow(object):
         self.rotation_text = "{0:.1f}".format(math.degrees(occurrence.rotation_radians))
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 # ==========================================================================
 # Phase 2: the window (no Revit API calls except the final placement)
 # ==========================================================================
@@ -262,7 +301,7 @@ class DeeBlocktoFamilyWindow(dee_branding.DeeBrandedWindow):
 
         _log("PLACE start: type='{0}' kind={1} count={2} rotation={3}".format(
             entry.type_name, entry.placement_kind, len(self._matches), apply_rotation))
-        with forms.ProgressBar(title="DeeBlocktoFamily - placing families...", indeterminate=True):
+        with _SafeProgress(title="DeeBlocktoFamily - placing families...", indeterminate=True):
             result = core.place_matches(
                 self.doc, entry, self._matches, level_entry, fallback_internal,
                 apply_rotation=apply_rotation)
@@ -356,7 +395,7 @@ def main():
         forms.alert("Could not re-read that CAD instance - try running the tool again.")
         return
 
-    with forms.ProgressBar(title="DeeBlocktoFamily - scanning CAD geometry...", indeterminate=True):
+    with _SafeProgress(title="DeeBlocktoFamily - scanning CAD geometry...", indeterminate=True):
         occurrences = core.walk_import_instance(doc, cad_element)
     _log("geometry walk done: {0} block occurrence(s)".format(len(occurrences)))
 
@@ -398,7 +437,7 @@ def main():
         forms.alert("No matching blocks found.")
         return
 
-    with forms.ProgressBar(title="DeeBlocktoFamily - scanning loaded families...", cancellable=True) as pb:
+    with _SafeProgress(title="DeeBlocktoFamily - scanning loaded families...", cancellable=True) as pb:
         def cb(i, total):
             if i % 20 == 0 or i == total - 1:
                 try:
