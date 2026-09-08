@@ -426,6 +426,45 @@ def _build_editor_rows(doc, schedule_row):
     return rows, fields, field_headers, locked_indices, "\n".join(diag_lines)
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 class DeeScheduleXLWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
@@ -519,7 +558,7 @@ class DeeScheduleXLWindow(dee_branding.DeeBrandedWindow):
 
         sheets = []
         warnings = []
-        with forms.ProgressBar(title="DeeScheduleXL — exporting...", cancellable=True) as pb:
+        with _SafeProgress(title="DeeScheduleXL — exporting...", cancellable=True) as pb:
             for i, row in enumerate(selected):
                 if pb.cancelled:
                     break
@@ -647,7 +686,7 @@ class DeeScheduleXLWindow(dee_branding.DeeBrandedWindow):
         results = []
         t = Transaction(self.doc, "DeeScheduleXL - Import from Excel")
         t.Start()
-        with forms.ProgressBar(title="DeeScheduleXL — importing...", cancellable=True) as pb:
+        with _SafeProgress(title="DeeScheduleXL — importing...", cancellable=True) as pb:
             done = 0
             total = sum(max(0, len(r.grid) - 2) for r in selected)
             for sheet_row in selected:
@@ -729,7 +768,7 @@ class DeeScheduleXLWindow(dee_branding.DeeBrandedWindow):
                         "(one row per element is required).")
             return
 
-        with forms.ProgressBar(title="DeeScheduleXL — loading editor...", cancellable=True):
+        with _SafeProgress(title="DeeScheduleXL — loading editor...", cancellable=True):
             rows, fields, field_headers, locked_indices, diag = _build_editor_rows(self.doc, row)
 
         self._editor_rows = rows
@@ -811,7 +850,7 @@ class DeeScheduleXLWindow(dee_branding.DeeBrandedWindow):
         t = Transaction(self.doc, "DeeScheduleXL - Apply Live Editor Changes")
         t.Start()
         total = len(rows)
-        with forms.ProgressBar(title="DeeScheduleXL — applying...", cancellable=True) as pb:
+        with _SafeProgress(title="DeeScheduleXL — applying...", cancellable=True) as pb:
             for i, row_obj in enumerate(rows):
                 if pb.cancelled:
                     break

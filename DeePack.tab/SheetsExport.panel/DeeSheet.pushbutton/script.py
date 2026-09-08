@@ -193,6 +193,45 @@ def _scan_all_sheets(doc):
     return rows
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 class DeeSheetWindow(dee_branding.DeeRoundedWindow):
     def __init__(self, xaml_file, doc):
         dee_branding.DeeRoundedWindow.__init__(self, xaml_file)
@@ -265,7 +304,7 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
                 continue
 
         results = []
-        with forms.ProgressBar(title="DeeSheet - creating sheets...", indeterminate=True):
+        with _SafeProgress(title="DeeSheet - creating sheets...", indeterminate=True):
             t = Transaction(self.doc, "DeeSheet - Create Sheets")
             t.Start()
             try:
@@ -387,7 +426,7 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
 
         tb_symbol = self.doc.GetElement(type_id)
         results = []
-        with forms.ProgressBar(title="DeeSheet - changing title blocks {value} of {max_value}...") as pb:
+        with _SafeProgress(title="DeeSheet - changing title blocks {value} of {max_value}...") as pb:
             t = Transaction(self.doc, "DeeSheet - Change Title Block on All Sheets")
             t.Start()
             try:
@@ -435,7 +474,7 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         existing_numbers = set(r.number for r in self._super_rows if not r.is_new and not r.marked_delete)
 
         results = []
-        with forms.ProgressBar(title="DeeSheet - applying Super Sheet changes...", indeterminate=True):
+        with _SafeProgress(title="DeeSheet - applying Super Sheet changes...", indeterminate=True):
             t = Transaction(self.doc, "DeeSheet - Apply Super Sheet Changes")
             t.Start()
             try:
@@ -516,7 +555,7 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         self._refresh_preset_list()
 
     def _scan_renamer(self):
-        with forms.ProgressBar(title="DeeSheet - scanning sheets...", indeterminate=True):
+        with _SafeProgress(title="DeeSheet - scanning sheets...", indeterminate=True):
             self._rename_rows = renamer.scan(self.doc)
             param_names = renamer.list_common_parameter_names(self._rename_rows)
         self.param_token_cb.ItemsSource = param_names
@@ -721,7 +760,7 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         # once per selected sheet - on a large project this can take a
         # few seconds, during which the window would otherwise show no
         # feedback at all and look hung. Same pattern as _scan_renamer.
-        with forms.ProgressBar(title="DeeSheet - generating preview...", indeterminate=True):
+        with _SafeProgress(title="DeeSheet - generating preview...", indeterminate=True):
             renamer.generate_preview(self._rename_rows, self.number_rule_tb.Text, self.name_rule_tb.Text,
                                       start, step, reset_key, sort_key)
             renamer.compute_statuses(self._rename_rows)
@@ -910,7 +949,7 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
                     "included.").format(len(blocked))
         if not forms.alert(msg, title="DeeSheet - Confirm", yes=True, no=True):
             return
-        with forms.ProgressBar(title="DeeSheet - applying sheet renames...", indeterminate=True):
+        with _SafeProgress(title="DeeSheet - applying sheet renames...", indeterminate=True):
             result = renamer.apply_renames(self.doc, self._rename_rows)
         renamer.print_report(result)
         renamer.compute_statuses(self._rename_rows)
