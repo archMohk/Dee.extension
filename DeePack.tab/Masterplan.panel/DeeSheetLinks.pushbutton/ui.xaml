@@ -1,0 +1,153 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeSheetLinks - Masterplan Bulk Sheets"
+        ShowInTaskbar="False"
+        MinHeight="680" MinWidth="900" Height="780" Width="960"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="status_tb" Text="Scan links, define Sheet Types, then Preview and Create."/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
+            <Button x:Name="close_b" Content="Close" Width="90" Height="30" Click="close_click"/>
+        </StackPanel>
+
+        <Border DockPanel.Dock="Top" Background="#EEF3F8" Padding="8" Margin="0,0,0,10">
+            <StackPanel>
+                <TextBlock FontWeight="Bold" Text="Bulk sheets + cropped views per placed link copy"/>
+                <TextBlock TextWrapping="Wrap" Margin="0,3,0,0"
+                           Text="For every already-placed villa link copy, creates one Sheet + one Floor Plan view PER Sheet Type you define below - the view's Crop Region set to that villa's own footprint, and the same Building Typology / Parcel ID / Developer ID parameters DeeLinkDist wrote onto the link copied onto the view too."/>
+            </StackPanel>
+        </Border>
+
+        <TabControl DockPanel.Dock="Top">
+            <TabItem Header="1. Scan Links">
+                <DockPanel Margin="8">
+                    <GroupBox DockPanel.Dock="Top" Header="Parameter names to read from each link (same names DeeLinkDist used)"
+                              Margin="0,0,0,10">
+                        <Grid Margin="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Typology parameter:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" x:Name="param_typology_tb" Height="24" Margin="4,0,10,0"
+                                     VerticalContentAlignment="Center" Text="Building Typology"/>
+                            <TextBlock Grid.Column="2" Text="Parcel ID parameter:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="3" x:Name="param_parcel_tb" Height="24" Margin="4,0,10,0"
+                                     VerticalContentAlignment="Center" Text="Parcel ID"/>
+                            <TextBlock Grid.Column="4" Text="Developer ID parameter:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="5" x:Name="param_developer_tb" Height="24" Margin="4,0,0,0"
+                                     VerticalContentAlignment="Center" Text="Developer ID"/>
+                        </Grid>
+                    </GroupBox>
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+                        <Button x:Name="scan_links_b" Content="Scan Links" Width="140" Height="28" Click="scan_links_click"/>
+                        <CheckBox x:Name="only_with_data_cb" Content="Only include links with Typology data" IsChecked="True"
+                                  VerticalAlignment="Center" Margin="16,0,0,0" Checked="only_with_data_changed"
+                                  Unchecked="only_with_data_changed"/>
+                        <TextBlock x:Name="link_status_tb" VerticalAlignment="Center" Margin="16,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+
+                    <DataGrid x:Name="links_grid" AutoGenerateColumns="False" CanUserAddRows="False" RowHeaderWidth="0">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Include" Binding="{Binding selected}" Width="60"/>
+                            <DataGridTextColumn Header="Link (file) Name" Binding="{Binding link_name}" Width="220" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Typology" Binding="{Binding typology}" Width="150" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Parcel ID" Binding="{Binding parcel_id}" Width="120" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Developer ID" Binding="{Binding developer_id}" Width="*" IsReadOnly="True"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="2. Sheet Types">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10"
+                               Text="Define the Sheet Types every villa will get one of each - a name (used in the naming tokens as {SheetType}), the Level its cropped Floor Plan view is based on, and an optional View Template to apply. Add as many as you need - there is no fixed count."/>
+                    <Button DockPanel.Dock="Top" x:Name="add_sheet_type_b" Content="Add Sheet Type" Width="150" Height="28"
+                            Click="add_sheet_type_click" Margin="0,0,0,10" HorizontalAlignment="Left"/>
+                    <TextBlock DockPanel.Dock="Top" x:Name="sheet_type_status_tb" Margin="0,0,0,8" FontStyle="Italic"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="sheet_types_panel"/>
+                    </ScrollViewer>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="3. Naming, Crop &amp; Place">
+                <DockPanel Margin="8">
+                    <GroupBox DockPanel.Dock="Top" Header="Sheet naming (token syntax: {Typology} {ParcelID} {DeveloperID} {LinkName} {SheetType} {VillaIndex} {Serial} {Alpha} - with |UPPER |LOWER |PADn |FIRSTn |LASTn |REPLACE:old:new modifiers)"
+                              Margin="0,0,0,10">
+                        <Grid Margin="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="130"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Sheet Number:" VerticalAlignment="Center" Margin="0,0,8,6"/>
+                            <TextBox Grid.Row="0" Grid.Column="1" x:Name="number_template_tb" Height="24" Margin="0,0,0,6"
+                                     VerticalContentAlignment="Center" Text="{Serial|PAD4}"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Sheet Name:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Row="1" Grid.Column="1" x:Name="name_template_tb" Height="24"
+                                     VerticalContentAlignment="Center" Text="{Typology} - {SheetType}"/>
+                        </Grid>
+                    </GroupBox>
+
+                    <GroupBox DockPanel.Dock="Top" Header="Crop and placement" Margin="0,0,0,10">
+                        <StackPanel Orientation="Horizontal" Margin="6">
+                            <TextBlock Text="Title Block:" VerticalAlignment="Center"/>
+                            <ComboBox x:Name="titleblock_cb" Width="220" Height="26" Margin="6,0,20,0"/>
+                            <TextBlock Text="Crop offset:" VerticalAlignment="Center"/>
+                            <TextBox x:Name="offset_tb" Width="70" Height="24" Margin="6,0,6,0" Text="0" VerticalContentAlignment="Center"/>
+                            <ComboBox x:Name="offset_unit_cb" Width="110" Height="26" Margin="0,0,20,0"/>
+                            <CheckBox x:Name="show_crop_cb" Content="Show crop boundary on created views" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+                        <Button x:Name="preview_b" Content="Preview" Width="120" Height="30" Click="preview_click"/>
+                        <Button x:Name="create_b" Content="Create Sheets &amp;&amp; Views" Width="180" Height="30" FontWeight="Bold"
+                                Margin="10,0,0,0" Click="create_click"/>
+                        <TextBlock x:Name="plan_status_tb" VerticalAlignment="Center" Margin="16,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+
+                    <DataGrid x:Name="plan_grid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                              RowHeaderWidth="0" MaxHeight="260" Margin="0,0,0,10">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Villa" Binding="{Binding link_name}" Width="160"/>
+                            <DataGridTextColumn Header="Typology" Binding="{Binding typology}" Width="120"/>
+                            <DataGridTextColumn Header="Sheet Type" Binding="{Binding sheet_type_name}" Width="120"/>
+                            <DataGridTextColumn Header="Sheet Number" Binding="{Binding sheet_number}" Width="120"/>
+                            <DataGridTextColumn Header="Sheet Name" Binding="{Binding sheet_name}" Width="180"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <TextBlock DockPanel.Dock="Top" Text="Build Report:" FontWeight="Bold" Margin="0,0,0,4"/>
+                    <DataGrid x:Name="report_grid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                              RowHeaderWidth="0">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Sheet Number" Binding="{Binding sheet_number}" Width="120"/>
+                            <DataGridTextColumn Header="Sheet Name" Binding="{Binding sheet_name}" Width="180"/>
+                            <DataGridTextColumn Header="Sheet Type" Binding="{Binding sheet_type_name}" Width="120"/>
+                            <DataGridTextColumn Header="Result" Binding="{Binding result}" Width="80"/>
+                            <DataGridTextColumn Header="Message" Binding="{Binding message}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>

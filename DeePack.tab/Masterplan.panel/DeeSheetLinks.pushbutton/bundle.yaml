@@ -1,4 +1,3 @@
 title: DeeSheetLinks
-tooltip: Coming soon - frozen until DeeLinkDist is finished and confirmed working live. Will be built next in the Masterplan panel.
-context:
-  rule: "(zero-doc)&!(zero-doc)"
+tooltip: Create bulk sheets and cropped views per placed link copy - one Sheet + one Floor Plan view per villa, per Sheet Type you define.
+context: zero-doc
