@@ -160,6 +160,7 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         self._templates = core.list_view_templates(self.doc)
         self._refresh_titleblocks()
         self._refresh_naming_presets()
+        self._active_naming_tb = self.name_template_tb
 
         self._ready = True
         self._guard(self._scan_links, False)
@@ -424,6 +425,21 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
             self._refresh_naming_presets()
             self.status_tb.Text = "Deleted Naming Set '{0}'.".format(name)
         self._guard(run)
+
+    # ---------------- token insert buttons ----------------
+    def naming_field_focused(self, sender, args):
+        self._active_naming_tb = sender
+
+    def insert_token_click(self, sender, args):
+        tb = getattr(self, "_active_naming_tb", None) or self.name_template_tb
+        token_text = "{" + str(sender.Tag) + "}"
+        text = tb.Text or ""
+        caret = tb.CaretIndex
+        if caret < 0 or caret > len(text):
+            caret = len(text)
+        tb.Text = text[:caret] + token_text + text[caret:]
+        tb.CaretIndex = caret + len(token_text)
+        tb.Focus()
 
     def preview_click(self, sender, args):
         def run():

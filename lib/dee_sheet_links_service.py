@@ -400,6 +400,28 @@ def _apply_modifier(value, mod):
         if upper_mod.startswith("LAST"):
             n = int(upper_mod[4:])
             return value[-n:] if n > 0 else value
+        if upper_mod.startswith("MID:"):
+            _, start, length = mod.split(":")
+            start = int(start)
+            length = int(length)
+            return value[start - 1:start - 1 + length]
+        if upper_mod.startswith("BEFORE:"):
+            delim = mod.split(":", 1)[1]
+            return value.split(delim, 1)[0] if delim and delim in value else value
+        if upper_mod.startswith("AFTER:"):
+            delim = mod.split(":", 1)[1]
+            return value.split(delim, 1)[1] if delim and delim in value else value
+        if upper_mod.startswith("BETWEEN:"):
+            _, d1, d2 = mod.split(":", 2)
+            if d1 and d1 in value:
+                after = value.split(d1, 1)[1]
+                if d2 and d2 in after:
+                    return after.split(d2, 1)[0]
+            return value
+        if upper_mod == "NUM":
+            return "".join(c for c in value if c.isdigit())
+        if upper_mod == "ALPHA":
+            return "".join(c for c in value if c.isalpha())
         if upper_mod.startswith("REPLACE:"):
             _, old, new = mod.split(":", 2)
             return value.replace(old, new)
@@ -445,9 +467,26 @@ def _resolve_token(kind, arg, mods, ctx):
         value = str(ctx["serial_value"])
     elif k == "ALPHA":
         value = _to_alpha(ctx["serial_value"])
+    elif k == "DATE":
+        value = _today_string((arg or "").strip() or "yyyyMMdd")
     else:
         return "{" + kind + (":" + arg if arg else "") + "}"
     return _apply_modifiers(value, mods)
+
+
+def _today_string(fmt):
+    """Today's date in a .NET-style format string (e.g. "yyyyMMdd"),
+    matching DeeSheet Renamer's own {Date} token so the same format
+    string means the same thing in both tools. Falls back to plain
+    Python's datetime when System (IronPython-only) is not available -
+    reached only outside a real Revit session, e.g. this module's own
+    standalone tests."""
+    try:
+        import System
+        return System.DateTime.Now.ToString(fmt)
+    except Exception:
+        import datetime
+        return datetime.datetime.now().strftime("%Y%m%d")
 
 
 def render_template(template, ctx):
