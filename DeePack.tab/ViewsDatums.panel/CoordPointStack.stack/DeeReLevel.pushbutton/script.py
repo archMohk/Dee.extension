@@ -882,8 +882,17 @@ class ProgressService(object):
         self._step_name = ""
 
     def __enter__(self):
-        self._pb = forms.ProgressBar(title=self._title_template.replace("{step}", "starting..."),
-                                      cancellable=True)
+        # forms.ProgressBar can throw NotImplementedError from
+        # Window.TaskbarItemInfo - a genuine WPF-level bug (documented to
+        # happen under Remote Desktop/Terminal Services or a shell with no
+        # taskbar), live-confirmed elsewhere in this extension. Degrade to
+        # no progress UI instead of crashing; set_step()/update()/cancelled
+        # already guard self._pb being None.
+        try:
+            self._pb = forms.ProgressBar(title=self._title_template.replace("{step}", "starting..."),
+                                          cancellable=True)
+        except Exception:
+            self._pb = None
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
