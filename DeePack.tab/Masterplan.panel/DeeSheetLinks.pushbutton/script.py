@@ -105,7 +105,7 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         self._refresh_titleblocks()
 
         self._ready = True
-        self.scan_links_click(None, None)
+        self._guard(self._scan_links, False)
 
     def _guard(self, fn, *args):
         try:
@@ -130,18 +130,33 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         }
 
     # ---------------- page 1: scan links ----------------
-    def scan_links_click(self, sender, args):
-        def run():
+    def _scan_links(self, with_progress):
+        """with_progress=False is used ONLY from __init__ - forms.
+        ProgressBar attaches itself to the host window's TaskbarItemInfo,
+        which throws NotImplementedError when the window has not been
+        shown yet (ShowDialog() has not run, so it has no HWND) - a
+        live-confirmed crash, fixed by skipping the progress bar for the
+        one scan that happens before the window is visible, matching
+        DeeLinkDist's own _refresh_link_types (called plain from its own
+        __init__, only wrapped in ProgressBar from button clicks that
+        run after the window is already shown)."""
+        def do_scan():
+            self._link_rows = core.list_link_instances(self.doc, self._selected_param_names())
+        if with_progress:
             with forms.ProgressBar(title="DeeSheetLinks - scanning links...", indeterminate=True):
-                self._link_rows = core.list_link_instances(self.doc, self._selected_param_names())
-            self._apply_default_selection()
-            self.links_grid.ItemsSource = None
-            self.links_grid.ItemsSource = self._link_rows
-            with_data = sum(1 for r in self._link_rows if r.has_typology)
-            self.link_status_tb.Text = "{0} link(s) found, {1} with Typology data.".format(
-                len(self._link_rows), with_data)
-            self.status_tb.Text = self.link_status_tb.Text
-        self._guard(run)
+                do_scan()
+        else:
+            do_scan()
+        self._apply_default_selection()
+        self.links_grid.ItemsSource = None
+        self.links_grid.ItemsSource = self._link_rows
+        with_data = sum(1 for r in self._link_rows if r.has_typology)
+        self.link_status_tb.Text = "{0} link(s) found, {1} with Typology data.".format(
+            len(self._link_rows), with_data)
+        self.status_tb.Text = self.link_status_tb.Text
+
+    def scan_links_click(self, sender, args):
+        self._guard(self._scan_links, True)
 
     def _apply_default_selection(self):
         only_with_data = bool(self.only_with_data_cb.IsChecked)
