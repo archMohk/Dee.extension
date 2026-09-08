@@ -301,10 +301,12 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         row2.Children.Add(template_cb)
 
         include_view_cb = CheckBox()
-        include_view_cb.Content = "Include a cropped View"
+        include_view_cb.Content = "Create a View (uncheck for sheet only, no view)"
         include_view_cb.IsChecked = sheet_type.include_view
         include_view_cb.VerticalAlignment = VerticalAlignment.Center
         include_view_cb.Margin = Thickness(24, 0, 0, 0)
+        include_view_cb.ToolTip = ("Unchecked: this Sheet Type creates a plain Sheet only - "
+                                   "no cropped view, no crop, no view parameters at all.")
         row2.Children.Add(include_view_cb)
 
         scale_label = TextBlock()
