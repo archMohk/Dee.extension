@@ -19,6 +19,45 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 class DeeRoomStampWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc, uidoc):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
@@ -29,10 +68,10 @@ class DeeRoomStampWindow(dee_branding.DeeBrandedWindow):
         self._cached_elements = []
         self._room_index = None
 
-        with forms.ProgressBar(title="DeeRoomStamp - scanning project elements...", cancellable=True) as pb:
+        with _SafeProgress(title="DeeRoomStamp - scanning project elements...", cancellable=True) as pb:
             self._param_universe, self._cached_elements = core.collect_string_param_universe_and_elements(
                 self.doc, self._progress_cb(pb))
-        with forms.ProgressBar(title="DeeRoomStamp - indexing rooms...", indeterminate=True):
+        with _SafeProgress(title="DeeRoomStamp - indexing rooms...", indeterminate=True):
             self._room_index = core.build_room_index(self.doc)
 
         self.param_suggestions_lb.ItemsSource = self._param_universe
@@ -70,7 +109,7 @@ class DeeRoomStampWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Type or pick a parameter name first.")
             return
 
-        with forms.ProgressBar(title="DeeRoomStamp - matching elements to rooms...", cancellable=True) as pb:
+        with _SafeProgress(title="DeeRoomStamp - matching elements to rooms...", cancellable=True) as pb:
             self._rows = core.scan_for_parameter(
                 param_name, self._cached_elements, self._room_index, self._progress_cb(pb))
 
@@ -104,7 +143,7 @@ class DeeRoomStampWindow(dee_branding.DeeBrandedWindow):
                 title="DeeRoomStamp - Confirm", yes=True, no=True):
             return
 
-        with forms.ProgressBar(title="DeeRoomStamp - applying...", indeterminate=True):
+        with _SafeProgress(title="DeeRoomStamp - applying...", indeterminate=True):
             result = core.apply_rows(self.doc, selected, param_name)
             view_name = None
             view_error = None

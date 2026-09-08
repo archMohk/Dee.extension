@@ -550,6 +550,45 @@ class RoomRow(object):
         self.status_text = "Pending"
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 # --------------------------------------------------------------------------
 # Window
 # --------------------------------------------------------------------------
@@ -610,7 +649,7 @@ class DeeFinisherWindow(dee_branding.DeeBrandedWindow):
         active_view_only = bool(self.scan_active_rb.IsChecked)
         view = self.doc.ActiveView if active_view_only else None
         try:
-            with forms.ProgressBar(title="DeeFinisher - scanning rooms...", indeterminate=True):
+            with _SafeProgress(title="DeeFinisher - scanning rooms...", indeterminate=True):
                 rooms = _collect_rooms(self.doc, active_view_only, view)
         except Exception as e:
             forms.alert("Could not scan rooms: {0}".format(e))
@@ -807,7 +846,7 @@ class DeeFinisherWindow(dee_branding.DeeBrandedWindow):
         self._refresh_preview()
 
     def _refresh_preview(self):
-        with forms.ProgressBar(title="DeeFinisher - refreshing preview...", indeterminate=True):
+        with _SafeProgress(title="DeeFinisher - refreshing preview...", indeterminate=True):
             rows = self._get_selected_rows()
             total_rooms = len(rows)
             floors_to_create = sum(1 for r in rows if r.floor_type_name != "(None)")
@@ -881,7 +920,7 @@ class DeeFinisherWindow(dee_branding.DeeBrandedWindow):
 
         results = []
         total = len(rows)
-        with forms.ProgressBar(title="DeeFinisher — generating finishes...", cancellable=True) as pb:
+        with _SafeProgress(title="DeeFinisher — generating finishes...", cancellable=True) as pb:
             t = Transaction(self.doc, "DeeFinisher - Generate Room Finishes")
             t.Start()
             try:
@@ -1125,7 +1164,7 @@ class DeeFinisherWindow(dee_branding.DeeBrandedWindow):
         if dlg.ShowDialog() != DialogResult.OK:
             return
         try:
-            with forms.ProgressBar(title="DeeFinisher - exporting CSV...", indeterminate=True):
+            with _SafeProgress(title="DeeFinisher - exporting CSV...", indeterminate=True):
                 with open(dlg.FileName, "wb") as f:
                     writer = csv.writer(f)
                     writer.writerow(["Room Number", "Room Name", "Level", "Area",

@@ -418,12 +418,51 @@ def _local_path_factory(model, make_local):
     return factory
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 def _open_from_local():
     paths = _pick_local_paths()
     if not paths:
         return
 
-    with forms.ProgressBar(title="DeeOpener - reading model headers...",
+    with _SafeProgress(title="DeeOpener - reading model headers...",
                            cancellable=True) as pb:
         models = []
         for i, path in enumerate(paths):
@@ -534,7 +573,7 @@ def _open_and_report(targets, close_worksets, detach=None, extra_results=None):
 
     results = list(extra_results or [])
     try:
-        with forms.ProgressBar(title="DeeOpener - opening {value} of {max_value}...",
+        with _SafeProgress(title="DeeOpener - opening {value} of {max_value}...",
                                cancellable=False) as pb:
             for i, target in enumerate(targets):
                 label = target.label
@@ -641,7 +680,7 @@ def _open_from_acc():
                 key = "{0}  [{1}]".format(iname, iid.split(":")[-1][:8])
             all_items[key] = iid
 
-        with forms.ProgressBar(title="Finding all cloud models...",
+        with _SafeProgress(title="Finding all cloud models...",
                                cancellable=True, indeterminate=True) as pb:
 
             # Step 1 – v2 search: native C4RModel items (belong to this project)

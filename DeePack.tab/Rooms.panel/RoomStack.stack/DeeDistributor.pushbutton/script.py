@@ -1502,6 +1502,45 @@ def _save_user_presets(data):
     _save_json(_USER_PRESETS_FILE, data)
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 # --------------------------------------------------------------------------
 # Window
 # --------------------------------------------------------------------------
@@ -1579,7 +1618,7 @@ class DeeDistributorWindow(dee_branding.DeeBrandedWindow):
         total = len(symbols)
         type_index = {}
         family_index = {}
-        with forms.ProgressBar(title="DeeDistributor — scanning loaded families...",
+        with _SafeProgress(title="DeeDistributor — scanning loaded families...",
                                 cancellable=True) as pb:
             for i, fs in enumerate(symbols):
                 if pb.cancelled:
@@ -1641,7 +1680,7 @@ class DeeDistributorWindow(dee_branding.DeeBrandedWindow):
         mode = self._current_source_mode()
         view = self.doc.ActiveView
         try:
-            with forms.ProgressBar(title="DeeDistributor - scanning rooms/spaces...", indeterminate=True):
+            with _SafeProgress(title="DeeDistributor - scanning rooms/spaces...", indeterminate=True):
                 rows = _collect_spatial_elements(self.doc, mode, self.uidoc, view)
         except Exception as e:
             forms.alert("Could not scan rooms/spaces: {0}".format(e))
@@ -2299,7 +2338,7 @@ class DeeDistributorWindow(dee_branding.DeeBrandedWindow):
         warnings = list(footprint_warnings)
         staged = []
         total_pairs = len(rows) * len(enabled_families)
-        with forms.ProgressBar(title="DeeDistributor — computing preview...", cancellable=True) as pb:
+        with _SafeProgress(title="DeeDistributor — computing preview...", cancellable=True) as pb:
             i = 0
             for row in rows:
                 for fc in enabled_families:
@@ -2564,7 +2603,7 @@ class DeeDistributorWindow(dee_branding.DeeBrandedWindow):
 
         results = []
         total = len(self._staged_placements)
-        with forms.ProgressBar(title="DeeDistributor — generating instances...", cancellable=True) as pb:
+        with _SafeProgress(title="DeeDistributor — generating instances...", cancellable=True) as pb:
             t = Transaction(self.doc, "DeeDistributor - Generate Family Instances")
             t.Start()
             try:
@@ -2764,7 +2803,7 @@ class DeeDistributorWindow(dee_branding.DeeBrandedWindow):
         if dlg.ShowDialog() != DialogResult.OK:
             return
         try:
-            with forms.ProgressBar(title="DeeDistributor - exporting CSV...", indeterminate=True):
+            with _SafeProgress(title="DeeDistributor - exporting CSV...", indeterminate=True):
                 with open(dlg.FileName, "wb") as f:
                     writer = csv.writer(f)
                     writer.writerow(["Kind", "Number", "Name", "Level", "Area",
