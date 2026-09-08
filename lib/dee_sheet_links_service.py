@@ -319,6 +319,38 @@ def list_floor_plan_view_family_types(doc):
     return out
 
 
+def duplicate_view_family_type(doc, source_id, new_name):
+    """Duplicates an existing FloorPlan ViewFamilyType under a new name
+    the user types, via the documented ElementType.Duplicate(name)
+    (confirmed via WebSearch - takes the new name, returns the new
+    ElementType, cast back to ViewFamilyType) - lets a Sheet Type get
+    its OWN view type (e.g. to carry different default view settings)
+    without leaving this window. Returns (new_id_or_None, detail). Its
+    own Transaction, since this needs to exist and be selectable
+    immediately, not deferred to the batch Create Transaction."""
+    new_name = (new_name or "").strip()
+    if not new_name:
+        return None, "type a name for the new View Type first"
+    source = doc.GetElement(source_id)
+    if source is None:
+        return None, "the source View Type no longer exists"
+    t = Transaction(doc, "DeeSheetLinks - Duplicate View Type")
+    try:
+        t.Start()
+        new_type = source.Duplicate(new_name)
+        t.Commit()
+    except Exception as e:
+        try:
+            if t.HasStarted() and not t.HasEnded():
+                t.RollBack()
+        except Exception:
+            pass
+        return None, "{0}".format(e)
+    if new_type is None:
+        return None, "Revit refused to duplicate this View Type"
+    return new_type.Id, ""
+
+
 def existing_view_names(doc):
     """Every non-template View Name already in the project - a freshly-
     generated View Name must avoid these too (Revit requires View names

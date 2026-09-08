@@ -12,6 +12,13 @@
             </StatusBarItem>
         </StatusBar>
 
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,0,0,6"
+                    x:Name="progress_row" Visibility="Collapsed">
+            <ProgressBar x:Name="progress_bar" Width="760" Height="18" Minimum="0" Maximum="100"/>
+            <Button x:Name="cancel_b" Content="Cancel" Width="70" Height="22" Margin="8,0,0,0"
+                    Click="cancel_click"/>
+        </StackPanel>
+
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
             <Button x:Name="close_b" Content="Close" Width="90" Height="30" Click="close_click"/>
         </StackPanel>

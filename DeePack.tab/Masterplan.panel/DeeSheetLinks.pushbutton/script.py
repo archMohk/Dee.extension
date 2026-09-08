@@ -35,10 +35,13 @@ import traceback
 import clr
 clr.AddReference("PresentationFramework")
 clr.AddReference("PresentationCore")
-from System.Windows import Thickness, VerticalAlignment, FontStyles
+clr.AddReference("WindowsBase")
+import System
+from System.Windows import Thickness, VerticalAlignment, FontStyles, Visibility
 from System.Windows.Controls import (
     StackPanel, TextBlock, TextBox, ComboBox, Button, CheckBox, Orientation,
 )
+from System.Windows.Threading import DispatcherPriority
 
 from pyrevit import forms, script
 
@@ -83,45 +86,70 @@ def _safe_range_value(text):
         return None
 
 
-class _SafeProgress(object):
-    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
-    window - a genuine WPF-level bug (not this extension's code):
-    Window.TaskbarItemInfo throws NotImplementedException whenever the
-    underlying ITaskbarList::HrInit COM call fails, which is documented
-    to happen specifically under Remote Desktop/Terminal Services or a
-    custom shell without a taskbar - live-confirmed on this exact error
-    from TWO different DeeSheetLinks actions (the initial scan, then
-    Preview), so this is an environment condition, not a one-off.
+class _InlineProgress(object):
+    """A progress bar EMBEDDED in this window's own layout, never a
+    second window/dialog - forms.ProgressBar (pyRevit's own) tries to
+    set Window.TaskbarItemInfo on its host, which throws
+    NotImplementedException under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed on this exact error
+    from two different DeeSheetLinks actions earlier), so it showed NO
+    progress feedback at all in that environment - not a crash any
+    more (that was already fixed), just silently nothing to look at.
+    This sidesteps the whole problem: it is a plain <ProgressBar>
+    control already living in ui.xaml, updated directly, so it never
+    touches TaskbarItemInfo or opens anything new.
 
-    Wraps the real forms.ProgressBar and falls back to running with NO
-    progress UI at all if entering it fails, so the tool degrades
-    gracefully under RDP instead of crashing - everyone else still gets
-    the real progress bar exactly as before. `pb.update_progress(...)`/
-    `pb.cancelled` are safe no-ops in the fallback case, so callers never
-    need an extra branch."""
-    def __init__(self, **kwargs):
-        self._kwargs = kwargs
-        self._real = None
+    WPF does not repaint mid-loop on its own - a long synchronous
+    Python loop blocks the same thread WPF would use to redraw, so
+    every update() call pumps the Dispatcher's Background-priority
+    queue (the same mechanism forms.ProgressBar itself relies on
+    internally) to force the bar/text to actually appear before the
+    loop continues."""
+    def __init__(self, window, cancellable=False):
+        self._window = window
+        self._cancellable = cancellable
+
+    def start(self, status, indeterminate=True, maximum=100):
+        w = self._window
+        w.progress_bar.IsIndeterminate = indeterminate
+        w.progress_bar.Minimum = 0
+        w.progress_bar.Maximum = maximum if maximum > 0 else 1
+        w.progress_bar.Value = 0
+        w.cancel_b.Visibility = Visibility.Visible if self._cancellable else Visibility.Collapsed
+        w.progress_row.Visibility = Visibility.Visible
+        w._cancel_requested = False
+        w.status_tb.Text = status
+        self._pump()
+
+    def update(self, value, status=None):
+        w = self._window
+        try:
+            w.progress_bar.Value = value
+        except Exception:
+            pass
+        if status is not None:
+            w.status_tb.Text = status
+        self._pump()
+        return self._cancellable and w._cancel_requested
+
+    def stop(self):
+        w = self._window
+        w.progress_row.Visibility = Visibility.Collapsed
+        self._pump()
+
+    def _pump(self):
+        try:
+            self._window.Dispatcher.Invoke(
+                System.Action(lambda: None), DispatcherPriority.Background)
+        except Exception:
+            pass
 
     def __enter__(self):
-        try:
-            self._real = forms.ProgressBar(**self._kwargs)
-            return self._real.__enter__()
-        except Exception:
-            self._real = None
-            return self
+        return self
 
     def __exit__(self, exc_type, exc_value, tb):
-        if self._real is not None:
-            return self._real.__exit__(exc_type, exc_value, tb)
+        self.stop()
         return False
-
-    @property
-    def cancelled(self):
-        return False
-
-    def update_progress(self, i, total):
-        pass
 
 
 class BuildReportRow(object):
@@ -170,6 +198,7 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         self._levels = []
         self._templates = []
         self._view_family_types = []
+        self._cancel_requested = False
 
         for label, _unit_type_id in core.UNIT_OPTIONS:
             self.offset_unit_cb.Items.Add(label)
@@ -184,7 +213,7 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         self._active_naming_tb = self.name_template_tb
 
         self._ready = True
-        self._guard(self._scan_links, False)
+        self._guard(self._scan_links)
 
     def _guard(self, fn, *args):
         try:
@@ -209,23 +238,16 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         }
 
     # ---------------- page 1: scan links ----------------
-    def _scan_links(self, with_progress):
-        """with_progress=False is used ONLY from __init__ - forms.
-        ProgressBar attaches itself to the host window's TaskbarItemInfo,
-        which throws NotImplementedError when the window has not been
-        shown yet (ShowDialog() has not run, so it has no HWND) - a
-        live-confirmed crash, fixed by skipping the progress bar for the
-        one scan that happens before the window is visible, matching
-        DeeLinkDist's own _refresh_link_types (called plain from its own
-        __init__, only wrapped in ProgressBar from button clicks that
-        run after the window is already shown)."""
-        def do_scan():
+    def _scan_links(self):
+        """_InlineProgress is a plain control on THIS window's own
+        already-constructed layout (not a second window), so - unlike
+        the old forms.ProgressBar-based approach - it is safe to use
+        even from __init__, before ShowDialog() has actually shown the
+        window."""
+        progress = _InlineProgress(self)
+        with progress:
+            progress.start("Scanning links...")
             self._link_rows = core.list_link_instances(self.doc, self._selected_param_names())
-        if with_progress:
-            with _SafeProgress(title="DeeSheetLinks - scanning links...", indeterminate=True):
-                do_scan()
-        else:
-            do_scan()
         self._apply_default_selection()
         self.links_grid.ItemsSource = None
         self.links_grid.ItemsSource = self._link_rows
@@ -235,7 +257,7 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         self.status_tb.Text = self.link_status_tb.Text
 
     def scan_links_click(self, sender, args):
-        self._guard(self._scan_links, True)
+        self._guard(self._scan_links)
 
     def _apply_default_selection(self):
         only_with_data = bool(self.only_with_data_cb.IsChecked)
@@ -335,11 +357,36 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         view_family_cb.SelectedIndex = 0
         row2.Children.Add(view_family_cb)
 
+        new_type_label = TextBlock()
+        new_type_label.Text = "  New type name:"
+        new_type_label.VerticalAlignment = VerticalAlignment.Center
+        row2.Children.Add(new_type_label)
+
+        new_type_name_tb = TextBox()
+        new_type_name_tb.Width = 130
+        new_type_name_tb.Height = 24
+        new_type_name_tb.Margin = Thickness(4, 0, 0, 0)
+        new_type_name_tb.VerticalContentAlignment = VerticalAlignment.Center
+        new_type_name_tb.ToolTip = "Type a name, then click Duplicate - creates a NEW View Type " \
+                                   "from a copy of whatever is picked above and selects it here."
+        row2.Children.Add(new_type_name_tb)
+
+        new_type_b = Button()
+        new_type_b.Content = "Duplicate"
+        new_type_b.Width = 80
+        new_type_b.Height = 24
+        new_type_b.Margin = Thickness(4, 0, 0, 0)
+        row2.Children.Add(new_type_b)
+
+        row2b = StackPanel()
+        row2b.Orientation = Orientation.Horizontal
+        row2b.Margin = Thickness(0, 4, 0, 0)
+
         template_label = TextBlock()
-        template_label.Text = "  View Template:"
+        template_label.Text = "View Template:"
         template_label.Width = 100
         template_label.VerticalAlignment = VerticalAlignment.Center
-        row2.Children.Add(template_label)
+        row2b.Children.Add(template_label)
 
         template_cb = ComboBox()
         template_cb.Width = 180
@@ -347,7 +394,7 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         for name in self._template_names():
             template_cb.Items.Add(name)
         template_cb.SelectedIndex = 0
-        row2.Children.Add(template_cb)
+        row2b.Children.Add(template_cb)
 
         include_view_cb = CheckBox()
         include_view_cb.Content = "Create a View (uncheck for sheet only, no view)"
@@ -356,13 +403,13 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         include_view_cb.Margin = Thickness(24, 0, 0, 0)
         include_view_cb.ToolTip = ("Unchecked: this Sheet Type creates a plain Sheet only - "
                                    "no cropped view, no crop, no view parameters at all.")
-        row2.Children.Add(include_view_cb)
+        row2b.Children.Add(include_view_cb)
 
         scale_label = TextBlock()
         scale_label.Text = "  Scale 1:"
         scale_label.VerticalAlignment = VerticalAlignment.Center
         scale_label.Margin = Thickness(24, 0, 0, 0)
-        row2.Children.Add(scale_label)
+        row2b.Children.Add(scale_label)
 
         scale_tb = TextBox()
         scale_tb.Width = 60
@@ -371,7 +418,7 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         scale_tb.VerticalContentAlignment = VerticalAlignment.Center
         scale_tb.Text = str(sheet_type.fixed_scale) if sheet_type.fixed_scale else ""
         scale_tb.ToolTip = "Blank = auto-fit the view to the sheet"
-        row2.Children.Add(scale_tb)
+        row2b.Children.Add(scale_tb)
 
         row3 = StackPanel()
         row3.Orientation = Orientation.Horizontal
@@ -413,12 +460,14 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
 
         outer.Children.Add(row1)
         outer.Children.Add(row2)
+        outer.Children.Add(row2b)
         outer.Children.Add(row3)
 
         ui_row = SheetTypeUIRow(sheet_type, outer, name_tb, level_cb, template_cb,
                                 include_view_cb, scale_tb, view_family_cb,
                                 range_top_tb, range_cut_tb, range_bottom_tb, range_depth_tb)
         remove_b.Click += self._make_remove_handler(ui_row)
+        new_type_b.Click += self._make_duplicate_view_type_handler(ui_row, new_type_name_tb)
 
         self._sheet_type_rows.append(ui_row)
         self.sheet_types_panel.Children.Add(outer)
@@ -428,6 +477,47 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
             self.sheet_types_panel.Children.Remove(ui_row.panel)
             self._sheet_type_rows.remove(ui_row)
             self._update_sheet_type_status()
+        return handler
+
+    def _make_duplicate_view_type_handler(self, ui_row, new_type_name_tb):
+        def handler(sender, args):
+            def run():
+                source_i = ui_row.view_family_cb.SelectedIndex
+                if not (0 <= source_i < len(self._view_family_types)):
+                    forms.alert("Pick a View Type to duplicate from first.", title=_TOOL)
+                    return
+                source_id = self._view_family_types[source_i][0]
+                new_name = (new_type_name_tb.Text or "").strip()
+                new_id, detail = core.duplicate_view_family_type(self.doc, source_id, new_name)
+                if new_id is None:
+                    forms.alert("Could not duplicate the View Type: {0}".format(detail), title=_TOOL)
+                    return
+                # every OTHER row's ComboBox is about to be cleared and
+                # rebuilt too (the new type must appear everywhere, not
+                # just on the row that created it) - capture each row's
+                # currently-selected ElementId first so it can be
+                # re-selected by id afterwards, since Items.Clear()
+                # resets SelectedIndex to -1.
+                previous_ids = {}
+                old_types = list(self._view_family_types)
+                for row in self._sheet_type_rows:
+                    i = row.view_family_cb.SelectedIndex
+                    previous_ids[row] = old_types[i][0] if 0 <= i < len(old_types) else None
+
+                self._view_family_types.append((new_id, new_name))
+                self._view_family_types.sort(key=lambda t: t[1].lower())
+                names = self._view_family_type_names()
+                for row in self._sheet_type_rows:
+                    row.view_family_cb.Items.Clear()
+                    for name in names:
+                        row.view_family_cb.Items.Add(name)
+                    target_id = new_id if row is ui_row else previous_ids.get(row)
+                    match = [i for i, (eid, _n) in enumerate(self._view_family_types)
+                             if eid == target_id]
+                    row.view_family_cb.SelectedIndex = match[0] if match else 0
+                new_type_name_tb.Text = ""
+                self.status_tb.Text = "Duplicated View Type '{0}'.".format(new_name)
+            self._guard(run)
         return handler
 
     def _update_sheet_type_status(self):
@@ -558,7 +648,9 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
             view_name_template = (self.view_name_template_tb.Text or "").strip() or core.DEFAULT_VIEW_NAME_TEMPLATE
             existing_numbers = core.existing_sheet_numbers(self.doc)
             existing_view_names = core.existing_view_names(self.doc)
-            with _SafeProgress(title="DeeSheetLinks - building preview...", indeterminate=True):
+            progress = _InlineProgress(self)
+            with progress:
+                progress.start("Building preview...")
                 self._plan = core.build_plan(selected_links, sheet_types, number_template,
                                              name_template, existing_numbers,
                                              view_name_template, existing_view_names)
@@ -605,10 +697,13 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
                 return
 
             offset_display = _safe_float(self.offset_tb.Text, 0.0)
-            with _SafeProgress(title="DeeSheetLinks - creating sheets...", cancellable=True) as pb:
+            progress = _InlineProgress(self, cancellable=True)
+            with progress:
+                progress.start("Creating sheets...", indeterminate=False, maximum=len(ready))
+
                 def progress_cb(i, total, row):
-                    pb.update_progress(i, total)
-                    return pb.cancelled
+                    return progress.update(i, "Creating {0}/{1}: {2}".format(
+                        i + 1, total, row.sheet_number))
                 result = core.create_sheets_and_views(
                     self.doc, ready, vft_id, titleblock_id,
                     offset_display=offset_display, unit_label=self._selected_offset_unit(),
@@ -653,6 +748,9 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
                     r.sheet_number, r.sheet_type_name, r.message)
             html += "</div>"
         output.print_html(html)
+
+    def cancel_click(self, sender, args):
+        self._cancel_requested = True
 
     def close_click(self, sender, args):
         self.Close()
