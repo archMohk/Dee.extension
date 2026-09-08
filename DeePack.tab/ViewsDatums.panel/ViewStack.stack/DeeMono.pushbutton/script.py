@@ -280,6 +280,45 @@ def _contrast_text_color(rgb):
     return black
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 class DeeMonoWindow(dee_branding.DeeBrandedWindow):
     # Exists before the base class loads the XAML, which fires
     # SelectionChanged on the combo boxes during InitializeComponent -
@@ -1116,7 +1155,7 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
                 return
             self._save_settings()
 
-            with forms.ProgressBar(title="DeeMono - applying theme to '{0}'...".format(
+            with _SafeProgress(title="DeeMono - applying theme to '{0}'...".format(
                     core.view_label(view)), indeterminate=True):
                 result = core.apply_theme(
                     self.doc, view, self.base_rgb, preset_name=self.preset_name,
@@ -1134,7 +1173,7 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             if self.save_template_cb.IsChecked is True and result.applied > 0:
                 template_name = (self.template_name_tb.Text or "").strip() \
                     or self._default_template_name()
-                with forms.ProgressBar(title="DeeMono - creating view template...",
+                with _SafeProgress(title="DeeMono - creating view template...",
                                        indeterminate=True):
                     template_view, template_error = core.create_view_template(
                         self.doc, view, name=template_name)
@@ -1166,7 +1205,7 @@ class DeeMonoWindow(dee_branding.DeeBrandedWindow):
             view = self._selected_view()
             if view is None:
                 return
-            with forms.ProgressBar(title="DeeMono - restoring original graphics...",
+            with _SafeProgress(title="DeeMono - restoring original graphics...",
                                    indeterminate=True):
                 result = core.restore_theme(self.doc, view)
             self._report(view, result, "Restore")

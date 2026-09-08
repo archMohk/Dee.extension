@@ -484,6 +484,45 @@ class LinkRow(object):
         self.own_survey_text = _format_point_text(doc, own_survey_pos)
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 # --------------------------------------------------------------------------
 # Window
 # --------------------------------------------------------------------------
@@ -554,7 +593,7 @@ class DeeCordiPointWindow(dee_branding.DeeBrandedWindow):
         pbp = _get_project_base_point(self.doc)
         sp = _get_survey_point(self.doc)
         io = _get_internal_origin(self.doc)
-        with forms.ProgressBar(title="DeeCordiPoint - building coordinates view...", indeterminate=True):
+        with _SafeProgress(title="DeeCordiPoint - building coordinates view...", indeterminate=True):
             t = Transaction(self.doc, "DeeCordiPoint - Build Coordinates View")
             t.Start()
             try:
@@ -664,7 +703,7 @@ class DeeCordiPointWindow(dee_branding.DeeBrandedWindow):
         self._refresh_points()
 
     def scan_links_click(self, sender, args):
-        with forms.ProgressBar(title="DeeCordiPoint - scanning linked models...", indeterminate=True):
+        with _SafeProgress(title="DeeCordiPoint - scanning linked models...", indeterminate=True):
             rows = _scan_link_points(self.doc)
         self._links = rows
         self.links_grid.ItemsSource = None

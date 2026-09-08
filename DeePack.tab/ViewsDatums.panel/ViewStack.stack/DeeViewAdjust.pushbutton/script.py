@@ -783,6 +783,45 @@ def print_report(action_title, room_labels, offset_display, unit_abbr, action_re
     output.print_html("".join(html))
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 # ==========================================================================
 # Window - UI wiring only; all real work happens in the plain functions
 # above (same separation as this extension's other geometry-heavy tools)
@@ -796,7 +835,7 @@ class DeeViewAdjustWindow(dee_branding.DeeBrandedWindow):
         self.view = view
         self._rows = []
 
-        with forms.ProgressBar(title="DeeViewAdjust - scanning rooms...", indeterminate=True):
+        with _SafeProgress(title="DeeViewAdjust - scanning rooms...", indeterminate=True):
             self._rows = scan_rooms(self.doc)
         self.rooms_grid.ItemsSource = self._rows
         self.offset_unit_tb.Text = _unit_abbreviation(self.doc)
@@ -836,7 +875,7 @@ class DeeViewAdjustWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Check at least one room first.")
             return
         ids = List[ElementId]([r.id for r in selected])
-        with forms.ProgressBar(title="DeeViewAdjust - showing room(s) in view...", indeterminate=True):
+        with _SafeProgress(title="DeeViewAdjust - showing room(s) in view...", indeterminate=True):
             self.uidoc.Selection.SetElementIds(ids)
             try:
                 self.uidoc.ShowElements(ids)
@@ -868,7 +907,7 @@ class DeeViewAdjustWindow(dee_branding.DeeBrandedWindow):
         room_labels = ["{0} - {1}".format(r.number, r.name) for r in selected]
         start = time.time()
 
-        with forms.ProgressBar(title="DeeViewAdjust - building crop shape...", indeterminate=True):
+        with _SafeProgress(title="DeeViewAdjust - building crop shape...", indeterminate=True):
             build_result = build_combined_crop_loop(
                 selected, offset_internal, _short_curve_tolerance(self.doc) * 2.0)
 
@@ -898,7 +937,7 @@ class DeeViewAdjustWindow(dee_branding.DeeBrandedWindow):
             return
 
         action_result = ActionResult()
-        with forms.ProgressBar(title="DeeViewAdjust - applying crop...", indeterminate=True):
+        with _SafeProgress(title="DeeViewAdjust - applying crop...", indeterminate=True):
             t = Transaction(self.doc, "DeeViewAdjust - Apply Crop")
             t.Start()
             try:
@@ -926,7 +965,7 @@ class DeeViewAdjustWindow(dee_branding.DeeBrandedWindow):
                 title="DeeViewAdjust - Confirm", yes=True, no=True):
             return
         start = time.time()
-        with forms.ProgressBar(title="DeeViewAdjust - resetting crop...", indeterminate=True):
+        with _SafeProgress(title="DeeViewAdjust - resetting crop...", indeterminate=True):
             t = Transaction(self.doc, "DeeViewAdjust - Reset Crop")
             t.Start()
             try:
