@@ -58,6 +58,47 @@ def _safe_float(text, default=0.0):
         return default
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar - live-confirmed on this exact error
+    from TWO different DeeSheetLinks actions (the initial scan, then
+    Preview), so this is an environment condition, not a one-off.
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 class BuildReportRow(object):
     """Flat view-model for report_grid - a plain object with top-level
     attributes, the proven DataGrid-binding shape already used
@@ -143,7 +184,7 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         def do_scan():
             self._link_rows = core.list_link_instances(self.doc, self._selected_param_names())
         if with_progress:
-            with forms.ProgressBar(title="DeeSheetLinks - scanning links...", indeterminate=True):
+            with _SafeProgress(title="DeeSheetLinks - scanning links...", indeterminate=True):
                 do_scan()
         else:
             do_scan()
@@ -293,7 +334,7 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
             number_template = (self.number_template_tb.Text or "").strip() or core.DEFAULT_NUMBER_TEMPLATE
             name_template = (self.name_template_tb.Text or "").strip() or core.DEFAULT_NAME_TEMPLATE
             existing = core.existing_sheet_numbers(self.doc)
-            with forms.ProgressBar(title="DeeSheetLinks - building preview...", indeterminate=True):
+            with _SafeProgress(title="DeeSheetLinks - building preview...", indeterminate=True):
                 self._plan = core.build_plan(selected_links, sheet_types, number_template,
                                              name_template, existing)
             self.plan_grid.ItemsSource = None
@@ -333,7 +374,7 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
                 return
 
             offset_display = _safe_float(self.offset_tb.Text, 0.0)
-            with forms.ProgressBar(title="DeeSheetLinks - creating sheets...", cancellable=True) as pb:
+            with _SafeProgress(title="DeeSheetLinks - creating sheets...", cancellable=True) as pb:
                 def progress_cb(i, total, row):
                     pb.update_progress(i, total)
                     return pb.cancelled
