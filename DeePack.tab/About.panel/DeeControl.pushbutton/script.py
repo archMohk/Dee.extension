@@ -46,6 +46,45 @@ def matches(node, query):
     return all(term in haystack for term in query.lower().split())
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 class DeeControlWindow(dee_branding.DeeBrandedWindow):
     # Must exist BEFORE the base class loads the XAML - loading it fires
     # search_changed, at which point no instance attribute exists yet.
@@ -54,7 +93,7 @@ class DeeControlWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
 
-        with forms.ProgressBar(title="DeeControl - reading the ribbon...",
+        with _SafeProgress(title="DeeControl - reading the ribbon...",
                                indeterminate=True):
             self.root = core.scan(_TAB_ROOT)
             self.nodes = core.flatten(self.root)
@@ -200,7 +239,7 @@ class DeeControlWindow(dee_branding.DeeBrandedWindow):
             return
 
         try:
-            with forms.ProgressBar(title="DeeControl - writing bundle files...",
+            with _SafeProgress(title="DeeControl - writing bundle files...",
                                    indeterminate=True):
                 results = core.apply_state(self.root)
                 core.save_state(_CONFIG_PATH, self.root, self.nodes)

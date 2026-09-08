@@ -66,6 +66,45 @@ def format_duration(seconds):
     return "{0}m {1:02d}s".format(seconds // 60, seconds % 60)
 
 
+class _SafeProgress(object):
+    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
+    window - a genuine WPF-level bug (not this extension's code):
+    Window.TaskbarItemInfo throws NotImplementedException whenever the
+    underlying ITaskbarList::HrInit COM call fails, which is documented
+    to happen specifically under Remote Desktop/Terminal Services or a
+    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+
+    Wraps the real forms.ProgressBar and falls back to running with NO
+    progress UI at all if entering it fails, so the tool degrades
+    gracefully under RDP instead of crashing - everyone else still gets
+    the real progress bar exactly as before. `pb.update_progress(...)`/
+    `pb.cancelled` are safe no-ops in the fallback case, so callers never
+    need an extra branch."""
+    def __init__(self, **kwargs):
+        self._kwargs = kwargs
+        self._real = None
+
+    def __enter__(self):
+        try:
+            self._real = forms.ProgressBar(**self._kwargs)
+            return self._real.__enter__()
+        except Exception:
+            self._real = None
+            return self
+
+    def __exit__(self, exc_type, exc_value, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc_value, tb)
+        return False
+
+    @property
+    def cancelled(self):
+        return False
+
+    def update_progress(self, i, total):
+        pass
+
+
 class DeeRelinquishWindow(dee_branding.DeeBrandedWindow):
     # Must exist BEFORE the base class loads the XAML - loading it fires the
     # TextChanged/SelectionChanged handlers, when no instance attribute exists.
@@ -147,7 +186,7 @@ class DeeRelinquishWindow(dee_branding.DeeBrandedWindow):
         self._project_id = project_id
         self.project_tb.Text = "{0} / {1}".format(hub_name, project_name)
 
-        with forms.ProgressBar(title="DeeRelinquish - loading project files...",
+        with _SafeProgress(title="DeeRelinquish - loading project files...",
                                indeterminate=True):
             self._all_items = afb.list_project_files(
                 self._hub_id, self._project_id, self._token, _CACHE_FILE) or {}
