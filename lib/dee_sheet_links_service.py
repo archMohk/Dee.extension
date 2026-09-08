@@ -301,12 +301,25 @@ def find_floor_plan_view_family_type(doc):
 # ==========================================================================
 class SheetType(object):
     def __init__(self, name="", level_id=None, level_name="",
-                 view_template_id=None, view_template_name="(None)"):
+                 view_template_id=None, view_template_name="(None)",
+                 include_view=True, fixed_scale=None):
         self.name = name
         self.level_id = level_id
         self.level_name = level_name
         self.view_template_id = view_template_id
         self.view_template_name = view_template_name
+        # include_view=False: this Sheet Type creates a plain Sheet only
+        # - no cropped view, no crop math, no view parameters - for
+        # cover sheets, schedule-only sheets, or anything meant to be
+        # filled in by hand later ("not all sheets had to contain
+        # views", explicit request).
+        self.include_view = include_view
+        # fixed_scale=None means auto-fit (the original behaviour,
+        # picking the smallest standard scale the villa's crop fits
+        # at); an int pins the view to exactly that scale denominator
+        # instead - still measured and reported if it overflows the
+        # sheet, never silently overridden.
+        self.fixed_scale = fixed_scale
 
 
 # ==========================================================================
@@ -525,6 +538,18 @@ def _compute_statuses(plan, existing_numbers):
             row.status = STATUS_READY
 
 
+def revalidate_plan(plan_rows, existing_numbers=None):
+    """Re-runs the same duplicate/blank/invalid checks build_plan uses,
+    against whatever Sheet Number/Name each row CURRENTLY holds - since
+    the window lets the user hand-edit those values directly in the
+    preview grid after Preview, a row's status can go stale the moment
+    it is edited. Called right before Create filters to Ready rows, so
+    a manually-typed duplicate is caught the same way a template-
+    generated one always was, never silently created."""
+    _compute_statuses(plan_rows, set(existing_numbers or []))
+    return plan_rows
+
+
 # ==========================================================================
 # Crop - local copy of DeeViewAdjust's proven
 # apply_bbox_crop_from_world_points idiom, generalised from "an existing
@@ -714,7 +739,17 @@ def next_standard_scale(value):
     return STANDARD_SCALES[-1]
 
 
-def _fit_and_center_viewport(doc, sheet, view, probe_scale=100):
+def _fit_and_center_viewport(doc, sheet, view, probe_scale=100, fixed_scale=None):
+    """Returns (viewport_or_None, warning_or_None).
+
+    fixed_scale=None -> auto-fit: measure the real viewport box at a
+    probe scale, then pick the largest standard scale that still fits
+    the sheet, re-measuring (the original, unconditional behaviour).
+    fixed_scale=<int> -> use exactly that scale - still measured, and
+    an overflow is reported as a warning rather than silently allowed,
+    but the scale the user asked for on this Sheet Type is never
+    overridden. Mirrors DeeAssemb's own proven _fit_and_place_viewport,
+    simplified to one full-sheet cell instead of a grid."""
     outline = sheet.Outline
     cell = (outline.Min.U, outline.Max.U, outline.Min.V, outline.Max.V)
     cx = (cell[0] + cell[1]) / 2.0
@@ -722,13 +757,15 @@ def _fit_and_center_viewport(doc, sheet, view, probe_scale=100):
     cell_w = cell[1] - cell[0]
     cell_h = cell[3] - cell[2]
 
+    wanted = int(fixed_scale) if fixed_scale else probe_scale
+    scale_locked = False
     try:
-        view.Scale = probe_scale
+        view.Scale = wanted
     except Exception:
-        pass
+        scale_locked = True
 
     if not Viewport.CanAddViewToSheet(doc, sheet.Id, view.Id):
-        return None
+        return None, None
 
     vp = Viewport.Create(doc, sheet.Id, view.Id, XYZ(cx, cy, 0))
     doc.Regenerate()
@@ -738,7 +775,12 @@ def _fit_and_center_viewport(doc, sheet, view, probe_scale=100):
         return (o.MaximumPoint.X - o.MinimumPoint.X, o.MaximumPoint.Y - o.MinimumPoint.Y)
 
     w, h = measured()
-    if w > 1e-9 and h > 1e-9 and cell_w > 0 and cell_h > 0:
+    warning = None
+
+    if fixed_scale and scale_locked:
+        warning = ("could not set the requested 1:{0} - the view's scale is locked "
+                   "(a View Template is probably assigned)".format(int(fixed_scale)))
+    elif not fixed_scale and w > 1e-9 and h > 1e-9 and cell_w > 0 and cell_h > 0:
         try:
             current = int(view.Scale)
         except Exception:
@@ -768,8 +810,15 @@ def _fit_and_center_viewport(doc, sheet, view, probe_scale=100):
                 break
             guard += 1
 
+    if not scale_locked and (w > cell_w + 1e-6 or h > cell_h + 1e-6):
+        if fixed_scale:
+            warning = ("the view does not fit its sheet at the 1:{0} you chose - placed "
+                       "anyway and allowed to overflow".format(int(fixed_scale)))
+        else:
+            warning = "still larger than its sheet even at the coarsest standard scale"
+
     vp.SetBoxCenter(XYZ(cx, cy, 0))
-    return vp
+    return vp, warning
 
 
 # ==========================================================================
@@ -881,6 +930,27 @@ def create_sheets_and_views(doc, plan_rows, floorplan_vft_id, titleblock_id,
             if progress_cb is not None and progress_cb(i, total, row):
                 break
             try:
+                sheet = ViewSheet.Create(doc, titleblock_id)
+                try:
+                    sheet.SheetNumber = row.sheet_number
+                except Exception as e:
+                    result.row_results.append(SheetBuildRowResult(
+                        row, False, "sheet number '{0}' rejected: {1}".format(row.sheet_number, e)))
+                    result.skipped += 1
+                    continue
+                try:
+                    sheet.Name = row.sheet_name
+                except Exception:
+                    pass
+                doc.Regenerate()
+
+                if not row.sheet_type.include_view:
+                    # "not all sheet had to contain views" - a plain
+                    # Sheet only, no crop/view/parameters at all.
+                    result.row_results.append(SheetBuildRowResult(row, True, "Created (sheet only)"))
+                    result.applied += 1
+                    continue
+
                 instance = doc.GetElement(row.link_row.instance_id)
                 if instance is None:
                     raise Exception("the villa link instance no longer exists")
@@ -914,31 +984,18 @@ def create_sheets_and_views(doc, plan_rows, floorplan_vft_id, titleblock_id,
                         pass
 
                 param_note = _write_view_parameters(view, names, row.link_row)
-
-                sheet = ViewSheet.Create(doc, titleblock_id)
-                try:
-                    sheet.SheetNumber = row.sheet_number
-                except Exception as e:
-                    result.row_results.append(SheetBuildRowResult(
-                        row, False, "sheet number '{0}' rejected: {1}".format(row.sheet_number, e)))
-                    result.skipped += 1
-                    continue
-                try:
-                    sheet.Name = row.sheet_name
-                except Exception:
-                    pass
-                doc.Regenerate()
-
                 bbox_note = " (crop is {0})".format(bbox_detail) if bbox_detail else ""
 
-                vp = _fit_and_center_viewport(doc, sheet, view)
+                vp, scale_warning = _fit_and_center_viewport(
+                    doc, sheet, view, fixed_scale=row.sheet_type.fixed_scale)
+                scale_note = " - {0}".format(scale_warning) if scale_warning else ""
                 if vp is None:
                     result.row_results.append(SheetBuildRowResult(
                         row, True, "Created" + param_note + bbox_note +
                         " - view could not be placed on the sheet"))
                 else:
                     result.row_results.append(SheetBuildRowResult(
-                        row, True, "Created" + param_note + bbox_note))
+                        row, True, "Created" + param_note + bbox_note + scale_note))
                 result.applied += 1
             except Exception as e:
                 result.row_results.append(SheetBuildRowResult(row, False, "{0}".format(e)))

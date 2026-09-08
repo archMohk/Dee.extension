@@ -36,7 +36,9 @@ import clr
 clr.AddReference("PresentationFramework")
 clr.AddReference("PresentationCore")
 from System.Windows import Thickness, VerticalAlignment
-from System.Windows.Controls import StackPanel, TextBlock, TextBox, ComboBox, Button, Orientation
+from System.Windows.Controls import (
+    StackPanel, TextBlock, TextBox, ComboBox, Button, CheckBox, Orientation,
+)
 
 from pyrevit import forms, script
 
@@ -56,6 +58,16 @@ def _safe_float(text, default=0.0):
         return float(text)
     except Exception:
         return default
+
+
+def _safe_scale(text):
+    """Blank/invalid/zero -> None (auto-fit); a positive integer -> a
+    fixed scale denominator (1:N)."""
+    try:
+        v = int(str(text).strip())
+        return v if v > 0 else None
+    except Exception:
+        return None
 
 
 class _SafeProgress(object):
@@ -116,12 +128,15 @@ class SheetTypeUIRow(object):
     write back into just before Preview/Create - the widgets are the
     source of truth while the window is open, not the SheetType's own
     fields (which only get synced on demand)."""
-    def __init__(self, sheet_type, panel, name_tb, level_cb, template_cb):
+    def __init__(self, sheet_type, panel, name_tb, level_cb, template_cb,
+                 include_view_cb, scale_tb):
         self.sheet_type = sheet_type
         self.panel = panel
         self.name_tb = name_tb
         self.level_cb = level_cb
         self.template_cb = template_cb
+        self.include_view_cb = include_view_cb
+        self.scale_tb = scale_tb
 
 
 class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
@@ -227,21 +242,28 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         self._guard(run)
 
     def _add_sheet_type_row(self, sheet_type):
-        row_panel = StackPanel()
-        row_panel.Orientation = Orientation.Horizontal
-        row_panel.Margin = Thickness(0, 0, 0, 8)
+        """Two lines per Sheet Type (name/level/remove, then template/
+        include-view/scale) - keeps every control readable at the
+        window's own width rather than one very long horizontal row."""
+        outer = StackPanel()
+        outer.Orientation = Orientation.Vertical
+        outer.Margin = Thickness(0, 0, 0, 12)
+
+        row1 = StackPanel()
+        row1.Orientation = Orientation.Horizontal
+        row1.Margin = Thickness(0, 0, 0, 4)
 
         name_tb = TextBox()
         name_tb.Text = sheet_type.name
         name_tb.Width = 220
         name_tb.Height = 26
         name_tb.VerticalContentAlignment = VerticalAlignment.Center
-        row_panel.Children.Add(name_tb)
+        row1.Children.Add(name_tb)
 
         level_label = TextBlock()
         level_label.Text = "  Level:"
         level_label.VerticalAlignment = VerticalAlignment.Center
-        row_panel.Children.Add(level_label)
+        row1.Children.Add(level_label)
 
         level_cb = ComboBox()
         level_cb.Width = 150
@@ -250,34 +272,63 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         for name in self._level_names():
             level_cb.Items.Add(name)
         level_cb.SelectedIndex = 0
-        row_panel.Children.Add(level_cb)
-
-        template_label = TextBlock()
-        template_label.Text = "  View Template:"
-        template_label.VerticalAlignment = VerticalAlignment.Center
-        row_panel.Children.Add(template_label)
-
-        template_cb = ComboBox()
-        template_cb.Width = 180
-        template_cb.Height = 26
-        template_cb.Margin = Thickness(4, 0, 0, 0)
-        for name in self._template_names():
-            template_cb.Items.Add(name)
-        template_cb.SelectedIndex = 0
-        row_panel.Children.Add(template_cb)
+        row1.Children.Add(level_cb)
 
         remove_b = Button()
         remove_b.Content = "Remove"
         remove_b.Width = 70
         remove_b.Height = 26
         remove_b.Margin = Thickness(10, 0, 0, 0)
-        row_panel.Children.Add(remove_b)
+        row1.Children.Add(remove_b)
 
-        ui_row = SheetTypeUIRow(sheet_type, row_panel, name_tb, level_cb, template_cb)
+        row2 = StackPanel()
+        row2.Orientation = Orientation.Horizontal
+
+        template_label = TextBlock()
+        template_label.Text = "  View Template:"
+        template_label.Width = 100
+        template_label.VerticalAlignment = VerticalAlignment.Center
+        row2.Children.Add(template_label)
+
+        template_cb = ComboBox()
+        template_cb.Width = 180
+        template_cb.Height = 26
+        for name in self._template_names():
+            template_cb.Items.Add(name)
+        template_cb.SelectedIndex = 0
+        row2.Children.Add(template_cb)
+
+        include_view_cb = CheckBox()
+        include_view_cb.Content = "Include a cropped View"
+        include_view_cb.IsChecked = sheet_type.include_view
+        include_view_cb.VerticalAlignment = VerticalAlignment.Center
+        include_view_cb.Margin = Thickness(24, 0, 0, 0)
+        row2.Children.Add(include_view_cb)
+
+        scale_label = TextBlock()
+        scale_label.Text = "  Scale 1:"
+        scale_label.VerticalAlignment = VerticalAlignment.Center
+        scale_label.Margin = Thickness(24, 0, 0, 0)
+        row2.Children.Add(scale_label)
+
+        scale_tb = TextBox()
+        scale_tb.Width = 60
+        scale_tb.Height = 24
+        scale_tb.Margin = Thickness(4, 0, 0, 0)
+        scale_tb.VerticalContentAlignment = VerticalAlignment.Center
+        scale_tb.Text = str(sheet_type.fixed_scale) if sheet_type.fixed_scale else ""
+        scale_tb.ToolTip = "Blank = auto-fit the view to the sheet"
+        row2.Children.Add(scale_tb)
+
+        outer.Children.Add(row1)
+        outer.Children.Add(row2)
+
+        ui_row = SheetTypeUIRow(sheet_type, outer, name_tb, level_cb, template_cb,
+                                include_view_cb, scale_tb)
         remove_b.Click += self._make_remove_handler(ui_row)
 
         self._sheet_type_rows.append(ui_row)
-        self.sheet_types_panel.Children.Add(row_panel)
+        self.sheet_types_panel.Children.Add(outer)
 
     def _make_remove_handler(self, ui_row):
         def handler(sender, args):
@@ -302,6 +353,8 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
                 st.view_template_id, st.view_template_name = None, _NONE_TEMPLATE
             elif (template_i - 1) < len(self._templates):
                 st.view_template_id, st.view_template_name = self._templates[template_i - 1]
+            st.include_view = bool(ui_row.include_view_cb.IsChecked)
+            st.fixed_scale = _safe_scale(ui_row.scale_tb.Text)
 
     def _sheet_types(self):
         return [ui_row.sheet_type for ui_row in self._sheet_type_rows]
@@ -350,6 +403,11 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
             if not self._plan:
                 forms.alert("Run Preview first (this page).", title=_TOOL)
                 return
+            # the grid lets Sheet Number/Name be hand-edited after
+            # Preview - re-check duplicate/blank/invalid against
+            # whatever is CURRENTLY in the grid before trusting Ready.
+            core.revalidate_plan(self._plan, core.existing_sheet_numbers(self.doc))
+            self.plan_grid.Items.Refresh()
             ready = [r for r in self._plan if r.status == core.STATUS_READY]
             not_ready = len(self._plan) - len(ready)
             if not ready:

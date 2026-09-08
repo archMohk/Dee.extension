@@ -123,15 +123,17 @@
                         <TextBlock x:Name="plan_status_tb" VerticalAlignment="Center" Margin="16,0,0,0" FontStyle="Italic"/>
                     </StackPanel>
 
-                    <DataGrid x:Name="plan_grid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                    <TextBlock DockPanel.Dock="Top" Margin="0,0,0,4" FontStyle="Italic" Foreground="#888"
+                               Text="Sheet Number and Sheet Name can be edited directly in the grid below - re-checked for duplicates automatically when you click Create."/>
+                    <DataGrid x:Name="plan_grid" AutoGenerateColumns="False" IsReadOnly="False" CanUserAddRows="False"
                               RowHeaderWidth="0" MaxHeight="260" Margin="0,0,0,10">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Villa" Binding="{Binding link_name}" Width="160"/>
-                            <DataGridTextColumn Header="Typology" Binding="{Binding typology}" Width="120"/>
-                            <DataGridTextColumn Header="Sheet Type" Binding="{Binding sheet_type_name}" Width="120"/>
+                            <DataGridTextColumn Header="Villa" Binding="{Binding link_name}" Width="160" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Typology" Binding="{Binding typology}" Width="120" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Sheet Type" Binding="{Binding sheet_type_name}" Width="120" IsReadOnly="True"/>
                             <DataGridTextColumn Header="Sheet Number" Binding="{Binding sheet_number}" Width="120"/>
                             <DataGridTextColumn Header="Sheet Name" Binding="{Binding sheet_name}" Width="180"/>
-                            <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="*"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="*" IsReadOnly="True"/>
                         </DataGrid.Columns>
                     </DataGrid>
 
