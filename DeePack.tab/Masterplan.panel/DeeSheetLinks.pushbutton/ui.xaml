@@ -98,10 +98,10 @@
                             </Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Sheet Number:" VerticalAlignment="Center" Margin="0,0,8,6"/>
                             <TextBox Grid.Row="0" Grid.Column="1" x:Name="number_template_tb" Height="24" Margin="0,0,0,6"
-                                     VerticalContentAlignment="Center" Text="{Serial|PAD4}"/>
+                                     VerticalContentAlignment="Center" Text="{}{Serial|PAD4}"/>
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Sheet Name:" VerticalAlignment="Center"/>
                             <TextBox Grid.Row="1" Grid.Column="1" x:Name="name_template_tb" Height="24"
-                                     VerticalContentAlignment="Center" Text="{Typology} - {SheetType}"/>
+                                     VerticalContentAlignment="Center" Text="{}{Typology} - {SheetType}"/>
                         </Grid>
                     </GroupBox>
 
