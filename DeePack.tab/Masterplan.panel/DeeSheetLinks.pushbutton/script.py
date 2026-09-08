@@ -383,6 +383,7 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
                     offset_display=offset_display, unit_label=self._selected_offset_unit(),
                     param_names=self._selected_param_names(),
                     show_crop_boundary=bool(self.show_crop_cb.IsChecked),
+                    active_view=self.doc.ActiveView,
                     progress_cb=progress_cb)
 
             report_rows = [BuildReportRow(r) for r in result.row_results]

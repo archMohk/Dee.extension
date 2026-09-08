@@ -523,18 +523,92 @@ def _compute_statuses(plan, existing_numbers):
 # apply_bbox_crop_from_world_points idiom, generalised from "an existing
 # view's crop" to "a brand new view's crop from a villa's world bbox".
 # ==========================================================================
-def villa_world_bbox(instance):
-    """(Min, Max) XYZ of a RevitLinkInstance's bounding box, ALREADY in
-    host-document coordinates and axis-aligned (see module docstring) -
-    or None if Revit could not compute one (an unloaded/needs-reload
-    link, most likely)."""
+def _bbox_via_linked_elements(link_doc, transform):
+    """Fallback tier 3 - unions every model element's OWN bounding box
+    (in the LINKED document's local coordinates), then transforms the 8
+    corners of that union into host coordinates via the instance's own
+    GetTotalTransform(). Heavier than the other two tiers (walks the
+    whole linked model), so it is only reached - and CACHED per villa,
+    see create_sheets_and_views' bbox_cache - when both cheaper tiers
+    give up."""
+    min_pt = max_pt = None
     try:
-        bbox = instance.get_BoundingBox(None)
+        elements = FilteredElementCollector(link_doc).WhereElementIsNotElementType()
     except Exception:
         return None
-    if bbox is None:
+    for el in elements:
+        try:
+            b = el.get_BoundingBox(None)
+        except Exception:
+            b = None
+        if b is None:
+            continue
+        if min_pt is None:
+            min_pt, max_pt = b.Min, b.Max
+        else:
+            min_pt = XYZ(min(min_pt.X, b.Min.X), min(min_pt.Y, b.Min.Y), min(min_pt.Z, b.Min.Z))
+            max_pt = XYZ(max(max_pt.X, b.Max.X), max(max_pt.Y, b.Max.Y), max(max_pt.Z, b.Max.Z))
+    if min_pt is None:
         return None
-    return bbox.Min, bbox.Max
+    corners = [XYZ(x, y, z)
+              for x in (min_pt.X, max_pt.X)
+              for y in (min_pt.Y, max_pt.Y)
+              for z in (min_pt.Z, max_pt.Z)]
+    world_corners = [transform.OfPoint(c) for c in corners]
+    xs = [p.X for p in world_corners]
+    ys = [p.Y for p in world_corners]
+    zs = [p.Z for p in world_corners]
+    return XYZ(min(xs), min(ys), min(zs)), XYZ(max(xs), max(ys), max(zs))
+
+
+def resolve_villa_bbox(instance, active_view=None):
+    """(bbox_or_None, detail) - three tiers, cheapest first, since a
+    live-observed run showed tier 1 alone returning None for EVERY
+    villa link instance (Revit's own get_BoundingBox(None) is
+    documented to return None when "the model box is not known" for
+    certain element types, and this was confirmed live for
+    RevitLinkInstance specifically, not just a hypothetical):
+
+    1. get_BoundingBox(None) - cheapest, works for most elements.
+    2. get_BoundingBox(active_view) - the commonly-documented working
+       alternative when a real view is available (the view active when
+       DeeSheetLinks was opened, threaded in by the caller).
+    3. Union every element in the LINKED document's own bounding box,
+       transformed into host coordinates via GetTotalTransform() - the
+       most expensive but most reliable tier, independent of which view
+       happens to be active. Only reached if the link is genuinely
+       loaded (GetLinkDocument() returns a real Document) - an unloaded
+       link is reported plainly rather than silently producing a wrong
+       (all-zero) crop."""
+    try:
+        bbox = instance.get_BoundingBox(None)
+        if bbox is not None:
+            return (bbox.Min, bbox.Max), ""
+    except Exception:
+        pass
+
+    if active_view is not None:
+        try:
+            bbox = instance.get_BoundingBox(active_view)
+            if bbox is not None:
+                return (bbox.Min, bbox.Max), ""
+        except Exception:
+            pass
+
+    try:
+        link_doc = instance.GetLinkDocument()
+    except Exception:
+        link_doc = None
+    if link_doc is None:
+        return None, "the link is not loaded - load/reload it first"
+    try:
+        transform = instance.GetTotalTransform()
+    except Exception:
+        return None, "could not read the link's placement transform"
+    result = _bbox_via_linked_elements(link_doc, transform)
+    if result is None:
+        return None, "the linked model has no elements with computable geometry"
+    return result, ""
 
 
 def _expanded_world_points(min_pt, max_pt, offset_internal):
@@ -716,7 +790,8 @@ def _write_view_parameters(view, param_names, link_row):
 
 def create_sheets_and_views(doc, plan_rows, floorplan_vft_id, titleblock_id,
                             offset_display=0.0, unit_label=DEFAULT_UNIT_LABEL,
-                            param_names=None, show_crop_boundary=False, progress_cb=None):
+                            param_names=None, show_crop_boundary=False,
+                            active_view=None, progress_cb=None):
     """plan_rows: only rows with status Ready are actually built - a
     caller handing in non-Ready rows is a programming error, not
     silently tolerated here (the window itself filters before calling).
@@ -725,6 +800,8 @@ def create_sheets_and_views(doc, plan_rows, floorplan_vft_id, titleblock_id,
     convention as dee_link_dist_service.place_links) - converted to
     Revit's internal feet here, not by the caller, so this module stays
     the one place that knows how a raw number becomes Revit geometry.
+    active_view: the view that was active when DeeSheetLinks was opened
+    - fed into resolve_villa_bbox's tier 2 fallback.
     Creates/extends the 3 shared parameters onto the Views category
     FIRST, in its own Transaction (see dee_shared_param_service), then
     ONE Transaction for the whole batch - every row wrapped in its own
@@ -753,6 +830,8 @@ def create_sheets_and_views(doc, plan_rows, floorplan_vft_id, titleblock_id,
         BuiltInCategory.OST_Views, "Views",
         transaction_name="DeeSheetLinks - Create/Extend View Parameters")
 
+    bbox_cache = {}
+
     t = Transaction(doc, "DeeSheetLinks - Create Sheets and Views")
     try:
         t.Start()
@@ -764,10 +843,15 @@ def create_sheets_and_views(doc, plan_rows, floorplan_vft_id, titleblock_id,
                 instance = doc.GetElement(row.link_row.instance_id)
                 if instance is None:
                     raise Exception("the villa link instance no longer exists")
-                bbox = villa_world_bbox(instance)
+                cache_key = row.link_row.instance_id
+                if cache_key in bbox_cache:
+                    bbox, bbox_detail = bbox_cache[cache_key]
+                else:
+                    bbox, bbox_detail = resolve_villa_bbox(instance, active_view)
+                    bbox_cache[cache_key] = (bbox, bbox_detail)
                 if bbox is None:
-                    raise Exception("could not read the villa's bounding box "
-                                    "(the link may need reloading)")
+                    raise Exception("could not read the villa's bounding box" +
+                                    (" - " + bbox_detail if bbox_detail else ""))
 
                 view = ViewPlan.Create(doc, floorplan_vft_id, row.sheet_type.level_id)
                 doc.Regenerate()
