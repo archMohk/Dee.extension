@@ -79,7 +79,7 @@ from Autodesk.Revit.DB import (
     FilteredElementCollector, RevitLinkInstance, Level,
     View, ViewPlan, ViewFamilyType, ViewFamily, ViewSheet, ViewSchedule,
     Viewport, Transaction, XYZ, Line, CurveLoop, BuiltInCategory,
-    UnitUtils, UnitTypeId, ModelPathUtils,
+    UnitUtils, UnitTypeId, ModelPathUtils, PlanViewPlane,
 )
 
 import dee_shared_param_service
@@ -289,19 +289,53 @@ def existing_sheet_numbers(doc):
 
 
 def find_floor_plan_view_family_type(doc):
-    """The ElementId of the project's FloorPlan ViewFamilyType - every
-    project has at least one (Revit ships a default) - or None if
-    somehow missing, checked and reported plainly rather than assumed."""
+    """The ElementId of the project's FIRST FloorPlan ViewFamilyType -
+    every project has at least one (Revit ships a default) - or None if
+    somehow missing. Kept as the fallback default when a Sheet Type
+    does not name its own view_family_type_id (see
+    list_floor_plan_view_family_types for letting the user pick which
+    one, when a project has more than one)."""
+    types = list_floor_plan_view_family_types(doc)
+    return types[0][0] if types else None
+
+
+def list_floor_plan_view_family_types(doc):
+    """[(ElementId, name)] every FloorPlan ViewFamilyType in the project
+    - most projects only have one ("Floor Plan"), but a project with
+    discipline-specific plan types (e.g. a structural or an RCP-style
+    floor plan type) has several, and DeeSheetLinks has no way to know
+    which one is wanted without asking."""
+    out = []
     try:
         for vft in FilteredElementCollector(doc).OfClass(ViewFamilyType):
             try:
                 if vft.ViewFamily == ViewFamily.FloorPlan:
-                    return vft.Id
+                    out.append((vft.Id, _safe_name(vft)))
             except Exception:
                 continue
     except Exception:
         pass
-    return None
+    out.sort(key=lambda t: t[1].lower())
+    return out
+
+
+def existing_view_names(doc):
+    """Every non-template View Name already in the project - a freshly-
+    generated View Name must avoid these too (Revit requires View names
+    to be unique), not just avoid colliding WITHIN the new batch."""
+    names = set()
+    for view in FilteredElementCollector(doc).OfClass(View):
+        try:
+            if view.IsTemplate:
+                continue
+            if isinstance(view, ViewSheet):
+                continue
+            name = _safe_name(view)
+            if name:
+                names.add(name)
+        except Exception:
+            continue
+    return names
 
 
 # ==========================================================================
@@ -312,7 +346,10 @@ def find_floor_plan_view_family_type(doc):
 class SheetType(object):
     def __init__(self, name="", level_id=None, level_name="",
                  view_template_id=None, view_template_name="(None)",
-                 include_view=True, fixed_scale=None):
+                 include_view=True, fixed_scale=None,
+                 view_family_type_id=None, view_family_type_name="",
+                 view_range_top=None, view_range_cut=None,
+                 view_range_bottom=None, view_range_depth=None):
         self.name = name
         self.level_id = level_id
         self.level_name = level_name
@@ -330,6 +367,22 @@ class SheetType(object):
         # instead - still measured and reported if it overflows the
         # sheet, never silently overridden.
         self.fixed_scale = fixed_scale
+        # view_family_type_id=None falls back to
+        # find_floor_plan_view_family_type's own default (the first
+        # FloorPlan type found) - only matters when a project has more
+        # than one Floor Plan ViewFamilyType and the user wants a
+        # SPECIFIC one for this Sheet Type.
+        self.view_family_type_id = view_family_type_id
+        self.view_family_type_name = view_family_type_name
+        # View Range - each is None (leave Revit's own default for a
+        # freshly created view untouched) or a DISPLAY-unit offset from
+        # this Sheet Type's own Level (same unit as the crop offset,
+        # converted at create time) - Top/Cut/Bottom/View Depth clip
+        # planes, matching Revit's own View Range dialog terminology.
+        self.view_range_top = view_range_top
+        self.view_range_cut = view_range_cut
+        self.view_range_bottom = view_range_bottom
+        self.view_range_depth = view_range_depth
 
 
 # ==========================================================================
@@ -349,6 +402,12 @@ _TOKEN_RE = re.compile(r"\{([^{}]+)\}")
 
 DEFAULT_NUMBER_TEMPLATE = "{Serial|PAD4}"
 DEFAULT_NAME_TEMPLATE = "{Typology} - {SheetType}"
+# Includes {Serial} (not just {SheetType}/{Typology}) since a Sheet
+# Type x Typology pair routinely repeats across many villa copies of
+# the same typology - the View Name must stay unique project-wide, so
+# the default template needs something that varies per row, unlike the
+# Sheet Name default above (a Sheet Number already provides that).
+DEFAULT_VIEW_NAME_TEMPLATE = "{SheetType} - {Serial|PAD4}"
 
 _INVALID_NAME_CHARS = set("\\:{}[]|;<>?`~")
 
@@ -526,14 +585,18 @@ def list_naming_presets():
 
 
 def load_naming_preset(name):
-    """{"number_template": ..., "name_template": ...} or None."""
+    """{"number_template": ..., "name_template": ..., "view_name_template": ...} or None -
+    an OLDER saved preset (from before view_name_template existed) simply
+    lacks that key, which the window's own default-fallback already
+    handles the same way a brand new template does."""
     data = deew_settings.load(_NAMING_PRESET_TOOL_NAME, {})
     return data.get(name)
 
 
-def save_naming_preset(name, number_template, name_template):
+def save_naming_preset(name, number_template, name_template, view_name_template=""):
     data = deew_settings.load(_NAMING_PRESET_TOOL_NAME, {})
-    data[name] = {"number_template": number_template, "name_template": name_template}
+    data[name] = {"number_template": number_template, "name_template": name_template,
+                  "view_name_template": view_name_template}
     return deew_settings.save(_NAMING_PRESET_TOOL_NAME, data)
 
 
@@ -563,6 +626,7 @@ class SheetPlanRow(object):
         self.serial_value = serial_value
         self.sheet_number = ""
         self.sheet_name = ""
+        self.view_name = ""
         self.status = ""
 
     @property
@@ -579,15 +643,18 @@ class SheetPlanRow(object):
 
 
 def build_plan(link_rows, sheet_types, number_template, name_template,
-               existing_numbers=None):
+               existing_numbers=None, view_name_template=None, existing_view_names=None):
     """Cartesian product of link_rows x sheet_types, VILLA-MAJOR (every
     sheet type for one villa is contiguous - how a person expects a
-    printed set to read), with Sheet Number/Name rendered from the token
-    templates and duplicate/blank/invalid Sheet Numbers flagged before
-    anything is created. existing_numbers: Sheet Numbers already used
-    elsewhere in the project - a generated number colliding with one of
+    printed set to read), with Sheet Number/Name (and, for a Sheet Type
+    that includes a view, View Name) rendered from the token templates
+    and duplicate/blank/invalid values flagged before anything is
+    created. existing_numbers/existing_view_names: values already used
+    elsewhere in the project - a generated value colliding with one of
     those is ALSO a Duplicate, not just a within-batch collision."""
     existing_numbers = set(existing_numbers or [])
+    existing_view_names = set(existing_view_names or [])
+    view_name_template = view_name_template or DEFAULT_VIEW_NAME_TEMPLATE
     plan = []
     serial = 1
     for villa_index, link_row in enumerate(link_rows, start=1):
@@ -601,36 +668,47 @@ def build_plan(link_rows, sheet_types, number_template, name_template,
             row = SheetPlanRow(link_row, sheet_type, villa_index, serial)
             row.sheet_number = render_template(number_template, ctx)
             row.sheet_name = render_template(name_template, ctx)
+            if sheet_type.include_view:
+                row.view_name = render_template(view_name_template, ctx)
             plan.append(row)
             serial += 1
-    _compute_statuses(plan, existing_numbers)
+    _compute_statuses(plan, existing_numbers, existing_view_names)
     return plan
 
 
-def _compute_statuses(plan, existing_numbers):
-    seen = {}
+def _compute_statuses(plan, existing_numbers, existing_view_names=None):
+    existing_view_names = existing_view_names or set()
+    seen_numbers = {}
+    seen_view_names = {}
     for row in plan:
-        seen.setdefault(row.sheet_number, []).append(row)
+        seen_numbers.setdefault(row.sheet_number, []).append(row)
+        if row.sheet_type.include_view:
+            seen_view_names.setdefault(row.view_name, []).append(row)
     for row in plan:
-        if not row.sheet_number.strip() or not row.sheet_name.strip():
+        needs_view_name = row.sheet_type.include_view
+        if (not row.sheet_number.strip() or not row.sheet_name.strip()
+                or (needs_view_name and not row.view_name.strip())):
             row.status = STATUS_EMPTY
-        elif _has_invalid_chars(row.sheet_number) or _has_invalid_chars(row.sheet_name):
+        elif (_has_invalid_chars(row.sheet_number) or _has_invalid_chars(row.sheet_name)
+              or (needs_view_name and _has_invalid_chars(row.view_name))):
             row.status = STATUS_INVALID
-        elif len(seen.get(row.sheet_number, [])) > 1 or row.sheet_number in existing_numbers:
+        elif (len(seen_numbers.get(row.sheet_number, [])) > 1 or row.sheet_number in existing_numbers
+              or (needs_view_name and (len(seen_view_names.get(row.view_name, [])) > 1
+                                       or row.view_name in existing_view_names))):
             row.status = STATUS_DUPLICATE
         else:
             row.status = STATUS_READY
 
 
-def revalidate_plan(plan_rows, existing_numbers=None):
+def revalidate_plan(plan_rows, existing_numbers=None, existing_view_names=None):
     """Re-runs the same duplicate/blank/invalid checks build_plan uses,
-    against whatever Sheet Number/Name each row CURRENTLY holds - since
-    the window lets the user hand-edit those values directly in the
-    preview grid after Preview, a row's status can go stale the moment
-    it is edited. Called right before Create filters to Ready rows, so
-    a manually-typed duplicate is caught the same way a template-
-    generated one always was, never silently created."""
-    _compute_statuses(plan_rows, set(existing_numbers or []))
+    against whatever Sheet Number/Name/View Name each row CURRENTLY
+    holds - since the window lets the user hand-edit those values
+    directly in the preview grid after Preview, a row's status can go
+    stale the moment it is edited. Called right before Create filters
+    to Ready rows, so a manually-typed duplicate is caught the same way
+    a template-generated one always was, never silently created."""
+    _compute_statuses(plan_rows, set(existing_numbers or []), set(existing_view_names or []))
     return plan_rows
 
 
@@ -990,6 +1068,53 @@ def _write_view_parameters(view, param_names, link_row):
     return " ({0}/{1} parameters written)".format(written, len(values))
 
 
+_VIEW_RANGE_PLANES = (
+    ("view_range_top", "TopClipPlane"),
+    ("view_range_cut", "CutPlane"),
+    ("view_range_bottom", "BottomClipPlane"),
+    ("view_range_depth", "ViewDepthPlane"),
+)
+
+
+def _apply_view_range(view, sheet_type, unit_type_id):
+    """Applies whichever of the 4 View Range offsets the Sheet Type has
+    set (Top/Cut/Bottom/View Depth clip planes, matching Revit's own
+    View Range dialog) - a plane left None is untouched entirely, so a
+    Sheet Type that never mentions View Range keeps whatever a freshly
+    created ViewPlan (or its assigned View Template) already gives it.
+    Every plane that IS set is also pinned to this Sheet Type's own
+    Level (SetLevelId) so the offset is unambiguous, not dependent on
+    whatever Revit's own default level association happens to be.
+    Returns a warning string, or None. Confirmed via WebSearch:
+    ViewPlan.GetViewRange() -> PlanViewRange, SetLevelId/SetOffset per
+    PlanViewPlane, then ViewPlan.SetViewRange(range) to apply -
+    modifying the returned PlanViewRange alone has no effect until
+    SetViewRange is called."""
+    values = [(plane_name, getattr(sheet_type, attr)) for attr, plane_name in _VIEW_RANGE_PLANES]
+    if not any(v is not None for _p, v in values):
+        return None
+    try:
+        rng = view.GetViewRange()
+    except Exception as e:
+        return "could not read the view's View Range: {0}".format(e)
+    for plane_name, value in values:
+        if value is None:
+            continue
+        try:
+            plane = getattr(PlanViewPlane, plane_name)
+            internal = UnitUtils.ConvertToInternalUnits(float(value), unit_type_id)
+            if sheet_type.level_id is not None:
+                rng.SetLevelId(plane, sheet_type.level_id)
+            rng.SetOffset(plane, internal)
+        except Exception as e:
+            return "could not set the View Range {0}: {1}".format(plane_name, e)
+    try:
+        view.SetViewRange(rng)
+    except Exception as e:
+        return "could not apply the View Range: {0}".format(e)
+    return None
+
+
 def create_sheets_and_views(doc, plan_rows, floorplan_vft_id, titleblock_id,
                             offset_display=0.0, unit_label=DEFAULT_UNIT_LABEL,
                             param_names=None, show_crop_boundary=False,
@@ -1077,8 +1202,16 @@ def create_sheets_and_views(doc, plan_rows, floorplan_vft_id, titleblock_id,
                     raise Exception("could not read the villa's bounding box" +
                                     (" - " + bbox_detail if bbox_detail else ""))
 
-                view = ViewPlan.Create(doc, floorplan_vft_id, row.sheet_type.level_id)
+                vft_id = row.sheet_type.view_family_type_id or floorplan_vft_id
+                view = ViewPlan.Create(doc, vft_id, row.sheet_type.level_id)
                 doc.Regenerate()
+
+                name_note = ""
+                if row.view_name:
+                    try:
+                        view.Name = row.view_name
+                    except Exception as e:
+                        name_note = " (view name rejected: {0})".format(e)
 
                 ok, detail = apply_villa_crop(view, bbox[0], bbox[1], bbox[2], offset_internal)
                 if not ok:
@@ -1096,6 +1229,9 @@ def create_sheets_and_views(doc, plan_rows, floorplan_vft_id, titleblock_id,
                     except Exception:
                         pass
 
+                range_warning = _apply_view_range(view, row.sheet_type, resolve_unit(unit_label))
+                range_note = " - {0}".format(range_warning) if range_warning else ""
+
                 param_note = _write_view_parameters(view, names, row.link_row)
                 bbox_note = " (crop is {0})".format(bbox_detail) if bbox_detail else ""
 
@@ -1104,11 +1240,12 @@ def create_sheets_and_views(doc, plan_rows, floorplan_vft_id, titleblock_id,
                 scale_note = " - {0}".format(scale_warning) if scale_warning else ""
                 if vp is None:
                     result.row_results.append(SheetBuildRowResult(
-                        row, True, "Created" + param_note + bbox_note +
+                        row, True, "Created" + param_note + bbox_note + name_note + range_note +
                         " - view could not be placed on the sheet"))
                 else:
                     result.row_results.append(SheetBuildRowResult(
-                        row, True, "Created" + param_note + bbox_note + scale_note))
+                        row, True, "Created" + param_note + bbox_note + name_note +
+                        range_note + scale_note))
                 result.applied += 1
             except Exception as e:
                 result.row_results.append(SheetBuildRowResult(row, False, "{0}".format(e)))

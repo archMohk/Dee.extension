@@ -97,14 +97,20 @@
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Sheet Number:" VerticalAlignment="Center" Margin="0,0,8,6"/>
                                 <TextBox Grid.Row="0" Grid.Column="1" x:Name="number_template_tb" Height="24" Margin="0,0,0,6"
                                          VerticalContentAlignment="Center" Text="{}{Serial|PAD4}"
                                          GotFocus="naming_field_focused"/>
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Sheet Name:" VerticalAlignment="Center"/>
-                                <TextBox Grid.Row="1" Grid.Column="1" x:Name="name_template_tb" Height="24"
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Sheet Name:" VerticalAlignment="Center" Margin="0,0,8,6"/>
+                                <TextBox Grid.Row="1" Grid.Column="1" x:Name="name_template_tb" Height="24" Margin="0,0,0,6"
                                          VerticalContentAlignment="Center" Text="{}{Typology} - {SheetType}"
+                                         GotFocus="naming_field_focused"/>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="View Name:" VerticalAlignment="Center"/>
+                                <TextBox Grid.Row="2" Grid.Column="1" x:Name="view_name_template_tb" Height="24"
+                                         VerticalContentAlignment="Center" Text="{}{SheetType} - {Serial|PAD4}"
+                                         ToolTip="Only used for Sheet Types that create a View - must be unique project-wide, so the default includes {Serial}."
                                          GotFocus="naming_field_focused"/>
                             </Grid>
                             <WrapPanel Margin="0,6,0,0">
@@ -160,7 +166,8 @@
                             <DataGridTextColumn Header="Typology" Binding="{Binding typology}" Width="120" IsReadOnly="True"/>
                             <DataGridTextColumn Header="Sheet Type" Binding="{Binding sheet_type_name}" Width="120" IsReadOnly="True"/>
                             <DataGridTextColumn Header="Sheet Number" Binding="{Binding sheet_number}" Width="120"/>
-                            <DataGridTextColumn Header="Sheet Name" Binding="{Binding sheet_name}" Width="180"/>
+                            <DataGridTextColumn Header="Sheet Name" Binding="{Binding sheet_name}" Width="160"/>
+                            <DataGridTextColumn Header="View Name" Binding="{Binding view_name}" Width="160"/>
                             <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="*" IsReadOnly="True"/>
                         </DataGrid.Columns>
                     </DataGrid>

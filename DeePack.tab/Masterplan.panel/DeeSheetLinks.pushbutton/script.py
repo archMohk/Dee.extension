@@ -35,7 +35,7 @@ import traceback
 import clr
 clr.AddReference("PresentationFramework")
 clr.AddReference("PresentationCore")
-from System.Windows import Thickness, VerticalAlignment
+from System.Windows import Thickness, VerticalAlignment, FontStyles
 from System.Windows.Controls import (
     StackPanel, TextBlock, TextBox, ComboBox, Button, CheckBox, Orientation,
 )
@@ -66,6 +66,19 @@ def _safe_scale(text):
     try:
         v = int(str(text).strip())
         return v if v > 0 else None
+    except Exception:
+        return None
+
+
+def _safe_range_value(text):
+    """Blank/invalid -> None (leave that View Range plane untouched);
+    a number -> that offset (can be negative, e.g. a Bottom clip plane
+    below its Level)."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        return float(text)
     except Exception:
         return None
 
@@ -129,7 +142,8 @@ class SheetTypeUIRow(object):
     source of truth while the window is open, not the SheetType's own
     fields (which only get synced on demand)."""
     def __init__(self, sheet_type, panel, name_tb, level_cb, template_cb,
-                 include_view_cb, scale_tb):
+                 include_view_cb, scale_tb, view_family_cb,
+                 range_top_tb, range_cut_tb, range_bottom_tb, range_depth_tb):
         self.sheet_type = sheet_type
         self.panel = panel
         self.name_tb = name_tb
@@ -137,6 +151,11 @@ class SheetTypeUIRow(object):
         self.template_cb = template_cb
         self.include_view_cb = include_view_cb
         self.scale_tb = scale_tb
+        self.view_family_cb = view_family_cb
+        self.range_top_tb = range_top_tb
+        self.range_cut_tb = range_cut_tb
+        self.range_bottom_tb = range_bottom_tb
+        self.range_depth_tb = range_depth_tb
 
 
 class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
@@ -150,6 +169,7 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         self._plan = []
         self._levels = []
         self._templates = []
+        self._view_family_types = []
 
         for label, _unit_type_id in core.UNIT_OPTIONS:
             self.offset_unit_cb.Items.Add(label)
@@ -158,6 +178,7 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
 
         self._levels = core.list_levels(self.doc)
         self._templates = core.list_view_templates(self.doc)
+        self._view_family_types = core.list_floor_plan_view_family_types(self.doc)
         self._refresh_titleblocks()
         self._refresh_naming_presets()
         self._active_naming_tb = self.name_template_tb
@@ -234,6 +255,9 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
     def _template_names(self):
         return [_NONE_TEMPLATE] + [name for _id, name in self._templates]
 
+    def _view_family_type_names(self):
+        return [name for _id, name in self._view_family_types] or ["(none found)"]
+
     def add_sheet_type_click(self, sender, args):
         def run():
             sheet_type = core.SheetType(name="Sheet Type {0}".format(len(self._sheet_type_rows) + 1))
@@ -243,10 +267,20 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
             self._update_sheet_type_status()
         self._guard(run)
 
+    def _range_field(self, value):
+        tb = TextBox()
+        tb.Width = 55
+        tb.Height = 24
+        tb.Margin = Thickness(4, 0, 0, 0)
+        tb.VerticalContentAlignment = VerticalAlignment.Center
+        tb.Text = "" if value is None else str(value)
+        return tb
+
     def _add_sheet_type_row(self, sheet_type):
-        """Two lines per Sheet Type (name/level/remove, then template/
-        include-view/scale) - keeps every control readable at the
-        window's own width rather than one very long horizontal row."""
+        """Three lines per Sheet Type (name/level/remove, then view
+        type/template/include-view/scale, then View Range offsets) -
+        keeps every control readable at the window's own width rather
+        than one very long horizontal row."""
         outer = StackPanel()
         outer.Orientation = Orientation.Vertical
         outer.Margin = Thickness(0, 0, 0, 12)
@@ -286,6 +320,21 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         row2 = StackPanel()
         row2.Orientation = Orientation.Horizontal
 
+        view_family_label = TextBlock()
+        view_family_label.Text = "View Type:"
+        view_family_label.Width = 100
+        view_family_label.VerticalAlignment = VerticalAlignment.Center
+        row2.Children.Add(view_family_label)
+
+        view_family_cb = ComboBox()
+        view_family_cb.Width = 160
+        view_family_cb.Height = 26
+        view_family_cb.ToolTip = "Which Floor Plan ViewFamilyType this Sheet Type's views use."
+        for name in self._view_family_type_names():
+            view_family_cb.Items.Add(name)
+        view_family_cb.SelectedIndex = 0
+        row2.Children.Add(view_family_cb)
+
         template_label = TextBlock()
         template_label.Text = "  View Template:"
         template_label.Width = 100
@@ -324,11 +373,51 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
         scale_tb.ToolTip = "Blank = auto-fit the view to the sheet"
         row2.Children.Add(scale_tb)
 
+        row3 = StackPanel()
+        row3.Orientation = Orientation.Horizontal
+        row3.Margin = Thickness(0, 4, 0, 0)
+
+        range_label = TextBlock()
+        range_label.Text = "View Range (blank = leave as-is) - Top:"
+        range_label.VerticalAlignment = VerticalAlignment.Center
+        row3.Children.Add(range_label)
+        range_top_tb = self._range_field(sheet_type.view_range_top)
+        row3.Children.Add(range_top_tb)
+
+        cut_label = TextBlock()
+        cut_label.Text = "  Cut Plane:"
+        cut_label.VerticalAlignment = VerticalAlignment.Center
+        row3.Children.Add(cut_label)
+        range_cut_tb = self._range_field(sheet_type.view_range_cut)
+        row3.Children.Add(range_cut_tb)
+
+        bottom_label = TextBlock()
+        bottom_label.Text = "  Bottom:"
+        bottom_label.VerticalAlignment = VerticalAlignment.Center
+        row3.Children.Add(bottom_label)
+        range_bottom_tb = self._range_field(sheet_type.view_range_bottom)
+        row3.Children.Add(range_bottom_tb)
+
+        depth_label = TextBlock()
+        depth_label.Text = "  View Depth:"
+        depth_label.VerticalAlignment = VerticalAlignment.Center
+        row3.Children.Add(depth_label)
+        range_depth_tb = self._range_field(sheet_type.view_range_depth)
+        row3.Children.Add(range_depth_tb)
+
+        range_unit_tb = TextBlock()
+        range_unit_tb.Text = "  (offset from this row's own Level, in the Crop offset unit below)"
+        range_unit_tb.VerticalAlignment = VerticalAlignment.Center
+        range_unit_tb.FontStyle = FontStyles.Italic
+        row3.Children.Add(range_unit_tb)
+
         outer.Children.Add(row1)
         outer.Children.Add(row2)
+        outer.Children.Add(row3)
 
         ui_row = SheetTypeUIRow(sheet_type, outer, name_tb, level_cb, template_cb,
-                                include_view_cb, scale_tb)
+                                include_view_cb, scale_tb, view_family_cb,
+                                range_top_tb, range_cut_tb, range_bottom_tb, range_depth_tb)
         remove_b.Click += self._make_remove_handler(ui_row)
 
         self._sheet_type_rows.append(ui_row)
@@ -359,6 +448,13 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
                 st.view_template_id, st.view_template_name = self._templates[template_i - 1]
             st.include_view = bool(ui_row.include_view_cb.IsChecked)
             st.fixed_scale = _safe_scale(ui_row.scale_tb.Text)
+            vft_i = ui_row.view_family_cb.SelectedIndex
+            if 0 <= vft_i < len(self._view_family_types):
+                st.view_family_type_id, st.view_family_type_name = self._view_family_types[vft_i]
+            st.view_range_top = _safe_range_value(ui_row.range_top_tb.Text)
+            st.view_range_cut = _safe_range_value(ui_row.range_cut_tb.Text)
+            st.view_range_bottom = _safe_range_value(ui_row.range_bottom_tb.Text)
+            st.view_range_depth = _safe_range_value(ui_row.range_depth_tb.Text)
 
     def _sheet_types(self):
         return [ui_row.sheet_type for ui_row in self._sheet_type_rows]
@@ -399,6 +495,8 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
                 return
             self.number_template_tb.Text = preset.get("number_template", "")
             self.name_template_tb.Text = preset.get("name_template", "")
+            if preset.get("view_name_template"):
+                self.view_name_template_tb.Text = preset.get("view_name_template")
             self.status_tb.Text = "Loaded Naming Set '{0}'.".format(name)
         self._guard(run)
 
@@ -409,7 +507,8 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
                 forms.alert("Type a name for this Naming Set in the box first.", title=_TOOL)
                 return
             core.save_naming_preset(name, self.number_template_tb.Text or "",
-                                    self.name_template_tb.Text or "")
+                                    self.name_template_tb.Text or "",
+                                    self.view_name_template_tb.Text or "")
             self._refresh_naming_presets(select_name=name)
             self.status_tb.Text = "Saved Naming Set '{0}'.".format(name)
         self._guard(run)
@@ -456,10 +555,13 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
                 return
             number_template = (self.number_template_tb.Text or "").strip() or core.DEFAULT_NUMBER_TEMPLATE
             name_template = (self.name_template_tb.Text or "").strip() or core.DEFAULT_NAME_TEMPLATE
-            existing = core.existing_sheet_numbers(self.doc)
+            view_name_template = (self.view_name_template_tb.Text or "").strip() or core.DEFAULT_VIEW_NAME_TEMPLATE
+            existing_numbers = core.existing_sheet_numbers(self.doc)
+            existing_view_names = core.existing_view_names(self.doc)
             with _SafeProgress(title="DeeSheetLinks - building preview...", indeterminate=True):
                 self._plan = core.build_plan(selected_links, sheet_types, number_template,
-                                             name_template, existing)
+                                             name_template, existing_numbers,
+                                             view_name_template, existing_view_names)
             self.plan_grid.ItemsSource = None
             self.plan_grid.ItemsSource = self._plan
             ready = sum(1 for r in self._plan if r.status == core.STATUS_READY)
@@ -473,10 +575,11 @@ class DeeSheetLinksWindow(dee_branding.DeeBrandedWindow):
             if not self._plan:
                 forms.alert("Run Preview first (this page).", title=_TOOL)
                 return
-            # the grid lets Sheet Number/Name be hand-edited after
-            # Preview - re-check duplicate/blank/invalid against
+            # the grid lets Sheet Number/Name/View Name be hand-edited
+            # after Preview - re-check duplicate/blank/invalid against
             # whatever is CURRENTLY in the grid before trusting Ready.
-            core.revalidate_plan(self._plan, core.existing_sheet_numbers(self.doc))
+            core.revalidate_plan(self._plan, core.existing_sheet_numbers(self.doc),
+                                 core.existing_view_names(self.doc))
             self.plan_grid.Items.Refresh()
             ready = [r for r in self._plan if r.status == core.STATUS_READY]
             not_ready = len(self._plan) - len(ready)
