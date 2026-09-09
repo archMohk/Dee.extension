@@ -206,6 +206,12 @@ select{
 #ov .pin{fill:#2f6fd0;stroke:#fff;stroke-width:1.5;pointer-events:auto;cursor:pointer}
 #ov .pinno{fill:#fff;font:600 10px system-ui,sans-serif;text-anchor:middle;
            dominant-baseline:central;pointer-events:none}
+#ov .selbox{stroke:var(--ok);stroke-width:1.4;fill:none;opacity:.9}
+#ov .boxline{stroke:var(--accent);stroke-width:1.6;fill:none}
+#ov .handle{fill:var(--accent);stroke:#fff;stroke-width:1.5;pointer-events:auto;cursor:pointer}
+#ov .handle:hover{fill:#fff;stroke:var(--accent)}
+#ov .handle.move{fill:#2f6fd0}
+#ov .handle.move:hover{fill:#fff;stroke:#2f6fd0}
 
 /* ---------- measurement readout ---------- */
 #meas{
@@ -219,6 +225,19 @@ select{
 #meas .sub{font-size:11px;color:var(--dim);margin-top:2px}
 #meas .hint{font-size:11px;color:var(--dim);margin-top:4px}
 #meas .mini{margin-top:7px;margin-bottom:0}
+
+/* ---------- multi-select readout ---------- */
+#msel{
+  position:fixed;right:8px;z-index:27;bottom:calc(56px + env(safe-area-inset-bottom));
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  box-shadow:var(--shadow);backdrop-filter:blur(10px);padding:8px 10px;display:none;
+  max-width:min(230px,calc(100% - 16px))
+}
+#msel.show{display:block}
+#msel .big{font-size:14px;font-weight:600;color:var(--ok)}
+#msel .sub{font-size:11px;color:var(--dim);margin-top:2px}
+#msel .mini{margin-top:7px;margin-bottom:0;flex-wrap:wrap}
+#msel .mini button{flex:1 1 auto;min-width:56px}
 
 /* ---------- note editor ---------- */
 #noteed{
@@ -255,6 +274,8 @@ select{
   }
   #info .bd{max-height:36vh}
   #bot button{min-width:46px;padding:0 9px;font-size:11.5px}
+  #msel{right:6px;max-width:150px;padding:6px 8px}
+  #msel .mini button{min-width:44px;font-size:10.5px;padding:0 4px}
 }
 </style>
 </head>
@@ -340,9 +361,39 @@ select{
       <div class="note">Viewpoints and comments are saved in this browser only. To send them to someone else, use Copy all and paste the text into a message.</div>
     </div>
     <div class="sec">
+      <h4>Selection</h4>
+      <div class="note" style="margin:0 0 6px">Turn on <b>Select</b> in the bottom bar and tap
+        elements to add or remove them from the set below - or Ctrl/Cmd-click any element without
+        turning it on. Selected elements outline in green.</div>
+      <div class="now" id="ms_count">0 elements selected</div>
+      <div class="mini" style="margin-top:6px">
+        <button id="ms_iso">Isolate</button>
+        <button id="ms_hide">Hide</button>
+        <button id="ms_clear">Clear</button>
+      </div>
+      <div class="mini"><button id="ms_box">Section box around selection</button></div>
+      <div style="border-top:1px dashed var(--line);margin-top:10px;padding-top:8px">
+        <h4 style="margin:0 0 6px">Select by parameter</h4>
+        <select id="pm_name"></select>
+        <select id="pm_val" style="margin-top:6px"></select>
+        <div class="mini" style="margin-top:6px">
+          <button id="pm_select">Select matching</button>
+          <button id="pm_iso">Isolate matching</button>
+        </div>
+        <div class="note" id="pm_note" style="display:none">This file was exported without
+          element parameters, so only Category, Family, Type and Level can be used here.</div>
+      </div>
+    </div>
+    <div class="sec">
       <h4>Section box</h4>
       <div id="clips"></div>
-      <div class="mini" style="margin-top:6px"><button id="clip_reset">Reset section</button></div>
+      <div class="mini" style="margin-top:6px">
+        <button id="clip_edit">Edit box</button>
+        <button id="clip_reset">Reset section</button>
+      </div>
+      <div class="note" id="clip_note" style="display:none">Drag an orange square to push in
+        just that side, or the blue dot to move the whole box. Tap Edit box again to hide the
+        handles.</div>
     </div>
     <div class="sec">
       <h4>Model</h4>
@@ -372,6 +423,7 @@ select{
   <button id="v_left">Left</button>
   <button id="v_right">Right</button>
   <div class="sep"></div>
+  <button id="t_select">Select</button>
   <button id="t_dist">Measure</button>
   <button id="t_angle">Angle</button>
   <button id="t_note">Comment</button>
@@ -386,6 +438,17 @@ select{
   <div class="mini">
     <button id="m_undo">Undo point</button>
     <button id="m_clear">Clear all</button>
+  </div>
+</div>
+
+<div id="msel">
+  <div class="big" id="ms_big">0 selected</div>
+  <div class="sub" id="ms_sub">Tap elements to add or remove them</div>
+  <div class="mini">
+    <button id="ms2_iso">Isolate</button>
+    <button id="ms2_hide">Hide</button>
+    <button id="ms2_box">Box</button>
+    <button id="ms2_clear">Clear</button>
   </div>
 </div>
 
@@ -410,6 +473,8 @@ select{
   <p><b>Select</b> an element to read its category, family, type and level, then <b>Isolate</b> it or <b>Hide</b> it.</p>
   <p><b>Measure</b> / <b>Angle</b> &mdash; tap points on the model. It snaps to corners, and shows the straight distance plus the X, Y and Z differences.</p>
   <p><b>Comment</b> &mdash; tap a spot to pin a note to it. Notes and saved viewpoints are kept in this browser; use <b>Copy all</b> in the menu to send them to someone else.</p>
+  <p><b>Select</b> (in the toolbar) or <b>Ctrl/Cmd-click</b> &mdash; build up a set of several elements, shown outlined in green. In the menu's <b>Selection</b> section, isolate or hide the whole set, fit a section box around it, or pick everything sharing a category, family, type, level or parameter value.</p>
+  <p><b>Section box</b> (in the menu) &mdash; drag the sliders, or press <b>Edit box</b> to drag a visible box in 3D: the orange squares push in one side at a time, the blue dot moves the whole box.</p>
   <p><b>View</b> (in the menu) &mdash; switch between perspective and isometric, set the lens angle and the exact turn and height, choose the measuring units, and make the whole model or single categories see-through. The keyplan in the corner shows where you are looking from.</p>
   <p><b>Reset all</b> puts every category, every hidden element and the section box back to how the file opened.</p>
   <p style="margin-top:10px">This file works with no internet connection. It can be copied, emailed or shared like any other file.</p>
@@ -611,6 +676,15 @@ var GHOST = 0.22;                 /* how faint a ghosted category is     */
 var ghostActive = false;          /* set by refreshVisibility            */
 var lastMVP = null;               /* so the overlay projects exactly     */
 var nav = { zoom: 1.0, invert: false, cursor: true, move: 1.0, pivot: true };
+
+/* multi-select: a second, additive selection set alongside the single
+   selElem/selPart pair above. Feeds Isolate/Hide/Section-box actions and
+   the "select by parameter" panel. null means empty, same convention as
+   isoSet. */
+var multiSel = null;
+var selectMode = false;           /* "Select" toolbar button armed       */
+var boxEdit = false;              /* section-box gizmo (wireframe+handles) shown */
+var boxDrag = null;               /* active drag on a gizmo handle        */
 
 /* clientWidth/Height go to ZERO whenever the canvas is momentarily not
    laid out - a hidden pane, a background tab, mid-transition. Falling
@@ -1201,7 +1275,7 @@ function wireInput(){
     cv.className = "";
     if (wasClick && b === 0){
       var r = cv.getBoundingClientRect();
-      onTap(e.clientX - r.left, e.clientY - r.top);
+      onTap(e.clientX - r.left, e.clientY - r.top, e.ctrlKey || e.metaKey);
     }
   });
   on(cv, "contextmenu", function(e){ e.preventDefault(); });
@@ -1268,7 +1342,7 @@ function wireInput(){
     if (tPrev && tPrev.n === 1 && tMoved < 12 && (Date.now() - tStart) < 350){
       var r = cv.getBoundingClientRect();
       var t = e.changedTouches[0];
-      onTap(t.clientX - r.left, t.clientY - r.top);
+      onTap(t.clientX - r.left, t.clientY - r.top, false);
     }
     if (e.touches.length === 0) tPrev = null;
   });
@@ -1351,6 +1425,363 @@ function zoomSel(){
 }
 
 /* ==================================================================
+   multi-select - an additive set alongside the single selElem/selPart
+   pair above. Feeds Isolate/Hide/Section-box actions and the "select by
+   parameter" panel.
+   ================================================================== */
+function multiCount(){
+  if (!multiSel) return 0;
+  var n = 0;
+  for (var i = 0; i < multiSel.length; i++) if (multiSel[i]) n++;
+  return n;
+}
+function toggleMultiSel(part){
+  if (part < 0 || part >= nParts) return;
+  var e = parts[part*4];
+  if (!multiSel) multiSel = new Uint8Array(els.length);
+  multiSel[e] = multiSel[e] ? 0 : 1;
+  updateMselPanel();
+  invalidate();
+}
+function clearMultiSel(){
+  multiSel = null;
+  updateMselPanel();
+  invalidate();
+}
+function isolateMulti(){
+  var n = multiCount();
+  if (!n){ toast("Nothing selected"); return; }
+  isoSet = new Uint8Array(els.length);
+  for (var i = 0; i < multiSel.length; i++) if (multiSel[i]) isoSet[i] = 1;
+  refreshVisibility();
+  toast("Isolated " + n + " element(s)");
+}
+function hideMulti(){
+  var n = multiCount();
+  if (!n){ toast("Nothing selected"); return; }
+  for (var i = 0; i < multiSel.length; i++) if (multiSel[i]) elHidden[i] = 1;
+  refreshVisibility();
+  toast("Hid " + n + " element(s)");
+}
+function boxAroundSelection(){
+  var n = multiCount();
+  if (!n){ toast("Select elements first"); return; }
+  if (!ebox){ toast("No bounds stored"); return; }
+  var lo = [1e30,1e30,1e30], hi = [-1e30,-1e30,-1e30], any = false;
+  for (var e = 0; e < multiSel.length; e++){
+    if (!multiSel[e]) continue;
+    var o = e * 6;
+    if (!(ebox[o+3] >= ebox[o])) continue;
+    any = true;
+    for (var k = 0; k < 3; k++){
+      if (ebox[o+k]   < lo[k]) lo[k] = ebox[o+k];
+      if (ebox[o+3+k] > hi[k]) hi[k] = ebox[o+3+k];
+    }
+  }
+  if (!any){ toast("No geometry in the selection"); return; }
+  var pad = diag * 0.01;
+  for (var k2 = 0; k2 < 3; k2++){ lo[k2] -= pad; hi[k2] += pad; }
+  for (var k3 = 0; k3 < 3; k3++){
+    var span = (bmax[k3] - bmin[k3]) || 1;
+    clip[k3]   = (lo[k3] - bmin[k3]) / span;
+    clip[k3+3] = (hi[k3] - bmin[k3]) / span;
+  }
+  syncClipInputs();
+  setBoxEdit(true);
+  invalidate();
+  toast("Section box fitted to " + n + " element(s)");
+}
+
+/* ---------- select / isolate by parameter ----------
+   Category/Family/Type/Level ride along on every element for free (they
+   are already part of els[]); anything past that only exists if the
+   export had "Include element parameters" checked, in DATA.prm. */
+var BUILTIN_PARAMS = ["Category", "Family", "Type", "Level"];
+function builtinValue(e, name){
+  var el = els[e];
+  if (!el) return "";
+  if (name === "Category") return S(el[0]);
+  if (name === "Family")   return S(el[1]);
+  if (name === "Type")     return S(el[2]);
+  if (name === "Level")    return S(el[3]);
+  return "";
+}
+function paramNames(){
+  var out = BUILTIN_PARAMS.slice(), seen = {}, i;
+  for (i = 0; i < out.length; i++) seen[out[i]] = 1;
+  if (DATA.prm){
+    for (var k in DATA.prm){
+      var arr = DATA.prm[k];
+      for (i = 0; i < arr.length; i++){
+        var n = S(arr[i][0]);
+        if (n && !seen[n]){ seen[n] = 1; out.push(n); }
+      }
+    }
+  }
+  return out;
+}
+function paramValues(name){
+  var out = [], seen = {}, i;
+  if (BUILTIN_PARAMS.indexOf(name) >= 0){
+    for (i = 0; i < els.length; i++){
+      var v = builtinValue(i, name);
+      if (v && !seen[v]){ seen[v] = 1; out.push(v); }
+    }
+  } else if (DATA.prm){
+    for (var k in DATA.prm){
+      var arr = DATA.prm[k];
+      for (i = 0; i < arr.length; i++){
+        if (S(arr[i][0]) !== name) continue;
+        var v2 = S(arr[i][1]);
+        if (v2 && !seen[v2]){ seen[v2] = 1; out.push(v2); }
+      }
+    }
+  }
+  out.sort();
+  return out;
+}
+function elementsMatchingParam(name, value){
+  var out = [], i;
+  if (BUILTIN_PARAMS.indexOf(name) >= 0){
+    for (i = 0; i < els.length; i++) if (builtinValue(i, name) === value) out.push(i);
+  } else if (DATA.prm){
+    for (var k in DATA.prm){
+      var arr = DATA.prm[k];
+      for (i = 0; i < arr.length; i++){
+        if (S(arr[i][0]) === name && S(arr[i][1]) === value){ out.push(parseInt(k, 10)); break; }
+      }
+    }
+  }
+  return out;
+}
+function buildParamPanel(){
+  var names = paramNames();
+  var nameSel = $("pm_name");
+  nameSel.innerHTML = names.map(function(n){ return '<option>' + esc(n) + '</option>'; }).join("");
+  $("pm_note").style.display = DATA.prm ? "none" : "block";
+  function refreshValues(){
+    var vals = paramValues(nameSel.value);
+    $("pm_val").innerHTML = vals.length
+      ? vals.map(function(v){ return '<option>' + esc(v) + '</option>'; }).join("")
+      : '<option value="">(no values)</option>';
+  }
+  on(nameSel, "change", refreshValues);
+  refreshValues();
+}
+function selectByParam(isolate){
+  var name = $("pm_name").value, value = $("pm_val").value;
+  if (!name || !value){ toast("Pick a parameter and a value"); return; }
+  var matches = elementsMatchingParam(name, value);
+  if (!matches.length){ toast("Nothing matches"); return; }
+  if (isolate){
+    isoSet = new Uint8Array(els.length);
+    for (var i = 0; i < matches.length; i++) isoSet[matches[i]] = 1;
+    refreshVisibility();
+    toast("Isolated " + matches.length + " element(s)");
+  } else {
+    multiSel = new Uint8Array(els.length);
+    for (var j = 0; j < matches.length; j++) multiSel[matches[j]] = 1;
+    updateMselPanel();
+    invalidate();
+    toast("Selected " + matches.length + " element(s)");
+  }
+}
+
+function updateMselPanel(){
+  var n = multiCount();
+  var show = selectMode || n > 0;
+  $("msel").className = show ? "show" : "";
+  $("ms_count").textContent = n + " element" + (n === 1 ? "" : "s") + " selected";
+  $("ms_big").textContent = n + " selected";
+  $("ms_sub").textContent = selectMode ? "Tap elements to add or remove them" : "Select mode is off";
+}
+
+function setSelectMode(on2){
+  selectMode = on2;
+  if (selectMode && tool) setTool(null);
+  $("t_select").className = selectMode ? "on" : "";
+  $("gl").style.cursor = selectMode ? "crosshair" : (tool ? "crosshair" : "");
+  updateMselPanel();
+  if (selectMode) toast("Select mode - tap elements to add or remove them");
+}
+
+/* ==================================================================
+   section box gizmo - a visible, draggable wireframe over the existing
+   clip[] slider mechanism. The box IS the section box already used for
+   clipping; this only adds an on-screen handle to move it without the
+   drawer's sliders.
+   ================================================================== */
+function setBoxEdit(on2){
+  boxEdit = on2;
+  $("clip_edit").className = boxEdit ? "on" : "";
+  $("clip_note").style.display = boxEdit ? "block" : "none";
+  invalidate();
+}
+var BOX_FACES = [
+  { axis:0, isMax:false }, { axis:0, isMax:true },
+  { axis:1, isMax:false }, { axis:1, isMax:true },
+  { axis:2, isMax:false }, { axis:2, isMax:true }
+];
+function boxFacePoint(cb, f){
+  var p = [ (cb.min[0]+cb.max[0])/2, (cb.min[1]+cb.max[1])/2, (cb.min[2]+cb.max[2])/2 ];
+  p[f.axis] = f.isMax ? cb.max[f.axis] : cb.min[f.axis];
+  return p;
+}
+function boxCenter(cb){
+  return [ (cb.min[0]+cb.max[0])/2, (cb.min[1]+cb.max[1])/2, (cb.min[2]+cb.max[2])/2 ];
+}
+function boxCorners(cb){
+  var c = [];
+  for (var i = 0; i < 8; i++){
+    c.push([ i&1 ? cb.max[0] : cb.min[0], i&2 ? cb.max[1] : cb.min[1], i&4 ? cb.max[2] : cb.min[2] ]);
+  }
+  return c;
+}
+var BOX_EDGES = [[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]];
+
+function svgBoxWireframe(){
+  var cb = clipBox(), out = "", i;
+  var corners = boxCorners(cb), scr = [];
+  for (i = 0; i < 8; i++){
+    var s = screenOf(corners[i]);
+    if (!s) return "";
+    scr.push(s);
+  }
+  for (i = 0; i < BOX_EDGES.length; i++){
+    out += '<line class="boxline" x1="' + scr[BOX_EDGES[i][0]].x + '" y1="' + scr[BOX_EDGES[i][0]].y +
+           '" x2="' + scr[BOX_EDGES[i][1]].x + '" y2="' + scr[BOX_EDGES[i][1]].y + '"/>';
+  }
+  for (i = 0; i < BOX_FACES.length; i++){
+    var fs = screenOf(boxFacePoint(cb, BOX_FACES[i]));
+    if (!fs) continue;
+    out += '<rect class="handle" data-h="' + i + '" x="' + (fs.x-6) + '" y="' + (fs.y-6) +
+           '" width="12" height="12"/>';
+  }
+  var cs = screenOf(boxCenter(cb));
+  if (cs) out += '<circle class="handle move" data-h="move" cx="' + cs.x + '" cy="' + cs.y + '" r="8"/>';
+  return out;
+}
+
+function svgMultiSelBoxes(){
+  if (!multiSel || !ebox) return "";
+  var out = "", drawn = 0, CAP = 400;
+  for (var e = 0; e < multiSel.length; e++){
+    if (!multiSel[e]) continue;
+    var o = e * 6;
+    if (!(ebox[o+3] >= ebox[o])) continue;
+    if (drawn >= CAP) break;
+    drawn++;
+    var cb = { min:[ebox[o],ebox[o+1],ebox[o+2]], max:[ebox[o+3],ebox[o+4],ebox[o+5]] };
+    var corners = boxCorners(cb), scr = [], ok = true, i;
+    for (i = 0; i < 8; i++){
+      var s = screenOf(corners[i]);
+      if (!s){ ok = false; break; }
+      scr.push(s);
+    }
+    if (!ok) continue;
+    for (i = 0; i < BOX_EDGES.length; i++){
+      out += '<line class="selbox" x1="' + scr[BOX_EDGES[i][0]].x + '" y1="' + scr[BOX_EDGES[i][0]].y +
+             '" x2="' + scr[BOX_EDGES[i][1]].x + '" y2="' + scr[BOX_EDGES[i][1]].y + '"/>';
+    }
+  }
+  return out;
+}
+
+/* Screen-space axis-constrained drag: how far a point at pos moves on
+   screen for one unit of world movement along axisVec tells us how
+   many world units the mouse's own screen delta is worth, without
+   caring whether the camera is in perspective or isometric. */
+function screenPerWorld(pos, axisVec){
+  var eps = (diag || 1) * 0.01;
+  var p0 = screenOf(pos);
+  var p1 = screenOf([pos[0]+axisVec[0]*eps, pos[1]+axisVec[1]*eps, pos[2]+axisVec[2]*eps]);
+  if (!p0 || !p1) return null;
+  return { dx:(p1.x-p0.x)/eps, dy:(p1.y-p0.y)/eps };
+}
+
+function gizmoHandleAt(el){
+  if (!el || !el.getAttribute) return null;
+  var h = el.getAttribute("data-h");
+  return h === null ? null : h;
+}
+
+function startGizmoDrag(h, clientX, clientY){
+  boxDrag = { h:h, lastX:clientX, lastY:clientY };
+}
+
+function gizmoDragMove(clientX, clientY){
+  if (!boxDrag) return;
+  var dx = clientX - boxDrag.lastX, dy = clientY - boxDrag.lastY;
+  boxDrag.lastX = clientX; boxDrag.lastY = clientY;
+  if (!dx && !dy) return;
+  var cb = clipBox();
+  if (boxDrag.h === "move"){
+    var c = boxCenter(cb);
+    var axes = [[1,0,0],[0,1,0],[0,0,1]];
+    for (var a = 0; a < 3; a++){
+      var spw = screenPerWorld(c, axes[a]);
+      if (!spw) continue;
+      var len2 = spw.dx*spw.dx + spw.dy*spw.dy;
+      if (len2 < 1e-9) continue;
+      var worldDelta = (dx*spw.dx + dy*spw.dy) / len2;
+      var span = (bmax[a] - bmin[a]) || 1;
+      var norm = worldDelta / span;
+      setClip(a, clip[a] + norm);
+      setClip(a+3, clip[a+3] + norm);
+    }
+  } else {
+    var fi = parseInt(boxDrag.h, 10);
+    var f = BOX_FACES[fi];
+    if (!f) return;
+    var pos = boxFacePoint(cb, f);
+    var axisVec = [0,0,0]; axisVec[f.axis] = 1;
+    var spw2 = screenPerWorld(pos, axisVec);
+    if (!spw2) return;
+    var len2b = spw2.dx*spw2.dx + spw2.dy*spw2.dy;
+    if (len2b < 1e-9) return;
+    var worldDelta2 = (dx*spw2.dx + dy*spw2.dy) / len2b;
+    var span2 = (bmax[f.axis] - bmin[f.axis]) || 1;
+    var norm2 = worldDelta2 / span2;
+    var k = f.axis + (f.isMax ? 3 : 0);
+    setClip(k, clip[k] + norm2);
+  }
+  invalidate();
+}
+
+function endGizmoDrag(){
+  boxDrag = null;
+}
+
+function wireBoxGizmo(){
+  var svg = $("ov");
+  on(svg, "mousedown", function(e){
+    var h = gizmoHandleAt(e.target);
+    if (h === null) return;
+    e.preventDefault();
+    startGizmoDrag(h, e.clientX, e.clientY);
+  });
+  on(window, "mousemove", function(e){
+    if (!boxDrag) return;
+    gizmoDragMove(e.clientX, e.clientY);
+  });
+  on(window, "mouseup", function(){ endGizmoDrag(); });
+  on(svg, "touchstart", function(e){
+    var h = gizmoHandleAt(e.target);
+    if (h === null) return;
+    e.preventDefault();
+    var t = e.touches[0];
+    startGizmoDrag(h, t.clientX, t.clientY);
+  }, { passive:false });
+  on(svg, "touchmove", function(e){
+    if (!boxDrag) return;
+    e.preventDefault();
+    var t = e.touches[0];
+    gizmoDragMove(t.clientX, t.clientY);
+  }, { passive:false });
+  on(svg, "touchend", function(){ endGizmoDrag(); });
+}
+
+/* ==================================================================
    drawer contents
    ================================================================== */
 function buildCats(){
@@ -1393,6 +1824,33 @@ function setAllCats(v){
 }
 
 var AXES = ["X", "Y", "Z"];
+
+/* Keep a sliver between min and max on each axis. Letting them meet is
+   worse than it sounds: the model vanishes completely and nothing on
+   screen explains why, so it reads as the file being broken rather than
+   as the section box being shut. Values are deliberately allowed to sit
+   slightly outside 0..1 - clipBox() interpolates, so that just means
+   "past the edge of the model" - while the slider itself still shows an
+   in-range position. Shared by the drawer sliders and the 3D drag
+   handles so the two can never disagree about where the limit is. */
+var CLIP_GAP = 0.012;
+function setClip(k, v){
+  if (k < 3){
+    if (v > clip[k+3] - CLIP_GAP) v = clip[k+3] - CLIP_GAP;
+  } else {
+    if (v < clip[k-3] + CLIP_GAP) v = clip[k-3] + CLIP_GAP;
+  }
+  clip[k] = v;
+  var input = $("clips").querySelector('input[data-k="' + k + '"]');
+  if (input) input.value = Math.round(Math.max(0, Math.min(1, clip[k])) * 1000);
+}
+function syncClipInputs(){
+  var rs = $("clips").querySelectorAll("input");
+  for (var i = 0; i < rs.length; i++){
+    var k = parseInt(rs[i].getAttribute("data-k"), 10);
+    rs[i].value = Math.round(Math.max(0, Math.min(1, clip[k])) * 1000);
+  }
+}
 function buildClips(){
   var html = "";
   for (var a = 0; a < 3; a++){
@@ -1407,21 +1865,7 @@ function buildClips(){
   for (var i = 0; i < rs.length; i++){
     on(rs[i], "input", function(ev){
       var k = parseInt(ev.target.getAttribute("data-k"), 10);
-      clip[k] = parseInt(ev.target.value, 10) / 1000;
-      /* Keep a sliver between min and max on each axis. Letting them
-         meet is worse than it sounds: the model vanishes completely and
-         nothing on screen explains why, so it reads as the file being
-         broken rather than as the section box being shut. Values are
-         deliberately allowed to sit slightly outside 0..1 - clipBox()
-         interpolates, so that just means "past the edge of the model" -
-         while the slider itself still shows an in-range position. */
-      var GAP = 0.012;
-      if (k < 3){
-        if (clip[k] > clip[k+3] - GAP) clip[k] = clip[k+3] - GAP;
-      } else {
-        if (clip[k] < clip[k-3] + GAP) clip[k] = clip[k-3] + GAP;
-      }
-      ev.target.value = Math.round(Math.max(0, Math.min(1, clip[k])) * 1000);
+      setClip(k, parseInt(ev.target.value, 10) / 1000);
       invalidate();
     });
   }
@@ -1510,6 +1954,9 @@ function resetAll(){
   isoSet = null;
   resetClip();
   clearSel();
+  clearMultiSel();
+  setSelectMode(false);
+  setBoxEdit(false);
   refreshVisibility();
   fitAll();
   toast("Everything restored");
@@ -1546,11 +1993,27 @@ function wireUI(){
   on($("c_all"), "click", function(){ setAllCats(true); });
   on($("c_none"), "click", function(){ setAllCats(false); });
   on($("clip_reset"), "click", resetClip);
+  on($("clip_edit"), "click", function(){ setBoxEdit(!boxEdit); });
 
   on($("i_close"), "click", clearSel);
   on($("i_hide"), "click", hideSel);
   on($("i_iso"), "click", isolateSel);
   on($("i_zoom"), "click", zoomSel);
+
+  on($("t_select"), "click", function(){ setSelectMode(!selectMode); });
+  on($("ms_iso"), "click", isolateMulti);
+  on($("ms_hide"), "click", hideMulti);
+  on($("ms_clear"), "click", clearMultiSel);
+  on($("ms_box"), "click", boxAroundSelection);
+  on($("ms2_iso"), "click", isolateMulti);
+  on($("ms2_hide"), "click", hideMulti);
+  on($("ms2_clear"), "click", clearMultiSel);
+  on($("ms2_box"), "click", boxAroundSelection);
+  on($("pm_select"), "click", function(){ selectByParam(false); });
+  on($("pm_iso"), "click", function(){ selectByParam(true); });
+  buildParamPanel();
+  updateMselPanel();
+  wireBoxGizmo();
 
   var qEl = $("q"), qT = null;
   on(qEl, "input", function(){
@@ -1705,6 +2168,7 @@ function angleAt(v, a, b){
 function setTool(next){
   tool = (tool === next) ? null : next;
   mPts = []; mHover = null;
+  if (tool && selectMode) setSelectMode(false);
   $("t_dist").className = tool === "dist" ? "on" : "";
   $("t_angle").className = tool === "angle" ? "on" : "";
   $("t_note").className = tool === "note" ? "on" : "";
@@ -1716,7 +2180,8 @@ function setTool(next){
   else if (tool === "note") toast("Tap the spot you want to comment on");
 }
 
-function onTap(x, y){
+function onTap(x, y, multiMod){
+  if (selectMode || multiMod){ toggleMultiSel(pickAt(x, y)); return; }
   if (!tool){ select(pickAt(x, y)); return; }
   var hit = pickSurface(x, y);
   if (!hit){ toast("Nothing there - tap on the model"); return; }
@@ -1818,6 +2283,8 @@ function updateOverlay(){
              '" cy="' + s.y + '" r="11"/>' +
              '<text class="pinno" x="' + s.x + '" y="' + s.y + '">' + (i+1) + "</text>");
   }
+  out.push(svgMultiSelBoxes());
+  if (boxEdit) out.push(svgBoxWireframe());
   svg.innerHTML = out.join("");
 }
 
@@ -2186,6 +2653,7 @@ function wireKeys(){
     else if (k === "m") setTool(tool === "dist" ? null : "dist");
     else if (k === "escape"){
       if (tool){ setTool(null); }
+      else if (selectMode || multiCount()){ setSelectMode(false); clearMultiSel(); }
       else { clearSel(); isoSet = null; refreshVisibility(); }
     }
   });
