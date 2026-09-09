@@ -67,6 +67,7 @@
                             Orientation="Horizontal" Margin="0,10,0,0">
                     <CheckBox x:Name="links_cb" Content="Include linked models"
                               VerticalAlignment="Center"
+                              Checked="links_toggled" Unchecked="links_toggled"
                               ToolTip="Adds every loaded Revit link visible in this view. Much larger file, and slower to export."/>
                     <CheckBox x:Name="params_cb" Content="Include element parameters"
                               VerticalAlignment="Center" Margin="22,0,0,0"

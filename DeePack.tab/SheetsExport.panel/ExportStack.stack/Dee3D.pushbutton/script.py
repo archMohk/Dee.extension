@@ -193,6 +193,13 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
 
     # ---------------- categories ----------------
     def _load_categories(self):
+        """Rebuilds the category checklist from whatever the export will
+        actually read - the host view's elements, PLUS every linked
+        model's elements when 'Include linked models' is ticked. Getting
+        this out of step with build_scene()'s own source list is exactly
+        how a whole link can go missing from the export: any category
+        that only exists in a link never makes it onto the allow-list,
+        so build_scene() silently drops every element of it."""
         view = self._selected_view()
         if view is None:
             self.cats_grid.ItemsSource = None
@@ -201,13 +208,32 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
             return
         self.status_tb.Text = "Reading what '{0}' shows...".format(core.element_name(view))
         elements = core.collect_view_elements(self.doc, view)
+        label = "'{0}'".format(core.element_name(view))
+        if self.links_cb.IsChecked is True:
+            elements = elements + core.collect_link_elements(self.doc, view)
+            label += " plus its linked models"
+
+        # A category toggle the user already set is kept across a
+        # refresh (e.g. ticking "Include linked models" on an otherwise
+        # unchanged view) - only a category that is genuinely new starts
+        # included, matching what the checkbox itself just promised.
+        prev_included = dict((r.name, r.included) for r in self._cat_rows)
         self._cat_rows = [CategoryRow(name, count)
                           for name, count in core.categories_of(elements)]
+        for row in self._cat_rows:
+            if row.name in prev_included:
+                row.included = prev_included[row.name]
+
         self.cats_grid.ItemsSource = None
         self.cats_grid.ItemsSource = self._cat_rows
         self._update_counts()
-        self.status_tb.Text = "'{0}' shows {1} model element(s) across {2} categor(y/ies).".format(
-            core.element_name(view), len(elements), len(self._cat_rows))
+        self.status_tb.Text = "{0} shows {1} model element(s) across {2} categor(y/ies).".format(
+            label, len(elements), len(self._cat_rows))
+
+    def links_toggled(self, sender, args):
+        if not self._ready:
+            return
+        self._guard(self._load_categories)
 
     def _update_counts(self):
         on = [r for r in self._cat_rows if r.included]

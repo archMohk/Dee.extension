@@ -456,6 +456,26 @@ def collect_link_sources(doc, view):
     return out
 
 
+def collect_link_elements(doc, view):
+    """Every model element build_scene() would tessellate from linked
+    documents, pooled flat across all visible links. Exists so the
+    pre-export category checklist can be built from the SAME set the
+    actual export uses - previously it only ever scanned the host model,
+    so any category that only existed in a link (a common case: a
+    structural/MEP link with categories the architectural host does not
+    have) was silently excluded from the allow-list and the whole link
+    could vanish from the export with no warning."""
+    out = []
+    for _name, link_doc, _xf in collect_link_sources(doc, view):
+        try:
+            for el in FilteredElementCollector(link_doc).WhereElementIsNotElementType():
+                if _is_model_element(el):
+                    out.append(el)
+        except Exception:
+            continue
+    return out
+
+
 # ==========================================================================
 # colours
 # ==========================================================================
