@@ -1,0 +1,3 @@
+title: DeeMAPLink
+tooltip: Scans an ACC project or a local folder for worksharing Revit files, lets you build a many-to-many link map between two lists of them (tick sources, tick targets, Add Match), then links and synchronizes every host with no file open by hand. Like DeeSuperLINK, but source can be ACC or Local and matching is fully many-to-many.
+context: zero-doc
