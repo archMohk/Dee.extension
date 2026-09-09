@@ -71,6 +71,7 @@ body{
 #bot button:active{background:var(--accent);color:#fff;border-color:var(--accent)}
 #bot .sep{flex:none;width:1px;background:var(--line);margin:2px 3px}
 #bot button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+#bot .bic{display:inline-block;margin-right:5px;font-size:13px;vertical-align:-1px}
 
 /* ---------- drawer ---------- */
 #drawer{
@@ -371,6 +372,10 @@ select{
         - on the model or in empty space - to fire a ray outward in all six directions
         (+X/-X, +Y/-Y, +Z/-Z) and read the distance to the nearest face each one hits.</div>
       <div id="lz_list"></div>
+      <div class="mini" style="margin-top:6px">
+        <button id="lz_delete">Delete this probe</button>
+        <button id="lz_clear">Clear all probes</button>
+      </div>
     </div>
     <div class="sec">
       <h4>Selection</h4>
@@ -426,22 +431,22 @@ select{
 </div>
 
 <div id="bot">
-  <button id="v_fit">Fit</button>
+  <button id="v_fit"><span class="bic">&#9974;</span>Fit</button>
   <div class="sep"></div>
-  <button id="v_iso3">Iso</button>
-  <button id="v_top">Top</button>
-  <button id="v_front">Front</button>
-  <button id="v_back">Back</button>
-  <button id="v_left">Left</button>
-  <button id="v_right">Right</button>
+  <button id="v_iso3"><span class="bic">&#11041;</span>Iso</button>
+  <button id="v_top"><span class="bic">&#8857;</span>Top</button>
+  <button id="v_front"><span class="bic">&#8595;</span>Front</button>
+  <button id="v_back"><span class="bic">&#8593;</span>Back</button>
+  <button id="v_left"><span class="bic">&#8592;</span>Left</button>
+  <button id="v_right"><span class="bic">&#8594;</span>Right</button>
   <div class="sep"></div>
-  <button id="t_select">Select</button>
-  <button id="t_dist">Measure</button>
-  <button id="t_angle">Angle</button>
-  <button id="t_note">Comment</button>
-  <button id="t_laser">Laser</button>
+  <button id="t_select"><span class="bic">&#9745;</span>Select</button>
+  <button id="t_dist"><span class="bic">&#8596;</span>Measure</button>
+  <button id="t_angle"><span class="bic">&#8736;</span>Angle</button>
+  <button id="t_note"><span class="bic">&#9998;</span>Comment</button>
+  <button id="t_laser"><span class="bic">&#9046;</span>Laser</button>
   <div class="sep"></div>
-  <button id="v_reset">Reset all</button>
+  <button id="v_reset"><span class="bic">&#8634;</span>Reset all</button>
 </div>
 
 <div id="meas">
@@ -2031,6 +2036,8 @@ function wireUI(){
   on($("ms2_box"), "click", boxAroundSelection);
   on($("pm_select"), "click", function(){ selectByParam(false); });
   on($("pm_iso"), "click", function(){ selectByParam(true); });
+  on($("lz_delete"), "click", deleteActiveLaser);
+  on($("lz_clear"), "click", clearAllLasers);
   buildParamPanel();
   updateMselPanel();
   wireBoxGizmo();
@@ -2550,6 +2557,26 @@ function buildNotes(){
 }
 
 /* ---------- laser rays ---------- */
+function deleteLaser(id){
+  for (var k = 0; k < lasers.length; k++){
+    if (lasers[k].id === id){ lasers.splice(k, 1); break; }
+  }
+  if (activeLaser === id) activeLaser = lasers.length ? lasers[lasers.length-1].id : null;
+  persist(); buildLasers(); invalidate();
+}
+function deleteActiveLaser(){
+  if (!activeLaser){ toast("No probe selected - tap one in the list first"); return; }
+  deleteLaser(activeLaser);
+  toast("Laser probe deleted");
+}
+function clearAllLasers(){
+  if (!lasers.length){ toast("No probes to clear"); return; }
+  lasers = [];
+  activeLaser = null;
+  persist(); buildLasers(); invalidate();
+  toast("All laser probes cleared");
+}
+
 function buildLasers(){
   var host = $("lz_list");
   if (!lasers.length){
@@ -2565,7 +2592,7 @@ function buildLasers(){
             '<span class="nm">' + (i+1) + ". " +
             (sumText ? esc(sumText) + "<br>" : "") +
             n + "/6 hit<br><span>" + esc(l.d) + "</span></span>" +
-            '<span class="ct" data-del="' + l.id + '">&times;</span></div>';
+            '<span class="ct" data-del="' + l.id + '" title="Delete this probe">&times;</span></div>';
   }
   host.innerHTML = html;
   var rows = host.querySelectorAll(".row");
@@ -2573,15 +2600,9 @@ function buildLasers(){
     on(rows[i], "click", function(ev){
       var del = ev.target.getAttribute("data-del");
       var id = del || ev.currentTarget.getAttribute("data-lz");
-      var k;
-      if (del){
-        for (k = 0; k < lasers.length; k++) if (lasers[k].id === id){ lasers.splice(k, 1); break; }
-        if (activeLaser === id) activeLaser = lasers.length ? lasers[lasers.length-1].id : null;
-        persist(); buildLasers(); invalidate(); toast("Laser probe deleted");
-        return;
-      }
+      if (del){ deleteLaser(id); toast("Laser probe deleted"); return; }
       activeLaser = id;
-      for (k = 0; k < lasers.length; k++){
+      for (var k = 0; k < lasers.length; k++){
         if (lasers[k].id === id){ frame({ min:lasers[k].p, max:lasers[k].p }); break; }
       }
       buildLasers(); invalidate();
