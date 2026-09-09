@@ -437,6 +437,11 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
                 "At {0:,} triangles this will open on a PC but may be slow or run out of "
                 "memory on an older phone. Re-exporting at Coarse quality, or with fewer "
                 "categories, gives a much lighter file.".format(scene.triangles))
+        if options["include_links"] and len(scene.sources) <= 1:
+            warn.append(
+                "Include linked models was ticked, but no linked model was found visible in "
+                "this view. Check every link you need is Loaded (not just present in Manage "
+                "Links), and is not turned off by Visibility/Graphics or a workset filter.")
 
         self.status_tb.Text = "Exported {0} - {1}, {2} elements, {3} triangles.".format(
             os.path.basename(out_path), core.human_size(size),
@@ -458,6 +463,31 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
             html += ('<tr><td style="padding:3px 14px 3px 0;color:#888;">{0}</td>'
                      '<td style="padding:3px 0;"><b>{1}</b></td></tr>'.format(key, value))
         html += "</table>"
+
+        # Where every element actually came from - the one thing that
+        # turns "a link's content did not show up" from a mystery into
+        # something visible right after the export finishes, instead of
+        # only discoverable by opening the file and counting by eye.
+        if len(scene.sources) > 1:
+            html += ('<h3 style="font-family:sans-serif;font-size:13px;margin:12px 0 4px;">'
+                     'Where each element came from</h3>'
+                     '<table style="font-family:sans-serif;font-size:12px;border-collapse:collapse;">'
+                     '<tr><td style="padding:2px 14px 2px 0;color:#888;">Source</td>'
+                     '<td style="padding:2px 14px 2px 0;color:#888;">Found</td>'
+                     '<td style="padding:2px 0;color:#888;">Exported</td></tr>')
+            for label, found, exported in scene.sources:
+                note = ""
+                if found == 0:
+                    note = ' <span style="color:#c62828;">(nothing found here)</span>'
+                elif exported == 0:
+                    note = (' <span style="color:#c62828;">(all filtered out - check its '
+                            'categories are ticked)</span>')
+                html += ('<tr><td style="padding:2px 14px 2px 0;">{0}</td>'
+                         '<td style="padding:2px 14px 2px 0;">{1:,}</td>'
+                         '<td style="padding:2px 0;">{2:,}{3}</td></tr>'.format(
+                             label, found, exported, note))
+            html += "</table>"
+
         for w in warn:
             html += ('<div style="margin-top:8px;padding:7px 11px;background:#8d6e19;color:#fff;'
                      'border-radius:4px;font-family:sans-serif;font-size:12px;">{0}</div>'.format(w))

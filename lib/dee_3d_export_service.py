@@ -436,13 +436,60 @@ def apply_transform(m, x, y, z):
             m[8] * x + m[9] * y + m[10] * z + m[11])
 
 
-def collect_link_sources(doc, view):
+def compose_transform(parent, child):
+    """parent AFTER child: a point in the child's own local space is
+    put into the child's owner's space by `child`, then into the
+    ultimate host's space by `parent`. Needed for a link nested inside
+    another link (see collect_link_sources) - GetTotalTransform() on a
+    link instance found INSIDE another link's document is relative to
+    that PARENT link's own coordinate system, not the host's, so it has
+    to be composed one level at a time rather than used as-is."""
+    if parent is None:
+        return child
+    if child is None:
+        return parent
+    pr = ((parent[0], parent[1], parent[2]), (parent[4], parent[5], parent[6]),
+          (parent[8], parent[9], parent[10]))
+    pt = (parent[3], parent[7], parent[11])
+    cr = ((child[0], child[1], child[2]), (child[4], child[5], child[6]),
+          (child[8], child[9], child[10]))
+    ct = (child[3], child[7], child[11])
+    r = [[sum(pr[i][k] * cr[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+    t = [sum(pr[i][k] * ct[k] for k in range(3)) + pt[i] for i in range(3)]
+    return (r[0][0], r[0][1], r[0][2], t[0],
+            r[1][0], r[1][1], r[1][2], t[1],
+            r[2][0], r[2][1], r[2][2], t[2])
+
+
+def collect_link_sources(doc, view, _parent_xf=None, _seen=None, _depth=0):
     """[(link_name, link_doc, transform_tuple)] for every loaded link
-    visible in the view. Unloaded links are skipped silently - there is
-    nothing to read from them."""
+    visible in the view, INCLUDING links nested inside another link (a
+    link loaded inside a linked document, not the host) - the normal
+    shape of a federated coordination model where MEP/structural links
+    are attached to one architectural link rather than all being linked
+    directly into the host. Unloaded links are skipped silently - there
+    is nothing to read from them.
+
+    NEEDS LIVE-REVIT VERIFICATION: the nested-recursion branch (_depth
+    > 0) and compose_transform() above it. GetTotalTransform() on a
+    directly-hosted link is already relied on elsewhere in this file
+    (see the module docstring); whether it behaves the same way one
+    level down, inside another link's own document, has not been
+    confirmed against a real nested-link file - written from the
+    documented Transform-composition pattern, not tested live. A
+    circular or self-referencing link chain is guarded against with
+    _seen (by document identity) and a depth cap, so a bad file can at
+    worst return an incomplete list, never loop forever."""
     out = []
+    if _seen is None:
+        _seen = set()
+    if _depth > 6:
+        return out
     try:
-        collector = FilteredElementCollector(doc, view.Id).OfClass(RevitLinkInstance)
+        if _depth == 0:
+            collector = FilteredElementCollector(doc, view.Id).OfClass(RevitLinkInstance)
+        else:
+            collector = FilteredElementCollector(doc).OfClass(RevitLinkInstance)
     except Exception:
         return out
     for li in collector:
@@ -450,7 +497,14 @@ def collect_link_sources(doc, view):
             link_doc = li.GetLinkDocument()
             if link_doc is None:
                 continue
-            out.append((element_name(li), link_doc, transform_tuple(li.GetTotalTransform())))
+            key = id(link_doc)
+            if key in _seen:
+                continue
+            _seen.add(key)
+            local_xf = transform_tuple(li.GetTotalTransform())
+            combined_xf = compose_transform(_parent_xf, local_xf)
+            out.append((element_name(li), link_doc, combined_xf))
+            out.extend(collect_link_sources(link_doc, None, combined_xf, _seen, _depth + 1))
         except Exception:
             continue
     return out
@@ -558,6 +612,7 @@ class Scene(object):
         self.notes = []
         self.hit_budget = False
         self.cancelled = False
+        self.sources = []        # [label, elements found, elements exported] per source
 
     @property
     def triangles(self):
@@ -802,11 +857,29 @@ def build_scene(doc, view, options, progress=None):
                         link_elements.append(el)
             except Exception:
                 link_elements = []
-            if link_elements:
-                sources.append((link_name, link_doc, xf, link_elements))
+            # Kept even when empty - a link contributing genuinely
+            # nothing (unloaded, or no model geometry) is exactly what
+            # the per-source counts below need to be able to report; a
+            # link silently dropped here instead of showing "0 found"
+            # is indistinguishable from one that was never found at all.
+            sources.append((link_name, link_doc, xf, link_elements))
 
     total = sum(len(s[3]) for s in sources) or 1
     done = 0
+
+    # [label, elements found, elements actually exported] per source,
+    # updated live (not just at the end) so a cancelled or budget-cut
+    # export still reports accurate partial counts. This is the one
+    # thing that turns "a link's elements silently did not show up"
+    # from a mystery into something visible in the export report - a
+    # source sitting at 0 exported despite N found points straight at
+    # category filtering; 0 found at all points at the link itself
+    # (unloaded, or genuinely empty of model geometry).
+    scene.sources = []
+    source_row = {}
+    for source_label, _doc, _xf, elements in sources:
+        source_row[source_label] = [source_label, len(elements), 0]
+        scene.sources.append(source_row[source_label])
 
     for source_label, source_doc, xform, elements in sources:
         for element in elements:
@@ -865,6 +938,7 @@ def build_scene(doc, view, options, progress=None):
             scene.els.append(_element_meta(source_doc, element, scene, source_label, cat_name))
             scene.ebox.extend(box)
             scene.grow_bounds(box)
+            source_row[source_label][2] += 1
             if options.get("include_params"):
                 params = _element_params(element, scene)
                 if params:
