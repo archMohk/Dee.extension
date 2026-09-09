@@ -21,6 +21,12 @@ import traceback
 
 import clr
 clr.AddReference("System.Windows.Forms")
+clr.AddReference("PresentationFramework")
+clr.AddReference("PresentationCore")
+clr.AddReference("WindowsBase")
+import System
+from System.Windows import Visibility
+from System.Windows.Threading import DispatcherPriority
 from System.Windows.Forms import SaveFileDialog, DialogResult, MessageBox
 from System.Diagnostics import Process
 from System import DateTime
@@ -69,43 +75,74 @@ class CategoryRow(object):
         self.included = True
 
 
-class _SafeProgress(object):
-    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
-    window - a genuine WPF-level bug (not this extension's code):
-    Window.TaskbarItemInfo throws NotImplementedException whenever the
-    underlying ITaskbarList::HrInit COM call fails, which is documented
-    to happen specifically under Remote Desktop/Terminal Services or a
-    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
+class _InlineProgress(object):
+    """A progress bar EMBEDDED in this window's own layout, never a
+    second window/dialog. forms.ProgressBar (pyRevit's own) tries to set
+    Window.TaskbarItemInfo on its host - a genuine WPF-level bug (not
+    this extension's code): it throws NotImplementedException whenever
+    the underlying ITaskbarList::HrInit COM call fails, which is
+    documented to happen specifically under Remote Desktop/Terminal
+    Services or a custom shell without a taskbar. The first fix here was
+    a _SafeProgress wrapper that caught that and fell back to running
+    with NO progress UI at all - which stopped the crash but meant this
+    exact environment saw nothing at all during a long export (live
+    report: "i need Loading BAr while its Exporting to HTML"). This
+    sidesteps the problem instead of working around its failure mode: a
+    plain <ProgressBar> control already living in ui.xaml, updated
+    directly, so it never touches TaskbarItemInfo or opens anything new
+    - the same pattern already proven live in DeeSheetLinks.
 
-    Wraps the real forms.ProgressBar and falls back to running with NO
-    progress UI at all if entering it fails, so the tool degrades
-    gracefully under RDP instead of crashing - everyone else still gets
-    the real progress bar exactly as before. `pb.update_progress(...)`/
-    `pb.cancelled` are safe no-ops in the fallback case, so callers never
-    need an extra branch."""
-    def __init__(self, **kwargs):
-        self._kwargs = kwargs
-        self._real = None
+    WPF does not repaint mid-loop on its own - a long synchronous Python
+    loop (reading geometry element by element) blocks the same thread
+    WPF would use to redraw, so every update() call pumps the
+    Dispatcher's Background-priority queue (the same mechanism
+    forms.ProgressBar itself relies on internally) to force the bar/text
+    to actually appear before the loop continues."""
+    def __init__(self, window, cancellable=False):
+        self._window = window
+        self._cancellable = cancellable
+
+    def start(self, status, indeterminate=True, maximum=100):
+        w = self._window
+        w.progress_bar.IsIndeterminate = indeterminate
+        w.progress_bar.Minimum = 0
+        w.progress_bar.Maximum = maximum if maximum > 0 else 1
+        w.progress_bar.Value = 0
+        w.cancel_b.Visibility = Visibility.Visible if self._cancellable else Visibility.Collapsed
+        w.progress_row.Visibility = Visibility.Visible
+        w._cancel_requested = False
+        w.status_tb.Text = status
+        self._pump()
+
+    def update(self, value, status=None):
+        w = self._window
+        try:
+            w.progress_bar.Value = value
+        except Exception:
+            pass
+        if status is not None:
+            w.status_tb.Text = status
+        self._pump()
+        return self._cancellable and w._cancel_requested
+
+    def stop(self):
+        w = self._window
+        w.progress_row.Visibility = Visibility.Collapsed
+        self._pump()
+
+    def _pump(self):
+        try:
+            self._window.Dispatcher.Invoke(
+                System.Action(lambda: None), DispatcherPriority.Background)
+        except Exception:
+            pass
 
     def __enter__(self):
-        try:
-            self._real = forms.ProgressBar(**self._kwargs)
-            return self._real.__enter__()
-        except Exception:
-            self._real = None
-            return self
+        return self
 
     def __exit__(self, exc_type, exc_value, tb):
-        if self._real is not None:
-            return self._real.__exit__(exc_type, exc_value, tb)
+        self.stop()
         return False
-
-    @property
-    def cancelled(self):
-        return False
-
-    def update_progress(self, i, total):
-        pass
 
 
 # ==========================================================================
@@ -121,6 +158,7 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
         self.doc = doc
         self._all_views = view_rows
         self._cat_rows = []
+        self._cancel_requested = False
         self._settings = deew_settings.load(_SETTINGS, _DEFAULTS)
 
         for label, _detail, _lod in core.QUALITY_PRESETS:
@@ -340,15 +378,26 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
         self._settings["last_folder"] = os.path.dirname(out_path)
         self._save_settings()
 
+        # Known upfront by re-running the same (cheap - no geometry
+        # touched yet) collectors build_scene() itself is about to use,
+        # so the bar can start determinate instead of guessing at a
+        # maximum or sitting indeterminate through the whole read.
+        self.status_tb.Text = "Counting elements in '{0}'...".format(view_name)
+        total = len(core.collect_view_elements(self.doc, view))
+        if options.get("include_links"):
+            total += len(core.collect_link_elements(self.doc, view))
+
         scene = None
-        with _SafeProgress(title="Dee3D - reading geometry from '{0}'...".format(view_name),
-                               cancellable=True) as pb:
-            def progress(done, total, label):
-                if pb.cancelled:
-                    return False
-                pb.update_progress(done, total)
-                return True
-            scene = core.build_scene(self.doc, view, options, progress)
+        progress = _InlineProgress(self, cancellable=True)
+        with progress:
+            progress.start("Reading geometry from '{0}'...".format(view_name),
+                           indeterminate=(total <= 0), maximum=max(total, 1))
+
+            def progress_cb(done, total_, label):
+                cancelled = progress.update(
+                    done, "Reading {0}: {1:,} of {2:,} element(s)".format(label, done, total_))
+                return False if cancelled else True
+            scene = core.build_scene(self.doc, view, options, progress_cb)
 
         if scene.cancelled:
             self.status_tb.Text = "Cancelled - nothing was written."
@@ -364,7 +413,9 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
             self.status_tb.Text = "No geometry found in '{0}'.".format(view_name)
             return
 
-        with _SafeProgress(title="Dee3D - writing the web page...", indeterminate=True):
+        write_progress = _InlineProgress(self)
+        with write_progress:
+            write_progress.start("Writing the web page...", indeterminate=True)
             payload = core.build_payload(self.doc, scene, {
                 "model": model_name,
                 "view": view_name,
@@ -430,6 +481,9 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
                 os.path.basename(out_path), core.human_size(size),
                 len(scene.els), scene.triangles),
             _TOOL)
+
+    def cancel_click(self, sender, args):
+        self._cancel_requested = True
 
     def close_click(self, sender, args):
         self._save_settings()
