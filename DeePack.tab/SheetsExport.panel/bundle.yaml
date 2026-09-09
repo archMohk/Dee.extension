@@ -1,5 +1,8 @@
 title: "Sheets & Export"
 layout:
   - DeeSheet
-  - SheetStack
-  - ExportStack
+  - DeeAligner
+  - DeePrinter
+  - Dee3D
+  - DeeNWCs
+  - DeeScheduleXL
