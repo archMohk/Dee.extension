@@ -71,7 +71,17 @@ def search_cloud_models(project_id, token):
             try:
                 data = _get(url, token)
                 break
-            except Exception:
+            except Exception as e:
+                # A 401/403 (permission/auth) failure can never succeed
+                # on retry - burning 2 more attempts on it just adds
+                # dead time. See acc_file_browser.scan_level's
+                # _is_permanent_error docstring for the full story (a
+                # live "Revit crashed" report turned out to be this
+                # exact pattern of retrying a permanent failure as if
+                # it were transient, multiplied across many folders).
+                err_text = str(e)
+                if "Unauthorized" in err_text or "Forbidden" in err_text:
+                    break
                 if attempt < 2:
                     time.sleep(2)
         if data is None:

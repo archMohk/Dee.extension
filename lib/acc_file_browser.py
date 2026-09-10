@@ -196,6 +196,26 @@ def get_cloud_path_guids(browsing_project_id, item_id, token):
 # case than for an ordinary transient failure.
 _SCAN_MAX_ATTEMPTS = 5
 
+# Live crash 2026-09-10 (against DeeS.Publish's own copy of this exact
+# logic, fixed alongside this one): a permission-restricted subfolder
+# (routine in a large ACC project - whole areas are commonly locked to
+# certain roles) or a stale/rejected token fails EVERY attempt no matter
+# how many are made or how long we wait between them. Retrying those as
+# if they were transient just replaced the old bug's silent-and-fast
+# folder drop with a slow one: 5 attempts x up to 30s backoff, times
+# every worker, times every restricted folder, easily adds up to many
+# minutes of the calling thread sitting blocked in `t.join()` below -
+# long enough to read as "Revit crashed" even though nothing actually
+# raised. HTTP 401/403 (`HttpStatusCode.ToString()` gives the words
+# "Unauthorized"/"Forbidden", not the numbers - same gotcha as the 429
+# check below) can never succeed on retry, so those fail after one
+# attempt instead of five.
+_PERMANENT_ERROR_MARKERS = ("Unauthorized", "Forbidden", "401", "403")
+
+
+def _is_permanent_error(error_text):
+    return any(marker in error_text for marker in _PERMANENT_ERROR_MARKERS)
+
 
 def _retry_delay_seconds(attempt, error_text):
     if "TooManyRequests" in error_text or "429" in error_text:
@@ -235,26 +255,37 @@ def scan_level(level, project_id, token, max_workers=8):
                 fid, fname = q.get_nowait()
             except queue.Empty:
                 return
-            last_err = None
-            ok = False
-            for attempt in range(_SCAN_MAX_ATTEMPTS):
-                try:
-                    subfolders, items = acc_api.list_folder_contents(project_id, fid, token)
+            try:
+                last_err = None
+                ok = False
+                for attempt in range(_SCAN_MAX_ATTEMPTS):
+                    try:
+                        subfolders, items = acc_api.list_folder_contents(project_id, fid, token)
+                        with lock:
+                            for sfid, sname in subfolders:
+                                next_level.append((sfid, sname))
+                            for iid, iname in items:
+                                found_items.append((iid, iname))
+                        ok = True
+                        break
+                    except Exception as e:
+                        last_err = str(e)
+                        if _is_permanent_error(last_err):
+                            break
+                        if attempt < _SCAN_MAX_ATTEMPTS - 1:
+                            time.sleep(_retry_delay_seconds(attempt, last_err))
+                if not ok:
                     with lock:
-                        for sfid, sname in subfolders:
-                            next_level.append((sfid, sname))
-                        for iid, iname in items:
-                            found_items.append((iid, iname))
-                    ok = True
-                    break
-                except Exception as e:
-                    last_err = str(e)
-                    if attempt < _SCAN_MAX_ATTEMPTS - 1:
-                        time.sleep(_retry_delay_seconds(attempt, last_err))
-            if not ok:
+                        failed_folders.append((fname, last_err))
+            except Exception as thread_exc:
+                # An exception escaping worker() would be UNHANDLED on a
+                # real .NET thread - by default that terminates the
+                # WHOLE PROCESS (Revit itself), not just this call. Pure
+                # insurance so a bug here can never do that.
                 with lock:
-                    failed_folders.append((fname, last_err))
-            q.task_done()
+                    failed_folders.append((fname, str(thread_exc)))
+            finally:
+                q.task_done()
 
     workers = []
     for _ in range(min(max_workers, max(1, len(level)))):
