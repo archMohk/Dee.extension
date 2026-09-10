@@ -223,49 +223,84 @@ def _retry_delay_seconds(attempt, error_text):
     return 2 * (attempt + 1)                 # 2s, 4s, 6s, 8s
 
 
-def scan_level(level, project_id, token, max_workers=8):
-    """Scans every folder in `level` (a list of (folder_id, folder_name)
-    tuples - names are carried through so a failure can be reported BY
-    NAME, not as an opaque id) concurrently. Returns (next_level,
-    found_items, failed_folders).
+# Live crash 2026-09-10, second incident (found in DeeS.Publish, this
+# module's own copy of the exact same logic fixed alongside it): "its
+# Crash the Revit when i Start scaning" with NO Windows Event Log entry
+# for it at all (checked directly - the only recent unhandled-.NET-
+# exception entries are from unrelated plugins, Enscape and an Autodesk
+# SxS issue, neither touching this code). No WER entry means Revit's OWN
+# internal handler caught something and self-terminated BEFORE it became
+# a normal logged unhandled exception - consistent with a known
+# IronPython/DLR fragility around sustained real-OS-thread churn. The
+# old per-level design spawned a FRESH batch of up to 8 real
+# `System.Threading.Thread`s - each executing interpreted IronPython
+# bytecode - and joined/discarded them for EVERY SINGLE BFS level; a
+# deep/large project can have dozens of levels, so a slow scan (exactly
+# what "took too long" describes) meant dozens of thread create/destroy
+# cycles sustained over several minutes - precisely the pattern
+# IronPython's runtime is fragile around. This is a structural risk
+# reduction, not a confirmed single root cause (there was no stack trace
+# to point at), but it removes a real, known-risky pattern regardless.
+_SCAN_TIME_BUDGET_SECONDS = 480   # 8 min/project hard ceiling - a scan
+                                  # can no longer run indefinitely no
+                                  # matter how many folders keep failing
 
-    Each folder gets up to 3 attempts, but if ALL 3 fail (a rate-limit
-    blip under load, a permission-restricted subfolder, ...) that folder
-    - and everything nested under it, since its own contents were never
-    listed - was previously dropped with NOTHING reported anywhere: not
-    an error, not a log line, nothing. That is the direct explanation
-    for a live report of "it dosnt grap all the revit files" against
-    DeeS.Publish's own local copy of this exact logic (fixed alongside
-    this one, 2026-09-10) - a large project makes a lot of these calls,
-    and any single one failing outright silently shrank the count with
-    no sign anything had gone wrong. failed_folders is now returned so a
-    caller CAN surface it - list_project_files() below does, via
+
+def scan_level(top_folders, project_id, token, max_workers=4, pb=None, on_progress=None):
+    """Walks the WHOLE folder tree starting from `top_folders` (a list of
+    (folder_id, folder_name) tuples) with ONE small pool of worker
+    threads created ONCE - NOT re-created per BFS level like the old
+    design (see the crash note above). A worker that discovers
+    subfolders pushes them back onto its OWN shared queue instead of
+    handing them to a caller who would spin up a new batch of threads.
+
+    Returns (found_items, failed_folders, was_cancelled). `pb`
+    (optional) is checked for `.cancelled` and given `.title` updates
+    while the scan runs, matching the old per-level loop's behavior; if
+    omitted the scan just runs to completion or its time budget. An
+    optional `on_progress(found_count)` callback is called instead of
+    (or alongside) `pb.title` for callers that want their own progress
+    text.
+
+    A folder gets up to 5 attempts unless the error is a permanent one
+    (401/403 - see _is_permanent_error), in which case it fails after
+    one. If ALL attempts fail, that folder - and everything nested under
+    it, since its own contents were never listed - was previously
+    dropped with NOTHING reported anywhere. failed_folders is returned
+    so a caller CAN surface it - list_project_files() below does, via
     last_scan_warnings."""
-    next_level = []
+    q = queue.Queue()
+    for entry in top_folders:
+        q.put(entry)
+    lock = threading.Lock()
     found_items = []
     failed_folders = []
-    lock = threading.Lock()
-    q = queue.Queue()
-    for entry in level:
-        q.put(entry)
+    start_time = time.time()
+    cancelled = [False]
 
     def worker():
         while True:
             try:
-                fid, fname = q.get_nowait()
+                fid, fname = q.get(timeout=0.5)
             except queue.Empty:
-                return
+                if q.unfinished_tasks == 0:
+                    return
+                continue
             try:
+                if cancelled[0] or (time.time() - start_time) > _SCAN_TIME_BUDGET_SECONDS:
+                    with lock:
+                        failed_folders.append((fname, "not scanned - cancelled or scan time budget exceeded"))
+                    continue
                 last_err = None
                 ok = False
                 for attempt in range(_SCAN_MAX_ATTEMPTS):
                     try:
                         subfolders, items = acc_api.list_folder_contents(project_id, fid, token)
                         with lock:
-                            for sfid, sname in subfolders:
-                                next_level.append((sfid, sname))
                             for iid, iname in items:
                                 found_items.append((iid, iname))
+                        for sfid, sname in subfolders:
+                            q.put((sfid, sname))
                         ok = True
                         break
                     except Exception as e:
@@ -288,15 +323,25 @@ def scan_level(level, project_id, token, max_workers=8):
                 q.task_done()
 
     workers = []
-    for _ in range(min(max_workers, max(1, len(level)))):
+    for _ in range(max_workers):
         t = threading.Thread(target=worker)
         t.daemon = True
         t.start()
         workers.append(t)
-    for t in workers:
-        t.join()
 
-    return next_level, found_items, failed_folders
+    while any(t.is_alive() for t in workers):
+        if pb and pb.cancelled:
+            cancelled[0] = True
+        with lock:
+            count = len(found_items)
+        if pb:
+            pb.title = "Step 2/2 - Scanning folders ({0} found)...".format(count)
+        if on_progress:
+            on_progress(count)
+        for t in workers:
+            t.join(0.5)
+
+    return found_items, failed_folders, cancelled[0]
 
 
 # Populated by the most recent list_project_files() call - [] for a
@@ -570,14 +615,12 @@ def _scan_one_folder(project_id, folder_id, token, recursive, cache_file):
         items[key] = iid
 
     if recursive:
-        level = [(folder_id, folder_id)]   # no display name for the entry folder itself here
-        while level:
-            next_level, found_items, failed_folders = scan_level(level, project_id, token)
-            for iid, iname in found_items:
-                _add(iid, iname)
-            if failed_folders:
-                last_scan_warnings.extend(failed_folders)
-            level = next_level
+        top = [(folder_id, folder_id)]   # no display name for the entry folder itself here
+        found_items, failed_folders, _cancelled = scan_level(top, project_id, token)
+        for iid, iname in found_items:
+            _add(iid, iname)
+        if failed_folders:
+            last_scan_warnings.extend(failed_folders)
     else:
         try:
             _subfolders, found_items = acc_api.list_folder_contents(project_id, folder_id, token)
@@ -638,22 +681,18 @@ def list_project_files(hub_id, project_id, token, cache_file):
                 native_ids.add(iid)
                 _add(iid, iname)
 
-            pb.title = "Step 2/2 - Scanning folders (0 done, {0} found)...".format(len(all_items))
-            top_folders = acc_api.get_top_folders(hub_id, project_id, token)
-            level = list(top_folders)
-            done = 0
-            while level:
-                if pb.cancelled:
-                    forms.alert("Scan cancelled.")
-                    return None
-                next_level, found_items, failed_folders = scan_level(level, project_id, token)
-                for iid, iname in found_items:
-                    _add(iid, iname)
-                scan_failed_folders.extend(failed_folders)
-                done += len(level)
-                level = next_level
-                pb.title = "Step 2/2 - Scanning folders ({0} done, {1} found)...".format(
-                    done, len(all_items))
+            if pb.cancelled:
+                forms.alert("Scan cancelled.")
+                return None
+            pb.title = "Step 2/2 - Scanning folders (0 found)..."
+            top_folders = list(acc_api.get_top_folders(hub_id, project_id, token))
+            found_items, failed_folders, was_cancelled = scan_level(top_folders, project_id, token, pb=pb)
+            if was_cancelled:
+                forms.alert("Scan cancelled.")
+                return None
+            for iid, iname in found_items:
+                _add(iid, iname)
+            scan_failed_folders.extend(failed_folders)
 
         last_scan_warnings = scan_failed_folders
 
