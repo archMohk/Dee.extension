@@ -172,6 +172,26 @@ def get_cloud_path_guids(browsing_project_id, item_id, token):
     return to_guid(browsing_project_id), _lineage_to_guid_hexstr(item_id), "lineage"
 
 
+# 2026-09-10: a folder that failed all its retry attempts was silently
+# dropped (and everything nested under it with it) - live-reported
+# against DeeS.Publish's own copy of this exact logic as "it dosnt grap
+# all the revit files", root-caused to APS's documented 429 rate limit
+# (aps.autodesk.com/en/docs/data/v2/developers_guide/rate-limiting) under
+# 8 concurrent scan workers. More attempts + exponential backoff
+# specifically for a 429 response, matching the fix already made to
+# DeeS.Publish/acc_file_browser.py/acc_api.py. The return shape here is
+# left unchanged (still (next_level, found_items)) - only the retry
+# robustness is improved, not the failure-reporting UI those two also
+# got, so no caller-side change is needed.
+_SCAN_MAX_ATTEMPTS = 5
+
+
+def _retry_delay_seconds(attempt, error_text):
+    if "TooManyRequests" in error_text or "429" in error_text:
+        return min(30, 4 * (2 ** attempt))
+    return 2 * (attempt + 1)
+
+
 def scan_level(level, project_id, token, max_workers=8):
     next_level = []
     found_items = []
@@ -187,7 +207,7 @@ def scan_level(level, project_id, token, max_workers=8):
             except queue.Empty:
                 return
             try:
-                for attempt in range(3):
+                for attempt in range(_SCAN_MAX_ATTEMPTS):
                     try:
                         subfolders, items = acc_api.list_folder_contents(project_id, fid, token)
                         with lock:
@@ -196,9 +216,9 @@ def scan_level(level, project_id, token, max_workers=8):
                             for iid, iname in items:
                                 found_items.append((iid, iname))
                         break
-                    except Exception:
-                        if attempt < 2:
-                            time.sleep(2)
+                    except Exception as e:
+                        if attempt < _SCAN_MAX_ATTEMPTS - 1:
+                            time.sleep(_retry_delay_seconds(attempt, str(e)))
             finally:
                 q.task_done()
 
