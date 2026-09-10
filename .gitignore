@@ -18,3 +18,8 @@ __pycache__/
 lib/.deew_settings/
 logs/
 lib/.dee_mono/
+
+# Installer build output - the .exe is a rebuildable compiler artifact
+# (ISCC.exe installer/Dee.extension.iss), not source; keeping it out of
+# git avoids bloating the public repo's history with a binary.
+installer/Output/
