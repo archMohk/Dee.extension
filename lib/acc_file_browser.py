@@ -180,38 +180,81 @@ def get_cloud_path_guids(browsing_project_id, item_id, token):
     return to_guid(browsing_project_id), _lineage_to_guid_hexstr(item_id), "lineage"
 
 
+# APS's Data Management API documents a 429 "Too Many Requests" response
+# (with a Retry-After header) when a project's rate limit is exceeded,
+# and Autodesk's own guidance for it is exponential backoff - confirmed
+# via aps.autodesk.com/en/docs/data/v2/developers_guide/rate-limiting,
+# not guessed. 8 concurrent scan_level workers hitting the same project
+# is exactly the kind of burst that can trip it. acc_api._get() raises a
+# plain formatted string rather than a typed exception carrying the
+# actual Retry-After value (changing that touches every _get() caller in
+# this codebase, out of scope for this fix) - so this reads the .NET
+# HttpStatusCode's own string form (`ToString()` on
+# `System.Net.HttpStatusCode.TooManyRequests` is the word
+# "TooManyRequests", not the number "429" - both are checked for) out of
+# the message _get() already embeds, and waits longer for that specific
+# case than for an ordinary transient failure.
+_SCAN_MAX_ATTEMPTS = 5
+
+
+def _retry_delay_seconds(attempt, error_text):
+    if "TooManyRequests" in error_text or "429" in error_text:
+        return min(30, 4 * (2 ** attempt))   # 4s, 8s, 16s, 30s (capped)
+    return 2 * (attempt + 1)                 # 2s, 4s, 6s, 8s
+
+
 def scan_level(level, project_id, token, max_workers=8):
-    """Scans every folder in `level` concurrently, returns (next_level, items).
-    Each folder gets up to 3 attempts so transient API failures don't silently
-    drop entire folders from the results."""
+    """Scans every folder in `level` (a list of (folder_id, folder_name)
+    tuples - names are carried through so a failure can be reported BY
+    NAME, not as an opaque id) concurrently. Returns (next_level,
+    found_items, failed_folders).
+
+    Each folder gets up to 3 attempts, but if ALL 3 fail (a rate-limit
+    blip under load, a permission-restricted subfolder, ...) that folder
+    - and everything nested under it, since its own contents were never
+    listed - was previously dropped with NOTHING reported anywhere: not
+    an error, not a log line, nothing. That is the direct explanation
+    for a live report of "it dosnt grap all the revit files" against
+    DeeS.Publish's own local copy of this exact logic (fixed alongside
+    this one, 2026-09-10) - a large project makes a lot of these calls,
+    and any single one failing outright silently shrank the count with
+    no sign anything had gone wrong. failed_folders is now returned so a
+    caller CAN surface it - list_project_files() below does, via
+    last_scan_warnings."""
     next_level = []
     found_items = []
+    failed_folders = []
     lock = threading.Lock()
     q = queue.Queue()
-    for fid in level:
-        q.put(fid)
+    for entry in level:
+        q.put(entry)
 
     def worker():
         while True:
             try:
-                fid = q.get_nowait()
+                fid, fname = q.get_nowait()
             except queue.Empty:
                 return
-            try:
-                for attempt in range(3):
-                    try:
-                        subfolders, items = acc_api.list_folder_contents(project_id, fid, token)
-                        with lock:
-                            for sfid, _sname in subfolders:
-                                next_level.append(sfid)
-                            for iid, iname in items:
-                                found_items.append((iid, iname))
-                        break
-                    except Exception:
-                        if attempt < 2:
-                            time.sleep(2)
-            finally:
-                q.task_done()
+            last_err = None
+            ok = False
+            for attempt in range(_SCAN_MAX_ATTEMPTS):
+                try:
+                    subfolders, items = acc_api.list_folder_contents(project_id, fid, token)
+                    with lock:
+                        for sfid, sname in subfolders:
+                            next_level.append((sfid, sname))
+                        for iid, iname in items:
+                            found_items.append((iid, iname))
+                    ok = True
+                    break
+                except Exception as e:
+                    last_err = str(e)
+                    if attempt < _SCAN_MAX_ATTEMPTS - 1:
+                        time.sleep(_retry_delay_seconds(attempt, last_err))
+            if not ok:
+                with lock:
+                    failed_folders.append((fname, last_err))
+            q.task_done()
 
     workers = []
     for _ in range(min(max_workers, max(1, len(level)))):
@@ -222,7 +265,19 @@ def scan_level(level, project_id, token, max_workers=8):
     for t in workers:
         t.join()
 
-    return next_level, found_items
+    return next_level, found_items, failed_folders
+
+
+# Populated by the most recent list_project_files() call - [] for a
+# cached-list result (nothing was re-scanned) or a clean fresh scan,
+# [(folder_name, error), ...] when a fresh scan had folders that failed
+# every retry attempt. A module-level side channel rather than a change
+# to list_project_files' own return type, deliberately: several already
+# live-confirmed tools (DeeSuperLINK, DeeLINK) depend on its current
+# single-dict return and should not need to change to pick up this fix;
+# any caller that wants the detail can check this afterward, any caller
+# that does not is completely unaffected.
+last_scan_warnings = []
 
 
 def _load_cache(cache_file, project_id):
@@ -484,11 +539,13 @@ def _scan_one_folder(project_id, folder_id, token, recursive, cache_file):
         items[key] = iid
 
     if recursive:
-        level = [folder_id]
+        level = [(folder_id, folder_id)]   # no display name for the entry folder itself here
         while level:
-            next_level, found_items = scan_level(level, project_id, token)
+            next_level, found_items, failed_folders = scan_level(level, project_id, token)
             for iid, iname in found_items:
                 _add(iid, iname)
+            if failed_folders:
+                last_scan_warnings.extend(failed_folders)
             level = next_level
     else:
         try:
@@ -505,7 +562,17 @@ def _scan_one_folder(project_id, folder_id, token, recursive, cache_file):
 def list_project_files(hub_id, project_id, token, cache_file):
     """Full 'use cache or rescan' flow (same prompts/behavior as DeeOpener).
     Returns a dict {display_name: item_id}, or None if the user cancelled or
-    nothing was found."""
+    nothing was found.
+
+    Sets the module-level last_scan_warnings to [] (cached path, or a
+    clean fresh scan) or [(folder_name, error), ...] (a fresh scan where
+    one or more folders failed every retry attempt - see scan_level's
+    docstring for why this matters: those failures used to just vanish,
+    silently shrinking the count with no sign anything had gone wrong).
+    A caller that wants to tell the user can check last_scan_warnings
+    right after calling this; a caller that does not is unaffected."""
+    global last_scan_warnings
+    last_scan_warnings = []
     cache_ts, cached_files, _cached_pub_ids = _load_cache(cache_file, project_id)
     all_items = None
     if cached_files is not None:
@@ -525,6 +592,7 @@ def list_project_files(hub_id, project_id, token, cache_file):
     if all_items is None:
         all_items = {}
         native_ids = set()
+        scan_failed_folders = []
 
         def _add(iid, iname):
             key = iname
@@ -541,19 +609,22 @@ def list_project_files(hub_id, project_id, token, cache_file):
 
             pb.title = "Step 2/2 - Scanning folders (0 done, {0} found)...".format(len(all_items))
             top_folders = acc_api.get_top_folders(hub_id, project_id, token)
-            level = [fid for fid, _ in top_folders]
+            level = list(top_folders)
             done = 0
             while level:
                 if pb.cancelled:
                     forms.alert("Scan cancelled.")
                     return None
-                next_level, found_items = scan_level(level, project_id, token)
+                next_level, found_items, failed_folders = scan_level(level, project_id, token)
                 for iid, iname in found_items:
                     _add(iid, iname)
+                scan_failed_folders.extend(failed_folders)
                 done += len(level)
                 level = next_level
                 pb.title = "Step 2/2 - Scanning folders ({0} done, {1} found)...".format(
                     done, len(all_items))
+
+        last_scan_warnings = scan_failed_folders
 
         if not all_items:
             forms.alert("No Revit (.rvt) files found in that project.")

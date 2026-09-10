@@ -62,36 +62,73 @@ def _save_cache(project_id, files, published_ids=None):
         pass
 
 
+# APS's Data Management API documents a 429 "Too Many Requests" response
+# (with a Retry-After header) when a project's rate limit is exceeded,
+# and Autodesk's own guidance for it is exponential backoff - confirmed
+# via aps.autodesk.com/en/docs/data/v2/developers_guide/rate-limiting,
+# not guessed. 8 concurrent scan workers hitting the same project is
+# exactly the kind of burst that can trip it. acc_api._get() raises a
+# plain formatted string rather than a typed exception carrying the
+# actual Retry-After value, so this reads the .NET HttpStatusCode's own
+# string form out of the message _get() already embeds (`ToString()` on
+# HttpStatusCode.TooManyRequests is the word "TooManyRequests", not the
+# number "429" - both are checked) and waits longer for that specific
+# case than for an ordinary transient failure.
+_SCAN_MAX_ATTEMPTS = 5
+
+
+def _retry_delay_seconds(attempt, error_text):
+    if "TooManyRequests" in error_text or "429" in error_text:
+        return min(30, 4 * (2 ** attempt))   # 4s, 8s, 16s, 30s (capped)
+    return 2 * (attempt + 1)                 # 2s, 4s, 6s, 8s
+
+
 def _scan_level(level, project_id, token, max_workers=8):
+    """`level` is a list of (folder_id, folder_name) tuples - names are
+    carried through (not just ids) so a folder that fails every retry
+    can be reported to the user BY NAME, not as an opaque id nobody can
+    act on. Returns (next_level, found_items, failed_folders); a folder
+    that fails every attempt was previously just dropped with nothing
+    logged anywhere - the direct explanation for "it dosnt grap all the
+    revit files": a large project makes a lot of these calls, and a
+    single rate-limit blip or a permission-restricted subfolder silently
+    removed everything under it from the count, with no sign anything
+    had gone wrong."""
     next_level = []
     found_items = []
+    failed_folders = []
     lock = threading.Lock()
     q = queue.Queue()
-    for fid in level:
-        q.put(fid)
+    for entry in level:
+        q.put(entry)
 
     def worker():
         while True:
             try:
-                fid = q.get_nowait()
+                fid, fname = q.get_nowait()
             except queue.Empty:
                 return
-            try:
-                for attempt in range(3):
-                    try:
-                        subfolders, items = acc_api.list_folder_contents(
-                            project_id, fid, token)
-                        with lock:
-                            for sfid, _n in subfolders:
-                                next_level.append(sfid)
-                            for iid, iname in items:
-                                found_items.append((iid, iname))
-                        break
-                    except Exception:
-                        if attempt < 2:
-                            time.sleep(2)
-            finally:
-                q.task_done()
+            last_err = None
+            ok = False
+            for attempt in range(_SCAN_MAX_ATTEMPTS):
+                try:
+                    subfolders, items = acc_api.list_folder_contents(
+                        project_id, fid, token)
+                    with lock:
+                        for sfid, sname in subfolders:
+                            next_level.append((sfid, sname))
+                        for iid, iname in items:
+                            found_items.append((iid, iname))
+                    ok = True
+                    break
+                except Exception as e:
+                    last_err = str(e)
+                    if attempt < _SCAN_MAX_ATTEMPTS - 1:
+                        time.sleep(_retry_delay_seconds(attempt, last_err))
+            if not ok:
+                with lock:
+                    failed_folders.append((fname, last_err))
+            q.task_done()
 
     workers = []
     for _ in range(min(max_workers, max(1, len(level)))):
@@ -101,12 +138,18 @@ def _scan_level(level, project_id, token, max_workers=8):
         workers.append(t)
     for t in workers:
         t.join()
-    return next_level, found_items
+    return next_level, found_items, failed_folders
 
 
 def _get_project_files(hub_id, project_id, project_name, token, pb=None):
-    """Returns {display_name: item_id} for one project, using cache when
-    the user opts in, otherwise doing a fresh BFS scan."""
+    """Returns (all_items, failed_folders) for one project - all_items is
+    {display_name: item_id}; failed_folders is [(folder_name, error), ...],
+    non-empty only when a fresh scan happened AND at least one folder
+    failed every one of its 3 retry attempts (previously dropped
+    silently - see _scan_level's docstring). Returns (None, []) if the
+    user cancels. Using the cache always returns an empty failed_folders
+    list - the cache's own save timestamp, already shown in the choice
+    dialog, is the honesty check for that path."""
     cache_ts, cached_files = _load_cache(project_id)
     if cached_files is not None:
         age_str = datetime.datetime.fromtimestamp(cache_ts).strftime("%Y-%m-%d %H:%M")
@@ -117,12 +160,13 @@ def _get_project_files(hub_id, project_id, project_name, token, pb=None):
             message="A cached file list exists for '{0}'.".format(project_name)
         )
         if not choice:
-            return None
+            return None, []
         if "Use Cached" in choice:
-            return {str(k): str(v) for k, v in cached_files.items()}
+            return {str(k): str(v) for k, v in cached_files.items()}, []
 
     all_items = {}
     native_ids = set()
+    all_failed = []
 
     def _add(iid, iname):
         key = iname
@@ -137,14 +181,15 @@ def _get_project_files(hub_id, project_id, project_name, token, pb=None):
         _add(iid, iname)
 
     top_folders = acc_api.get_top_folders(hub_id, project_id, token)
-    level = [fid for fid, _ in top_folders]
+    level = list(top_folders)
     done = 0
     while level:
         if pb and pb.cancelled:
-            return None
-        next_level, found_items = _scan_level(level, project_id, token)
+            return None, []
+        next_level, found_items, failed_folders = _scan_level(level, project_id, token)
         for iid, iname in found_items:
             _add(iid, iname)
+        all_failed.extend(failed_folders)
         done += len(level)
         level = next_level
         if pb:
@@ -153,7 +198,7 @@ def _get_project_files(hub_id, project_id, project_name, token, pb=None):
 
     if all_items:
         _save_cache(project_id, all_items, set(all_items.values()) - native_ids)
-    return all_items
+    return all_items, all_failed
 
 
 class _SafeProgress(object):
@@ -242,18 +287,21 @@ def main():
     # queue_items: list of (project_id, project_name, display_name, item_id)
     queue_items = []
     per_project_counts = []
+    all_failed_folders = []   # [(project_name, folder_name, error), ...]
 
     with _SafeProgress(title="Scanning projects...",
                            cancellable=True, indeterminate=True) as pb:
         for project_name in project_names:
             project_id = project_lookup[project_name]
-            files = _get_project_files(hub_id, project_id, project_name, token, pb)
+            files, failed_folders = _get_project_files(hub_id, project_id, project_name, token, pb)
             if files is None:
                 forms.alert("Scan cancelled.")
                 return
             for name, item_id in files.items():
                 queue_items.append((project_id, project_name, name, item_id))
             per_project_counts.append((project_name, len(files)))
+            for folder_name, err in failed_folders:
+                all_failed_folders.append((project_name, folder_name, err))
 
     if not queue_items:
         forms.alert("No Revit files found in the selected project(s).")
@@ -265,10 +313,28 @@ def main():
         for name, count in per_project_counts
     )
     total = len(queue_items)
+    warning = ""
+    if all_failed_folders:
+        # This is the direct answer to "it dosnt grap all the revit
+        # files": these folders (and anything nested under them) could
+        # not be listed after 3 attempts each, so the count above is
+        # KNOWN to be incomplete, not just possibly so - previously this
+        # was silently dropped with nothing shown anywhere.
+        folder_lines = "\n".join(
+            "    [{0}] {1} — {2}".format(proj, folder, err)
+            for proj, folder, err in all_failed_folders[:12]
+        )
+        more = ""
+        if len(all_failed_folders) > 12:
+            more = "\n    ...and {0} more.".format(len(all_failed_folders) - 12)
+        warning = (
+            "\n\n⚠ {0} folder(s) could NOT be scanned after 3 attempts each - "
+            "the count above is missing whatever they (and anything nested under "
+            "them) contain:\n{1}{2}".format(len(all_failed_folders), folder_lines, more))
     confirm = forms.alert(
-        "Found {0} Revit file(s) across {1} project(s):\n\n{2}\n\n"
+        "Found {0} Revit file(s) across {1} project(s):\n\n{2}{3}\n\n"
         "This will publish ALL of them. Continue?".format(
-            total, len(project_names), breakdown),
+            total, len(project_names), breakdown, warning),
         title="DeeS.Publish — Confirm",
         options=["Publish All", "Cancel"]
     )

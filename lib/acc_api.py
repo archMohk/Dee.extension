@@ -3,6 +3,7 @@
 just enough to browse ACC/BIM360 hubs > projects > folders and find
 Revit (.rvt) files."""
 import json
+import time
 
 import clr
 clr.AddReference("System")
@@ -56,9 +57,24 @@ def search_cloud_models(project_id, token):
            "?filter[attributes.extension.type]=items:autodesk.bim360:C4RModel"
            "&page[limit]=200").format(project_id)
     while url:
-        try:
-            data = _get(url, token)
-        except Exception:
+        data = None
+        # A page failing outright used to end the whole search silently
+        # (this was the ONE call in the file-discovery path with no
+        # retry at all) - a transient blip on any page but the first
+        # would quietly truncate the native-model list with nothing to
+        # show for it. The folder-tree walk (scan_level, called right
+        # after this) covers the same models a second way, so this was
+        # never a total-loss risk, but a page failing here still meant
+        # fewer files found for no visible reason - a small retry closes
+        # that gap cheaply.
+        for attempt in range(3):
+            try:
+                data = _get(url, token)
+                break
+            except Exception:
+                if attempt < 2:
+                    time.sleep(2)
+        if data is None:
             break
         for entry in data.get("data", []):
             name = entry.get("attributes", {}).get("displayName", "")
