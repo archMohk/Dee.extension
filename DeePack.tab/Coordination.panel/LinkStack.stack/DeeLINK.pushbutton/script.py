@@ -227,8 +227,13 @@ class _SafeProgress(object):
     progress UI at all if entering it fails, so the tool degrades
     gracefully under RDP instead of crashing - everyone else still gets
     the real progress bar exactly as before. `pb.update_progress(...)`/
-    `pb.cancelled` are safe no-ops in the fallback case, so callers never
-    need an extra branch."""
+    `pb.cancelled`/`pb.reset()` are safe no-ops in the fallback case, so
+    callers never need an extra branch. (Live crash fixed 2026-09-10:
+    the fallback originally had no `reset()` at all, so this file's own
+    `pb.reset()` call - present before the fallback was ever added -
+    raised AttributeError whenever forms.ProgressBar failed to construct.
+    DeeSPublish and DeePublisher had the identical gap, fixed alongside
+    this one.)"""
     def __init__(self, **kwargs):
         self._kwargs = kwargs
         self._real = None
@@ -251,6 +256,9 @@ class _SafeProgress(object):
         return False
 
     def update_progress(self, i, total):
+        pass
+
+    def reset(self):
         pass
 
 
