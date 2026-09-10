@@ -1,0 +1,6 @@
+{
+  "_comment": "Copy this file to acc_config.json (same folder) and fill in your own values. None of these three fields are secret - client_id is safe to be public, which is the whole point of the PKCE flow lib/acc_auth.py uses. Register your app at https://aps.autodesk.com/myapps as type 'Desktop, Mobile, Single-Page App' (NOT 'Traditional Web App' - that type expects a client_secret, which this flow deliberately never uses), then copy its Client ID below and add redirect_uri as an allowed Callback URL on that app.",
+  "client_id": "YOUR_APS_CLIENT_ID",
+  "redirect_uri": "http://localhost:8080/",
+  "region": "US"
+}

@@ -3,7 +3,25 @@
 
 Caches the access token on disk so the user isn't prompted to log in
 on every single run within the token's lifetime.
+
+Uses Authorization Code Grant with PKCE (RFC 7636), NOT a client
+secret - this is what APS itself recommends for a desktop app given to
+many different people, each logging in with their own Autodesk
+account: a client_secret can't stay secret once it ships inside
+software end users run locally on machines you don't control
+(confirmed via aps.autodesk.com/blog/new-application-types - "Desktop,
+Mobile, Single-Page App" is the registration type built for exactly
+this, and it uses PKCE instead of a secret). Switched from a
+client_secret flow 2026-09-11 for that reason - acc_config.json only
+needs client_id/redirect_uri/region now, so it is no longer sensitive
+(an old file with a leftover client_secret field still works fine,
+that field is just ignored). The APS app registration itself must be
+the "Desktop, Mobile, Single-Page App" type for this to work - a
+"Traditional Web App" registration (what a client_secret-based flow
+requires) will reject a token exchange that has no client_secret.
 """
+import base64
+import hashlib
 import json
 import os
 import time
@@ -32,8 +50,9 @@ def _load_config():
         raise Exception(
             "acc_config.json not found. This tool needs an Autodesk "
             "Platform Services config file at:\n{0}\n\n"
-            "Ask your administrator for this file - it is not part of "
-            "the public tool download.".format(CONFIG_PATH))
+            "Copy acc_config.example.json (in the extension's root folder) "
+            "to acc_config.json and fill in your own client_id - see that "
+            "file's own comment for where to get one.".format(CONFIG_PATH))
     with open(CONFIG_PATH, "r") as f:
         return json.load(f)
 
@@ -51,6 +70,24 @@ def _save_token(token, expires_in):
     data = {"access_token": token, "expires_at": time.time() + int(expires_in)}
     with open(TOKEN_CACHE_PATH, "w") as f:
         json.dump(data, f)
+
+
+def _b64url(raw):
+    """Base64url per RFC 7636 - standard base64 with +/ swapped for -_ and
+    the "=" padding stripped (the spec requires no padding, plain
+    base64's does)."""
+    return base64.urlsafe_b64encode(raw).rstrip("=")
+
+
+def _new_pkce_pair():
+    """Returns (code_verifier, code_challenge) per RFC 7636. The verifier
+    is 43 URL-safe characters from 32 cryptographically random bytes
+    (RFC 7636 requires 43-128 chars); the challenge is
+    BASE64URL(SHA256(ASCII(verifier))) - hashed over the verifier
+    STRING's own bytes, not the raw random bytes it was derived from."""
+    verifier = _b64url(os.urandom(32))
+    challenge = _b64url(hashlib.sha256(verifier).digest())
+    return verifier, challenge
 
 
 def _listen_for_code(redirect_uri):
@@ -92,12 +129,15 @@ def get_access_token(force_login=False):
 
     config = _load_config()
     client_id = config["client_id"]
-    client_secret = config["client_secret"]
     redirect_uri = config["redirect_uri"]
+
+    code_verifier, code_challenge = _new_pkce_pair()
 
     auth_url = (
         "{0}?response_type=code&client_id={1}&redirect_uri={2}&scope={3}"
-        .format(APS_AUTH_URL, client_id, redirect_uri, SCOPES.replace(" ", "%20"))
+        "&code_challenge={4}&code_challenge_method=S256"
+        .format(APS_AUTH_URL, client_id, redirect_uri, SCOPES.replace(" ", "%20"),
+                code_challenge)
     )
     webbrowser.open(auth_url)
 
@@ -110,8 +150,8 @@ def get_access_token(force_login=False):
     pairs["grant_type"] = "authorization_code"
     pairs["code"] = code
     pairs["client_id"] = client_id
-    pairs["client_secret"] = client_secret
     pairs["redirect_uri"] = redirect_uri
+    pairs["code_verifier"] = code_verifier
     content = FormUrlEncodedContent(pairs)
 
     response = client.PostAsync(APS_TOKEN_URL, content).Result
