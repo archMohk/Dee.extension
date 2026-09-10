@@ -6,6 +6,7 @@ acc_config.json
 # automatically on first use of the relevant tool.
 .acc_token_cache.json
 .acc_file_cache.json
+lib/.dee_identity.json
 dlgval.json
 Project_Dlg_Data/
 __pycache__/
