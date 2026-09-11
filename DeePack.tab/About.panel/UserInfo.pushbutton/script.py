@@ -18,6 +18,7 @@ from System.Windows.Media import SolidColorBrush, Color
 from pyrevit import forms
 import dee_branding
 import dee_telemetry
+import dee_ribbon_mode
 
 try:
     import acc_auth
@@ -26,6 +27,9 @@ except Exception:
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
+# script.py -> UserInfo.pushbutton -> About.panel -> DeePack.tab -> Dee.extension
+_EXTENSION_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(_THIS_DIR)))
+_TAB_ICON_PATH = os.path.join(_EXTENSION_ROOT, "icon.png")
 
 # Same green/red pair used throughout this codebase's own coloured
 # HTML reports (e.g. DeeSuperLINK/DeeMAPLink's _report()), reused here
@@ -51,6 +55,18 @@ class UserInfoWindow(dee_branding.DeeBrandedWindow):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.contact_tb.Text = "Contact:\n" + dee_telemetry.CONTACT_INFO
         self._refresh()
+        # Third attempt point for the experimental tab icon (see
+        # dee_ribbon_mode.set_tab_icon's own docstring) - two combo-box
+        # trigger points (__selfinit__, __cmb_on_change__) produced zero
+        # evidence across 4 full reload/restart cycles. A plain
+        # pushbutton is the one execution context proven reliable all
+        # session (every other tool's edits have picked up on a normal
+        # Reload without exception), so this rules module-caching/
+        # execution-context oddities in or out cleanly.
+        try:
+            dee_ribbon_mode.set_tab_icon(__revit__, _TAB_ICON_PATH)
+        except Exception:
+            pass
 
     def _refresh(self):
         email = dee_telemetry.get_cached_identity()
