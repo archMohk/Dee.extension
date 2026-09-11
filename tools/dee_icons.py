@@ -515,6 +515,11 @@ GLYPHS = {
         rc(16, 46, 64, 66, "ink", 0.95, 10), cf(28, 56, 7, "ink"),
         rc(16, 72, 64, 92, "ink", 0.95, 10), cf(52, 82, 7),
     ],
+    # Plain person outline (the same shared motif DeeGUID/DeeRelinquish
+    # combine with other elements) at full standalone size - a simple
+    # profile/account glyph, no accent needed since there's no single
+    # "verb" this button performs beyond showing who you are.
+    "UserInfo": lambda: person(48, 46, 1.35, "ink", 1.1),
     "WebSite": lambda: [
         ci(48, 48, 32, "ink", 1.0), ln(16, 48, 80, 48, "ink", 0.85),
         ar(30, 16, 66, 80, 90, 270, "ink", 0.85), ar(30, 16, 66, 80, 270, 90, "ink", 0.85),
