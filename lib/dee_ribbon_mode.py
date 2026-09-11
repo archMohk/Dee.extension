@@ -160,18 +160,30 @@ def _iter_ribbon_items(panel):
 
 
 def _apply_favorites(uiapp, panels):
+    """Shows every panel that has at least one favorited item in it (or
+    is in ALWAYS_VISIBLE); a panel with zero favorited items is hidden
+    entirely rather than left showing as an empty label with nothing
+    under it - requested after a live run showed exactly that empty-
+    panel clutter for Cloud/Masterplan/Rooms/etc. with nothing
+    favorited in them."""
     favorites = load_favorite_names()
     debug = ["favorites: {0}".format(sorted(favorites))]
     for panel in panels:
         try:
-            panel.Visible = True
             panel_name = panel.Name
         except Exception as e:
-            debug.append("PANEL - could not read/show: {0}".format(e))
+            debug.append("PANEL - could not read name: {0}".format(e))
             continue
+
         if panel_name in ALWAYS_VISIBLE:
+            try:
+                panel.Visible = True
+            except Exception as e:
+                debug.append("{0} - FAILED to set panel Visible: {1}".format(panel_name, e))
             debug.append("{0} - always-visible panel, items untouched".format(panel_name))
             continue
+
+        any_favorited = False
         for item in _iter_ribbon_items(panel):
             try:
                 item_name = item.Name
@@ -179,12 +191,21 @@ def _apply_favorites(uiapp, panels):
                 debug.append("{0} - item.Name read FAILED: {1}".format(panel_name, e))
                 continue
             want = item_name in favorites
+            if want:
+                any_favorited = True
             try:
                 item.Visible = want
                 debug.append("{0}/{1} - set Visible={2}".format(panel_name, item_name, want))
             except Exception as e:
                 debug.append("{0}/{1} - FAILED to set Visible={2}: {3}".format(
                     panel_name, item_name, want, e))
+
+        try:
+            panel.Visible = any_favorited
+            debug.append("{0} - panel Visible={1} ({2} favorited item(s) inside)".format(
+                panel_name, any_favorited, "has" if any_favorited else "no"))
+        except Exception as e:
+            debug.append("{0} - FAILED to set panel Visible: {1}".format(panel_name, e))
     _write_debug_log(debug)
 
 
