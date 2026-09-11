@@ -71,6 +71,17 @@ _STATUS_PATH = os.path.join(_THIS_DIR, ".dee_access_status.json")
 _client = HttpClient()
 
 
+def clear_identity():
+    """Deletes the saved email so the next check_access() call prompts
+    again - used by the User Info window's "Re-enter Email", and
+    internally by check_access() itself for the same option. Never
+    raises: a missing file is not an error."""
+    try:
+        os.remove(_IDENTITY_PATH)
+    except Exception:
+        pass
+
+
 def get_cached_identity():
     """Returns the saved email WITHOUT prompting - None if never set.
     Safe to call from any context (e.g. the branding bar) since it
@@ -275,6 +286,18 @@ def _check_user_access_sync(email):
     return result
 
 
+def refresh_status(email):
+    """Runs a live check_user_access call for `email`, caches the
+    result (same cache check_access() itself uses), and returns it.
+    Raises on failure (network/Supabase problem) - unlike check_access()
+    this does NOT show an alert or exit, since it's meant for a caller
+    (the User Info window's "Check Now") that wants to handle the
+    failure itself rather than being gated/blocked by it."""
+    result = _check_user_access_sync(email)
+    _save_status(result)
+    return result
+
+
 def check_access(tool_name):
     """Call this ONE line, first thing, at the top of a tool's script.py
     (before any window/forms call of its own - see get_or_prompt_identity's
@@ -296,7 +319,7 @@ def check_access(tool_name):
         email = _windows_username()
 
     try:
-        result = _check_user_access_sync(email)
+        result = refresh_status(email)
     except Exception:
         forms.alert(
             "Could not verify access to this tool - check your internet "
@@ -304,8 +327,6 @@ def check_access(tool_name):
             title="Dee.extension - Access Check Failed")
         sys.exit()
         return
-
-    _save_status(result)
 
     if not result.get("allowed"):
         headline = _DENIAL_HEADLINES.get(result.get("reason"), _DENIAL_HEADLINES["disabled"])
@@ -315,10 +336,7 @@ def check_access(tool_name):
             title="Dee.extension - Access Required",
             options=["OK", "Re-enter Email"])
         if choice == "Re-enter Email":
-            try:
-                os.remove(_IDENTITY_PATH)
-            except Exception:
-                pass
+            clear_identity()
             check_access(tool_name)
             return
         sys.exit()
