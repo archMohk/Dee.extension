@@ -89,6 +89,88 @@ def is_active():
     return _active
 
 
+_TAB_NAME = "DeePack"
+_BUTTON_NAME = "DeeForce"
+_bundle_dir_cache = None
+
+
+def _find_deeforce_bundle_dir():
+    """Walks DeePack.tab looking for the DeeForce.pushbutton folder
+    rather than hardcoding which panel it lives under - it has already
+    moved once (Models -> Health) and may move again; this way the
+    icon files are always found regardless. Result is cached after the
+    first successful find (folder location doesn't change mid-session)."""
+    global _bundle_dir_cache
+    if _bundle_dir_cache is not None:
+        return _bundle_dir_cache
+    tab_root = os.path.join(os.path.dirname(_THIS_DIR), "DeePack.tab")
+    try:
+        for root, dirs, _files in os.walk(tab_root):
+            for d in dirs:
+                if d == "DeeForce.pushbutton":
+                    _bundle_dir_cache = os.path.join(root, d)
+                    return _bundle_dir_cache
+    except Exception:
+        pass
+    return None
+
+
+def _icon_path(filename):
+    bundle_dir = _find_deeforce_bundle_dir()
+    if not bundle_dir:
+        return None
+    return os.path.join(bundle_dir, filename)
+
+
+def _find_deeforce_button(uiapp):
+    """Searches every DeePack panel (not just Health) for the item
+    named DeeForce, so this keeps working if the button is ever moved
+    to a different panel again without needing a code change here."""
+    try:
+        panels = uiapp.GetRibbonPanels(_TAB_NAME)
+    except Exception:
+        return None
+    for panel in panels:
+        try:
+            items = panel.GetItems()
+        except Exception:
+            continue
+        for item in items:
+            try:
+                if item.Name == _BUTTON_NAME:
+                    return item
+            except Exception:
+                continue
+    return None
+
+
+def _set_button_icon(uiapp, icon_path):
+    """Swaps the live DeeForce button's icon - reuses pyRevit's own
+    ButtonIcons (the exact mechanism it uses for every icon on the
+    whole ribbon already), rather than re-implementing WPF bitmap
+    loading/resizing from scratch. Never raises - a failure here only
+    means the icon doesn't visually update, the actual on/off toggle
+    and sync behavior are unaffected either way."""
+    try:
+        if not icon_path or not os.path.isfile(icon_path):
+            return
+        button = _find_deeforce_button(uiapp)
+        if button is None:
+            return
+        from pyrevit.coreutils.ribbon import ButtonIcons
+        icons = ButtonIcons(icon_path)
+        try:
+            button.Image = icons.small_bitmap
+        except Exception:
+            pass
+        try:
+            button.LargeImage = icons.large_bitmap
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 # ---------------- the countdown overlay ----------------
 def _ensure_countdown_window():
     """Built once per ON period the first time the warning window is
@@ -263,6 +345,7 @@ def enable(uiapp):
     except Exception:
         _handler = None
         _active = False
+    _set_button_icon(uiapp, _icon_path("icon.on.png"))
 
 
 def disable(uiapp):
@@ -277,3 +360,4 @@ def disable(uiapp):
             pass
     _handler = None
     _close_countdown_window()
+    _set_button_icon(uiapp, _icon_path("icon.png"))

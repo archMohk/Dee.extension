@@ -76,13 +76,17 @@ STROKE = 7.5                # base stroke width, in 96-space units
 # --crisp restores maximum-contrast per-theme ink for a machine that never
 # switches theme.
 PALETTES = {
-    "light": {"ink": (122, 122, 122, 255), "accent": (204, 112, 32, 255)},
-    "dark":  {"ink": (148, 148, 148, 255), "accent": (204, 112, 32, 255)},
+    "light": {"ink": (122, 122, 122, 255), "accent": (204, 112, 32, 255),
+              "white": (255, 255, 255, 255)},
+    "dark":  {"ink": (148, 148, 148, 255), "accent": (204, 112, 32, 255),
+              "white": (255, 255, 255, 255)},
 }
 
 CRISP_PALETTES = {
-    "light": {"ink": (43, 43, 43, 255), "accent": (242, 153, 77, 255)},
-    "dark":  {"ink": (255, 255, 255, 255), "accent": (242, 153, 77, 255)},
+    "light": {"ink": (43, 43, 43, 255), "accent": (242, 153, 77, 255),
+              "white": (255, 255, 255, 255)},
+    "dark":  {"ink": (255, 255, 255, 255), "accent": (242, 153, 77, 255),
+              "white": (255, 255, 255, 255)},
 }
 
 MARGIN = 4.0
@@ -270,6 +274,18 @@ GLYPHS = {
     "DeeForce": lambda: [
         ci(38, 44, 23, "ink", 1.0), ln(38, 44, 38, 27, "ink", 1.0),
         ln(38, 44, 50, 50, "ink", 1.0),
+    ] + refresh(68, 68, 15),
+    # "Running" variant - NOT a real button, so find_buttons()/write_all()
+    # never touches it (would show as "unused" in --check, expected).
+    # Rendered separately by hand into DeeForce.pushbutton's own folder
+    # as icon.on.png/icon.on.dark.png - dee_force_state.py swaps the
+    # live button's Image/LargeImage to these while auto-sync is ON.
+    # Same clock+refresh shape, filled solid instead of outlined, so
+    # the two read as obviously the same icon in two states rather than
+    # two different icons.
+    "DeeForceOn": lambda: [
+        cf(38, 44, 23, "accent"),
+        ln(38, 44, 38, 27, "white", 1.4), ln(38, 44, 50, 50, "white", 1.4),
     ] + refresh(68, 68, 15),
     "DeeOpener": lambda: [
         pl([(16, 72), (16, 30), (40, 30), (46, 38), (74, 38)], "ink", 1.0),
