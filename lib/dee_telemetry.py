@@ -75,7 +75,7 @@ def _load_identity():
         try:
             with open(_IDENTITY_PATH, "r") as f:
                 data = json.load(f)
-            email = (data.get("email") or data.get("name") or "").strip()
+            email = (data.get("email") or data.get("name") or "").strip().lower()
             if email:
                 return email
         except Exception:
@@ -126,7 +126,13 @@ def get_or_prompt_identity():
                    "email (asked once, then remembered):",
             title="Dee.extension"
         )
-        email = (entered or "").strip()
+        # Lowercased here (not just in the SQL check_user_access function,
+        # which already normalizes case for the access DECISION) so the
+        # value actually STORED in tool_usage matches allowed_users
+        # consistently - otherwise "Name@x.com" vs "name@x.com" pass the
+        # same access check but show up as two different people in the
+        # dashboard (live-caught: exactly this happened on first use).
+        email = (entered or "").strip().lower()
     except Exception:
         email = ""
 
