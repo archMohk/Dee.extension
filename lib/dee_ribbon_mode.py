@@ -68,6 +68,24 @@ DEFAULT_CATEGORY = "All"
 _THIS_DIR = os.path.dirname(__file__)
 _STATE_PATH = os.path.join(_THIS_DIR, ".dee_ribbon_mode.json")
 _FAVORITES_PATH = os.path.join(_THIS_DIR, ".dee_favorites.json")
+_DEBUG_LOG_PATH = os.path.join(_THIS_DIR, ".dee_favorites_debug.log")
+
+
+def _write_debug_log(lines):
+    """Live evidence for exactly what _apply_favorites did/failed on,
+    per item - added because a live run showed DeeSYNC staying visible
+    in Favorite mode while every other non-favorited button hid
+    correctly, and static reading of this module alone couldn't
+    explain why. Best-effort, never raises, overwrites each run (only
+    the latest matters)."""
+    try:
+        import datetime
+        with open(_DEBUG_LOG_PATH, "w") as f:
+            f.write("Favorite mode debug - {0}\n".format(datetime.datetime.now()))
+            for line in lines:
+                f.write(line + "\n")
+    except Exception:
+        pass
 
 
 def _valid_category(name):
@@ -143,19 +161,31 @@ def _iter_ribbon_items(panel):
 
 def _apply_favorites(uiapp, panels):
     favorites = load_favorite_names()
+    debug = ["favorites: {0}".format(sorted(favorites))]
     for panel in panels:
         try:
             panel.Visible = True
-            name = panel.Name
-        except Exception:
+            panel_name = panel.Name
+        except Exception as e:
+            debug.append("PANEL - could not read/show: {0}".format(e))
             continue
-        if name in ALWAYS_VISIBLE:
+        if panel_name in ALWAYS_VISIBLE:
+            debug.append("{0} - always-visible panel, items untouched".format(panel_name))
             continue
         for item in _iter_ribbon_items(panel):
             try:
-                item.Visible = (item.Name in favorites)
-            except Exception:
-                pass
+                item_name = item.Name
+            except Exception as e:
+                debug.append("{0} - item.Name read FAILED: {1}".format(panel_name, e))
+                continue
+            want = item_name in favorites
+            try:
+                item.Visible = want
+                debug.append("{0}/{1} - set Visible={2}".format(panel_name, item_name, want))
+            except Exception as e:
+                debug.append("{0}/{1} - FAILED to set Visible={2}: {3}".format(
+                    panel_name, item_name, want, e))
+    _write_debug_log(debug)
 
 
 def apply_category(uiapp, category):
