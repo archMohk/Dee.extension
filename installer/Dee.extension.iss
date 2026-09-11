@@ -32,7 +32,7 @@
 
 #define MyAppName "Dee.extension"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "NAGA Architects"
+#define MyAppPublisher "ArchMKD"
 #define MyAppURL "https://github.com/archMohk/Dee.extension"
 #define RepoURL "https://github.com/archMohk/Dee.extension.git"
 #define ExtensionCliName "Dee"
