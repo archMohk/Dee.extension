@@ -144,3 +144,16 @@ if window.confirmed:
                 .format(output),
                 title="Dee Update")
         sessionmgr.reload_pyrevit()
+
+# Reload rebuilds the ribbon in place, but some changes - a new panel,
+# a moved button, ComboBox member lists - have repeatedly needed a
+# genuine full Revit restart to actually show correctly (found live,
+# same-day, several times this session), not just this reload. Rather
+# than let every updated user rediscover that the hard way, tell them
+# up front every time.
+if window.confirmed:
+    forms.alert(
+        "Update complete.\n\n"
+        "Please CLOSE Revit completely and reopen it now - some changes "
+        "only take full effect after a real restart, not just a reload.",
+        title="Dee Update - Restart Revit")
