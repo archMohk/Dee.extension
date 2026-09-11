@@ -73,3 +73,22 @@ def __cmb_on_change__(sender, args, ctx):
                 title="Dee.extension - Favorite view is empty")
     except Exception:
         pass
+    # Second attempt point for the experimental tab icon (see
+    # __selfinit__'s docstring and dee_ribbon_mode.set_tab_icon's own
+    # docstring) - three full-restart cycles produced zero evidence
+    # even the "entered" marker ran from __selfinit__, despite the SAME
+    # function's OTHER logic (apply_category) reliably working from
+    # that exact spot every time. __cmb_on_change__ fires on a genuine
+    # WPF SelectionChanged-style event, a more ordinary UI-thread
+    # context than __selfinit__'s ribbon-construction-time call, which
+    # may matter for something reaching this deep into AdWindows
+    # internals - reusing this proven-reliable trigger point rather
+    # than repeating the same untried-from-here attempt again.
+    try:
+        mode.set_tab_icon(ctx.uiapp, _TAB_ICON_PATH)
+    except Exception as e:
+        try:
+            mode._write_tab_icon_log(
+                ["Calling set_tab_icon() from __cmb_on_change__ raised: {0}".format(e)])
+        except Exception:
+            pass
