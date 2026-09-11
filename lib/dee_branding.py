@@ -67,6 +67,16 @@ except Exception:
     deew_settings = None
 
 try:
+    import dee_telemetry
+except Exception:
+    dee_telemetry = None
+
+try:
+    import acc_auth
+except Exception:
+    acc_auth = None
+
+try:
     import ctypes
     _dwmapi = ctypes.windll.dwmapi
     _dwmapi.DwmSetWindowAttribute.argtypes = [
@@ -115,12 +125,56 @@ def _round_corners_dwm(window):
         pass
 
 
+def _build_status_text():
+    """Signed-in email + access standing + ACC readiness, all purely
+    from local/cached state (dee_telemetry.status_summary() reads the
+    last check_access() result, acc_auth.is_configured() only checks
+    acc_config.json exists) - never a network call, so this never
+    slows down or risks failing a window open. Any piece that can't be
+    determined (module missing, never checked yet) is just left out
+    rather than shown as an error."""
+    parts = []
+    try:
+        if dee_telemetry is not None:
+            email = dee_telemetry.get_cached_identity()
+            if email:
+                parts.append(email)
+            summary = dee_telemetry.status_summary()
+            if summary:
+                parts.append(summary)
+    except Exception:
+        pass
+    try:
+        if acc_auth is not None:
+            parts.append("ACC Ready" if acc_auth.is_configured() else "ACC Not configured")
+    except Exception:
+        pass
+    return u"   ·   ".join(parts)
+
+
 def _build_bar():
     bar = Border()
     bar.Background = SolidColorBrush(_BAR_BG)
     bar.Padding = Thickness(8, 2, 8, 2)
     bar.Height = _BAR_HEIGHT
     DockPanel.SetDock(bar, Dock.Bottom)
+
+    inner = DockPanel()
+    inner.LastChildFill = True
+
+    status_str = _build_status_text()
+    if status_str:
+        status_block = TextBlock()
+        status_block.Text = status_str
+        status_block.Foreground = SolidColorBrush(_LINK_FG)
+        status_block.FontSize = 11
+        status_block.VerticalAlignment = VerticalAlignment.Center
+        status_block.HorizontalAlignment = HorizontalAlignment.Left
+        status_block.TextTrimming = TextTrimming.CharacterEllipsis
+        status_block.MaxWidth = 320
+        status_block.Margin = Thickness(0, 0, 12, 0)
+        DockPanel.SetDock(status_block, Dock.Left)
+        inner.Children.Add(status_block)
 
     text = TextBlock()
     text.HorizontalAlignment = HorizontalAlignment.Center
@@ -137,7 +191,12 @@ def _build_bar():
     link.RequestNavigate += _open_site
     text.Inlines.Add(link)
 
-    bar.Child = text
+    # Added last, with no explicit Dock - DockPanel.LastChildFill makes
+    # it take the remaining space after status_block, and its own
+    # Center alignment centers it within that remaining area.
+    inner.Children.Add(text)
+
+    bar.Child = inner
     return bar
 
 

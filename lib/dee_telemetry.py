@@ -66,8 +66,62 @@ TABLE_NAME = "tool_usage"
 
 _THIS_DIR = os.path.dirname(__file__)
 _IDENTITY_PATH = os.path.join(_THIS_DIR, ".dee_identity.json")
+_STATUS_PATH = os.path.join(_THIS_DIR, ".dee_access_status.json")
 
 _client = HttpClient()
+
+
+def get_cached_identity():
+    """Returns the saved email WITHOUT prompting - None if never set.
+    Safe to call from any context (e.g. the branding bar) since it
+    never opens a dialog and never blocks or touches the network."""
+    return _load_identity()
+
+
+def _save_status(result):
+    """Best-effort local cache of the last check_access() result, so
+    something purely DISPLAY-oriented (the branding bar) can show the
+    current standing without a second network round-trip on every
+    window open. Never raises - losing this is harmless, the bar just
+    shows nothing until the next successful check."""
+    try:
+        with open(_STATUS_PATH, "w") as f:
+            json.dump(result, f)
+    except Exception:
+        pass
+
+
+def load_cached_status():
+    """Returns the last check_access() result dict (allowed/reason/
+    warning/expires_at), or None if never checked yet or unreadable.
+    Purely local/cached - never hits the network - so it must never be
+    used to GATE access, only to display it."""
+    try:
+        if os.path.exists(_STATUS_PATH):
+            with open(_STATUS_PATH, "r") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+
+def status_summary():
+    """A short, display-ready status string for the branding bar, e.g.
+    "Active", "Active - renew soon", or "Access: <reason>" for the rare
+    case a stale cached status shows denied (a genuinely denied user's
+    tool window never opens in the first place, since check_access()
+    exits before that - this branch is defensive, not a normal path).
+    Returns "" if check_access() has never run yet (e.g. this module
+    was imported some other way)."""
+    status = load_cached_status()
+    if not status:
+        return ""
+    if not status.get("allowed"):
+        headline = _DENIAL_HEADLINES.get(status.get("reason"), "inactive")
+        return "Access: " + headline
+    if status.get("warning"):
+        return "Active - renew soon"
+    return "Active"
 
 
 def _load_identity():
@@ -250,6 +304,8 @@ def check_access(tool_name):
             title="Dee.extension - Access Check Failed")
         sys.exit()
         return
+
+    _save_status(result)
 
     if not result.get("allowed"):
         headline = _DENIAL_HEADLINES.get(result.get("reason"), _DENIAL_HEADLINES["disabled"])

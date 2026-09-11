@@ -57,6 +57,21 @@ def _load_config():
         return json.load(f)
 
 
+def is_configured():
+    """Cheap, local-only readiness check: does acc_config.json exist
+    and have a non-empty client_id? Never touches the network and
+    never triggers the PKCE login flow - purely for display purposes
+    (e.g. the branding bar's "ACC: Ready/Not configured" indicator),
+    answering "is this machine SET UP to attempt ACC at all", not
+    "is the current login still valid" (that would need a network
+    call and isn't worth making just to render a status line)."""
+    try:
+        config = _load_config()
+        return bool(config.get("client_id"))
+    except Exception:
+        return False
+
+
 def _load_cached_token():
     if os.path.exists(TOKEN_CACHE_PATH):
         with open(TOKEN_CACHE_PATH, "r") as f:
