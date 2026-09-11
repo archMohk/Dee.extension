@@ -23,6 +23,8 @@ from Autodesk.Revit.DB import (
     WorksharingUtils
 )
 from Autodesk.Revit.UI import RevitCommandId, PostableCommand
+import deew_failure_handler as ffh
+import deew_logger
 import dee_telemetry
 dee_telemetry.check_access("DeeCloseAll")
 
@@ -45,23 +47,37 @@ def _close(doc, is_active):
     return True
 
 
-def _sync_and_close(doc, is_active):
+def _transact_options(logger):
+    """A TransactWithCentralOptions with a failure preprocessor attached
+    so a checked-out element or other sync-time conflict resolves itself
+    (or fails that one document) instead of popping a native dialog no
+    one is present to click in this batch - same fix as DeeSuperLINK's
+    live "crashing" report."""
+    options = TransactWithCentralOptions()
+    try:
+        options.SetFailuresPreprocessor(ffh.DeeWFailuresPreprocessor(logger))
+    except Exception:
+        pass  # not supported on this API surface - falls back to old behavior
+    return options
+
+
+def _sync_and_close(doc, is_active, logger=None):
     if doc.IsWorkshared:
         relinquish = RelinquishOptions(True)
         swc_options = SynchronizeWithCentralOptions()
         swc_options.SetRelinquishOptions(relinquish)
         swc_options.Comment = "Auto-sync by DeeCloseAll"
         swc_options.SaveLocalBefore = True
-        doc.SynchronizeWithCentral(TransactWithCentralOptions(), swc_options)
+        doc.SynchronizeWithCentral(_transact_options(logger), swc_options)
     else:
         doc.Save()
     return _close(doc, is_active)
 
 
-def _relinquish_and_close(doc, is_active):
+def _relinquish_and_close(doc, is_active, logger=None):
     if doc.IsWorkshared:
         WorksharingUtils.RelinquishOwnership(
-            doc, RelinquishOptions(True), TransactWithCentralOptions())
+            doc, RelinquishOptions(True), _transact_options(logger))
     return _close(doc, is_active)
 
 
@@ -163,33 +179,50 @@ def main():
     active_pending_label = None
     total = len(selected_labels)
 
-    with _SafeProgress(title="DeeCloseAll — starting...", cancellable=True) as pb:
-        for i, label in enumerate(selected_labels):
-            if pb.cancelled:
-                results.append((label, "Cancelled", None))
-                break
-            pb.update_progress(i, total)
-            pb.title = "Processing {0}/{1}: {2}".format(i + 1, total, label)
-            output.print_md("**Processing {0}/{1}: {2}**".format(i + 1, total, label))
+    logger = deew_logger.DeeWLogger("DeeCloseAll")
+    # Wired for the whole batch so a native dialog fired by ANY document
+    # (e.g. an ownership conflict during sync) is auto-resolved instead
+    # of hanging Revit indefinitely - same fix as DeeSuperLINK's live
+    # "crashing" report.
+    dialog_handler = ffh.make_dialog_handler(logger)
+    try:
+        __revit__.DialogBoxShowing += dialog_handler
+    except Exception:
+        pass
 
-            doc = doc_lookup[label]
-            is_active = (active_title is not None and label == active_title)
+    try:
+        with _SafeProgress(title="DeeCloseAll — starting...", cancellable=True) as pb:
+            for i, label in enumerate(selected_labels):
+                if pb.cancelled:
+                    results.append((label, "Cancelled", None))
+                    break
+                pb.update_progress(i, total)
+                pb.title = "Processing {0}/{1}: {2}".format(i + 1, total, label)
+                output.print_md("**Processing {0}/{1}: {2}**".format(i + 1, total, label))
 
-            try:
-                if mode == "Synchronize & Close":
-                    closed = _sync_and_close(doc, is_active)
-                elif mode.startswith("Relinquish"):
-                    closed = _relinquish_and_close(doc, is_active)
-                else:
-                    closed = _close_only(doc, is_active)
+                doc = doc_lookup[label]
+                is_active = (active_title is not None and label == active_title)
 
-                if closed is None:
-                    active_pending_label = label
-                    results.append((label, "Processed - close deferred (active document)", None))
-                else:
-                    results.append((label, "Done ({0}, closed)".format(mode), True))
-            except Exception as e:
-                results.append((label, "FAILED: {0}".format(e), False))
+                try:
+                    if mode == "Synchronize & Close":
+                        closed = _sync_and_close(doc, is_active, logger)
+                    elif mode.startswith("Relinquish"):
+                        closed = _relinquish_and_close(doc, is_active, logger)
+                    else:
+                        closed = _close_only(doc, is_active)
+
+                    if closed is None:
+                        active_pending_label = label
+                        results.append((label, "Processed - close deferred (active document)", None))
+                    else:
+                        results.append((label, "Done ({0}, closed)".format(mode), True))
+                except Exception as e:
+                    results.append((label, "FAILED (skipped): {0}".format(e), False))
+    finally:
+        try:
+            __revit__.DialogBoxShowing -= dialog_handler
+        except Exception:
+            pass
 
     if active_pending_label is not None:
         try:

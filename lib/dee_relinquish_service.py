@@ -208,7 +208,7 @@ def scan_model(model_path, current_user):
         return None, str(e)
 
 
-def synchronize_only(doc, comment=""):
+def synchronize_only(doc, comment="", logger=None):
     """Synchronizes WITHOUT relinquishing anything.
 
     Deliberately not deew_document_manager.synchronize_with_central: that one
@@ -227,6 +227,11 @@ def synchronize_only(doc, comment=""):
     )
     try:
         transact = TransactWithCentralOptions()
+        try:
+            import deew_failure_handler as ffh
+            transact.SetFailuresPreprocessor(ffh.DeeWFailuresPreprocessor(logger))
+        except Exception:
+            pass  # not supported on this API surface - falls back to old behavior
         sync = SynchronizeWithCentralOptions()
         sync.Comment = comment or "DeeRelinquish - sync before relinquishing"
         sync.Compact = False
@@ -239,13 +244,18 @@ def synchronize_only(doc, comment=""):
         return False, str(e)
 
 
-def relinquish_document(doc, flags):
+def relinquish_document(doc, flags, logger=None):
     """Releases the current user's ownership in an OPEN, ATTACHED document.
     Never raises - returns (ok, detail)."""
     from Autodesk.Revit.DB import TransactWithCentralOptions, WorksharingUtils
     try:
         options = build_relinquish_options(flags)
         transact = TransactWithCentralOptions()
+        try:
+            import deew_failure_handler as ffh
+            transact.SetFailuresPreprocessor(ffh.DeeWFailuresPreprocessor(logger))
+        except Exception:
+            pass  # not supported on this API surface - falls back to old behavior
         items = WorksharingUtils.RelinquishOwnership(doc, options, transact)
     except Exception as e:
         return False, str(e)

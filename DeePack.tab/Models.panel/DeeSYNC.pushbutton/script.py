@@ -2,6 +2,8 @@ from Autodesk.Revit.DB import *
 from pyrevit import forms, script
 import dee_telemetry
 dee_telemetry.check_access("DeeSYNC")
+import deew_failure_handler as ffh
+import deew_logger
 
 
 
@@ -60,32 +62,55 @@ close_after_sync = choice == "Sync and Close"
 results = []
 docs_to_close = []
 
-with _SafeProgress(title="DeeSYNC - synchronizing open models...", indeterminate=True):
-    for doc in app.Documents:
+logger = deew_logger.DeeWLogger("DeeSYNC")
+# Sync-with-central across several open models, unattended (Sync and Close
+# runs the whole list without the user watching each one) - a checked-out
+# element ("cannot be ignored... resaves to central") or any other native
+# dialog fired mid-sync would otherwise hang Revit indefinitely on a batch
+# no one is present to click through. Same risk category, same fix, as
+# DeeSuperLINK's live "crashing" report.
+dialog_handler = ffh.make_dialog_handler(logger)
+try:
+    __revit__.DialogBoxShowing += dialog_handler
+except Exception:
+    pass
 
-        # Skip families and non-workshared docs (and links, which appear as documents too)
-        if doc.IsFamilyDocument:
-            continue
+try:
+    with _SafeProgress(title="DeeSYNC - synchronizing open models...", indeterminate=True):
+        for doc in app.Documents:
 
-        if doc.IsLinked:
-            continue
+            # Skip families and non-workshared docs (and links, which appear as documents too)
+            if doc.IsFamilyDocument:
+                continue
 
-        if not doc.IsWorkshared:
-            results.append("{} - SKIPPED (not workshared)".format(doc.Title))
-            continue
+            if doc.IsLinked:
+                continue
 
-        try:
-            trans_opts = TransactWithCentralOptions()
-            sync_opts = SynchronizeWithCentralOptions()
-            sync_opts.Comment = "Batch sync - all open models"
-            sync_opts.SetRelinquishOptions(RelinquishOptions(True))
+            if not doc.IsWorkshared:
+                results.append("{} - SKIPPED (not workshared)".format(doc.Title))
+                continue
 
-            doc.SynchronizeWithCentral(trans_opts, sync_opts)
-            results.append("{} - OK".format(doc.Title))
-            docs_to_close.append(doc)
+            try:
+                trans_opts = TransactWithCentralOptions()
+                try:
+                    trans_opts.SetFailuresPreprocessor(ffh.DeeWFailuresPreprocessor(logger))
+                except Exception:
+                    pass  # not supported on this API surface - falls back to old behavior
+                sync_opts = SynchronizeWithCentralOptions()
+                sync_opts.Comment = "Batch sync - all open models"
+                sync_opts.SetRelinquishOptions(RelinquishOptions(True))
 
-        except Exception as e:
-            results.append("{} - FAILED: {}".format(doc.Title, str(e)))
+                doc.SynchronizeWithCentral(trans_opts, sync_opts)
+                results.append("{} - OK".format(doc.Title))
+                docs_to_close.append(doc)
+
+            except Exception as e:
+                results.append("{} - FAILED (skipped): {}".format(doc.Title, str(e)))
+finally:
+    try:
+        __revit__.DialogBoxShowing -= dialog_handler
+    except Exception:
+        pass
 
 print("\n".join(results))
 

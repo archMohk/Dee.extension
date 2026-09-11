@@ -43,6 +43,8 @@ from System.Windows.Threading import Dispatcher, DispatcherFrame, DispatcherPrio
 import acc_auth
 import acc_file_browser as afb
 import deew_document_manager as docmgr
+import deew_failure_handler as ffh
+import deew_logger
 import dee_relinquish_service as core
 import dee_telemetry
 dee_telemetry.check_access("DeeRelinquish")
@@ -117,6 +119,7 @@ class DeeRelinquishWindow(dee_branding.DeeBrandedWindow):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.uiapp = uiapp
         self.app = uiapp.Application
+        self.logger = deew_logger.DeeWLogger("DeeRelinquish")
 
         self._token = None
         self._hub_id = None
@@ -477,6 +480,19 @@ class DeeRelinquishWindow(dee_branding.DeeBrandedWindow):
         ok = failed = 0
         synced = 0
         self._progress_begin(len(picked))
+
+        # Wired for the whole batch: opening/syncing/relinquishing dozens of
+        # cloud models unattended is exactly the pattern that hung Revit in
+        # DeeSuperLINK's live "crashing" report - a native dialog with no
+        # one there to click it (e.g. an ownership conflict) would otherwise
+        # block this loop indefinitely instead of that one model just
+        # failing and the batch moving on.
+        dialog_handler = ffh.make_dialog_handler(self.logger)
+        try:
+            self.uiapp.DialogBoxShowing += dialog_handler
+        except Exception as e:
+            self.logger.exception("Could not attach dialog handler", e)
+
         try:
             for row in picked:
                 row.result = ""
@@ -492,7 +508,7 @@ class DeeRelinquishWindow(dee_branding.DeeBrandedWindow):
                         continue
 
                     if sync_first:
-                        sync_ok, sync_detail = core.synchronize_only(doc)
+                        sync_ok, sync_detail = core.synchronize_only(doc, logger=self.logger)
                         if sync_ok:
                             synced += 1
                             self._log("       {0} - synchronized".format(row.name))
@@ -500,7 +516,7 @@ class DeeRelinquishWindow(dee_branding.DeeBrandedWindow):
                             self._log("       {0} - sync FAILED: {1}".format(
                                 row.name, sync_detail))
 
-                    rel_ok, rel_detail = core.relinquish_document(doc, flags)
+                    rel_ok, rel_detail = core.relinquish_document(doc, flags, logger=self.logger)
                     if rel_ok:
                         row.result = "OK - {0}".format(rel_detail)
                         self._log("  OK   {0} - {1}".format(row.name, rel_detail))
@@ -517,10 +533,14 @@ class DeeRelinquishWindow(dee_branding.DeeBrandedWindow):
                     if doc is not None:
                         # Never save: relinquish transacts with central by itself,
                         # and this tool must not write model content.
-                        docmgr.close_document(doc, save_modified=False)
+                        docmgr.close_document(doc, save_modified=False, logger=self.logger)
                     self._progress_done_one()
         finally:
             self._progress_end()
+            try:
+                self.uiapp.DialogBoxShowing -= dialog_handler
+            except Exception:
+                pass
 
         self._log("-" * 70)
         self._log("Done. {0} released, {1} failed.".format(ok, failed))
