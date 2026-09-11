@@ -264,6 +264,13 @@ def _align_glyph(edge):
 GLYPHS = {
     # ---------------- Models ----------------
     "DeeSYNC": lambda: doc(24, 20, 62, 76, "ink", 0.9) + refresh(62, 62, 17),
+    # Clock face (scheduled/timed) + the shared refresh accent (sync) -
+    # same "main glyph top-left, accent motif bottom-right" composition
+    # as DeeSYNC/DeeCoord, so the pair reads as clearly related.
+    "DeeForce": lambda: [
+        ci(38, 44, 23, "ink", 1.0), ln(38, 44, 38, 27, "ink", 1.0),
+        ln(38, 44, 50, 50, "ink", 1.0),
+    ] + refresh(68, 68, 15),
     "DeeOpener": lambda: [
         pl([(16, 72), (16, 30), (40, 30), (46, 38), (74, 38)], "ink", 1.0),
         pl([(16, 72), (26, 46), (86, 46), (76, 72)], "ink", 1.0, True),
