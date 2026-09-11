@@ -49,8 +49,12 @@ def __selfinit__(component, ui_item, uiapp):
         pass
     try:
         mode.set_tab_icon(uiapp, _TAB_ICON_PATH)
-    except Exception:
-        pass
+    except Exception as e:
+        try:
+            mode._write_tab_icon_log(
+                ["Calling set_tab_icon() itself raised: {0}".format(e)])
+        except Exception:
+            pass
     return True
 
 

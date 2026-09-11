@@ -217,7 +217,9 @@ def set_tab_icon(uiapp, icon_path):
     candidate, logging what it found and what happened to
     lib/.dee_tab_icon_debug.log so the real result is checkable even
     without watching it happen live. Never raises."""
-    results = []
+    results = ["set_tab_icon() entered - uiapp={0}, icon_path={1}".format(uiapp, icon_path)]
+    _write_tab_icon_log(results)  # written immediately so entry is provable even if
+                                    # everything below fails in some uncaught way
     try:
         import clr
         clr.AddReference("AdWindows")
