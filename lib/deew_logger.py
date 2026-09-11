@@ -68,7 +68,21 @@ class DeeWLogger(object):
         if not self._file_path:
             return
         try:
-            line = "[{0}] {1:<8s} {2}\n".format(entry["timestamp"], entry["level"], entry["message"])
+            extra = {k: v for k, v in entry.items()
+                      if k not in ("timestamp", "level", "tool", "message")}
+            # The context kwargs (dialog_id, exception_type, file=...,
+            # etc.) used to be dropped here - kept only in self.entries,
+            # which dies with the Revit process on a native crash. That
+            # silently threw away exactly the detail needed to diagnose
+            # a crash after the fact from the file alone (caught live:
+            # a real crash's log showed only "Auto-resolved dialog"
+            # with no dialog_id, twice, hours apart, and nothing else).
+            suffix = ""
+            if extra:
+                suffix = "  | " + ", ".join(
+                    "{0}={1}".format(k, v) for k, v in sorted(extra.items()))
+            line = "[{0}] {1:<8s} {2}{3}\n".format(
+                entry["timestamp"], entry["level"], entry["message"], suffix)
             # io.open (not the plain `open` builtin) - the builtin
             # open() has no `encoding` keyword under Python 2/
             # IronPython 2 (this whole package's engine - see
