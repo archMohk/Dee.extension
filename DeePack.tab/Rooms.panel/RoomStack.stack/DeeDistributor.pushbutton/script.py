@@ -124,6 +124,9 @@ from System.Windows.Controls import Canvas, TextBlock
 from System.Windows.Media import Brushes, SolidColorBrush, Color, PointCollection, TranslateTransform
 from System.Windows import Point as WpfPoint
 from System.Windows.Input import MouseButtonState
+import dee_telemetry
+dee_telemetry.check_access("DeeDistributor")
+
 
 output = script.get_output()
 

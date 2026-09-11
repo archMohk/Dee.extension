@@ -110,6 +110,9 @@ from Autodesk.Revit.DB import (
 )
 from Autodesk.Revit.DB.Architecture import Room
 from System.Collections.Generic import List
+import dee_telemetry
+dee_telemetry.check_access("DeeViewAdjust")
+
 
 output = pyrevit_script.get_output()
 

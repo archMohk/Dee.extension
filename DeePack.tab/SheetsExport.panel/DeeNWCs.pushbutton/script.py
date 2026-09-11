@@ -36,6 +36,9 @@ import acc_file_browser as afb
 import clr
 clr.AddReference("System.Windows.Forms")
 from System.Windows.Forms import FolderBrowserDialog, DialogResult
+import dee_telemetry
+dee_telemetry.check_access("DeeNWCs")
+
 
 output = script.get_output()
 

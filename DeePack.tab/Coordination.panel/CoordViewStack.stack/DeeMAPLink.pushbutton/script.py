@@ -68,6 +68,9 @@ import deew_document_manager as docmgr
 import deew_failure_handler as ffh
 import deew_logger
 import dee_maplink_service as dms
+import dee_telemetry
+dee_telemetry.check_access("DeeMAPLink")
+
 
 output = script.get_output()
 

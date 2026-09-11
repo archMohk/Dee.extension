@@ -35,6 +35,9 @@ import datetime
 import acc_auth
 import acc_api
 import coordination_review_ui
+import dee_telemetry
+dee_telemetry.check_access("DeeLinkReview")
+
 
 output = script.get_output()
 

@@ -89,6 +89,9 @@ import deew_failure_handler as ffh
 import deew_progress_service as progsvc
 import deew_report_generator as reportgen
 import acc_api
+import dee_telemetry
+dee_telemetry.check_access("DeeWSharing")
+
 
 output = script.get_output()
 

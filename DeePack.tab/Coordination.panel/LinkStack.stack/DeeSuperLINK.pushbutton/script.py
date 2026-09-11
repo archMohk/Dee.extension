@@ -92,6 +92,9 @@ import acc_api
 import acc_file_browser as afb
 import deew_document_manager as docmgr
 import deew_logger
+import dee_telemetry
+dee_telemetry.check_access("DeeSuperLINK")
+
 
 output = script.get_output()
 

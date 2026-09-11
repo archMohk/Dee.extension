@@ -44,6 +44,9 @@ import acc_auth
 import acc_file_browser as afb
 import deew_document_manager as docmgr
 import dee_relinquish_service as core
+import dee_telemetry
+dee_telemetry.check_access("DeeRelinquish")
+
 
 output = script.get_output()
 

@@ -14,6 +14,9 @@ from pyrevit import forms
 import dee_branding
 
 import dee_room_stamp_service as core
+import dee_telemetry
+dee_telemetry.check_access("DeeRoomStamp")
+
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")

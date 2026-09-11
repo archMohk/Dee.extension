@@ -86,6 +86,9 @@ import deew_progress_service as progsvc
 import deew_report_generator as reportgen
 import acc_file_browser as afb
 import deew_cloud_service as cloudsvc
+import dee_telemetry
+dee_telemetry.check_access("DeeWClean")
+
 
 output = script.get_output()
 

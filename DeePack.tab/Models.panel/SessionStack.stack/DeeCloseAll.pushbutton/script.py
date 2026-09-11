@@ -23,6 +23,9 @@ from Autodesk.Revit.DB import (
     WorksharingUtils
 )
 from Autodesk.Revit.UI import RevitCommandId, PostableCommand
+import dee_telemetry
+dee_telemetry.check_access("DeeCloseAll")
+
 
 output = script.get_output()
 

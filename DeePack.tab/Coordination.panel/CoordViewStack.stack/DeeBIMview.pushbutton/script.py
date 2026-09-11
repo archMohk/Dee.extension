@@ -33,6 +33,9 @@ import datetime
 
 import acc_auth
 import acc_api
+import dee_telemetry
+dee_telemetry.check_access("DeeBIMview")
+
 
 output = script.get_output()
 

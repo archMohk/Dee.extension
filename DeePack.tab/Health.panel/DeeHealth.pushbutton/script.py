@@ -54,6 +54,9 @@ import xlsx_reader
 import xlsx_writer
 import health_rubric
 import health_checks
+import dee_telemetry
+dee_telemetry.check_access("DeeHealth")
+
 
 output = script.get_output()
 

@@ -27,6 +27,9 @@ from pyrevit import forms, script
 import dee_branding
 
 import dee_control_panel_service as core
+import dee_telemetry
+dee_telemetry.check_access("DeeControl")
+
 
 output = script.get_output()
 

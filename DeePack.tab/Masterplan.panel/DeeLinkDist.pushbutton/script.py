@@ -65,6 +65,9 @@ from pyrevit import forms, script
 
 import dee_branding
 import dee_link_dist_service as core
+import dee_telemetry
+dee_telemetry.check_access("DeeLinkDist")
+
 
 output = script.get_output()
 

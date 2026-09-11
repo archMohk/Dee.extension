@@ -43,6 +43,9 @@ from System.Windows import DataObject, DragDropEffects, DragDrop, Point
 from System.Windows.Input import MouseButtonState
 from System.Windows.Media import VisualTreeHelper
 from System.Windows.Controls import ListBoxItem
+import dee_telemetry
+dee_telemetry.check_access("DeePrinter")
+
 
 output = script.get_output()
 

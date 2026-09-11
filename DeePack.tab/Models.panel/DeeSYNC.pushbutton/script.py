@@ -1,5 +1,8 @@
 from Autodesk.Revit.DB import *
 from pyrevit import forms, script
+import dee_telemetry
+dee_telemetry.check_access("DeeSYNC")
+
 
 
 class _SafeProgress(object):

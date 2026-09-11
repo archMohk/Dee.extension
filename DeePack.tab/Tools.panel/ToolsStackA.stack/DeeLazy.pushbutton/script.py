@@ -8,6 +8,9 @@ modules/__init__.py for how to add a new one.
 import os
 
 import controller
+import dee_telemetry
+dee_telemetry.check_access("DeeLazy")
+
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")

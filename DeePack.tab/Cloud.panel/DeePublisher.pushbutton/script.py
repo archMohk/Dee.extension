@@ -21,6 +21,9 @@ except ImportError:
 
 import acc_auth
 import acc_api
+import dee_telemetry
+dee_telemetry.check_access("DeePublisher")
+
 
 output = script.get_output()
 

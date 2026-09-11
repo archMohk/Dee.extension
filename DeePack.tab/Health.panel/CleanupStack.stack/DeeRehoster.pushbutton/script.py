@@ -73,6 +73,9 @@ from Autodesk.Revit.DB import (
 )
 
 from host_level_tools import generate_level_colors, compute_rehosted_offset
+import dee_telemetry
+dee_telemetry.check_access("DeeRehoster")
+
 
 output = script.get_output()
 

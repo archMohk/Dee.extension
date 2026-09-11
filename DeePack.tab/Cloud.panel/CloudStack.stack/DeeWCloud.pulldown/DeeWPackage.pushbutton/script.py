@@ -9,6 +9,9 @@ deew_settings, deew_logger) as DeeW.Sharing and DeeW.Batch Save to
 Cloud, per the package's shared architecture.
 """
 import deew_coming_soon
+import dee_telemetry
+dee_telemetry.check_access("DeeWPackage")
+
 
 deew_coming_soon.show_coming_soon(
     "DeeW.Package",

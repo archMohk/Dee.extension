@@ -24,6 +24,9 @@ import deew_model_scanner as scanner
 import clr
 clr.AddReference("System.Windows.Forms")
 from System.Windows.Forms import OpenFileDialog, FolderBrowserDialog, DialogResult
+import dee_telemetry
+dee_telemetry.check_access("DeeOpener")
+
 
 output = script.get_output()
 

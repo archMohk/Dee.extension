@@ -139,6 +139,9 @@ from System.Windows.Forms import FolderBrowserDialog, DialogResult
 import acc_auth
 import acc_file_browser as afb
 import deew_settings
+import dee_telemetry
+dee_telemetry.check_access("DeeRelink")
+
 
 output = script.get_output()
 

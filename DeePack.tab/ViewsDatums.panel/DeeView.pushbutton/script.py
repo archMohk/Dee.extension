@@ -70,6 +70,9 @@ from System.Windows.Forms import OpenFileDialog, SaveFileDialog, DialogResult, M
 from System.Windows.Shapes import Rectangle
 from System.Windows.Controls import Canvas, TextBlock
 from System.Windows.Media import Brushes, SolidColorBrush, Color
+import dee_telemetry
+dee_telemetry.check_access("DeeView")
+
 
 output = script.get_output()
 

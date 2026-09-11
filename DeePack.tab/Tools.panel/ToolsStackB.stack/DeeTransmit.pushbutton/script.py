@@ -48,6 +48,9 @@ import deew_settings
 import deew_document_manager as dm
 import deew_model_scanner as scanner
 import dee_transmit_service as core
+import dee_telemetry
+dee_telemetry.check_access("DeeTransmit")
+
 
 output = script.get_output()
 

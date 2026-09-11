@@ -45,6 +45,9 @@ import dee_sheet_renamer_service as renamer
 import clr
 clr.AddReference("System.Windows.Forms")
 from System.Windows.Forms import SaveFileDialog, DialogResult, MessageBox
+import dee_telemetry
+dee_telemetry.check_access("DeeSheet")
+
 
 output = script.get_output()
 

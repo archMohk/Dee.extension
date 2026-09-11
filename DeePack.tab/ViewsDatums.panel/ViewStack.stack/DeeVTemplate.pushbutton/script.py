@@ -28,6 +28,9 @@ from Autodesk.Revit.DB import (
 )
 
 from System.Collections.Generic import List
+import dee_telemetry
+dee_telemetry.check_access("DeeVTemplate")
+
 
 output = script.get_output()
 

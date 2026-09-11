@@ -11,6 +11,9 @@ from pyrevit import forms
 import dee_branding
 
 import dee_getdwg_service as core
+import dee_telemetry
+dee_telemetry.check_access("DeeGetDWG")
+
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")

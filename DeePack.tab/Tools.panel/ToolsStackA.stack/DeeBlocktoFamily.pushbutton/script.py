@@ -68,6 +68,9 @@ import dee_branding
 import dee_block_to_family_service as core
 
 from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
+import dee_telemetry
+dee_telemetry.check_access("DeeBlocktoFamily")
+
 
 output = script.get_output()
 

@@ -38,6 +38,9 @@ import datetime
 import acc_auth
 import acc_api
 import publish_settings_ui
+import dee_telemetry
+dee_telemetry.check_access("DeeCoord")
+
 
 output = script.get_output()
 

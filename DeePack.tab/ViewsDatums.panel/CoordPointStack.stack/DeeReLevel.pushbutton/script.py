@@ -176,6 +176,9 @@ from System.Windows.Forms import SaveFileDialog, DialogResult, MessageBox
 
 import xlsx_writer
 import relevel_tools as rt
+import dee_telemetry
+dee_telemetry.check_access("DeeReLevel")
+
 
 output = script.get_output()
 

@@ -43,6 +43,9 @@ from System.Windows.Media import SolidColorBrush, Color, Brushes
 from System.Windows.Threading import Dispatcher, DispatcherFrame, DispatcherPriority
 
 import dee_assembly_service as core
+import dee_telemetry
+dee_telemetry.check_access("DeeAssemb")
+
 
 output = script.get_output()
 

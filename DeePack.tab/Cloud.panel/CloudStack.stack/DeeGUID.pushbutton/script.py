@@ -6,6 +6,9 @@ import json
 import acc_auth
 import acc_api
 import System
+import dee_telemetry
+dee_telemetry.check_access("DeeGUID")
+
 
 
 class _SafeProgress(object):

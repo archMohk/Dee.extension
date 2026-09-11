@@ -56,6 +56,9 @@ from Autodesk.Revit.DB import (
 
 import xlsx_writer
 import xlsx_reader
+import dee_telemetry
+dee_telemetry.check_access("DeeScheduleXL")
+
 
 output = script.get_output()
 

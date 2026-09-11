@@ -130,6 +130,9 @@ from System.Windows.Forms import OpenFileDialog, DialogResult
 from System.Drawing import Image as DrawingImage
 
 import align_tools
+import dee_telemetry
+dee_telemetry.check_access("DeeAligner")
+
 
 output = script.get_output()
 

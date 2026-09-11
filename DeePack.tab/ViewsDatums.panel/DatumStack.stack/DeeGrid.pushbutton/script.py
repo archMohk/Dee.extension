@@ -55,6 +55,9 @@ from System.Windows import FontWeights
 import clr
 clr.AddReference("System.Windows.Forms")
 from System.Windows.Forms import SaveFileDialog, DialogResult, MessageBox
+import dee_telemetry
+dee_telemetry.check_access("DeeGrid")
+
 
 output = script.get_output()
 

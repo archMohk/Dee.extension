@@ -47,6 +47,9 @@ from pyrevit import forms, script
 
 import dee_branding
 import dee_sheet_links_service as core
+import dee_telemetry
+dee_telemetry.check_access("DeeSheetLinks")
+
 
 output = script.get_output()
 

@@ -62,6 +62,9 @@ clr.AddReference("System.Windows.Forms")
 from System.Windows.Forms import SaveFileDialog, DialogResult, MessageBox
 
 import xlsx_writer
+import dee_telemetry
+dee_telemetry.check_access("DeeCordiPoint")
+
 
 output = script.get_output()
 

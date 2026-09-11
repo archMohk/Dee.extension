@@ -36,6 +36,9 @@ from pyrevit import forms, script
 import dee_branding
 import deew_settings
 import dee_3d_export_service as core
+import dee_telemetry
+dee_telemetry.check_access("Dee3D")
+
 
 output = script.get_output()
 
