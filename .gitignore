@@ -11,6 +11,7 @@ lib/.dee_access_status.json
 lib/.dee_ribbon_mode.json
 lib/.dee_favorites.json
 lib/.dee_favorites_debug.log
+lib/.dee_tab_icon_debug.log
 dlgval.json
 Project_Dlg_Data/
 __pycache__/

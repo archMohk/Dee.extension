@@ -188,6 +188,115 @@ def _apply_favorites(uiapp, panels):
     _write_debug_log(debug)
 
 
+_TAB_ICON_LOG_PATH = os.path.join(_THIS_DIR, ".dee_tab_icon_debug.log")
+
+
+def _write_tab_icon_log(lines):
+    try:
+        import datetime
+        with open(_TAB_ICON_LOG_PATH, "w") as f:
+            f.write("Tab icon attempt - {0}\n".format(datetime.datetime.now()))
+            for line in lines:
+                f.write(str(line) + "\n")
+    except Exception:
+        pass
+
+
+def set_tab_icon(uiapp, icon_path):
+    """Best-effort, EXPERIMENTAL: tries to put a small icon next to the
+    DeePack tab's own title text, the way some third-party add-ins
+    (e.g. ModPlus) do. Revit's PUBLIC API has no tab-icon property at
+    all - only panels/buttons do - so this reaches into
+    Autodesk.Windows' internal ribbon control, the same undocumented
+    surface pyRevit's own coreutils/ribbon.py uses for panel
+    reordering (AdWindows.ComponentManager.Ribbon.Tabs...Panels.Move).
+    The exact property name for a TAB's icon on that internal type
+    isn't documented anywhere available, so rather than guess one name
+    and silently fail, this inspects the live tab object via .NET
+    reflection for anything Image/Icon-named and tries every
+    candidate, logging what it found and what happened to
+    lib/.dee_tab_icon_debug.log so the real result is checkable even
+    without watching it happen live. Never raises."""
+    results = []
+    try:
+        import clr
+        clr.AddReference("AdWindows")
+        import Autodesk.Windows as AdWindows
+        from System.Windows.Media.Imaging import BitmapImage
+        from System import Uri, UriKind
+    except Exception as e:
+        results.append("Could not load Autodesk.Windows/imaging types: {0}".format(e))
+        _write_tab_icon_log(results)
+        return
+
+    tab = None
+    try:
+        for t in AdWindows.ComponentManager.Ribbon.Tabs:
+            title = getattr(t, "Title", None)
+            tid = getattr(t, "Id", None)
+            if title == TAB_NAME or tid == TAB_NAME:
+                tab = t
+                break
+    except Exception as e:
+        results.append("Could not enumerate ribbon tabs: {0}".format(e))
+        _write_tab_icon_log(results)
+        return
+
+    if tab is None:
+        results.append("Tab '{0}' not found in AdWindows.ComponentManager.Ribbon.Tabs".format(TAB_NAME))
+        _write_tab_icon_log(results)
+        return
+
+    tab_type = tab.GetType()
+    results.append("Tab found. Type: {0}".format(tab_type.FullName))
+    try:
+        props = list(tab_type.GetProperties())
+    except Exception as e:
+        results.append("Could not read tab properties: {0}".format(e))
+        _write_tab_icon_log(results)
+        return
+
+    all_names = sorted(p.Name for p in props)
+    results.append("All properties ({0}): {1}".format(len(all_names), all_names))
+    candidates = [p.Name for p in props
+                  if "image" in p.Name.lower() or "icon" in p.Name.lower()]
+    results.append("Image/Icon-named candidates: {0}".format(candidates))
+
+    if not candidates:
+        results.append("No Image/Icon-named property on this tab type - "
+                        "a tab icon is not achievable this way on this Revit/AdWindows version.")
+        _write_tab_icon_log(results)
+        return
+
+    try:
+        if not os.path.isfile(icon_path):
+            results.append("Icon file does not exist: {0}".format(icon_path))
+            _write_tab_icon_log(results)
+            return
+        bitmap = BitmapImage(Uri(icon_path, UriKind.Absolute))
+    except Exception as e:
+        results.append("Could not load icon file '{0}': {1}".format(icon_path, e))
+        _write_tab_icon_log(results)
+        return
+
+    any_succeeded = False
+    for name in candidates:
+        try:
+            prop = tab_type.GetProperty(name)
+            if prop is None or not prop.CanWrite:
+                results.append("{0}: not writable, skipped".format(name))
+                continue
+            prop.SetValue(tab, bitmap, None)
+            results.append("{0}: SET successfully".format(name))
+            any_succeeded = True
+        except Exception as e:
+            results.append("{0}: FAILED - {1}".format(name, e))
+
+    results.append("Result: {0}".format("at least one property set - check the ribbon" if
+                                        any_succeeded else "every candidate failed"))
+    _write_tab_icon_log(results)
+
+
 def apply_category(uiapp, category):
     """Shows/hides DeePack's panels (and, for Favorite, individual
     buttons within them) for `category`. Never raises - a failure here

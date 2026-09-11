@@ -16,7 +16,13 @@ try/except below is a second, redundant layer for the same reason
 every other tool in this codebase never lets a UI customization crash
 the host.
 """
+import os
 import dee_ribbon_mode as mode
+
+# script.py -> CategorySwitch.combobox -> Mode.panel -> DeePack.tab -> Dee.extension
+_EXTENSION_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__)))))
+_TAB_ICON_PATH = os.path.join(_EXTENSION_ROOT, "icon.png")
 
 
 def __selfinit__(component, ui_item, uiapp):
@@ -24,7 +30,13 @@ def __selfinit__(component, ui_item, uiapp):
     lib/.dee_ribbon_mode.json) and applies it immediately, so the
     ribbon already reflects it before the user ever touches the
     dropdown - the combo box itself defaults to its first member
-    ("All") until this runs."""
+    ("All") until this runs. Also where the experimental tab-icon
+    attempt runs (see dee_ribbon_mode.set_tab_icon's own docstring) -
+    reused here specifically because by the time a combo box's
+    __selfinit__ fires, the DeePack tab it belongs to is guaranteed to
+    already exist (pyRevit builds a bundle's own ribbon items before
+    running its script), unlike an extension-level startup.py, which
+    runs before ANY tab/panel exists yet for the whole session."""
     try:
         saved = mode.load_last_category()
         cmb = ui_item.get_rvtapi_object()
@@ -33,6 +45,10 @@ def __selfinit__(component, ui_item, uiapp):
                 cmb.Current = item
                 break
         mode.apply_category(uiapp, saved)
+    except Exception:
+        pass
+    try:
+        mode.set_tab_icon(uiapp, _TAB_ICON_PATH)
     except Exception:
         pass
     return True
