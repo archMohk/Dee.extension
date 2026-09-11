@@ -181,11 +181,28 @@ def log_usage(tool_name):
     t.start()
 
 
+CONTACT_INFO = (
+    "WhatsApp: https://wa.me/971545462978\n"
+    "Website: https://www.archmkd.com"
+)
+
+# Keyed on the "reason" field check_user_access() returns for a denial -
+# see that SQL function's own definition for the exact set of reasons.
+_DENIAL_HEADLINES = {
+    "not_registered": "This email has not been set up for Dee.extension access yet.",
+    "disabled": "Your access to Dee.extension tools is not currently active.",
+    "expired": "Your Dee.extension subscription has expired.",
+}
+
+
 def _check_user_access_sync(email):
-    """Calls the check_user_access(text) RPC. Returns True/False. Raises
-    on any failure (network, non-2xx, bad JSON) so the caller can tell
-    'checked and disabled' apart from 'could not check at all' - those
-    two cases are handled differently by check_access() below."""
+    """Calls the check_user_access(text) RPC. Returns the parsed response
+    dict - {"allowed": bool, "reason": str, "warning": str|None,
+    "expires_at": str|None} - see that SQL function's own definition for
+    exactly what each field means. Raises on any failure (network,
+    non-2xx, bad/unexpected JSON) so the caller can tell 'checked and
+    disallowed' apart from 'could not check at all' - those two cases are
+    handled differently by check_access() below."""
     url = "{0}/rest/v1/rpc/check_user_access".format(SUPABASE_URL.rstrip("/"))
     body = json.dumps({"check_email": email})
     request = HttpRequestMessage(HttpMethod.Post, url)
@@ -198,7 +215,10 @@ def _check_user_access_sync(email):
     response_body = response.Content.ReadAsStringAsync().Result
     if not response.IsSuccessStatusCode:
         raise Exception("check_user_access failed: {0}".format(response_body))
-    return bool(json.loads(response_body))
+    result = json.loads(response_body)
+    if not isinstance(result, dict) or "allowed" not in result:
+        raise Exception("unexpected check_user_access response: {0}".format(response_body))
+    return result
 
 
 def check_access(tool_name):
@@ -206,10 +226,14 @@ def check_access(tool_name):
     (before any window/forms call of its own - see get_or_prompt_identity's
     docstring for why). Resolves the user's email (prompting once per
     machine), checks it against allowed_users, and either returns
-    normally (access granted - also fires log_usage() in the background)
-    or ends the script via sys.exit() after showing why: denied
-    (email not enabled) or undeterminable (network/Supabase problem -
-    fails CLOSED by design, see this module's docstring point 1)."""
+    normally (access granted - also fires log_usage() in the background,
+    and shows a one-time non-blocking reminder if the subscription is
+    expiring within 30 days) or ends the script via sys.exit() after
+    showing why: not registered / disabled / expired, or undeterminable
+    (network/Supabase problem - fails CLOSED by design, see this module's
+    docstring point 1). A denied user gets an "Re-enter Email" option in
+    case they mistyped it the first time - clears the local cache and
+    re-checks rather than leaving them stuck with a typo forever."""
     from pyrevit import forms
 
     try:
@@ -218,7 +242,7 @@ def check_access(tool_name):
         email = _windows_username()
 
     try:
-        allowed = _check_user_access_sync(email)
+        result = _check_user_access_sync(email)
     except Exception:
         forms.alert(
             "Could not verify access to this tool - check your internet "
@@ -227,12 +251,25 @@ def check_access(tool_name):
         sys.exit()
         return
 
-    if not allowed:
-        forms.alert(
-            "Your access to Dee.extension tools is not currently active "
-            "for {0}.\n\nContact the administrator to enable it.".format(email),
-            title="Dee.extension - Access Required")
+    if not result.get("allowed"):
+        headline = _DENIAL_HEADLINES.get(result.get("reason"), _DENIAL_HEADLINES["disabled"])
+        choice = forms.alert(
+            "{0}\n\nSigned in as: {1}\n\nContact us to activate or renew:\n{2}"
+            .format(headline, email, CONTACT_INFO),
+            title="Dee.extension - Access Required",
+            options=["OK", "Re-enter Email"])
+        if choice == "Re-enter Email":
+            try:
+                os.remove(_IDENTITY_PATH)
+            except Exception:
+                pass
+            check_access(tool_name)
+            return
         sys.exit()
         return
+
+    warning = result.get("warning")
+    if warning:
+        forms.alert(warning, title="Dee.extension - Subscription Reminder")
 
     log_usage(tool_name)
