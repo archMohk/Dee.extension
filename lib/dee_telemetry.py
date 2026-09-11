@@ -247,7 +247,7 @@ def log_usage(tool_name):
 
 
 CONTACT_INFO = (
-    "WhatsApp: https://wa.me/971545462978\n"
+    "WhatsApp: https://wa.me/archMKD\n"
     "Website: https://www.archmkd.com"
 )
 
