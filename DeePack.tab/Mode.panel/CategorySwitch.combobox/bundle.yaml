@@ -1,0 +1,9 @@
+title: "View"
+tooltip: "Show only the DeePack panels for one workflow. All shows everything."
+members:
+  - {id: "All", text: "All"}
+  - {id: "Cloud & Sync", text: "Cloud & Sync"}
+  - {id: "Coordination", text: "Coordination"}
+  - {id: "Design", text: "Design"}
+  - {id: "Documentation", text: "Documentation"}
+  - {id: "Health", text: "Health"}
