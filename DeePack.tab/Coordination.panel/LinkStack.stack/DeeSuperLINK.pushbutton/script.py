@@ -92,6 +92,7 @@ import acc_api
 import acc_file_browser as afb
 import deew_document_manager as docmgr
 import deew_logger
+import deew_failure_handler as ffh
 import dee_telemetry
 dee_telemetry.check_access("DeeSuperLINK")
 
@@ -179,11 +180,22 @@ def _placement_label(placement):
     return str(placement)
 
 
-def _link_once(doc, link_name, cloud_path, placement):
-    """A single attempt. Returns (ok, detail, instance_or_None)."""
+def _link_once(doc, link_name, cloud_path, placement, logger=None):
+    """A single attempt. Returns (ok, detail, instance_or_None).
+
+    ffh.apply_to_transaction() was missing here from the very first
+    build - this transaction had NO IFailuresPreprocessor at all, so any
+    warning/error Revit raised while creating the link (a common one:
+    the cloud model itself has unresolved worksets or a "resave to
+    central" prompt) would show its own native modal dialog with no one
+    there to click it in a headless batch, hanging Revit indefinitely -
+    exactly what a live "crashing" report looks like from the outside.
+    DeeMAPLink (built later, reusing this function as its model) already
+    had this; DeeSuperLINK did not. Fixed to match."""
     t = Transaction(doc, "DeeSuperLINK: link {0}".format(link_name))
     t.Start()
     try:
+        ffh.apply_to_transaction(t, logger)
         result = RevitLinkType.Create(doc, cloud_path, RevitLinkOptions(False))
         try:
             bad = result.ElementId.Value < 0
@@ -216,7 +228,33 @@ def _shared_coordinates_look_unestablished(instance):
         return False
 
 
-def link_into(doc, link_name, cloud_path, placement, fallback=None):
+def _issues_from_log(logger, start_index, end_index=None):
+    """The slice of logger.entries recorded while one host was open,
+    filtered to what is worth telling the user about: WARNING/ERROR
+    entries, and any dialog auto-resolution the dialog handler logged
+    (make_dialog_handler calls logger.debug("Auto-resolved dialog", ...)
+    - a DEBUG entry, so it would not otherwise surface here). Returns a
+    single semicolon-joined string, "" if nothing notable happened.
+    Mirrors dee_maplink_service.issues_from_log (kept as a small local
+    copy rather than a cross-tool import, since DeeSuperLINK predates
+    and does not otherwise depend on that module)."""
+    if logger is None:
+        return ""
+    entries = logger.entries[start_index:end_index]
+    parts = []
+    for e in entries:
+        level = e.get("level")
+        message = e.get("message", "")
+        if level in ("WARNING", "ERROR", "CRITICAL"):
+            parts.append("{0}: {1}".format(level, message))
+        elif "dialog" in message.lower():
+            dialog_id = e.get("dialog_id", "")
+            parts.append("Auto-resolved dialog{0}".format(
+                " ({0})".format(dialog_id) if dialog_id else ""))
+    return "; ".join(parts)
+
+
+def link_into(doc, link_name, cloud_path, placement, fallback=None, logger=None):
     """Creates the link, falling back to `fallback` placement if the
     requested one is rejected outright.
 
@@ -230,7 +268,7 @@ def link_into(doc, link_name, cloud_path, placement, fallback=None):
         pretended otherwise.
 
     Returns (ok, detail). detail names the placement actually used."""
-    ok, detail, instance = _link_once(doc, link_name, cloud_path, placement)
+    ok, detail, instance = _link_once(doc, link_name, cloud_path, placement, logger)
     if ok:
         note = _placement_label(placement)
         if placement == ImportPlacement.Shared and _shared_coordinates_look_unestablished(instance):
@@ -240,7 +278,7 @@ def link_into(doc, link_name, cloud_path, placement, fallback=None):
     if fallback is None or fallback == placement:
         return False, detail
 
-    ok2, detail2, _inst = _link_once(doc, link_name, cloud_path, fallback)
+    ok2, detail2, _inst = _link_once(doc, link_name, cloud_path, fallback, logger)
     if ok2:
         return True, "linked - {0} (requested {1} was rejected: {2})".format(
             _placement_label(fallback), _placement_label(placement), detail)
@@ -579,84 +617,108 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
         self._progress_begin(total_steps)
         sync_failed = False
 
-        for host in hosts:
-            if sync_failed:
-                # Stop rather than keep opening and modifying more cloud
-                # models. A sync failure means this host is already left
-                # changed-but-unsynced; carrying on would multiply that
-                # across the batch, and each additional open model adds
-                # memory pressure - the first live run crashed Revit
-                # while opening host 5 of 8 after two failed syncs.
-                host.status = "Not attempted - batch stopped"
-                results.append((None, host.name, "skipped - batch stopped after a sync failure"))
-                for _ in range(len(links_for(host)) + 1):
-                    self._progress_done_one()
-                continue
-            self._progress_step("Opening {0}".format(host.name))
-            self._log("Opening host '{0}'...".format(host.name))
-            doc, detail = afb.open_cloud_document_attached(
-                self.application, self._region, self._project_id, host.item_id, self._token)
-            if doc is None:
-                host.status = "Failed to open"
-                results.append((False, host.name, "could not open: {0}".format(detail)))
-                self._log("  FAILED to open - {0}".format(detail))
-                for _ in range(len(links_for(host)) + 1):
-                    self._progress_done_one()
-                continue
-            try:
-                existing = existing_link_names(doc) if skip_existing else set()
-                linked_here = 0
-                for link_name in links_for(host):
-                    if skip_existing and _already_linked(existing, link_name):
-                        results.append((None, "{0} -> {1}".format(link_name, host.name),
-                                        "already linked - skipped"))
-                        self._log("  '{0}' already linked - skipped".format(link_name))
-                        self._progress_done_one()
-                        continue
-                    item_id = self._all_items.get(link_name)
-                    cloud_path, path_detail = afb.cloud_model_path(
-                        self._region, self._project_id, item_id, self._token)
-                    if cloud_path is None:
-                        results.append((False, "{0} -> {1}".format(link_name, host.name), path_detail))
-                        self._log("  '{0}' path failed - {1}".format(link_name, path_detail))
-                        self._progress_done_one()
-                        continue
-                    self._progress_step("Linking {0} -> {1}".format(link_name, host.name))
-                    ok, link_detail = link_into(doc, link_name, cloud_path, placement, fallback)
-                    results.append((ok, "{0} -> {1}".format(link_name, host.name), link_detail))
-                    self._log("  '{0}': {1}".format(link_name, link_detail))
-                    if ok:
-                        linked_here += 1
-                    self._progress_done_one()
+        # Wired for the whole batch (not per-host) so a native dialog
+        # fired by ANY host is auto-resolved instead of hanging Revit
+        # indefinitely - the missing piece behind the live "crashing"
+        # report. DeeMAPLink (built later, reusing this tool as its
+        # model) already had this; DeeSuperLINK did not. Fixed to match,
+        # same wiring pattern as DeeMAPLink's own run_click.
+        dialog_handler = ffh.make_dialog_handler(self.logger)
+        try:
+            self.uiapp.DialogBoxShowing += dialog_handler
+        except Exception as e:
+            self.logger.exception("Could not attach dialog handler", e)
 
-                if linked_here:
-                    self._progress_step("Synchronizing {0}".format(host.name))
-                    ok_sync, sync_detail = docmgr.synchronize_with_central(
-                        doc, comment=comment, compact=False, logger=self.logger)
-                    host.status = "Synchronized" if ok_sync else "Linked but sync FAILED"
-                    results.append((ok_sync, host.name,
-                                    "synchronized" if ok_sync else "sync failed: {0}".format(sync_detail)))
-                    self._log("  host {0}".format(host.status))
-                    self._progress_done_one()
-                    if not ok_sync:
-                        # Surface WHY immediately. This detail previously
-                        # only reached the end-of-run report, so when the
-                        # first live run crashed mid-batch the user never
-                        # saw the reason at all.
-                        self._log("  SYNC ERROR: {0}".format(sync_detail))
-                        sync_failed = True
-                else:
-                    host.status = "Nothing to link"
-                    self._progress_done_one()
-            except Exception as e:
-                host.status = "Failed"
-                results.append((False, host.name, "unexpected error: {0}".format(e)))
-                self.logger.exception("Unexpected error linking", e, file=host.name)
-            finally:
+        try:
+            for host in hosts:
+                if sync_failed:
+                    # Stop rather than keep opening and modifying more cloud
+                    # models. A sync failure means this host is already left
+                    # changed-but-unsynced; carrying on would multiply that
+                    # across the batch, and each additional open model adds
+                    # memory pressure - the first live run crashed Revit
+                    # while opening host 5 of 8 after two failed syncs.
+                    host.status = "Not attempted - batch stopped"
+                    results.append((None, host.name, "skipped - batch stopped after a sync failure"))
+                    for _ in range(len(links_for(host)) + 1):
+                        self._progress_done_one()
+                    continue
+                log_start = len(self.logger.entries)
+                self._progress_step("Opening {0}".format(host.name))
+                self._log("Opening host '{0}'...".format(host.name))
+                doc, detail = afb.open_cloud_document_attached(
+                    self.application, self._region, self._project_id, host.item_id, self._token)
+                if doc is None:
+                    host.status = "Failed to open"
+                    results.append((False, host.name, "could not open: {0}".format(detail)))
+                    self._log("  FAILED to open - {0}".format(detail))
+                    for _ in range(len(links_for(host)) + 1):
+                        self._progress_done_one()
+                    continue
                 try:
-                    docmgr.close_document(doc, save_modified=False, logger=self.logger)
-                except Exception:
-                    pass
+                    existing = existing_link_names(doc) if skip_existing else set()
+                    linked_here = 0
+                    for link_name in links_for(host):
+                        if skip_existing and _already_linked(existing, link_name):
+                            results.append((None, "{0} -> {1}".format(link_name, host.name),
+                                            "already linked - skipped"))
+                            self._log("  '{0}' already linked - skipped".format(link_name))
+                            self._progress_done_one()
+                            continue
+                        item_id = self._all_items.get(link_name)
+                        cloud_path, path_detail = afb.cloud_model_path(
+                            self._region, self._project_id, item_id, self._token)
+                        if cloud_path is None:
+                            results.append((False, "{0} -> {1}".format(link_name, host.name), path_detail))
+                            self._log("  '{0}' path failed - {1}".format(link_name, path_detail))
+                            self._progress_done_one()
+                            continue
+                        self._progress_step("Linking {0} -> {1}".format(link_name, host.name))
+                        ok, link_detail = link_into(doc, link_name, cloud_path, placement, fallback,
+                                                     logger=self.logger)
+                        results.append((ok, "{0} -> {1}".format(link_name, host.name), link_detail))
+                        self._log("  '{0}': {1}".format(link_name, link_detail))
+                        if ok:
+                            linked_here += 1
+                        self._progress_done_one()
+
+                    if linked_here:
+                        self._progress_step("Synchronizing {0}".format(host.name))
+                        ok_sync, sync_detail = docmgr.synchronize_with_central(
+                            doc, comment=comment, compact=False, logger=self.logger)
+                        host.status = "Synchronized" if ok_sync else "Linked but sync FAILED"
+                        results.append((ok_sync, host.name,
+                                        "synchronized" if ok_sync else "sync failed: {0}".format(sync_detail)))
+                        self._log("  host {0}".format(host.status))
+                        self._progress_done_one()
+                        if not ok_sync:
+                            # Surface WHY immediately. This detail previously
+                            # only reached the end-of-run report, so when the
+                            # first live run crashed mid-batch the user never
+                            # saw the reason at all.
+                            self._log("  SYNC ERROR: {0}".format(sync_detail))
+                            sync_failed = True
+                    else:
+                        host.status = "Nothing to link"
+                        self._progress_done_one()
+                except Exception as e:
+                    host.status = "Failed"
+                    results.append((False, host.name, "unexpected error: {0}".format(e)))
+                    self.logger.exception("Unexpected error linking", e, file=host.name)
+                finally:
+                    log_end = len(self.logger.entries)
+                    issues = _issues_from_log(self.logger, log_start, log_end)
+                    if issues:
+                        results.append((None, host.name + " - issues seen", issues))
+                    try:
+                        docmgr.close_document(doc, save_modified=False, logger=self.logger)
+                    except Exception:
+                        pass
+        finally:
+            try:
+                self.uiapp.DialogBoxShowing -= dialog_handler
+            except Exception:
+                pass
 
         self._progress_end()
         self._refresh_rows()
