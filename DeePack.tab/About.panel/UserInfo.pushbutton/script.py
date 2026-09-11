@@ -11,6 +11,10 @@ open) or explicitly re-checked via the "Check Now" button.
 """
 import os
 
+import clr
+clr.AddReference("PresentationCore")
+from System.Windows.Media import SolidColorBrush, Color
+
 from pyrevit import forms
 import dee_branding
 import dee_telemetry
@@ -22,6 +26,12 @@ except Exception:
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
+
+# Same green/red pair used throughout this codebase's own coloured
+# HTML reports (e.g. DeeSuperLINK/DeeMAPLink's _report()), reused here
+# for consistency rather than picking new colours.
+_ACTIVE_COLOR = Color.FromRgb(0x2E, 0x7D, 0x32)
+_INACTIVE_COLOR = Color.FromRgb(0xC6, 0x28, 0x28)
 
 
 def _expires_text(status):
@@ -49,6 +59,9 @@ class UserInfoWindow(dee_branding.DeeBrandedWindow):
         status = dee_telemetry.load_cached_status()
         summary = dee_telemetry.status_summary()
         self.status_tb.Text = summary or "Not checked yet - open any Dee tool once first."
+        is_active = bool(status and status.get("allowed"))
+        self.status_tb.Foreground = SolidColorBrush(
+            _ACTIVE_COLOR if is_active else _INACTIVE_COLOR)
         self.expires_tb.Text = _expires_text(status)
 
         if acc_auth is not None:
