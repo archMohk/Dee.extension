@@ -24,3 +24,11 @@ lib/.dee_mono/
 # (ISCC.exe installer/Dee.extension.iss), not source; keeping it out of
 # git avoids bloating the public repo's history with a binary.
 installer/Output/
+
+# Owner-only usage/access dashboard - embeds the Supabase SECRET key
+# (bypasses every RLS policy - full read/write on every table), unlike
+# the publishable key embedded in lib/dee_telemetry.py which is safe to
+# ship publicly. This whole folder must NEVER be committed - it is not
+# part of the distributed extension, just a private file living in the
+# same OneDrive folder for convenience.
+dashboard/
