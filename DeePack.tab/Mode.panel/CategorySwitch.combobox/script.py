@@ -43,5 +43,13 @@ def __cmb_on_change__(sender, args, ctx):
         category = ctx.current_name
         mode.apply_category(ctx.uiapp, category)
         mode.save_last_category(category)
+        if category == mode.FAVORITE_CATEGORY and not mode.has_favorites():
+            from pyrevit import forms
+            forms.alert(
+                "No favorites marked yet - every button just got hidden.\n\n"
+                "Open DeeControl (About panel) and tick some tools as "
+                "favorites, then Save Favorites - no reload needed, just "
+                "pick Favorite here again.",
+                title="Dee.extension - Favorite view is empty")
     except Exception:
         pass

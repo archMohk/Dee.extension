@@ -40,6 +40,10 @@ _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 _TAB_ROOT = os.path.dirname(os.path.dirname(_THIS_DIR))
 _EXTENSION_ROOT = os.path.dirname(_TAB_ROOT)
 _CONFIG_PATH = os.path.join(_EXTENSION_ROOT, "dee_control_panel.json")
+# Personal, per-machine favorites list for DeePack's ribbon "View"
+# dropdown's Favorite category (lib/dee_ribbon_mode.py) - deliberately
+# NOT dee_control_panel.json (that one is team-wide, tracked in git).
+_FAVORITES_PATH = os.path.join(_EXTENSION_ROOT, "lib", ".dee_favorites.json")
 
 
 def matches(node, query):
@@ -105,6 +109,7 @@ class DeeControlWindow(dee_branding.DeeBrandedWindow):
             # its file now holds the disable rule rather than what it used to
             # say.
             core.load_state(_CONFIG_PATH, self.root, self.nodes)
+            core.load_favorites(_FAVORITES_PATH, self.nodes)
 
         self._baseline = dict((n.rel_key, n.enabled) for n in self.nodes)
         self._refresh()
@@ -183,6 +188,28 @@ class DeeControlWindow(dee_branding.DeeBrandedWindow):
                 self._refresh()
             else:
                 self._update_counts()
+        self._guard(run)
+
+    def row_favorite_click(self, sender, args):
+        """The Fav checkbox. Mirrors row_toggle_click's approach of
+        trusting the CheckBox's own IsChecked over the binding, for the
+        same reason. Unlike on/off, favoriting never cascades to other
+        rows and never touches bundle.yaml, so there is nothing to
+        refresh or grey - just the row's own state."""
+        def run():
+            node = sender.DataContext
+            if node is None or not node.is_favoritable:
+                return
+            node.favorite = sender.IsChecked is True
+        self._guard(run)
+
+    def save_favorites_click(self, sender, args):
+        def run():
+            core.save_favorites(_FAVORITES_PATH, self.nodes)
+            count = len([n for n in self.nodes if n.favorite and n.is_favoritable])
+            self.status_tb.Text = (
+                "{0} favorite(s) saved. Pick Favorite in DeePack's ribbon "
+                "'View' dropdown to see them - no reload needed.".format(count))
         self._guard(run)
 
     # ---------------- bulk toggles ----------------

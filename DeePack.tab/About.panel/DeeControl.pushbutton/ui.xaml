@@ -40,10 +40,15 @@
                             ToolTip="Rebuilds the ribbon so your changes show up. You can also do this later from the pyRevit tab."/>
                     <Button x:Name="reset_b" Content="Reset — Turn Everything On" Width="200" Height="30"
                             Margin="10,0,0,0" Click="reset_click"/>
+                    <Button x:Name="save_favorites_b" Content="Save Favorites" Width="140" Height="30"
+                            Margin="24,0,0,0" Click="save_favorites_click"
+                            ToolTip="Saves the Fav column. Takes effect immediately - just pick Favorite in DeePack's ribbon View dropdown, no Apply or reload needed."/>
                     <Button x:Name="close_b" Content="Close" Width="90" Height="30" Margin="10,0,0,0" Click="close_click"/>
                 </StackPanel>
                 <TextBlock TextWrapping="Wrap" FontSize="11" Margin="0,8,0,0"
                            Text="Apply writes a never-true context rule into each switched-off button's bundle.yaml — that is what makes Revit grey it out instead of running it. Nothing is hidden, moved or deleted, and ribbon order is never touched. Those files are tracked in git, so your choices show up as normal repository changes you can review or revert."/>
+                <TextBlock TextWrapping="Wrap" FontSize="11" Margin="0,4,0,0"
+                           Text="Fav is separate and personal to this PC - it picks what DeePack's ribbon View dropdown's Favorite category shows. Save Favorites applies instantly, no reload needed."/>
                 <TextBlock x:Name="pending_tb" TextWrapping="Wrap" FontSize="12" FontWeight="Bold"
                            Foreground="#FFB300" Margin="0,6,0,0" Text=""/>
             </StackPanel>
@@ -65,6 +70,17 @@
                                       IsEnabled="{Binding is_toggleable}"
                                       HorizontalAlignment="Center" VerticalAlignment="Center"
                                       Click="row_toggle_click"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Fav" Width="40" SortMemberPath="favorite"
+                                         ToolTipService.ToolTip="Shown when DeePack's ribbon View dropdown is set to Favorite. Personal to this PC - Save Favorites to apply.">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding favorite, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      IsEnabled="{Binding is_favoritable}"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                                      Click="row_favorite_click"/>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>

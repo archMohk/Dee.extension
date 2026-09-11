@@ -172,6 +172,12 @@ class BundleNode(object):
         self.note = "always on" if self.locked else ""
         # The context this button had before DeeControl ever touched it.
         self.original_context = None
+        # DeePack.tab's ribbon "View" dropdown's Favorite category shows
+        # only favorited buttons (see lib/dee_ribbon_mode.py) - a
+        # personal, per-machine pick list, unrelated to the on/off
+        # greying above (favoriting something never touches its
+        # bundle.yaml, so it needs no Apply/reload to take effect).
+        self.favorite = False
 
     @property
     def display_name(self):
@@ -189,6 +195,13 @@ class BundleNode(object):
     @property
     def is_container(self):
         return self.kind in CONTAINER_KINDS
+
+    @property
+    def is_favoritable(self):
+        """Only real buttons can be favorited, not panels/groups - a
+        panel-level 'favorite' would just duplicate what the dropdown's
+        other categories already do."""
+        return not self.is_container
 
     @property
     def bundle_path(self):
@@ -361,6 +374,48 @@ def save_state(config_path, root, nodes):
     if not isinstance(text, type(u"")):
         text = text.decode("utf-8")
     with io.open(config_path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def load_favorites(favorites_path, nodes):
+    """Applies the saved favorite set. Separate file from load_state's
+    config_path deliberately - favorites are a personal, per-machine
+    pick list (gitignored), not the team-wide on/off state that file
+    holds (tracked in git)."""
+    if not os.path.isfile(favorites_path):
+        return False
+    try:
+        with io.open(favorites_path, encoding="utf-8") as fh:
+            data = json.loads(fh.read())
+    except Exception:
+        return False
+    favorited = set(data.get("favorites", []))
+    for node in nodes:
+        if node.name in favorited:
+            node.favorite = True
+    return True
+
+
+def save_favorites(favorites_path, nodes):
+    """Stores bare button NAMES, not rel_key paths - that is what
+    lib/dee_ribbon_mode.py needs to match against a live RibbonItem's
+    own .Name at runtime, which exposes no path back to the bundle it
+    came from. Names are unique across this whole tab in practice (one
+    tool = one distinct name), so this is unambiguous."""
+    data = {
+        "_comment": ("Written by DeeControl. Personal, per-machine list of "
+                     "tool names shown when DeePack's ribbon 'View' dropdown "
+                     "is set to Favorite - not shared via git."),
+        "favorites": sorted(set(
+            n.name for n in nodes if n.favorite and n.is_favoritable)),
+    }
+    folder = os.path.dirname(favorites_path)
+    if folder and not os.path.isdir(folder):
+        os.makedirs(folder)
+    text = json.dumps(data, indent=2, sort_keys=True)
+    if not isinstance(text, type(u"")):
+        text = text.decode("utf-8")
+    with io.open(favorites_path, "w", encoding="utf-8") as fh:
         fh.write(text)
 
 
@@ -678,5 +733,42 @@ if __name__ == "__main__":
             self.assertEqual(total, 4)
             self.assertEqual(faded, 3)   # Solo, Alpha, Beta
             self.assertEqual(live, 1)    # DeeControl
+
+    class FavoritesTests(Base):
+        def test_containers_are_not_favoritable(self):
+            self.assertFalse(self.by["Cloud"].is_favoritable)
+            self.assertTrue(self.by["Solo"].is_favoritable)
+
+        def test_save_then_load_roundtrip(self):
+            path = os.path.join(self.tmp, "favs.json")
+            self.by["Solo"].favorite = True
+            self.by["Alpha"].favorite = True
+            save_favorites(path, self.nodes)
+
+            fresh_root = scan(self.tab)
+            fresh_nodes = flatten(fresh_root)
+            fresh_by = dict((n.name, n) for n in fresh_nodes)
+            load_favorites(path, fresh_nodes)
+
+            self.assertTrue(fresh_by["Solo"].favorite)
+            self.assertTrue(fresh_by["Alpha"].favorite)
+            self.assertFalse(fresh_by["Beta"].favorite)
+            self.assertFalse(fresh_by["Cloud"].favorite)
+
+        def test_containers_are_never_persisted_even_if_flagged(self):
+            # Defensive: is_favoritable gates the UI, but save_favorites
+            # itself must also never write a container's name, in case
+            # something else ever sets .favorite on one directly.
+            path = os.path.join(self.tmp, "favs.json")
+            self.by["Cloud"].favorite = True
+            save_favorites(path, self.nodes)
+            with io.open(path, encoding="utf-8") as fh:
+                data = json.loads(fh.read())
+            self.assertNotIn("Cloud", data["favorites"])
+
+        def test_load_missing_file_is_a_safe_noop(self):
+            path = os.path.join(self.tmp, "does_not_exist.json")
+            self.assertFalse(load_favorites(path, self.nodes))
+            self.assertFalse(self.by["Solo"].favorite)
 
     unittest.main(verbosity=2)

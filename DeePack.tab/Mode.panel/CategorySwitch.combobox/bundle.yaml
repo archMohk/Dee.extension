@@ -2,6 +2,7 @@ title: "View"
 tooltip: "Show only the DeePack panels for one workflow. All shows everything."
 members:
   - {id: "All", text: "All"}
+  - {id: "Favorite", text: "Favorite"}
   - {id: "Cloud & Sync", text: "Cloud & Sync"}
   - {id: "Coordination", text: "Coordination"}
   - {id: "Design", text: "Design"}

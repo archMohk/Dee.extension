@@ -10,14 +10,34 @@ The combo box itself is pyRevit's native declarative .combobox bundle
 type (members: in bundle.yaml + __cmb_on_change__ in script.py) - no
 raw Revit API ribbon-building code needed, and no risk to anything the
 combo box doesn't explicitly touch: this module only ever flips
-RibbonPanel.Visible (a normal, reversible, public API property) on
-panels that already exist, never creates/destroys/reorders anything.
+RibbonPanel.Visible / RibbonItem.Visible (normal, reversible, public
+API properties) on panels/items that already exist, never creates,
+destroys, or reorders anything.
 
 Panel names below are each panel's bundle.yaml `title:` (== what
 RibbonPanel.Name resolves to at runtime), NOT the .panel folder name -
 two panels (Sheets & Export, Views & Datums) differ from their folder
 name, confirmed by reading every DeePack.tab/*.panel/bundle.yaml before
 writing this.
+
+--------------------------------------------------------------------
+FAVORITE_CATEGORY - a fundamentally different mechanism from the rest
+--------------------------------------------------------------------
+Every other category shows/hides whole PANELS. Favorite instead shows
+every panel but hides individual BUTTONS within them, matched against
+a personal pick list DeeControl writes to lib/.dee_favorites.json
+(dee_control_panel_service.load_favorites/save_favorites - a separate,
+gitignored, per-machine file, not the team-wide on/off state
+DeeControl's own dee_control_panel.json holds).
+
+This is the first per-BUTTON (not just per-panel) ribbon visibility
+toggle in this codebase - NEEDS LIVE-REVIT VERIFICATION, specifically:
+whether a pyRevit-created RibbonItem's own .Name reliably equals its
+bundle folder name (confirmed true for panels via their `title:`
+field; assumed, not yet confirmed, for individual buttons/pulldowns).
+A name that doesn't match anything live is silently skipped rather
+than erroring either way, so the worst case of this being wrong is
+"a favorited button doesn't show up," never a crash.
 """
 import json
 import os
@@ -40,10 +60,18 @@ CATEGORY_PANELS = {
     "Health": ["Health"],
 }
 
+# Handled separately from CATEGORY_PANELS - see the module docstring.
+FAVORITE_CATEGORY = "Favorite"
+
 DEFAULT_CATEGORY = "All"
 
 _THIS_DIR = os.path.dirname(__file__)
 _STATE_PATH = os.path.join(_THIS_DIR, ".dee_ribbon_mode.json")
+_FAVORITES_PATH = os.path.join(_THIS_DIR, ".dee_favorites.json")
+
+
+def _valid_category(name):
+    return name in CATEGORY_PANELS or name == FAVORITE_CATEGORY
 
 
 def load_last_category():
@@ -55,7 +83,7 @@ def load_last_category():
             with open(_STATE_PATH, "r") as f:
                 data = json.load(f)
             saved = data.get("category")
-            if saved in CATEGORY_PANELS:
+            if _valid_category(saved):
                 return saved
     except Exception:
         pass
@@ -74,15 +102,77 @@ def save_last_category(category):
         pass
 
 
-def apply_category(uiapp, category):
-    """Shows/hides DeePack's panels for `category`. Never raises - a
-    failure here must never take down the combo box or, worse, Revit
-    itself; worst case the ribbon just doesn't filter this time."""
+def load_favorite_names():
+    """The set of bare button names DeeControl has marked as favorite.
+    Never raises - an unreadable/missing file just means no favorites,
+    not an error."""
     try:
-        keep = CATEGORY_PANELS.get(category, None)
+        if os.path.exists(_FAVORITES_PATH):
+            with open(_FAVORITES_PATH, "r") as f:
+                data = json.load(f)
+            return set(data.get("favorites", []))
+    except Exception:
+        pass
+    return set()
+
+
+def has_favorites():
+    return len(load_favorite_names()) > 0
+
+
+def _iter_ribbon_items(panel):
+    """Yields every RibbonItem directly on a panel, plus a pulldown/
+    split button's own nested children. pyRevit's .stack bundle type
+    has no separate wrapper object at the API level - stacked items
+    are ordinary panel items, just laid out vertically - so panel
+    .GetItems() already covers those with no special-casing needed."""
+    try:
+        items = list(panel.GetItems())
+    except Exception:
+        return
+    for item in items:
+        yield item
+        try:
+            nested = item.GetItems()
+        except Exception:
+            nested = None
+        if nested:
+            for child in nested:
+                yield child
+
+
+def _apply_favorites(uiapp, panels):
+    favorites = load_favorite_names()
+    for panel in panels:
+        try:
+            panel.Visible = True
+            name = panel.Name
+        except Exception:
+            continue
+        if name in ALWAYS_VISIBLE:
+            continue
+        for item in _iter_ribbon_items(panel):
+            try:
+                item.Visible = (item.Name in favorites)
+            except Exception:
+                pass
+
+
+def apply_category(uiapp, category):
+    """Shows/hides DeePack's panels (and, for Favorite, individual
+    buttons within them) for `category`. Never raises - a failure here
+    must never take down the combo box or, worse, Revit itself; worst
+    case the ribbon just doesn't filter this time."""
+    try:
         panels = uiapp.GetRibbonPanels(TAB_NAME)
     except Exception:
         return
+
+    if category == FAVORITE_CATEGORY:
+        _apply_favorites(uiapp, panels)
+        return
+
+    keep = CATEGORY_PANELS.get(category, None)
     for panel in panels:
         try:
             name = panel.Name
@@ -93,5 +183,13 @@ def apply_category(uiapp, category):
                 panel.Visible = True
             else:
                 panel.Visible = name in keep
+            # Undo any per-item hiding a previous Favorite selection
+            # left behind - every non-Favorite category always shows
+            # every item within a visible panel.
+            for item in _iter_ribbon_items(panel):
+                try:
+                    item.Visible = True
+                except Exception:
+                    pass
         except Exception:
             pass

@@ -9,6 +9,7 @@ acc_config.json
 lib/.dee_identity.json
 lib/.dee_access_status.json
 lib/.dee_ribbon_mode.json
+lib/.dee_favorites.json
 dlgval.json
 Project_Dlg_Data/
 __pycache__/
