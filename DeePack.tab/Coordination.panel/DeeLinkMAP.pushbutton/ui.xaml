@@ -1,15 +1,12 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="DeeLinkMAP — Scan ACC/Local, Map Revit Links (no file open)"
+        Title="DeeLinkMAP — Scan ACC/Local, Map Revit Links"
         ShowInTaskbar="False"
         MinHeight="640" MinWidth="760" Height="700" Width="820"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Scans an ACC project or a local folder for Revit files, ticks the ones you want, and reads each one's own Revit links. Produces an interactive HTML map of every file and its link relationships, opened in your browser."/>
-
-        <CheckBox DockPanel.Dock="Top" x:Name="fast_scan_cb" Margin="0,0,0,10"
-                  Content="Try the fast no-open read first (EXPERIMENTAL - a Revit crash was reported here; leave unticked to always use the slower, proven open-and-read method instead)"/>
+                   Text="Scans an ACC project or a local folder for Revit files, ticks the ones you want, and reads each one's own Revit links (opened headlessly, then closed). Produces an interactive HTML map of every file and its link relationships, opened in your browser. Large batches stop themselves cleanly after a time budget rather than risk a crash - see DeeLinkMAP's own tooltip for details."/>
 
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem><TextBlock x:Name="status_tb" Text="Ready."/></StatusBarItem>

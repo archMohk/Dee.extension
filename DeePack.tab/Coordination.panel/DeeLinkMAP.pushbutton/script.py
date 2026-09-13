@@ -3,15 +3,37 @@
 DeeLinkMAP
 Scans an ACC project OR a local folder for Revit files, lets you tick
 which ones to include, and discovers each ticked file's own Revit
-links - primarily WITHOUT opening it at all (TransmissionData read
-straight from disk), only falling back to a quick headless open when
-that fast read fails for a particular file. Produces a single
-self-contained, interactive HTML map (files as nodes, links as edges)
-opened in your browser - lib/dee_linkmap_service.py owns the map
-generation and the no-open/fallback-open logic; see that module's own
-docstring for the full technical story (the TransmissionData
-mechanism, its one documented gap around cloud-hosted references, and
-why a fallback-open path exists at all).
+links by opening each one headlessly, reading its RevitLinkType
+elements, and closing it again. Produces a single self-contained,
+interactive HTML map (files as nodes, links as edges) opened in your
+browser - lib/dee_linkmap_service.py owns the map generation.
+
+--------------------------------------------------------------------
+The TransmissionData no-open path was REMOVED after a live crash
+--------------------------------------------------------------------
+The first build of this tool tried Autodesk.Revit.DB.TransmissionData.
+ReadTransmissionData() first (reads a file's links straight from disk,
+with no document ever opened), falling back to a headless open only
+when that failed. Confirmed live, twice: it crashed Revit immediately,
+before processing even the first file - not an occasional bad file,
+a consistent, reproducible failure. Since that happens at the native
+API level, no amount of Python try/except around the call can catch
+or recover from it, so rather than leave a checkbox that reliably
+crashes Revit when ticked, the whole no-open path was removed. See
+dee_linkmap_service.read_links_no_open's own docstring - the function
+still exists there for reference/future investigation, but nothing in
+this script calls it anymore.
+
+The remaining open-and-read path ALSO crashed live, after processing
+several files successfully - consistent with resource accumulation
+across many open/close cycles in one Revit session rather than a
+single bad file. Two mitigations were added in response: an explicit
+.NET garbage-collection pass after each document close (a documented
+community practice for exactly this Revit-API batch-processing
+symptom), and a time-budget safety net (mirroring the fix already
+proven for DeeS.Publish's own ACC-scan crash earlier this same
+session) that stops the batch cleanly - reporting what was skipped -
+rather than pushing through to another crash.
 
 --------------------------------------------------------------------
 Reused rather than reinvented
@@ -25,14 +47,14 @@ match-building UI down to one plain "tick files to include" list,
 since DeeLinkMAP does not create or pair anything - it only reads and
 maps what already exists.
 
-The fallback-open path reuses the same deew_failure_handler dialog
-handling + one-host-at-a-time discipline every other unattended batch
-tool in this codebase already relies on.
+The open path reuses the same deew_failure_handler dialog handling +
+one-host-at-a-time discipline every other unattended batch tool in
+this codebase already relies on.
 
-NEEDS LIVE-REVIT VERIFICATION - see dee_linkmap_service.py's own
-docstring: the whole TransmissionData path is new to this codebase,
-and the fallback-open path (while built on proven pieces) has never
-run live in this specific combination.
+NEEDS LIVE-REVIT VERIFICATION - the GC-pass and time-budget
+mitigations are a well-reasoned response to what was observed live,
+not yet confirmed to fully resolve it (may need a lower per-run file
+count too, if resource accumulation turns out to be steep).
 """
 import os
 import time
@@ -46,13 +68,11 @@ import clr
 clr.AddReference("PresentationFramework")
 clr.AddReference("WindowsBase")
 clr.AddReference("System.Windows.Forms")
-from System import Action
+from System import Action, GC
 from System.Windows import Visibility
 from System.Windows.Threading import Dispatcher, DispatcherFrame, DispatcherPriority
 from System.Windows.Forms import (
     FolderBrowserDialog, SaveFileDialog, DialogResult)
-
-from Autodesk.Revit.DB import ModelPathUtils
 
 import acc_auth
 import acc_file_browser as afb
@@ -70,6 +90,13 @@ _TOOL_NAME = "DeeLinkMAP"
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 _CACHE_FILE = os.path.join(_THIS_DIR, ".acc_file_cache.json")
+
+# A live run crashed Revit after opening/closing several files in a
+# row - stops the batch cleanly (reporting the rest as skipped) rather
+# than pushing further, mirroring the same time-budget mitigation
+# already proven for DeeS.Publish's own ACC-scan crash this session.
+_TIME_BUDGET_SECONDS = 360
+_LARGE_BATCH_WARNING = 15
 
 
 class FileRow(object):
@@ -317,17 +344,7 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
             r.selected = False
         self._refresh_list()
 
-    # ---------------- model path / open, per source mode ----------------
-    def _model_path_for(self, name):
-        if self._source_mode() == "acc":
-            item_id = self._all_items.get(name)
-            return afb.cloud_model_path(self._region, self._project_id, item_id, self._token)
-        file_path = self._all_items.get(name)
-        try:
-            return ModelPathUtils.ConvertUserVisiblePathToModelPath(file_path), "ok"
-        except Exception as e:
-            return None, str(e)
-
+    # ---------------- open, per source mode ----------------
     def _open_attached(self, name):
         if self._source_mode() == "acc":
             item_id = self._all_items.get(name)
@@ -367,23 +384,30 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
             return
         out_path = dlg.FileName
 
-        use_fast_scan = self.fast_scan_cb.IsChecked is True
-        if use_fast_scan:
-            scan_desc = ("Each file is tried directly from disk first (the "
-                         "experimental fast read); one that can't be read that "
-                         "way is opened briefly (headless) instead, then closed.")
-        else:
-            scan_desc = ("Each file is opened briefly (headless) to read its "
-                         "links, then closed - the fast no-open read is off.")
+        if len(ticked) > _LARGE_BATCH_WARNING:
+            if not forms.alert(
+                    "{0} files is a large batch - each one is opened, read, and "
+                    "closed in turn, and Revit's own memory use can build up "
+                    "across many open/close cycles in one session.\n\nIf this "
+                    "run runs long, it will stop itself cleanly at the "
+                    "{1}-minute mark rather than push through to a crash, and "
+                    "report which files were skipped. Continue?".format(
+                        len(ticked), int(_TIME_BUDGET_SECONDS / 60)),
+                    title="DeeLinkMAP - Large Batch", yes=True, no=True):
+                return
+
         if not forms.alert(
-                "Scan {0} file(s) for their Revit links?\n\n{1} Nothing is ever "
-                "modified.".format(len(ticked), scan_desc),
+                "Scan {0} file(s) for their Revit links?\n\nEach file is opened "
+                "briefly (headless) to read its links, then closed. Nothing is "
+                "ever modified.".format(len(ticked)),
                 title="DeeLinkMAP - Confirm", yes=True, no=True):
             return
 
         results = []
         file_nodes = {}
-        no_open_count = opened_count = failed_count = 0
+        opened_count = failed_count = skipped_count = 0
+        run_start = time.time()
+        time_budget_hit = False
 
         self._progress_begin(len(ticked))
         dialog_handler = ffh.make_dialog_handler(self.logger)
@@ -394,49 +418,58 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
 
         try:
             for row in ticked:
+                if time_budget_hit:
+                    results.append((None, row.name, "skipped - time budget reached"))
+                    self._progress_done_one()
+                    continue
+
+                if time.time() - run_start > _TIME_BUDGET_SECONDS:
+                    time_budget_hit = True
+                    self._log("  Time budget reached ({0} min) - stopping cleanly, "
+                              "remaining files will be reported as skipped.".format(
+                                  int(_TIME_BUDGET_SECONDS / 60)))
+                    results.append((None, row.name, "skipped - time budget reached"))
+                    self._progress_done_one()
+                    continue
+
                 self._progress_step("Scanning {0}".format(row.name))
                 node = svc.FileNode(row.name, row.ref)
 
-                targets = None
-                if use_fast_scan:
-                    model_path, path_detail = self._model_path_for(row.name)
-                    targets = svc.read_links_no_open(model_path) if model_path is not None else None
-
-                if targets is not None:
-                    node.raw_link_targets = targets
-                    node.scan_method = "no-open"
-                    no_open_count += 1
-                    results.append((True, row.name,
-                                     "{0} link(s) - read without opening".format(len(targets))))
-                    self._log("  '{0}': {1} link(s), no open needed".format(row.name, len(targets)))
+                doc, open_detail = self._open_attached(row.name)
+                if doc is None:
+                    node.error = "could not open: {0}".format(open_detail)
+                    failed_count += 1
+                    results.append((False, row.name, node.error))
+                    self._log("  '{0}': FAILED - {1}".format(row.name, node.error))
                 else:
-                    self._log("  '{0}': fast read unavailable, opening as fallback...".format(row.name))
-                    doc, open_detail = self._open_attached(row.name)
-                    if doc is None:
-                        node.error = "could not open: {0}".format(open_detail)
+                    try:
+                        targets = svc.read_links_by_opening(doc)
+                        node.raw_link_targets = targets
+                        node.scan_method = "opened"
+                        opened_count += 1
+                        results.append((True, row.name, "{0} link(s)".format(len(targets))))
+                        self._log("  '{0}': {1} link(s)".format(row.name, len(targets)))
+                    except Exception as e:
+                        node.error = str(e)
                         failed_count += 1
-                        results.append((False, row.name, node.error))
-                        self._log("  '{0}': FAILED - {1}".format(row.name, node.error))
-                    else:
+                        results.append((False, row.name, "error reading links: {0}".format(e)))
+                        self._log("  '{0}': FAILED while reading - {1}".format(row.name, e))
+                    finally:
                         try:
-                            targets2 = svc.read_links_by_opening(doc)
-                            node.raw_link_targets = targets2
-                            node.scan_method = "opened"
-                            opened_count += 1
-                            results.append((None, row.name,
-                                             "{0} link(s) - read by opening (fallback)".format(len(targets2))))
-                            self._log("  '{0}': {1} link(s), opened as fallback".format(
-                                row.name, len(targets2)))
-                        except Exception as e:
-                            node.error = str(e)
-                            failed_count += 1
-                            results.append((False, row.name, "error reading links: {0}".format(e)))
-                            self._log("  '{0}': FAILED while reading - {1}".format(row.name, e))
-                        finally:
-                            try:
-                                docmgr.close_document(doc, save_modified=False, logger=self.logger)
-                            except Exception:
-                                pass
+                            docmgr.close_document(doc, save_modified=False, logger=self.logger)
+                        except Exception:
+                            pass
+                        # Explicit GC pass after every close - a documented
+                        # community practice for exactly the "crashes after N
+                        # files" symptom this tool hit live (Revit/the .NET
+                        # runtime does not always eagerly release a closed
+                        # document's native memory otherwise).
+                        try:
+                            GC.Collect()
+                            GC.WaitForPendingFinalizers()
+                            GC.Collect()
+                        except Exception:
+                            pass
 
                 file_nodes[row.name] = node
                 self._progress_done_one()
@@ -446,6 +479,8 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
             except Exception:
                 pass
             self._progress_end()
+
+        skipped_count = sum(1 for r in results if r[0] is None)
 
         nodes, edges = svc.build_graph(file_nodes)
         title = "DeeLinkMAP - {0}".format(self._project_name or self._local_folder or "")
@@ -459,11 +494,19 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
         else:
             forms.alert("Could not write the map file:\n{0}".format(detail), title="DeeLinkMAP")
 
+        if time_budget_hit:
+            forms.alert(
+                "Stopped after the {0}-minute time budget to avoid pushing "
+                "further - {1} file(s) were skipped and are not in the map. "
+                "Re-run with just the skipped files to pick up where this left "
+                "off.".format(int(_TIME_BUDGET_SECONDS / 60), skipped_count),
+                title="DeeLinkMAP - Stopped Early")
+
         self._report(results)
         self.status_tb.Text = (
-            "{0} file(s) scanned - {1} without opening, {2} by opening, {3} failed. "
-            "{4} link relationship(s) mapped.".format(
-                len(ticked), no_open_count, opened_count, failed_count, len(edges)))
+            "{0} file(s) opened and scanned, {1} failed, {2} skipped. "
+            "{3} link relationship(s) mapped.".format(
+                opened_count, failed_count, skipped_count, len(edges)))
         self._log(self.status_tb.Text)
 
     def _report(self, results):

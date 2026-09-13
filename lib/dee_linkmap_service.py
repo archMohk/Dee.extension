@@ -10,38 +10,31 @@ works offline" principle Dee3D's own viewer already uses, rather than
 three.js/d3.js from a CDN).
 
 --------------------------------------------------------------------
-No-open link discovery, with a fallback
+read_links_no_open() is NOT used by DeeLinkMAP anymore - confirmed unsafe
 --------------------------------------------------------------------
-Autodesk.Revit.DB.TransmissionData.ReadTransmissionData(ModelPath)
-reads a file's external references (including Revit links) straight
-from disk, WITHOUT opening the document - confirmed via Autodesk's own
+Autodesk.Revit.DB.TransmissionData.ReadTransmissionData(ModelPath) was
+meant to read a file's external references (including Revit links)
+straight from disk, WITHOUT opening the document, per Autodesk's own
 API docs and The Building Coder (jeremytammik.github.io/tbc/a/
-0583_list_links.htm) before writing this. This is what makes scanning
-dozens of files fast and safe - none of them are actually opened, so
-none of the memory/crash risk a batch of real opens carries applies
+0583_list_links.htm). Live testing found otherwise: it crashed Revit
+immediately, before processing even the first file - a consistent,
+reproducible failure, not an occasional bad file. Since that crash
+happens at the native API level, no amount of Python try/except around
+the call can catch or recover from it.
+
+read_links_no_open() is kept here for reference/future investigation
+only - DeePack.tab/Coordination.panel/DeeLinkMAP.pushbutton/script.py
+no longer calls it. Every file is read via read_links_by_opening()
+instead (an already-open document's FilteredElementCollector(doc)
+.OfClass(RevitLinkType) - a standard, well-established pattern), with
+the same dialog/failure handling and one-host-at-a-time discipline
+DeeMAPLink/DeeSuperLINK already use, plus (added after a second live
+crash, this time after several files processed successfully - pointing
+at resource accumulation across many open/close cycles rather than a
+single bad file) an explicit .NET GC pass after each close and a
+time-budget safety net that stops the batch cleanly instead of pushing
+through to another crash - both live in script.py's own run loop, not
 here.
-
-The one documented gap: TransmissionData's own docs state it "does not
-contain information about references which come from external
-servers" - meaning a file's links to ACC/BIM360-CLOUD-HOSTED models
-may not reliably appear this way. Unconfirmed either way without a
-live test against a real cloud-hosted host: the API accepts a cloud
-ModelPath without complaint, it is just not documented whether the
-RESULT reliably includes cloud-hosted link references.
-
-So every file gets the fast path tried FIRST; only if that returns
-None (a real failure - see read_links_no_open's own docstring for why
-that is different from "zero links found") does the caller fall back
-to actually opening the file and querying
-FilteredElementCollector(doc).OfClass(RevitLinkType) directly - slower,
-and the caller (DeeLinkMAP.pushbutton/script.py) wraps that fallback
-with the same dialog/failure handling and one-host-at-a-time discipline
-DeeMAPLink/DeeSuperLINK already use for exactly this reason.
-
-NEEDS LIVE-REVIT VERIFICATION - the whole TransmissionData path is new
-to this codebase; whether it actually returns cloud-hosted link
-references is explicitly unconfirmed either way per the paragraph
-above, and the fallback-by-opening path has never run live either.
 """
 import json
 import os
@@ -176,11 +169,17 @@ def matches_search(display_name, query):
 
 
 def read_links_no_open(model_path):
-    """Fast, no-open Revit-link discovery via TransmissionData.
-    Returns a LIST of raw path strings (possibly EMPTY - a file with
-    genuinely zero Revit links is a normal, valid result), or None if
-    the read itself failed, meaning the caller should fall back to
-    opening the file. Never raises."""
+    """UNUSED by DeeLinkMAP - see this module's own docstring. Kept
+    for reference/future investigation only; confirmed live to crash
+    Revit immediately and consistently, a failure mode no Python-side
+    error handling can catch or prevent.
+
+    Fast, no-open Revit-link discovery via TransmissionData. Returns a
+    LIST of raw path strings (possibly EMPTY - a file with genuinely
+    zero Revit links is a normal, valid result), or None if the read
+    itself failed, meaning the caller should fall back to opening the
+    file. Never raises (for the Python-catchable failure modes only -
+    see above)."""
     try:
         from Autodesk.Revit.DB import (
             TransmissionData, ExternalFileReferenceType, ModelPathUtils)
