@@ -29,6 +29,18 @@ def _get(url, token):
     return json.loads(body)
 
 
+def api_get(url, token):
+    """Public wrapper over the module's pooled-HttpClient GET.
+
+    Exists so sibling modules (acc_links_service) can issue their own
+    APS requests - against endpoints outside this module's Data
+    Management focus, e.g. /construction/rcm/v1 - while still reusing
+    the ONE shared HttpClient above. Creating a second client elsewhere
+    would re-do a TCP/TLS handshake per request, which is exactly what
+    made folder scans slow before this client was pooled."""
+    return _get(url, token)
+
+
 def list_hubs(token):
     """Returns (hub_id, name, region) tuples. The hub's own "region" field
     (US/EMEA/etc.) is the reliable source for cloud GUID path conversion -
