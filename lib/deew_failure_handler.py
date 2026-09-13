@@ -71,6 +71,16 @@ _AUTO_RESOLVE_IDS = {
     "worksharing":        IDOK,
     "cloud":              IDOK,
     "save":               IDOK,
+    # "dialog_revit_docwarndialog" - the warnings list Revit shows while
+    # OPENING a model that has warnings in it. Found live (DeeLinkMAP's
+    # log, 2026-09-13): it matched nothing above, so it fell through to
+    # the unrecognized-dialog default of IDCANCEL - which on an
+    # open-time dialog means "cancel the open", actively aborting the
+    # very thing the batch was trying to do, file after file. OK is the
+    # right answer here: acknowledge the warnings and carry on opening.
+    # This affects EVERY batch tool sharing this handler, not just the
+    # one it was found in.
+    "docwarn":            IDOK,
 }
 
 
@@ -111,7 +121,21 @@ def make_dialog_handler(logger=None):
 
             if logger is not None:
                 try:
-                    logger.debug("Auto-resolved dialog", dialog_id=dialog_id, resolved=resolved)
+                    if resolved:
+                        logger.debug("Auto-resolved dialog",
+                                     dialog_id=dialog_id, resolved=True)
+                    else:
+                        # WARNING, not DEBUG: an unrecognized dialog means
+                        # this handler guessed Cancel, which can silently
+                        # break whatever the batch was doing (exactly how
+                        # dialog_revit_docwarndialog went unnoticed). It
+                        # needs to stand out in the log and in the per-file
+                        # "Issues" line of a tool's own report, both of
+                        # which key off WARNING/ERROR level.
+                        logger.warning(
+                            "Unrecognized dialog - answered Cancel by default; "
+                            "add it to _AUTO_RESOLVE_IDS if that is wrong",
+                            dialog_id=dialog_id, resolved=False)
                 except Exception:
                     pass
         except Exception as e:
