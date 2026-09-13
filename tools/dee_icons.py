@@ -345,6 +345,14 @@ GLYPHS = {
     ],
 
     # ---------------- Coordination ----------------
+    # Three connected nodes - a small relationship graph, matching
+    # what the tool actually produces (a file-to-file link map).
+    "DeeLinkMAP": lambda: [
+        ln(26, 28, 70, 28, "ink", 1.0), ln(26, 28, 48, 72, "ink", 1.0),
+        ln(70, 28, 48, 72, "ink", 1.0),
+        ci(26, 28, 9, "ink", 1.0), ci(70, 28, 9, "ink", 1.0),
+        cf(48, 72, 10, "accent"),
+    ],
     "DeeCoord": lambda: cube(40, 46, 20, "ink", 0.9) + [
         ci(68, 68, 15, "accent", 1.2), ln(62, 68, 74, 68, "accent", 1.1),
         ln(68, 62, 68, 74, "accent", 1.1),

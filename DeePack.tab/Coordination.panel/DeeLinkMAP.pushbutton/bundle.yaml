@@ -1,0 +1,3 @@
+title: DeeLinkMAP
+tooltip: Scan an ACC project or local folder for Revit files and map each one's own Revit links, without opening them where possible. Produces an interactive HTML map opened in your browser.
+context: zero-doc

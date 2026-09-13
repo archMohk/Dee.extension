@@ -1,0 +1,488 @@
+# -*- coding: utf-8 -*-
+"""
+dee_linkmap_service
+Pure-and-Revit-light logic for DeeLinkMAP: scans a batch of Revit
+files (ACC project or local folder) and discovers each one's own
+Revit-link references, producing a file-to-file relationship graph
+exported as a single self-contained interactive HTML map (hand-rolled
+SVG + vanilla JS force layout, no CDN - same "fully self-contained,
+works offline" principle Dee3D's own viewer already uses, rather than
+three.js/d3.js from a CDN).
+
+--------------------------------------------------------------------
+No-open link discovery, with a fallback
+--------------------------------------------------------------------
+Autodesk.Revit.DB.TransmissionData.ReadTransmissionData(ModelPath)
+reads a file's external references (including Revit links) straight
+from disk, WITHOUT opening the document - confirmed via Autodesk's own
+API docs and The Building Coder (jeremytammik.github.io/tbc/a/
+0583_list_links.htm) before writing this. This is what makes scanning
+dozens of files fast and safe - none of them are actually opened, so
+none of the memory/crash risk a batch of real opens carries applies
+here.
+
+The one documented gap: TransmissionData's own docs state it "does not
+contain information about references which come from external
+servers" - meaning a file's links to ACC/BIM360-CLOUD-HOSTED models
+may not reliably appear this way. Unconfirmed either way without a
+live test against a real cloud-hosted host: the API accepts a cloud
+ModelPath without complaint, it is just not documented whether the
+RESULT reliably includes cloud-hosted link references.
+
+So every file gets the fast path tried FIRST; only if that returns
+None (a real failure - see read_links_no_open's own docstring for why
+that is different from "zero links found") does the caller fall back
+to actually opening the file and querying
+FilteredElementCollector(doc).OfClass(RevitLinkType) directly - slower,
+and the caller (DeeLinkMAP.pushbutton/script.py) wraps that fallback
+with the same dialog/failure handling and one-host-at-a-time discipline
+DeeMAPLink/DeeSuperLINK already use for exactly this reason.
+
+NEEDS LIVE-REVIT VERIFICATION - the whole TransmissionData path is new
+to this codebase; whether it actually returns cloud-hosted link
+references is explicitly unconfirmed either way per the paragraph
+above, and the fallback-by-opening path has never run live either.
+"""
+import json
+import os
+
+
+class FileNode(object):
+    """One scanned file: its display name, source-specific identity
+    (local path, or (item_id, region, project_id) for ACC), and the
+    RAW link target strings discovered for it. Edges are resolved
+    later in build_graph(), once every selected file's own name is
+    known - a link target string might point at a file style that was
+    never included in this run's selection."""
+
+    def __init__(self, name, source_key):
+        self.name = name
+        self.source_key = source_key
+        self.raw_link_targets = []
+        self.scan_method = None    # "no-open" | "opened" | None
+        self.error = None
+
+
+def scan_local_folder(folder, recursive, progress_cb=None):
+    """Returns {display_name: file_path} for every .rvt file found -
+    no worksharing filter, unlike DeeMAPLink's own local scan:
+    DeeLinkMAP maps ANY Revit file's links, workshared or not."""
+    import deew_model_scanner as scanner
+    results = scanner.scan_folder(folder, recursive, progress_cb)
+    out = {}
+    for r in results:
+        base = os.path.splitext(os.path.basename(r.file_path))[0]
+        name = base
+        i = 2
+        while name in out:
+            name = "{0} ({1})".format(base, i)
+            i += 1
+        out[name] = r.file_path
+    return out
+
+
+def matches_search(display_name, query):
+    if not query:
+        return True
+    haystack = display_name.lower()
+    return all(term in haystack for term in query.lower().split())
+
+
+def read_links_no_open(model_path):
+    """Fast, no-open Revit-link discovery via TransmissionData.
+    Returns a LIST of raw path strings (possibly EMPTY - a file with
+    genuinely zero Revit links is a normal, valid result), or None if
+    the read itself failed, meaning the caller should fall back to
+    opening the file. Never raises."""
+    try:
+        from Autodesk.Revit.DB import (
+            TransmissionData, ExternalFileReferenceType, ModelPathUtils)
+    except Exception:
+        return None
+    try:
+        trans_data = TransmissionData.ReadTransmissionData(model_path)
+    except Exception:
+        return None
+    if trans_data is None:
+        return None
+    try:
+        ref_ids = list(trans_data.GetAllExternalFileReferenceIds())
+    except Exception:
+        return None
+    targets = []
+    for ref_id in ref_ids:
+        try:
+            ref = trans_data.GetLastSavedReferenceData(ref_id)
+            if ref.ExternalFileReferenceType != ExternalFileReferenceType.RevitLink:
+                continue
+            path = ref.GetPath()
+            try:
+                display = ModelPathUtils.ConvertModelPathToUserVisiblePath(path)
+            except Exception:
+                display = str(path)
+            targets.append(display)
+        except Exception:
+            continue
+    return targets
+
+
+def read_links_by_opening(doc):
+    """Fallback used only when read_links_no_open() returns None.
+    Queries an ALREADY-OPEN document - this function never opens or
+    closes anything itself, the caller owns that explicitly (matching
+    every other batch tool in this codebase). Never raises."""
+    try:
+        from Autodesk.Revit.DB import (
+            FilteredElementCollector, RevitLinkType, ModelPathUtils)
+    except Exception:
+        return []
+    targets = []
+    try:
+        collector = FilteredElementCollector(doc).OfClass(RevitLinkType)
+    except Exception:
+        return []
+    for link_type in collector:
+        try:
+            ext_ref = link_type.GetExternalFileReference()
+            path = ext_ref.GetPath()
+            try:
+                display = ModelPathUtils.ConvertModelPathToUserVisiblePath(path)
+            except Exception:
+                display = link_type.Name
+            targets.append(display)
+        except Exception:
+            try:
+                targets.append(link_type.Name)
+            except Exception:
+                continue
+    return targets
+
+
+def target_stem(raw_target):
+    """Reduces a raw link-target path/string to a bare filename stem,
+    for matching against the set of selected files' own display
+    names - link targets and the scanned file list come from
+    different code paths, so matching by full path is too fragile;
+    the bare stem is what both sides can agree on."""
+    try:
+        text = raw_target.replace("\\", "/")
+        base = text.rsplit("/", 1)[-1]
+    except Exception:
+        base = str(raw_target)
+    stem = base.rsplit(".", 1)[0] if "." in base else base
+    return stem.strip().lower()
+
+
+def build_graph(file_nodes):
+    """file_nodes: dict of {display_name: FileNode}. Returns
+    (nodes, edges): nodes is a list of dicts (id, label, error,
+    link_count, external_links); edges is a list of dicts
+    (source, target). An edge is only drawn between two files BOTH
+    present in this scanned set; a link to a file outside the
+    selection is still counted (link_count) and listed
+    (external_links) on that node, just not drawn as an edge (nothing
+    in the graph to draw it to)."""
+    stem_to_name = {}
+    for name in file_nodes:
+        stem_to_name[target_stem(name)] = name
+
+    nodes = []
+    edges = []
+    seen_edges = set()
+    for name, node in sorted(file_nodes.items()):
+        external = []
+        for raw in node.raw_link_targets:
+            stem = target_stem(raw)
+            target_name = stem_to_name.get(stem)
+            if target_name is None or target_name == name:
+                external.append(raw)
+                continue
+            key = tuple(sorted((name, target_name))) + (name,)
+            edge_key = (name, target_name)
+            if edge_key in seen_edges:
+                continue
+            seen_edges.add(edge_key)
+            edges.append({"source": name, "target": target_name})
+        nodes.append({
+            "id": name,
+            "label": name,
+            "error": node.error,
+            "scan_method": node.scan_method,
+            "link_count": len(node.raw_link_targets),
+            "external_links": external,
+        })
+    return nodes, edges
+
+
+# ==========================================================================
+# HTML export - hand-rolled SVG + vanilla JS force layout, no CDN
+# ==========================================================================
+_HTML_TEMPLATE = u"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>{title}</title>
+<style>
+  html, body {{ margin:0; padding:0; height:100%; background:#1e1e1e;
+    font-family: Segoe UI, Arial, sans-serif; overflow:hidden; }}
+  #graph {{ width:100%; height:100%; display:block; cursor:grab; }}
+  #graph:active {{ cursor:grabbing; }}
+  .node circle {{ stroke:#1e1e1e; stroke-width:2px; cursor:pointer; }}
+  .node text {{ fill:#eee; font-size:11px; pointer-events:none;
+    text-anchor:middle; }}
+  .edge {{ stroke:#666; stroke-width:1.4px; }}
+  #panel {{ position:fixed; top:0; right:0; width:300px; height:100%;
+    background:#262626; color:#ddd; box-sizing:border-box; padding:16px;
+    box-shadow:-2px 0 8px rgba(0,0,0,0.4); overflow-y:auto;
+    transform:translateX(100%); transition:transform .15s ease; }}
+  #panel.open {{ transform:translateX(0); }}
+  #panel h2 {{ color:#F2994D; font-size:16px; margin:0 0 10px 0;
+    word-break:break-all; }}
+  #panel .row {{ margin:0 0 12px 0; font-size:12px; }}
+  #panel .label {{ color:#999; text-transform:uppercase; font-size:10px;
+    letter-spacing:.5px; margin-bottom:4px; }}
+  #panel ul {{ margin:4px 0 0 0; padding-left:16px; }}
+  #panel li {{ margin:2px 0; }}
+  #panel .warn {{ color:#e57373; }}
+  #close_panel {{ position:absolute; top:10px; right:12px; cursor:pointer;
+    color:#999; font-size:16px; }}
+  #hint {{ position:fixed; left:14px; bottom:12px; color:#888;
+    font-size:11px; }}
+  #title_bar {{ position:fixed; left:14px; top:12px; color:#F2994D;
+    font-size:14px; font-weight:600; }}
+</style>
+</head>
+<body>
+<svg id="graph"></svg>
+<div id="title_bar">{title}</div>
+<div id="hint">Drag nodes &middot; scroll to zoom &middot; drag background to pan &middot; click a node for details</div>
+<div id="panel">
+  <span id="close_panel">&#10005;</span>
+  <h2 id="panel_title"></h2>
+  <div class="row"><div class="label">Revit links (in this file)</div>
+    <div id="panel_count"></div></div>
+  <div class="row"><div class="label">Linked into (by other files here)</div>
+    <ul id="panel_in"></ul></div>
+  <div class="row"><div class="label">Links not in this scan</div>
+    <ul id="panel_ext"></ul></div>
+  <div class="row" id="panel_error_row" style="display:none;">
+    <div class="label warn">Scan issue</div>
+    <div id="panel_error" class="warn"></div></div>
+</div>
+<script>
+var DATA = {data_json};
+
+(function() {{
+  var svg = document.getElementById("graph");
+  var W = window.innerWidth, H = window.innerHeight;
+  var NS = "http://www.w3.org/2000/svg";
+
+  var nodes = DATA.nodes.map(function(n, i) {{
+    var angle = (i / DATA.nodes.length) * Math.PI * 2;
+    return {{
+      id: n.id, label: n.label, error: n.error, link_count: n.link_count,
+      external_links: n.external_links,
+      x: W/2 + Math.cos(angle) * 200 + (Math.random()-0.5)*40,
+      y: H/2 + Math.sin(angle) * 200 + (Math.random()-0.5)*40,
+      vx: 0, vy: 0, fixed: false
+    }};
+  }});
+  var byId = {{}};
+  nodes.forEach(function(n) {{ byId[n.id] = n; }});
+  var edges = DATA.edges.map(function(e) {{
+    return {{ source: byId[e.source], target: byId[e.target] }};
+  }}).filter(function(e) {{ return e.source && e.target; }});
+
+  var incoming = {{}};
+  edges.forEach(function(e) {{
+    (incoming[e.target.id] = incoming[e.target.id] || []).push(e.source.id);
+  }});
+
+  // ---- simple force layout: pairwise repulsion + spring edges + centering ----
+  function step() {{
+    var i, j, n1, n2, dx, dy, dist, force;
+    for (i = 0; i < nodes.length; i++) {{
+      n1 = nodes[i];
+      if (n1.fixed) continue;
+      var fx = (W/2 - n1.x) * 0.002, fy = (H/2 - n1.y) * 0.002;
+      for (j = 0; j < nodes.length; j++) {{
+        if (i === j) continue;
+        n2 = nodes[j];
+        dx = n1.x - n2.x; dy = n1.y - n2.y;
+        dist = Math.sqrt(dx*dx + dy*dy) || 1;
+        force = Math.min(3000 / (dist*dist), 6);
+        fx += (dx/dist) * force; fy += (dy/dist) * force;
+      }}
+      n1.vx = (n1.vx + fx) * 0.75;
+      n1.vy = (n1.vy + fy) * 0.75;
+    }}
+    edges.forEach(function(e) {{
+      if (!e.source.fixed || !e.target.fixed) {{
+        dx = e.target.x - e.source.x; dy = e.target.y - e.source.y;
+        dist = Math.sqrt(dx*dx + dy*dy) || 1;
+        var pull = (dist - 140) * 0.02;
+        var ux = dx/dist, uy = dy/dist;
+        if (!e.source.fixed) {{ e.source.vx += ux*pull; e.source.vy += uy*pull; }}
+        if (!e.target.fixed) {{ e.target.vx -= ux*pull; e.target.vy -= uy*pull; }}
+      }}
+    }});
+    nodes.forEach(function(n) {{
+      if (n.fixed) return;
+      n.x += n.vx; n.y += n.vy;
+    }});
+  }}
+
+  var ticks = 0;
+  function settle() {{
+    step();
+    ticks++;
+    render();
+    if (ticks < 220) requestAnimationFrame(settle);
+  }}
+
+  // ---- SVG build ----
+  var gRoot = document.createElementNS(NS, "g");
+  svg.appendChild(gRoot);
+  var gEdges = document.createElementNS(NS, "g");
+  var gNodes = document.createElementNS(NS, "g");
+  gRoot.appendChild(gEdges);
+  gRoot.appendChild(gNodes);
+
+  var edgeEls = edges.map(function() {{
+    var l = document.createElementNS(NS, "line");
+    l.setAttribute("class", "edge");
+    gEdges.appendChild(l);
+    return l;
+  }});
+
+  var nodeEls = nodes.map(function(n) {{
+    var g = document.createElementNS(NS, "g");
+    g.setAttribute("class", "node");
+    var r = Math.max(10, Math.min(26, 8 + n.link_count * 2));
+    var c = document.createElementNS(NS, "circle");
+    c.setAttribute("r", r);
+    c.setAttribute("fill", n.error ? "#c62828" : "#F2994D");
+    g.appendChild(c);
+    var t = document.createElementNS(NS, "text");
+    t.setAttribute("y", r + 13);
+    t.textContent = n.label.length > 22 ? n.label.slice(0, 20) + "..." : n.label;
+    g.appendChild(t);
+    gNodes.appendChild(g);
+    n._r = r;
+    g.addEventListener("click", function(ev) {{ ev.stopPropagation(); openPanel(n); }});
+    var dragging = false, dx0 = 0, dy0 = 0;
+    g.addEventListener("mousedown", function(ev) {{
+      ev.stopPropagation();
+      dragging = true; n.fixed = true;
+      var p = toWorld(ev.clientX, ev.clientY);
+      dx0 = p.x - n.x; dy0 = p.y - n.y;
+    }});
+    window.addEventListener("mousemove", function(ev) {{
+      if (!dragging) return;
+      var p = toWorld(ev.clientX, ev.clientY);
+      n.x = p.x - dx0; n.y = p.y - dy0;
+      render();
+    }});
+    window.addEventListener("mouseup", function() {{ dragging = false; }});
+    return g;
+  }});
+
+  function render() {{
+    edgeEls.forEach(function(l, i) {{
+      var e = edges[i];
+      l.setAttribute("x1", e.source.x); l.setAttribute("y1", e.source.y);
+      l.setAttribute("x2", e.target.x); l.setAttribute("y2", e.target.y);
+    }});
+    nodeEls.forEach(function(g, i) {{
+      g.setAttribute("transform", "translate(" + nodes[i].x + "," + nodes[i].y + ")");
+    }});
+  }}
+
+  // ---- pan / zoom ----
+  var view = {{ x:0, y:0, k:1 }};
+  function applyView() {{
+    gRoot.setAttribute("transform",
+      "translate(" + view.x + "," + view.y + ") scale(" + view.k + ")");
+  }}
+  function toWorld(clientX, clientY) {{
+    return {{ x: (clientX - view.x) / view.k, y: (clientY - view.y) / view.k }};
+  }}
+  var panning = false, panStart = null;
+  svg.addEventListener("mousedown", function(ev) {{
+    panning = true; panStart = {{ x: ev.clientX - view.x, y: ev.clientY - view.y }};
+  }});
+  window.addEventListener("mousemove", function(ev) {{
+    if (!panning) return;
+    view.x = ev.clientX - panStart.x; view.y = ev.clientY - panStart.y;
+    applyView();
+  }});
+  window.addEventListener("mouseup", function() {{ panning = false; }});
+  svg.addEventListener("wheel", function(ev) {{
+    ev.preventDefault();
+    var factor = ev.deltaY < 0 ? 1.1 : 0.9;
+    view.k = Math.max(0.15, Math.min(4, view.k * factor));
+    applyView();
+  }}, {{ passive: false }});
+
+  // ---- details panel ----
+  var panel = document.getElementById("panel");
+  document.getElementById("close_panel").addEventListener("click", function() {{
+    panel.classList.remove("open");
+  }});
+  svg.addEventListener("click", function() {{ panel.classList.remove("open"); }});
+
+  function openPanel(n) {{
+    document.getElementById("panel_title").textContent = n.label;
+    document.getElementById("panel_count").textContent = n.link_count + " link(s)";
+    var inUl = document.getElementById("panel_in");
+    inUl.innerHTML = "";
+    (incoming[n.id] || []).forEach(function(src) {{
+      var li = document.createElement("li"); li.textContent = src; inUl.appendChild(li);
+    }});
+    if (!(incoming[n.id] || []).length) {{
+      var li0 = document.createElement("li"); li0.textContent = "(none)"; inUl.appendChild(li0);
+    }}
+    var extUl = document.getElementById("panel_ext");
+    extUl.innerHTML = "";
+    (n.external_links || []).forEach(function(x) {{
+      var li = document.createElement("li"); li.textContent = x; extUl.appendChild(li);
+    }});
+    if (!(n.external_links || []).length) {{
+      var li0 = document.createElement("li"); li0.textContent = "(none)"; extUl.appendChild(li0);
+    }}
+    var errRow = document.getElementById("panel_error_row");
+    if (n.error) {{
+      errRow.style.display = "";
+      document.getElementById("panel_error").textContent = n.error;
+    }} else {{
+      errRow.style.display = "none";
+    }}
+    panel.classList.add("open");
+  }}
+
+  window.addEventListener("resize", function() {{
+    W = window.innerWidth; H = window.innerHeight;
+  }});
+
+  settle();
+}})();
+</script>
+</body>
+</html>
+"""
+
+
+def export_html_map(nodes, edges, output_path, title="DeeLinkMAP"):
+    """Writes the self-contained interactive HTML map. Never raises -
+    returns (ok, detail)."""
+    try:
+        payload = json.dumps({"nodes": nodes, "edges": edges})
+        html = _HTML_TEMPLATE.format(title=title, data_json=payload)
+        folder = os.path.dirname(output_path)
+        if folder and not os.path.isdir(folder):
+            os.makedirs(folder)
+        with open(output_path, "wb") as f:
+            f.write(html.encode("utf-8"))
+        return True, output_path
+    except Exception as e:
+        return False, str(e)
