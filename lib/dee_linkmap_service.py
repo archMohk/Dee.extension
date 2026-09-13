@@ -191,13 +191,19 @@ def build_graph(file_nodes):
     seen_edges = set()
     for name, node in sorted(file_nodes.items()):
         external = []
+        link_names = []
         for raw in node.raw_link_targets:
             stem = target_stem(raw)
             target_name = stem_to_name.get(stem)
+            # Short display name shown directly on the node's own box,
+            # whether or not it resolved to another file in this scan -
+            # the whole point of the box is showing links at a glance,
+            # not just the ones that happen to also be selected.
+            link_names.append(target_name if target_name else
+                               os.path.basename(raw.replace("\\", "/")))
             if target_name is None or target_name == name:
                 external.append(raw)
                 continue
-            key = tuple(sorted((name, target_name))) + (name,)
             edge_key = (name, target_name)
             if edge_key in seen_edges:
                 continue
@@ -209,6 +215,7 @@ def build_graph(file_nodes):
             "error": node.error,
             "scan_method": node.scan_method,
             "link_count": len(node.raw_link_targets),
+            "link_names": link_names,
             "external_links": external,
         })
     return nodes, edges
@@ -227,9 +234,8 @@ _HTML_TEMPLATE = u"""<!DOCTYPE html>
     font-family: Segoe UI, Arial, sans-serif; overflow:hidden; }}
   #graph {{ width:100%; height:100%; display:block; cursor:grab; }}
   #graph:active {{ cursor:grabbing; }}
-  .node circle {{ stroke:#1e1e1e; stroke-width:2px; cursor:pointer; }}
-  .node text {{ fill:#eee; font-size:11px; pointer-events:none;
-    text-anchor:middle; }}
+  .node rect {{ cursor:pointer; }}
+  .node text {{ pointer-events:none; font-family:Segoe UI, Arial, sans-serif; }}
   .edge {{ stroke:#666; stroke-width:1.4px; }}
   #panel {{ position:fixed; top:0; right:0; width:300px; height:100%;
     background:#262626; color:#ddd; box-sizing:border-box; padding:16px;
@@ -277,13 +283,14 @@ var DATA = {data_json};
   var W = window.innerWidth, H = window.innerHeight;
   var NS = "http://www.w3.org/2000/svg";
 
+  var spreadR = 220 + DATA.nodes.length * 12;
   var nodes = DATA.nodes.map(function(n, i) {{
     var angle = (i / DATA.nodes.length) * Math.PI * 2;
     return {{
       id: n.id, label: n.label, error: n.error, link_count: n.link_count,
-      external_links: n.external_links,
-      x: W/2 + Math.cos(angle) * 200 + (Math.random()-0.5)*40,
-      y: H/2 + Math.sin(angle) * 200 + (Math.random()-0.5)*40,
+      link_names: n.link_names, external_links: n.external_links,
+      x: W/2 + Math.cos(angle) * spreadR + (Math.random()-0.5)*40,
+      y: H/2 + Math.sin(angle) * spreadR + (Math.random()-0.5)*40,
       vx: 0, vy: 0, fixed: false
     }};
   }});
@@ -310,7 +317,10 @@ var DATA = {data_json};
         n2 = nodes[j];
         dx = n1.x - n2.x; dy = n1.y - n2.y;
         dist = Math.sqrt(dx*dx + dy*dy) || 1;
-        force = Math.min(3000 / (dist*dist), 6);
+        // Boxes (~190px wide, variable height) need much more separation
+        // than the small circles this replaced - tuned so a handful of
+        // 5-link boxes don't overlap once settled.
+        force = Math.min(55000 / (dist*dist), 16);
         fx += (dx/dist) * force; fy += (dy/dist) * force;
       }}
       n1.vx = (n1.vx + fx) * 0.75;
@@ -320,7 +330,7 @@ var DATA = {data_json};
       if (!e.source.fixed || !e.target.fixed) {{
         dx = e.target.x - e.source.x; dy = e.target.y - e.source.y;
         dist = Math.sqrt(dx*dx + dy*dy) || 1;
-        var pull = (dist - 140) * 0.02;
+        var pull = (dist - 260) * 0.02;
         var ux = dx/dist, uy = dy/dist;
         if (!e.source.fixed) {{ e.source.vx += ux*pull; e.source.vy += uy*pull; }}
         if (!e.target.fixed) {{ e.target.vx -= ux*pull; e.target.vy -= uy*pull; }}
@@ -355,20 +365,61 @@ var DATA = {data_json};
     return l;
   }});
 
+  var BOX_W = 190, HEADER_H = 22, LINE_H = 14, MAX_LINES = 5;
+
+  function truncate(text, max) {{
+    return text.length > max ? text.slice(0, max - 3) + "..." : text;
+  }}
+
+  function svgText(x, y, text, fill, size, weight) {{
+    var t = document.createElementNS(NS, "text");
+    t.setAttribute("x", x); t.setAttribute("y", y);
+    t.setAttribute("text-anchor", "middle");
+    t.setAttribute("fill", fill);
+    t.setAttribute("font-size", size || 10);
+    if (weight) t.setAttribute("font-weight", weight);
+    t.textContent = text;
+    return t;
+  }}
+
   var nodeEls = nodes.map(function(n) {{
     var g = document.createElementNS(NS, "g");
     g.setAttribute("class", "node");
-    var r = Math.max(10, Math.min(26, 8 + n.link_count * 2));
-    var c = document.createElementNS(NS, "circle");
-    c.setAttribute("r", r);
-    c.setAttribute("fill", n.error ? "#c62828" : "#F2994D");
-    g.appendChild(c);
-    var t = document.createElementNS(NS, "text");
-    t.setAttribute("y", r + 13);
-    t.textContent = n.label.length > 22 ? n.label.slice(0, 20) + "..." : n.label;
-    g.appendChild(t);
+
+    var names = n.link_names || [];
+    var shown = names.slice(0, MAX_LINES);
+    var extra = names.length - shown.length;
+    var bodyLines = shown.length ? shown.length + (extra > 0 ? 1 : 0) : 1;
+    var boxH = HEADER_H + bodyLines * LINE_H + 10;
+    n._w = BOX_W; n._h = boxH;
+
+    var rect = document.createElementNS(NS, "rect");
+    rect.setAttribute("x", -BOX_W / 2); rect.setAttribute("y", -boxH / 2);
+    rect.setAttribute("width", BOX_W); rect.setAttribute("height", boxH);
+    rect.setAttribute("rx", 7);
+    rect.setAttribute("fill", "#2b2b2b");
+    rect.setAttribute("stroke", n.error ? "#e57373" : "#F2994D");
+    rect.setAttribute("stroke-width", n.error ? "2.2" : "1.6");
+    g.appendChild(rect);
+
+    g.appendChild(svgText(0, -boxH / 2 + 15, truncate(n.label, 26),
+      "#F2994D", 12, "bold"));
+
+    var y = -boxH / 2 + HEADER_H + 10;
+    if (!shown.length) {{
+      g.appendChild(svgText(0, y, n.error ? "(scan issue)" : "(no links)",
+        n.error ? "#e57373" : "#888", 10));
+    }} else {{
+      shown.forEach(function(name, i) {{
+        g.appendChild(svgText(0, y + i * LINE_H, truncate(name, 30), "#ccc", 10));
+      }});
+      if (extra > 0) {{
+        g.appendChild(svgText(0, y + shown.length * LINE_H,
+          "+" + extra + " more - click for full list", "#888", 9));
+      }}
+    }}
+
     gNodes.appendChild(g);
-    n._r = r;
     g.addEventListener("click", function(ev) {{ ev.stopPropagation(); openPanel(n); }});
     var dragging = false, dx0 = 0, dy0 = 0;
     g.addEventListener("mousedown", function(ev) {{
