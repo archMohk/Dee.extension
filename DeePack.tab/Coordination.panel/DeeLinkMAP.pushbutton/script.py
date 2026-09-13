@@ -367,11 +367,17 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
             return
         out_path = dlg.FileName
 
+        use_fast_scan = self.fast_scan_cb.IsChecked is True
+        if use_fast_scan:
+            scan_desc = ("Each file is tried directly from disk first (the "
+                         "experimental fast read); one that can't be read that "
+                         "way is opened briefly (headless) instead, then closed.")
+        else:
+            scan_desc = ("Each file is opened briefly (headless) to read its "
+                         "links, then closed - the fast no-open read is off.")
         if not forms.alert(
-                "Scan {0} file(s) for their Revit links?\n\nEach file is read "
-                "directly from disk without being opened, where possible - "
-                "a file that can't be read that way is opened briefly (headless) "
-                "as a fallback, then closed. Nothing is ever modified.".format(len(ticked)),
+                "Scan {0} file(s) for their Revit links?\n\n{1} Nothing is ever "
+                "modified.".format(len(ticked), scan_desc),
                 title="DeeLinkMAP - Confirm", yes=True, no=True):
             return
 
@@ -391,8 +397,10 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
                 self._progress_step("Scanning {0}".format(row.name))
                 node = svc.FileNode(row.name, row.ref)
 
-                model_path, path_detail = self._model_path_for(row.name)
-                targets = svc.read_links_no_open(model_path) if model_path is not None else None
+                targets = None
+                if use_fast_scan:
+                    model_path, path_detail = self._model_path_for(row.name)
+                    targets = svc.read_links_no_open(model_path) if model_path is not None else None
 
                 if targets is not None:
                     node.raw_link_targets = targets

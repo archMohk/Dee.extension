@@ -6,7 +6,10 @@
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Scans an ACC project or a local folder for Revit files, ticks the ones you want, and reads each one's own Revit links straight from disk without opening it. Produces an interactive HTML map of every file and its link relationships, opened in your browser. A file that can't be read this way falls back to a quick headless open - still batched, still with dialogs auto-handled."/>
+                   Text="Scans an ACC project or a local folder for Revit files, ticks the ones you want, and reads each one's own Revit links. Produces an interactive HTML map of every file and its link relationships, opened in your browser."/>
+
+        <CheckBox DockPanel.Dock="Top" x:Name="fast_scan_cb" Margin="0,0,0,10"
+                  Content="Try the fast no-open read first (EXPERIMENTAL - a Revit crash was reported here; leave unticked to always use the slower, proven open-and-read method instead)"/>
 
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem><TextBlock x:Name="status_tb" Text="Ready."/></StatusBarItem>
