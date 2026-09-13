@@ -13,6 +13,7 @@ lib/.dee_favorites.json
 lib/.dee_favorites_debug.log
 lib/.dee_tab_icon_debug.log
 lib/.dee_force_config.json
+lib/.dee_linkmap_disciplines.json
 dlgval.json
 Project_Dlg_Data/
 __pycache__/

@@ -45,6 +45,93 @@ above, and the fallback-by-opening path has never run live either.
 """
 import json
 import os
+import re
+
+
+_THIS_DIR = os.path.dirname(__file__)
+_DISCIPLINES_CONFIG_PATH = os.path.join(_THIS_DIR, ".dee_linkmap_disciplines.json")
+
+# Starting set - user-editable/extensible via config.py (SHIFT+Click on
+# DeeLinkMAP), which opens the JSON file directly rather than a custom
+# editor UI, specifically so adding a brand new trade later is just
+# adding one more "CODE": "Label" line, no code change needed.
+DEFAULT_DISCIPLINES = {
+    "AR": "Architecture",
+    "ST": "Structure",
+    "ME": "Mechanical",
+    "PL": "Plumbing",
+    "EL": "Electrical",
+    "LS": "Landscape",
+    "ID": "Interior Design",
+}
+
+UNKNOWN_LABEL = "Unknown"
+
+# A generous, visually-distinct fixed palette - which color a given
+# discipline CODE gets is computed (hash of the code string), not
+# hand-assigned per discipline name, so a newly added code in the
+# config file gets a stable, distinct color automatically with no
+# extra configuration.
+_PALETTE = [
+    "#F2994D", "#4A90D9", "#66BB6A", "#26A69A", "#F0C419",
+    "#AB47BC", "#EF5350", "#29B6F6", "#A1887F", "#EC407A",
+    "#9CCC65", "#5C6BC0",
+]
+_UNKNOWN_COLOR = "#888888"
+
+
+def discipline_config_path():
+    """Public accessor for the discipline mapping file's path - used
+    by config.py to open it directly for editing."""
+    return _DISCIPLINES_CONFIG_PATH
+
+
+def load_disciplines():
+    """Returns the {code: label} mapping - defaults on first use,
+    written to disk so the file exists and is directly editable
+    afterward. Never raises."""
+    try:
+        if os.path.exists(_DISCIPLINES_CONFIG_PATH):
+            with open(_DISCIPLINES_CONFIG_PATH, "r") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and data:
+                return dict((str(k).upper(), str(v)) for k, v in data.items())
+    except Exception:
+        pass
+    save_disciplines(DEFAULT_DISCIPLINES)
+    return dict(DEFAULT_DISCIPLINES)
+
+
+def save_disciplines(mapping):
+    try:
+        with open(_DISCIPLINES_CONFIG_PATH, "w") as f:
+            json.dump(mapping, f, indent=2, sort_keys=True)
+    except Exception:
+        pass
+
+
+_SEGMENT_SPLIT = re.compile(r"[-_\s]+")
+
+
+def detect_discipline(file_name, disciplines):
+    """Matches a discipline code against a whole NAME SEGMENT (split on
+    - / _ / whitespace), not a raw substring search - "AR" matches the
+    "AR" segment in "KWG-NAG-Z1-C0A-01-MOD-AR-COR" but would not
+    falsely match inside a longer segment like "ARCHIVE". Case-
+    insensitive. Returns (code, label) - (None, UNKNOWN_LABEL) if
+    nothing in the name matches any configured code."""
+    segments = [s.upper() for s in _SEGMENT_SPLIT.split(file_name) if s]
+    for code, label in disciplines.items():
+        if code.upper() in segments:
+            return code.upper(), label
+    return None, UNKNOWN_LABEL
+
+
+def discipline_color(code):
+    if not code:
+        return _UNKNOWN_COLOR
+    idx = sum(ord(c) for c in code.upper()) % len(_PALETTE)
+    return _PALETTE[idx]
 
 
 class FileNode(object):
@@ -173,18 +260,45 @@ def target_stem(raw_target):
     return stem.strip().lower()
 
 
-def build_graph(file_nodes):
-    """file_nodes: dict of {display_name: FileNode}. Returns
-    (nodes, edges): nodes is a list of dicts (id, label, error,
-    link_count, external_links); edges is a list of dicts
-    (source, target). An edge is only drawn between two files BOTH
-    present in this scanned set; a link to a file outside the
-    selection is still counted (link_count) and listed
-    (external_links) on that node, just not drawn as an edge (nothing
-    in the graph to draw it to)."""
+def build_graph(file_nodes, disciplines=None):
+    """file_nodes: dict of {display_name: FileNode}. `disciplines`
+    defaults to load_disciplines() if not given (tests pass an
+    explicit dict for determinism). Returns (nodes, edges): nodes is a
+    list of dicts (id, label, error, link_count, link_names,
+    external_links, discipline_code, discipline_label,
+    discipline_color); edges is a list of dicts (source, target). An
+    edge is only drawn between two files BOTH present in this scanned
+    set; a link to a file outside the selection is still counted
+    (link_count) and listed (external_links) on that node, just not
+    drawn as an edge (nothing in the graph to draw it to)."""
+    if disciplines is None:
+        disciplines = load_disciplines()
+
     stem_to_name = {}
     for name in file_nodes:
         stem_to_name[target_stem(name)] = name
+
+    # Detected first, in one pass, so colors can be assigned collision-
+    # free among only the disciplines actually PRESENT in this scan -
+    # discipline_color()'s own per-code hash can and does collide for
+    # some real code pairs (confirmed live: LS and AR hashed to the
+    # same palette slot), which would defeat the entire point of
+    # color-coding for exactly the files it matters most for. Assigning
+    # palette slots in sorted-label order across only this map's own
+    # disciplines guarantees no two DIFFERENT disciplines in the SAME
+    # map ever share a color, at the (acceptable) cost of a given
+    # discipline's color no longer being stable across different maps
+    # with a different discipline mix.
+    detected = dict((name, detect_discipline(name, disciplines)) for name in file_nodes)
+    unique_labels = sorted(set(label for _c, label in detected.values()))
+    color_by_label = {}
+    palette_i = 0
+    for label in unique_labels:
+        if label == UNKNOWN_LABEL:
+            color_by_label[label] = _UNKNOWN_COLOR
+        else:
+            color_by_label[label] = _PALETTE[palette_i % len(_PALETTE)]
+            palette_i += 1
 
     nodes = []
     edges = []
@@ -209,6 +323,7 @@ def build_graph(file_nodes):
                 continue
             seen_edges.add(edge_key)
             edges.append({"source": name, "target": target_name})
+        code, label = detected[name]
         nodes.append({
             "id": name,
             "label": name,
@@ -217,6 +332,9 @@ def build_graph(file_nodes):
             "link_count": len(node.raw_link_targets),
             "link_names": link_names,
             "external_links": external,
+            "discipline_code": code,
+            "discipline_label": label,
+            "discipline_color": color_by_label[label],
         })
     return nodes, edges
 
@@ -256,15 +374,23 @@ _HTML_TEMPLATE = u"""<!DOCTYPE html>
     font-size:11px; }}
   #title_bar {{ position:fixed; left:14px; top:12px; color:#F2994D;
     font-size:14px; font-weight:600; }}
+  #legend {{ position:fixed; left:14px; top:40px; background:rgba(38,38,38,0.85);
+    border-radius:6px; padding:8px 12px; font-size:11px; color:#ccc; }}
+  #legend .item {{ display:flex; align-items:center; margin:3px 0; }}
+  #legend .swatch {{ width:11px; height:11px; border-radius:3px; margin-right:7px;
+    flex-shrink:0; }}
 </style>
 </head>
 <body>
 <svg id="graph"></svg>
 <div id="title_bar">{title}</div>
+<div id="legend"></div>
 <div id="hint">Drag nodes &middot; scroll to zoom &middot; drag background to pan &middot; click a node for details</div>
 <div id="panel">
   <span id="close_panel">&#10005;</span>
   <h2 id="panel_title"></h2>
+  <div class="row"><div class="label">Discipline</div>
+    <div id="panel_discipline"></div></div>
   <div class="row"><div class="label">Revit links (in this file)</div>
     <div id="panel_count"></div></div>
   <div class="row"><div class="label">Linked into (by other files here)</div>
@@ -289,6 +415,8 @@ var DATA = {data_json};
     return {{
       id: n.id, label: n.label, error: n.error, link_count: n.link_count,
       link_names: n.link_names, external_links: n.external_links,
+      discipline_code: n.discipline_code, discipline_label: n.discipline_label,
+      discipline_color: n.discipline_color,
       x: W/2 + Math.cos(angle) * spreadR + (Math.random()-0.5)*40,
       y: H/2 + Math.sin(angle) * spreadR + (Math.random()-0.5)*40,
       vx: 0, vy: 0, fixed: false
@@ -304,6 +432,32 @@ var DATA = {data_json};
   edges.forEach(function(e) {{
     (incoming[e.target.id] = incoming[e.target.id] || []).push(e.source.id);
   }});
+
+  // ---- legend: only disciplines actually present in this map ----
+  (function buildLegend() {{
+    var seen = {{}};
+    var entries = [];
+    nodes.forEach(function(n) {{
+      var key = n.discipline_label || "Unknown";
+      if (seen[key]) return;
+      seen[key] = true;
+      entries.push({{ label: key, color: n.discipline_color || "#888888" }});
+    }});
+    entries.sort(function(a, b) {{ return a.label.localeCompare(b.label); }});
+    var el = document.getElementById("legend");
+    entries.forEach(function(e) {{
+      var row = document.createElement("div");
+      row.className = "item";
+      var sw = document.createElement("div");
+      sw.className = "swatch";
+      sw.style.background = e.color;
+      row.appendChild(sw);
+      var lbl = document.createElement("span");
+      lbl.textContent = e.label;
+      row.appendChild(lbl);
+      el.appendChild(row);
+    }});
+  }})();
 
   // ---- simple force layout: pairwise repulsion + spring edges + centering ----
   function step() {{
@@ -390,22 +544,26 @@ var DATA = {data_json};
     var shown = names.slice(0, MAX_LINES);
     var extra = names.length - shown.length;
     var bodyLines = shown.length ? shown.length + (extra > 0 ? 1 : 0) : 1;
-    var boxH = HEADER_H + bodyLines * LINE_H + 10;
+    var TAG_H = 15;
+    var boxH = HEADER_H + TAG_H + bodyLines * LINE_H + 10;
     n._w = BOX_W; n._h = boxH;
+    var boxColor = n.discipline_color || "#888888";
 
     var rect = document.createElementNS(NS, "rect");
     rect.setAttribute("x", -BOX_W / 2); rect.setAttribute("y", -boxH / 2);
     rect.setAttribute("width", BOX_W); rect.setAttribute("height", boxH);
     rect.setAttribute("rx", 7);
     rect.setAttribute("fill", "#2b2b2b");
-    rect.setAttribute("stroke", n.error ? "#e57373" : "#F2994D");
-    rect.setAttribute("stroke-width", n.error ? "2.2" : "1.6");
+    rect.setAttribute("stroke", n.error ? "#e57373" : boxColor);
+    rect.setAttribute("stroke-width", n.error ? "2.2" : "2");
     g.appendChild(rect);
 
     g.appendChild(svgText(0, -boxH / 2 + 15, truncate(n.label, 26),
-      "#F2994D", 12, "bold"));
+      "#eee", 12, "bold"));
+    g.appendChild(svgText(0, -boxH / 2 + HEADER_H + 10,
+      n.discipline_label || "Unknown", boxColor, 10, "bold"));
 
-    var y = -boxH / 2 + HEADER_H + 10;
+    var y = -boxH / 2 + HEADER_H + TAG_H + 10;
     if (!shown.length) {{
       g.appendChild(svgText(0, y, n.error ? "(scan issue)" : "(no links)",
         n.error ? "#e57373" : "#888", 10));
@@ -484,6 +642,9 @@ var DATA = {data_json};
 
   function openPanel(n) {{
     document.getElementById("panel_title").textContent = n.label;
+    var discEl = document.getElementById("panel_discipline");
+    discEl.textContent = n.discipline_label || "Unknown";
+    discEl.style.color = n.discipline_color || "#888888";
     document.getElementById("panel_count").textContent = n.link_count + " link(s)";
     var inUl = document.getElementById("panel_in");
     inUl.innerHTML = "";
