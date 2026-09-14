@@ -45,7 +45,9 @@ docstring for the full list (local ModelPath linking, local-central open
 real project).
 """
 import os
+import tempfile
 import time
+import webbrowser
 import datetime
 
 from pyrevit import forms, script
@@ -56,7 +58,7 @@ clr.AddReference("PresentationFramework")
 clr.AddReference("WindowsBase")
 clr.AddReference("System.Windows.Forms")
 from System import Action
-from System.Windows import Visibility
+from System.Windows import Clipboard, Visibility
 from System.Windows.Threading import Dispatcher, DispatcherFrame, DispatcherPriority
 from System.Windows.Forms import FolderBrowserDialog, DialogResult
 
@@ -67,6 +69,7 @@ import acc_file_browser as afb
 import deew_document_manager as docmgr
 import deew_failure_handler as ffh
 import deew_logger
+import dee_maplink_planner as planner
 import dee_maplink_service as dms
 import dee_telemetry
 dee_telemetry.check_access("DeeMAPLink")
@@ -391,6 +394,123 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         self._refresh_list2()
 
     # ---------------- matches ----------------
+    # ---------------- visual planner ----------------
+    def _guard(self, fn):
+        """Runs fn and turns any escaping exception into a readable
+        dialog plus a log entry. An unhandled exception in a WPF click
+        handler surfaces as a bare pyRevit traceback window, which tells
+        the user nothing about what they were doing."""
+        try:
+            fn()
+        except Exception as e:
+            import traceback
+            self.logger.exception("Unhandled error", e)
+            forms.alert("DeeMAPLink hit an error:\n\n{0}\n\n{1}".format(
+                e, traceback.format_exc()[-900:]), title="DeeMAPLink")
+
+    def plan_visual_click(self, sender, args):
+        self._guard(self._plan_visual)
+
+    def _plan_visual(self):
+        """Opens the scanned files as a map in the browser, with the
+        current matches already drawn, so links can be planned by
+        dragging arrows instead of ticking two lists."""
+        if not self._all_items:
+            forms.alert("Scan a project or folder first - there is nothing "
+                        "to draw yet.", title="DeeMAPLink")
+            return
+
+        path = os.path.join(tempfile.gettempdir(),
+                            "DeeMAPLink_plan_{0}.html".format(
+                                datetime.datetime.now().strftime("%Y%m%d_%H%M%S")))
+        ok, detail = planner.export_plan_html(
+            list(self._all_items.keys()), self._matches, path,
+            title=self._project_name or self._local_folder or "DeeMAPLink")
+        if not ok:
+            forms.alert("Could not write the planner page:\n{0}".format(detail),
+                        title="DeeMAPLink")
+            return
+
+        self._log("Planner opened: {0}".format(path))
+        try:
+            webbrowser.open(path)
+        except Exception as e:
+            forms.alert("The planner was written to:\n{0}\n\nbut the browser "
+                        "did not open it:\n{1}".format(path, e),
+                        title="DeeMAPLink")
+            return
+
+        forms.alert(
+            "The planner is open in your browser.\n\n"
+            "1. Drag from one box to another to link the first model into "
+            "the second.\n"
+            "2. Click an arrow to remove it.\n"
+            "3. Press 'Copy plan for Revit'.\n"
+            "4. Come back here and press 'Paste Plan'.\n\n"
+            "Your current {0} match(es) are already drawn, so nothing is "
+            "lost by going back and forth.".format(len(self._matches)),
+            title="DeeMAPLink - Planner")
+
+    def paste_plan_click(self, sender, args):
+        self._guard(self._paste_plan)
+
+    def _paste_plan(self):
+        """Reads a plan the planner page put on the clipboard."""
+        try:
+            text = Clipboard.GetText()
+        except Exception as e:
+            forms.alert("Could not read the clipboard:\n{0}".format(e),
+                        title="DeeMAPLink")
+            return
+
+        matches, detail = planner.parse_plan(text)
+        if not matches:
+            forms.alert(
+                "No plan found on the clipboard - {0}.\n\nIn the planner "
+                "page, press 'Copy plan for Revit' first. If your browser "
+                "blocks the clipboard, select the JSON in the box at the "
+                "bottom of that page and copy it by hand.".format(detail),
+                title="DeeMAPLink - Nothing To Paste")
+            return
+
+        # Names are matched against what THIS scan found. A plan made
+        # against a different project would otherwise quietly produce
+        # matches naming files that are not in the run, and the linking
+        # loop would fail on every one of them.
+        known = set(self._all_items.keys())
+        usable, unknown = [], []
+        for source, target in matches:
+            if source in known and target in known:
+                usable.append((source, target))
+            else:
+                unknown.append((source, target))
+
+        if not usable:
+            forms.alert(
+                "The pasted plan has {0} match(es), but none of the files it "
+                "names are in the current scan.\n\nIt was probably made "
+                "against a different project or folder.".format(len(matches)),
+                title="DeeMAPLink - Plan Does Not Fit")
+            return
+
+        note = ""
+        if unknown:
+            note = ("\n\n{0} match(es) name files that are not in this scan "
+                    "and were left out.".format(len(unknown)))
+
+        if not forms.alert(
+                "Replace the current {0} match(es) with the {1} from the "
+                "planner?{2}".format(len(self._matches), len(usable), note),
+                title="DeeMAPLink - Paste Plan", yes=True, no=True):
+            return
+
+        self._matches = usable
+        self._refresh_matches()
+        self._log("Pasted {0} match(es) from the planner.".format(len(usable)))
+        for source, target in unknown:
+            self.logger.warning("Pasted match names a file not in this scan",
+                                source=source, target=target)
+
     def add_match_click(self, sender, args):
         sources = [r.name for r in self._rows1 if r.selected]
         targets = [r.name for r in self._rows2 if r.selected]

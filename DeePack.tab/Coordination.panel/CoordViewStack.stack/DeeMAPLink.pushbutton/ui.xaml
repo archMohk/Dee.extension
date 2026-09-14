@@ -129,6 +129,10 @@
                     <Button x:Name="add_match_b" Content="Add Match  -&gt;" Width="120" Height="26" FontWeight="Bold" Click="add_match_click"/>
                     <Button x:Name="remove_match_b" Content="Remove Selected" Width="120" Height="26" Margin="8,0,0,0" Click="remove_match_click"/>
                     <Button x:Name="clear_matches_b" Content="Clear All" Width="80" Height="26" Margin="8,0,0,0" Click="clear_matches_click"/>
+                    <Button x:Name="plan_visual_b" Content="Plan Visually..." Width="120" Height="26" Margin="18,0,0,0" Click="plan_visual_click"
+                            ToolTip="Open the scanned files as a map in your browser and draw the links by dragging arrows between boxes."/>
+                    <Button x:Name="paste_plan_b" Content="Paste Plan" Width="90" Height="26" Margin="6,0,0,0" Click="paste_plan_click"
+                            ToolTip="Read back a plan you copied from the planner page."/>
                 </StackPanel>
                 <TextBlock DockPanel.Dock="Top" Text="Matches (Source -&gt; Target)" FontWeight="Bold" Margin="0,4,0,4" HorizontalAlignment="Center"/>
                 <DataGrid x:Name="matches_grid" AutoGenerateColumns="False" CanUserAddRows="False"
