@@ -244,6 +244,28 @@ def read_links_by_opening(doc):
     return targets
 
 
+def name_segments(display_name):
+    """The dash-separated parts of a file name, extension dropped.
+
+    "KWG-NAG-Z1-C0A-01-MOD-AR-TY1-00000-00.rvt" ->
+        ["KWG","NAG","Z1","C0A","01","MOD","AR","TY1","00000","00"]
+
+    Underscores count as separators too, since some teams mix them in.
+    Position is what carries the meaning in this convention, so the
+    parts are returned in order and never sorted or de-duplicated."""
+    if not display_name:
+        return []
+    base = display_name
+    if "." in base:
+        base = base.rsplit(".", 1)[0]
+    parts = []
+    for chunk in base.replace("_", "-").split("-"):
+        chunk = chunk.strip()
+        if chunk:
+            parts.append(chunk)
+    return parts
+
+
 def target_stem(raw_target):
     """Reduces a raw link-target path/string to a bare filename stem,
     for matching against the set of selected files' own display
@@ -334,6 +356,10 @@ def build_graph(file_nodes, disciplines=None):
             "discipline_code": code,
             "discipline_label": label,
             "discipline_color": color_by_label[label],
+            # The name's own parts, in order - what the HTML map groups
+            # and filters on. Computed here rather than in JavaScript so
+            # the rule lives with the rest of the name handling.
+            "segments": name_segments(name),
         })
     return nodes, edges
 
@@ -341,6 +367,301 @@ def build_graph(file_nodes, disciplines=None):
 # ==========================================================================
 # HTML export - hand-rolled SVG + vanilla JS force layout, no CDN
 # ==========================================================================
+_FILTER_CSS = u"""
+  /* ---- filter + grouping panel ---- */
+  #controls { position:fixed; left:14px; top:40px; width:250px;
+    background:rgba(38,38,38,0.94); border-radius:6px; color:#ccc;
+    font-size:11px; box-shadow:0 2px 10px rgba(0,0,0,0.45); }
+  #controls_head { padding:8px 12px; font-size:10px; letter-spacing:.6px;
+    text-transform:uppercase; color:#F2994D; cursor:pointer;
+    display:flex; justify-content:space-between; user-select:none; }
+  #controls_body { padding:0 12px 10px 12px; max-height:62vh; overflow-y:auto; }
+  #controls.collapsed #controls_body { display:none; }
+  #controls input[type=text], #controls select {
+    width:100%; box-sizing:border-box; background:#1e1e1e; color:#ddd;
+    border:1px solid #444; border-radius:4px; padding:4px 6px;
+    font-size:11px; font-family:inherit; }
+  #controls input[type=text]:focus, #controls select:focus {
+    outline:none; border-color:#F2994D; }
+  .f_row { margin:8px 0 0 0; }
+  .f_row label { display:block; color:#888; font-size:10px;
+    text-transform:uppercase; letter-spacing:.4px; margin-bottom:3px; }
+  .f_foot { margin-top:10px; display:flex; align-items:center;
+    justify-content:space-between; }
+  #f_reset, #f_fit { background:#333; color:#ccc; border:1px solid #555;
+    border-radius:4px; padding:3px 10px; font-size:11px; cursor:pointer;
+    font-family:inherit; }
+  #f_reset:hover, #f_fit:hover { background:#3d3d3d; color:#fff; }
+  #f_fit { margin-left:6px; }
+  #f_count { color:#888; }
+  .group_frame { fill:rgba(255,255,255,0.035); stroke:#555;
+    stroke-dasharray:6 5; stroke-width:1px; }
+  .group_label { fill:#F2994D; font-size:13px; font-weight:600;
+    font-family:Segoe UI, Arial, sans-serif; pointer-events:none; }
+  /* the legend moves down so the filter panel can own the top-left */
+  #legend { top:auto; bottom:34px; }
+"""
+
+_FILTER_UI = u"""<div id="controls">
+  <div id="controls_head"><span>Filters &amp; grouping</span><span id="controls_caret">&#9662;</span></div>
+  <div id="controls_body">
+    <div class="f_row">
+      <label for="f_search">Search</label>
+      <input id="f_search" type="text" placeholder="part of a file name..."/>
+    </div>
+    <div class="f_row">
+      <label for="f_group">Group by</label>
+      <select id="f_group"></select>
+    </div>
+    <div id="f_segments"></div>
+    <div class="f_foot">
+      <button id="f_reset">Reset</button>
+      <button id="f_fit">Fit</button>
+      <span id="f_count"></span>
+    </div>
+  </div>
+</div>
+"""
+
+_FILTER_JS = u"""
+  // ---- filtering + grouping on the name's own parts ----------------
+  // The file naming is positional, so part 3 is always the zone, part 7
+  // always the discipline, and so on. Every part with more than one
+  // distinct value across the scan becomes both a filter and a
+  // group-by option; parts that are identical everywhere (the project
+  // code, usually) are skipped because filtering on them does nothing.
+
+  var GROUPS = { active: false, key: null, centres: {}, order: [] };
+  var segSelects = [];
+  var gGroups = document.createElementNS(NS, "g");
+  gRoot.insertBefore(gGroups, gEdges);
+
+  function segOf(n, i) {
+    var parts = n.segments || [];
+    return (i >= 0 && i < parts.length) ? parts[i] : "";
+  }
+
+  function distinctSeg(i) {
+    var seen = {}, out = [];
+    nodes.forEach(function(n) {
+      var v = segOf(n, i);
+      if (v && !seen[v]) { seen[v] = true; out.push(v); }
+    });
+    out.sort();
+    return out;
+  }
+
+  function groupKeyOf(n) {
+    if (!GROUPS.active) return null;
+    if (GROUPS.key === "discipline") return n.discipline_label || "Unknown";
+    var v = segOf(n, GROUPS.key);
+    return v === "" ? "(blank)" : v;
+  }
+
+  function option(value, text) {
+    var o = document.createElement("option");
+    o.value = value; o.textContent = text;
+    return o;
+  }
+
+  function maxSegments() {
+    var m = 0;
+    nodes.forEach(function(n) {
+      var len = (n.segments || []).length;
+      if (len > m) m = len;
+    });
+    return m;
+  }
+
+  function buildControls() {
+    var total = maxSegments();
+    var groupSel = document.getElementById("f_group");
+    groupSel.appendChild(option("", "Nothing (free layout)"));
+    groupSel.appendChild(option("discipline", "Discipline"));
+
+    var segHost = document.getElementById("f_segments");
+    for (var i = 0; i < total; i++) {
+      var values = distinctSeg(i);
+      if (values.length < 2) continue;   // same everywhere: useless as a filter
+      var preview = values.slice(0, 3).join(", ");
+      if (values.length > 3) preview += ", ...";
+      var label = "Part " + (i + 1) + "  (" + preview + ")";
+      groupSel.appendChild(option(String(i), label));
+
+      var row = document.createElement("div");
+      row.className = "f_row";
+      var lab = document.createElement("label");
+      lab.textContent = "Part " + (i + 1);
+      row.appendChild(lab);
+      var sel = document.createElement("select");
+      sel.appendChild(option("", "All (" + values.length + ")"));
+      values.forEach(function(v) { sel.appendChild(option(v, v)); });
+      sel.setAttribute("data-seg", String(i));
+      sel.addEventListener("change", applyFilters);
+      row.appendChild(sel);
+      segHost.appendChild(row);
+      segSelects.push(sel);
+    }
+
+    groupSel.addEventListener("change", function() {
+      var v = groupSel.value;
+      GROUPS.active = (v !== "");
+      GROUPS.key = (v === "" || v === "discipline") ? v : parseInt(v, 10);
+      layoutGroups();
+      restartLayout();
+    });
+    document.getElementById("f_search").addEventListener("input", applyFilters);
+    document.getElementById("f_reset").addEventListener("click", function() {
+      document.getElementById("f_search").value = "";
+      segSelects.forEach(function(s) { s.value = ""; });
+      groupSel.value = "";
+      GROUPS.active = false; GROUPS.key = null;
+      applyFilters();
+    });
+    document.getElementById("f_fit").addEventListener("click", fitView);
+    var head = document.getElementById("controls_head");
+    head.addEventListener("click", function() {
+      var box = document.getElementById("controls");
+      var collapsed = box.className === "collapsed";
+      box.className = collapsed ? "" : "collapsed";
+      document.getElementById("controls_caret").innerHTML =
+        collapsed ? "&#9662;" : "&#9656;";
+    });
+  }
+
+  function matchesFilters(n) {
+    var q = (document.getElementById("f_search").value || "")
+              .toLowerCase().split(" ");
+    var name = (n.label || "").toLowerCase();
+    for (var i = 0; i < q.length; i++) {
+      if (q[i] && name.indexOf(q[i]) === -1) return false;
+    }
+    for (var s = 0; s < segSelects.length; s++) {
+      var want = segSelects[s].value;
+      if (!want) continue;
+      if (segOf(n, parseInt(segSelects[s].getAttribute("data-seg"), 10)) !== want) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function applyFilters() {
+    var shown = 0;
+    nodes.forEach(function(n) {
+      n.hidden = !matchesFilters(n);
+      if (!n.hidden) shown++;
+    });
+    document.getElementById("f_count").textContent =
+      shown + " of " + nodes.length + " shown";
+    layoutGroups();
+    restartLayout();
+  }
+
+  function layoutGroups() {
+    GROUPS.centres = {}; GROUPS.order = [];
+    if (!GROUPS.active) return;
+    var seen = {};
+    nodes.forEach(function(n) {
+      if (n.hidden) return;
+      var k = groupKeyOf(n);
+      if (!seen[k]) { seen[k] = true; GROUPS.order.push(k); }
+    });
+    GROUPS.order.sort();
+    var count = GROUPS.order.length || 1;
+    var cols = Math.ceil(Math.sqrt(count));
+    var rows = Math.ceil(count / cols);
+    // Cells scale with how many nodes land in the busiest group, so a
+    // lopsided split (one huge zone, several small ones) still separates.
+    var busiest = 1, tally = {};
+    nodes.forEach(function(n) {
+      if (n.hidden) return;
+      var k = groupKeyOf(n);
+      tally[k] = (tally[k] || 0) + 1;
+      if (tally[k] > busiest) busiest = tally[k];
+    });
+    var cell = Math.max(620, 230 * Math.sqrt(busiest));
+    GROUPS.order.forEach(function(k, i) {
+      var c = i % cols, r = Math.floor(i / cols);
+      GROUPS.centres[k] = {
+        x: W / 2 + (c - (cols - 1) / 2) * cell,
+        y: H / 2 + (r - (rows - 1) / 2) * cell * 0.8
+      };
+    });
+  }
+
+  function drawGroupFrames() {
+    while (gGroups.firstChild) gGroups.removeChild(gGroups.firstChild);
+    if (!GROUPS.active) return;
+    var boxes = {};
+    nodes.forEach(function(n) {
+      if (n.hidden) return;
+      var k = groupKeyOf(n);
+      var b = boxes[k];
+      if (!b) { boxes[k] = { x0: n.x, y0: n.y, x1: n.x, y1: n.y }; return; }
+      if (n.x < b.x0) b.x0 = n.x;
+      if (n.y < b.y0) b.y0 = n.y;
+      if (n.x > b.x1) b.x1 = n.x;
+      if (n.y > b.y1) b.y1 = n.y;
+    });
+    GROUPS.order.forEach(function(k) {
+      var b = boxes[k];
+      if (!b) return;
+      var padX = 118, padY = 86;
+      var rect = document.createElementNS(NS, "rect");
+      rect.setAttribute("class", "group_frame");
+      rect.setAttribute("x", b.x0 - padX);
+      rect.setAttribute("y", b.y0 - padY);
+      rect.setAttribute("width", (b.x1 - b.x0) + padX * 2);
+      rect.setAttribute("height", (b.y1 - b.y0) + padY * 2);
+      rect.setAttribute("rx", 14);
+      gGroups.appendChild(rect);
+      var t = document.createElementNS(NS, "text");
+      t.setAttribute("class", "group_label");
+      t.setAttribute("x", b.x0 - padX + 14);
+      t.setAttribute("y", b.y0 - padY + 22);
+      t.textContent = k;
+      gGroups.appendChild(t);
+    });
+  }
+
+
+  // Fit whatever is currently visible into the window. Called when a
+  // layout finishes settling, so filtering or regrouping never leaves
+  // the content parked off-screen.
+  function fitView() {
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, any = false;
+    nodes.forEach(function(n) {
+      if (n.hidden) return;
+      any = true;
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y > maxY) maxY = n.y;
+    });
+    if (!any) return;
+    // Node boxes are drawn centred on x,y, so pad by roughly half a box
+    // plus a margin or the outer ones get clipped at the edges.
+    var padX = 150, padY = 120;
+    minX -= padX; maxX += padX; minY -= padY; maxY += padY;
+    var w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
+    var k = Math.min(W / w, H / h);
+    k = Math.max(0.08, Math.min(k, 1.4));   // never zoom past readable
+    view.k = k;
+    view.x = (W - w * k) / 2 - minX * k;
+    view.y = (H - h * k) / 2 - minY * k;
+    applyView();
+  }
+
+  function afterSettle() {
+    if (pendingFit) { pendingFit = false; fitView(); }
+  }
+
+  buildControls();
+  applyFilters();
+"""
+
+
 _HTML_TEMPLATE = u"""<!DOCTYPE html>
 <html>
 <head>
@@ -378,13 +699,14 @@ _HTML_TEMPLATE = u"""<!DOCTYPE html>
   #legend .item {{ display:flex; align-items:center; margin:3px 0; }}
   #legend .swatch {{ width:11px; height:11px; border-radius:3px; margin-right:7px;
     flex-shrink:0; }}
+{filter_css}
 </style>
 </head>
 <body>
 <svg id="graph"></svg>
 <div id="title_bar">{title}</div>
 <div id="legend"></div>
-<div id="hint">Drag nodes &middot; scroll to zoom &middot; drag background to pan &middot; click a node for details</div>
+{filter_ui}<div id="hint">Drag nodes &middot; scroll to zoom &middot; drag background to pan &middot; click a node for details &middot; filter and group from the panel on the left</div>
 <div id="panel">
   <span id="close_panel">&#10005;</span>
   <h2 id="panel_title"></h2>
@@ -416,6 +738,11 @@ var DATA = {data_json};
       link_names: n.link_names, external_links: n.external_links,
       discipline_code: n.discipline_code, discipline_label: n.discipline_label,
       discipline_color: n.discipline_color,
+      // Carried through explicitly like every other field - this map
+      // builds fresh objects rather than spreading, so a field left out
+      // here simply vanishes from the simulation. That is how the
+      // grouping controls first came up empty.
+      segments: n.segments || [],
       x: W/2 + Math.cos(angle) * spreadR + (Math.random()-0.5)*40,
       y: H/2 + Math.sin(angle) * spreadR + (Math.random()-0.5)*40,
       vx: 0, vy: 0, fixed: false
@@ -463,11 +790,24 @@ var DATA = {data_json};
     var i, j, n1, n2, dx, dy, dist, force;
     for (i = 0; i < nodes.length; i++) {{
       n1 = nodes[i];
-      if (n1.fixed) continue;
-      var fx = (W/2 - n1.x) * 0.002, fy = (H/2 - n1.y) * 0.002;
+      if (n1.fixed || n1.hidden) continue;
+      var fx, fy;
+      var centre = (typeof GROUPS !== "undefined" && GROUPS.active)
+                 ? GROUPS.centres[groupKeyOf(n1)] : null;
+      if (centre) {{
+        // Grouped: pull toward the group's own centre instead of the
+        // middle of the canvas, firmly enough to beat the repulsion
+        // between boxes and keep each group visibly separate.
+        fx = (centre.x - n1.x) * 0.020;
+        fy = (centre.y - n1.y) * 0.020;
+      }} else {{
+        fx = (W/2 - n1.x) * 0.002;
+        fy = (H/2 - n1.y) * 0.002;
+      }}
       for (j = 0; j < nodes.length; j++) {{
         if (i === j) continue;
         n2 = nodes[j];
+        if (n2.hidden) continue;
         dx = n1.x - n2.x; dy = n1.y - n2.y;
         dist = Math.sqrt(dx*dx + dy*dy) || 1;
         // Boxes (~190px wide, variable height) need much more separation
@@ -480,6 +820,7 @@ var DATA = {data_json};
       n1.vy = (n1.vy + fy) * 0.75;
     }}
     edges.forEach(function(e) {{
+      if (e.source.hidden || e.target.hidden) return;
       if (!e.source.fixed || !e.target.fixed) {{
         dx = e.target.x - e.source.x; dy = e.target.y - e.source.y;
         dist = Math.sqrt(dx*dx + dy*dy) || 1;
@@ -490,17 +831,32 @@ var DATA = {data_json};
       }}
     }});
     nodes.forEach(function(n) {{
-      if (n.fixed) return;
+      if (n.fixed || n.hidden) return;
       n.x += n.vx; n.y += n.vy;
     }});
   }}
 
-  var ticks = 0;
+  var ticks = 0, settling = false;
   function settle() {{
+    settling = true;
     step();
     ticks++;
     render();
     if (ticks < 220) requestAnimationFrame(settle);
+    else {{
+      settling = false;
+      afterSettle();
+    }}
+  }}
+  // Filtering and grouping both change where nodes belong, so the
+  // simulation has to run again. Restarting a finished loop needs the
+  // call; restarting a running one only needs the tick count reset, or
+  // two loops would run at once and the layout would jitter.
+  var pendingFit = true;
+  function restartLayout() {{
+    ticks = 0;
+    pendingFit = true;
+    if (!settling) settle();
   }}
 
   // ---- SVG build ----
@@ -598,12 +954,19 @@ var DATA = {data_json};
   function render() {{
     edgeEls.forEach(function(l, i) {{
       var e = edges[i];
+      // An edge to a filtered-out file would otherwise dangle, pointing
+      // at nothing - hide it with either end.
+      if (e.source.hidden || e.target.hidden) {{ l.style.display = "none"; return; }}
+      l.style.display = "";
       l.setAttribute("x1", e.source.x); l.setAttribute("y1", e.source.y);
       l.setAttribute("x2", e.target.x); l.setAttribute("y2", e.target.y);
     }});
     nodeEls.forEach(function(g, i) {{
+      if (nodes[i].hidden) {{ g.style.display = "none"; return; }}
+      g.style.display = "";
       g.setAttribute("transform", "translate(" + nodes[i].x + "," + nodes[i].y + ")");
     }});
+    drawGroupFrames();
   }}
 
   // ---- pan / zoom ----
@@ -675,7 +1038,7 @@ var DATA = {data_json};
     W = window.innerWidth; H = window.innerHeight;
   }});
 
-  settle();
+{filter_js}
 }})();
 </script>
 </body>
@@ -688,7 +1051,10 @@ def export_html_map(nodes, edges, output_path, title="DeeLinkMAP"):
     returns (ok, detail)."""
     try:
         payload = json.dumps({"nodes": nodes, "edges": edges})
-        html = _HTML_TEMPLATE.format(title=title, data_json=payload)
+        html = _HTML_TEMPLATE.format(title=title, data_json=payload,
+                                     filter_css=_FILTER_CSS,
+                                     filter_ui=_FILTER_UI,
+                                     filter_js=_FILTER_JS)
         folder = os.path.dirname(output_path)
         if folder and not os.path.isdir(folder):
             os.makedirs(folder)
