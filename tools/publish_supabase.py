@@ -48,6 +48,7 @@ import hashlib
 import io
 import json
 import os
+import zipfile
 import subprocess
 import sys
 import time
@@ -58,6 +59,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 CONFIG = os.path.join(HERE, ".supabase_publish.json")
 MANIFEST_NAME = "manifest.json"
+# One-shot artifact for the INSTALLER only. Updates use the manifest.
+ZIP_NAME = "Dee.extension.zip"
 
 # Tracked by git, but of no use to someone running the extension. Kept
 # off the mirror so a user's download is the tool, not the workshop.
@@ -262,6 +265,30 @@ def main():
             print("   {0}: {1}".format(rel, err))
         return 1
 
+    # The installer's single-download artifact. Built from the same
+    # file list, in the same run, so it cannot drift from the loose
+    # files beside it.
+    print("\nbuilding {0} ...".format(ZIP_NAME))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for rel in files:
+            full = os.path.join(ROOT, rel.replace("/", os.sep))
+            # Inside the zip everything sits under Dee.extension/, so
+            # extracting into an extensions folder produces exactly the
+            # layout pyRevit expects.
+            archive.write(full, "Dee.extension/" + rel)
+    body = buffer.getvalue()
+    manifest["zip"] = {"name": ZIP_NAME,
+                       "sha256": hashlib.sha256(body).hexdigest(),
+                       "size": len(body)}
+    print("  {0:.1f} MB".format(len(body) / 1048576.0))
+    err = upload(cfg, ZIP_NAME, body)
+    if err:
+        print("\nZip upload failed: {0}".format(err))
+        print("Manifest NOT updated - the mirror still advertises the "
+              "previous version rather than a half-published one.")
+        return 1
+
     # The manifest goes LAST, on purpose: until it does, clients keep
     # seeing the previous complete version. A half-published mirror is
     # never advertised.
@@ -272,8 +299,8 @@ def main():
         print("Clients will keep using the previous version. Re-run to finish.")
         return 1
 
-    print("\nPublished. Mirror is now at commit {0} ({1} file(s))."
-          .format(commit, len(files)))
+    print("\nPublished. Mirror is now at commit {0} - {1} file(s) plus "
+          "{2} for the installer.".format(commit, len(files), ZIP_NAME))
     return 0
 
 
