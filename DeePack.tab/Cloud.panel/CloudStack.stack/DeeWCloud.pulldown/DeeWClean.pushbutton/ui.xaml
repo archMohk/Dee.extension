@@ -90,7 +90,7 @@
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
                                        Text="Workshared local files and cloud models are opened WITHOUT detaching, cleaned, then pushed back to the real central via Synchronize With Central - not a disconnected copy. Standalone files are simply saved in place."/>
                             <TextBlock Text="Synchronize Comment:" Margin="0,0,0,4"/>
-                            <TextBox x:Name="sync_comment_tb" Height="24" VerticalContentAlignment="Center" Text="DeeW.Clean - automated batch cleanup"/>
+                            <TextBox x:Name="sync_comment_tb" Height="24" VerticalContentAlignment="Center" Text="Synchronize"/>
                             <CheckBox x:Name="compact_on_sync_cb" Content="Compact Central File on Synchronize" Margin="0,8,0,4"/>
                             <CheckBox x:Name="audit_cb" Content="Audit on Open (local files)" Margin="0,4,0,4"/>
                         </StackPanel>

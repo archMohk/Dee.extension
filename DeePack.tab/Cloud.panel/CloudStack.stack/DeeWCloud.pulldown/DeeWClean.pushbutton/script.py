@@ -341,7 +341,7 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
             self.delete_all_sheets_cb.IsChecked = options.get("delete_all_sheets", False)
             self.delete_all_views_cb.IsChecked = options.get("delete_all_views", False)
             self.delete_unused_views_cb.IsChecked = options.get("delete_unused_views", False)
-            self.sync_comment_tb.Text = options.get("sync_comment", "DeeW.Clean - automated batch cleanup")
+            self.sync_comment_tb.Text = options.get("sync_comment", "Synchronize")
             self.compact_on_sync_cb.IsChecked = options.get("compact_on_sync", False)
             self.audit_cb.IsChecked = options.get("audit", False)
             self.auto_resolve_dialogs_cb.IsChecked = options.get("auto_resolve_dialogs", True)

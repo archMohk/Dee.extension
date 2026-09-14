@@ -292,7 +292,7 @@ def _do_sync(uiapp):
                 if doc.IsFamilyDocument or doc.IsLinked or not doc.IsWorkshared:
                     continue
                 docmgr.synchronize_with_central(
-                    doc, comment="DeeForce - scheduled auto-sync",
+                    doc, comment="Synchronize",
                     compact=False, logger=logger)
             except Exception as e:
                 logger.exception("Auto-sync failed for a document", e)

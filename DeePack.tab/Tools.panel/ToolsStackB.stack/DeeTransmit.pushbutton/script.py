@@ -575,7 +575,7 @@ def _commit(target, mode, folder):
             if not dm.is_workshared(target.doc):
                 return "not workshared - nothing to synchronize"
             ok, detail = dm.synchronize_with_central(
-                target.doc, comment="DeeTransmit cleanup")
+                target.doc, comment="Synchronize")
             return detail if ok else "SYNC FAILED: {0}".format(detail)
         if mode == FINISH_SAVE:
             if dm.is_workshared(target.doc):

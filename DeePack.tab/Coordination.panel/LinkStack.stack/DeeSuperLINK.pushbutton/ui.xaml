@@ -58,7 +58,7 @@
                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                     <TextBlock Text="Sync comment:" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <TextBox x:Name="sync_comment_tb" Width="420" Height="24" VerticalContentAlignment="Center"
-                             Text="DeeSuperLINK - automated link creation"/>
+                             Text="Synchronize"/>
                     <CheckBox x:Name="skip_existing_cb" Content="Skip if already linked" IsChecked="True"
                               VerticalAlignment="Center" Margin="20,0,0,0"/>
                 </StackPanel>
