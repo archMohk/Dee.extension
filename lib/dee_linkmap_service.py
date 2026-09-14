@@ -109,7 +109,7 @@ _SEGMENT_SPLIT = re.compile(r"[-_\s]+")
 def detect_discipline(file_name, disciplines):
     """Matches a discipline code against a whole NAME SEGMENT (split on
     - / _ / whitespace), not a raw substring search - "AR" matches the
-    "AR" segment in "KWG-NAG-Z1-C0A-01-MOD-AR-COR" but would not
+    "AR" segment in "PRJ-ORG-Z1-C0A-01-MOD-AR-COR" but would not
     falsely match inside a longer segment like "ARCHIVE". Case-
     insensitive. Returns (code, label) - (None, UNKNOWN_LABEL) if
     nothing in the name matches any configured code."""
@@ -283,7 +283,7 @@ def closed_workset_note(doc):
 def name_segments(display_name):
     """The dash-separated parts of a file name, extension dropped.
 
-    "KWG-NAG-Z1-C0A-01-MOD-AR-TY1-00000-00.rvt" ->
+    "PRJ-ORG-Z1-C0A-01-MOD-AR-TY1-00000-00.rvt" ->
         ["KWG","NAG","Z1","C0A","01","MOD","AR","TY1","00000","00"]
 
     Underscores count as separators too, since some teams mix them in.

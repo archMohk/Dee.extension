@@ -6,6 +6,11 @@ acc_config.json
 # automatically on first use of the relevant tool.
 .acc_token_cache.json
 .acc_file_cache.json
+# Same thing without the leading dot - DeeRelinquish writes this one,
+# and it was being committed: it holds real project GUIDs, item URNs
+# and file names (including colleagues' names) from whatever project
+# was last scanned.
+acc_cache.json
 lib/.dee_identity.json
 lib/.dee_access_status.json
 lib/.dee_ribbon_mode.json

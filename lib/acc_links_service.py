@@ -11,7 +11,7 @@ of open/close cycles is exactly the pattern that kept taking Revit down.
 This module replaces that with plain HTTPS calls, so a whole project can
 be mapped in seconds with nothing opened at all.
 
-WHAT WAS ACTUALLY VERIFIED (live, 2026-09-13, against a real NAGA ACC
+WHAT WAS ACTUALLY VERIFIED (live, 2026-09-13, against a real ACC
 project - every response shape below was OBSERVED, not read off a docs
 page; the APS reference pages for these endpoints render as an empty
 single-page-app shell and could not be fetched at all)
@@ -21,8 +21,8 @@ single-page-app shell and could not be fetched at all)
    per file yields versionId, versionNumber and the whole C4R extension
    block. That block is where the unique cloud identifiers live:
 
-       "modelGuid":   "4d979840-1fc2-425e-ae10-b8db5992f158",
-       "projectGuid": "33201399-425b-4dbc-b554-2efa678b0312",
+       "modelGuid":   "<model guid>",
+       "projectGuid": "<project guid>",
        "hasLinks":     true/false,
        "publishType": "NoZipFile" | "WithoutLinks",
        "revitProjectVersion": 2026,
