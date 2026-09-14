@@ -5,7 +5,7 @@
         MinHeight="780" MinWidth="1300" Height="860" Width="1380"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
-        <Border DockPanel.Dock="Right" Width="330" Margin="8,0,0,0"
+        <Border DockPanel.Dock="Right" Width="380" Margin="8,0,0,0"
                 BorderBrush="#666" BorderThickness="1,0,0,0" Padding="8,0,0,0">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Top" Text="MATCHES  (Source → Target)"
@@ -20,6 +20,18 @@
                 </StackPanel>
                 <Button DockPanel.Dock="Bottom" x:Name="clear_matches_b" Content="Clear All"
                         Height="24" Margin="0,6,0,0" Click="clear_matches_click"/>
+                <Border DockPanel.Dock="Bottom" BorderBrush="#666" BorderThickness="1"
+                        Margin="0,8,0,0" Padding="6">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="ANALYSIS" FontWeight="Bold"
+                                   Foreground="#F2994D" Margin="0,0,0,4"/>
+                        <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Auto">
+                            <TextBlock x:Name="analysis_tb" FontFamily="Consolas" FontSize="10"
+                                       Text="No matches yet. Tick files in both lists, or wire two files on the map."/>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
                 <DataGrid x:Name="matches_grid" AutoGenerateColumns="False" CanUserAddRows="False"
                           CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
                     <DataGrid.Columns>
@@ -31,7 +43,7 @@
         </Border>
 
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Scans an ACC project or a local folder for worksharing Revit files and builds a many-to-many link map. Two tabs, two ways to build the same list: Two Lists to tick files and press Add Match, or Wire Map to drag a wire from one file to another. Each target host is then opened in the background, every matched source is linked into it, and the host is synchronized back - no file ever opened by hand."/>
+                   Text="Scans an ACC project or a local folder for worksharing Revit files and builds a many-to-many link map. Two tabs, two ways to build the same list, shown in MATCHES down the right: Two Lists to tick files and press Add, or Wire Map to click a source then a target. Each target host is then opened in the background, every matched source is linked into it, and the host is synchronized back - no file ever opened by hand."/>
 
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem><TextBlock x:Name="status_tb" Text="Ready."/></StatusBarItem>
@@ -111,18 +123,6 @@
                           VerticalAlignment="Center" Margin="20,0,0,0"/>
             </Grid>
         </GroupBox>
-
-        <TextBlock DockPanel.Dock="Top" Text="3. Match files" FontWeight="Bold" Margin="0,0,0,4"/>
-
-        <Border DockPanel.Dock="Top" BorderBrush="#888888" BorderThickness="1" Margin="0,0,0,8" Padding="8">
-            <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="Analysis" FontWeight="Bold" Margin="0,0,0,4"/>
-                <ScrollViewer MaxHeight="74" VerticalScrollBarVisibility="Auto">
-                    <TextBlock x:Name="analysis_tb" TextWrapping="Wrap" FontFamily="Consolas" FontSize="11"
-                               Text="No matches yet. Tick files in both lists, or drag a wire on the map."/>
-                </ScrollViewer>
-            </DockPanel>
-        </Border>
 
         <TabControl x:Name="mode_tabs">
 
