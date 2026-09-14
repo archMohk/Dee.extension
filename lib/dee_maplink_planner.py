@@ -241,6 +241,11 @@ _TEMPLATE = u"""<!DOCTYPE html>
   <div id="controls_body">
     <div class="f_row"><label for="f_search">Search</label>
       <input id="f_search" type="text" placeholder="part of a file name..."/></div>
+    <div class="f_row"><label for="f_arrange">Arrangement</label>
+      <select id="f_arrange">
+        <option value="force">Force &mdash; clusters related files</option>
+        <option value="hierarchy">Hierarchy &mdash; what goes into what</option>
+      </select></div>
     <div class="f_row"><label for="f_group">Group by</label>
       <select id="f_group"></select></div>
     <div id="f_segments"></div>
@@ -435,12 +440,27 @@ var DATA = __DATA__;
 
   var ticks = 0, settling = false, pendingFit = true;
   function settle() {
+    // A force run still in flight would keep calling step() and undo the
+    // computed rows, so it checks each frame whether it is still the
+    // arrangement in charge (the map had exactly this bug).
+    if (typeof ARRANGE !== "undefined" && ARRANGE === "hierarchy") {
+      settling = false;
+      return;
+    }
     settling = true;
     step(); ticks++; render();
     if (ticks < 200) requestAnimationFrame(settle);
     else { settling = false; if (pendingFit) { pendingFit = false; fitView(); } }
   }
   function restartLayout() {
+    if (typeof ARRANGE !== "undefined" && ARRANGE === "hierarchy") {
+      // Computed, not simulated - there is nothing for the force loop
+      // to do, and letting it run would pull the rows apart.
+      layoutHierarchy();
+      render();
+      fitView();
+      return;
+    }
     ticks = 0; pendingFit = true;
     if (!settling) settle();
   }
@@ -519,7 +539,10 @@ var DATA = __DATA__;
       tool: "DeeMAPLink", matches: matches
     });
     document.getElementById("copy_state").textContent = "";
-    render();
+    // Drawing an arrow changes the dependency structure, so in
+    // hierarchy the rows are recomputed - watching that structure form
+    // is the whole reason to be in this view while planning.
+    if (ARRANGE === "hierarchy") { restartLayout(); } else { render(); }
   }
 
   // ---- render ----------------------------------------------------
@@ -684,6 +707,129 @@ var DATA = __DATA__;
     o.value = value; o.textContent = text;
     return o;
   }
+
+  // ---- second arrangement: hierarchy of what goes into what --------
+  // An arrow means "source is linked INTO target", so source is placed
+  // ABOVE target and every arrow points down. Read top to bottom: each
+  // row goes into the row below it, and the bottom row is the host that
+  // ends up receiving everything.
+  var ARRANGE = "force";
+
+  function rankNodes(list) {
+    var rank = {}, present = {};
+    list.forEach(function(n) { rank[n.id] = 0; present[n.id] = true; });
+    var live = matches.filter(function(m) {
+      return present[m.source] && present[m.target];
+    });
+    // Relaxation, not a topological sort: a plan can easily contain a
+    // cycle while it is being drawn (A into B, B into A), and a
+    // topological sort has nothing to say about one. Bounded, so a cycle
+    // costs a few passes instead of spinning.
+    var limit = Math.min(list.length, 60), changed = true, pass = 0;
+    while (changed && pass < limit) {
+      changed = false; pass++;
+      live.forEach(function(m) {
+        var want = rank[m.source] + 1;
+        if (want > rank[m.target]) { rank[m.target] = want; changed = true; }
+      });
+    }
+    return rank;
+  }
+
+  function layoutHierarchy() {
+    var list = nodes.filter(function(n) { return !n.hidden; });
+    if (!list.length) return;
+    var rank = rankNodes(list);
+
+    var rows = {}, maxRank = 0;
+    list.forEach(function(n) {
+      var r = rank[n.id] || 0;
+      if (r > maxRank) maxRank = r;
+      (rows[r] = rows[r] || []).push(n);
+    });
+    for (var r0 = 0; r0 <= maxRank; r0++) {
+      if (rows[r0]) rows[r0].sort(function(a, b) { return a.id < b.id ? -1 : 1; });
+    }
+
+    // Barycentre ordering - place each box near the average position of
+    // what it connects to on the neighbouring row, so arrows stop
+    // crossing each other.
+    var index = {};
+    function reindex() {
+      for (var rr = 0; rr <= maxRank; rr++) {
+        (rows[rr] || []).forEach(function(n, i) { index[n.id] = i; });
+      }
+    }
+    reindex();
+    var up = {}, down = {};
+    matches.forEach(function(m) {
+      var a = byId[m.source], b = byId[m.target];
+      if (!a || !b || a.hidden || b.hidden) return;
+      (up[m.target] = up[m.target] || []).push(m.source);
+      (down[m.source] = down[m.source] || []).push(m.target);
+    });
+    function sweep(useUp) {
+      var order = [];
+      for (var rr = 0; rr <= maxRank; rr++) order.push(rr);
+      if (!useUp) order.reverse();
+      order.forEach(function(rr) {
+        var row = rows[rr];
+        if (!row || row.length < 2) return;
+        var table = useUp ? up : down;
+        row.forEach(function(n) {
+          var near = (table[n.id] || []).filter(function(id) {
+            return index.hasOwnProperty(id);
+          });
+          n._bary = near.length
+            ? near.reduce(function(a, id) { return a + index[id]; }, 0) / near.length
+            : index[n.id];
+        });
+        row.sort(function(a, b) { return a._bary - b._bary; });
+        reindex();
+      });
+    }
+    for (var s = 0; s < 4; s++) sweep(s % 2 === 0);
+
+    // Wide rows wrap: a row of thirty boxes is ~10,000px across and
+    // only fits on screen at a zoom where nothing can be read. Arrows
+    // still all point down, because a rank's sub-rows are placed before
+    // the next rank starts.
+    var ROW_GAP = 90, COL_GAP = 34, WRAP_GAP = 26, MAX_ROW_W = 2400;
+    var y = 0;
+    for (var rr2 = 0; rr2 <= maxRank; rr2++) {
+      var row2 = rows[rr2] || [];
+      if (!row2.length) continue;
+      var chunks = [], current = [], currentW = 0;
+      row2.forEach(function(n) {
+        var w = (n._w || 190) + COL_GAP;
+        if (current.length && currentW + w > MAX_ROW_W) {
+          chunks.push(current); current = []; currentW = 0;
+        }
+        current.push(n); currentW += w;
+      });
+      if (current.length) chunks.push(current);
+      chunks.forEach(function(chunk, chunkIndex) {
+        var tallest = 0, total = 0;
+        chunk.forEach(function(n) {
+          tallest = Math.max(tallest, n._h || 70);
+          total += (n._w || 190) + COL_GAP;
+        });
+        total -= COL_GAP;
+        var x = -total / 2;
+        chunk.forEach(function(n) {
+          var w = n._w || 190;
+          n.x = x + w / 2;
+          n.y = y + tallest / 2;
+          n.vx = 0; n.vy = 0;
+          x += w + COL_GAP;
+        });
+        y += tallest + (chunkIndex < chunks.length - 1 ? WRAP_GAP : ROW_GAP);
+      });
+    }
+    var cx = W / 2, cy = H / 2 - y / 2;
+    list.forEach(function(n) { n.x += cx; n.y += cy; });
+  }
+
   function buildControls() {
     var total = 0;
     nodes.forEach(function(n) {
@@ -712,6 +858,24 @@ var DATA = __DATA__;
       host.appendChild(row);
       segSelects.push(sel);
     }
+    var asel = document.getElementById("f_arrange");
+    asel.addEventListener("change", function() {
+      ARRANGE = asel.value;
+      // Grouping and hierarchy both decide where a box goes, so only one
+      // can be in charge. Hierarchy wins while selected, and the group
+      // control is disabled rather than silently ignored.
+      gsel.disabled = (ARRANGE === "hierarchy");
+      if (ARRANGE === "hierarchy") {
+        GROUPS.active = false;
+        drawGroupFrames();
+      } else if (gsel.value !== "") {
+        GROUPS.active = true;
+        GROUPS.key = (gsel.value === "discipline")
+                   ? "discipline" : parseInt(gsel.value, 10);
+        layoutGroups();
+      }
+      restartLayout();
+    });
     gsel.addEventListener("change", function() {
       var v = gsel.value;
       GROUPS.active = (v !== "");
@@ -722,7 +886,9 @@ var DATA = __DATA__;
     document.getElementById("f_reset").addEventListener("click", function() {
       document.getElementById("f_search").value = "";
       segSelects.forEach(function(s) { s.value = ""; });
-      gsel.value = ""; GROUPS.active = false; GROUPS.key = null;
+      gsel.value = ""; gsel.disabled = false;
+      asel.value = "force"; ARRANGE = "force";
+      GROUPS.active = false; GROUPS.key = null;
       applyFilters();
     });
     document.getElementById("f_fit").addEventListener("click", fitView);
