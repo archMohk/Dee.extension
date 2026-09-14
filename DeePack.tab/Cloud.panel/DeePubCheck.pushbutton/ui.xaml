@@ -6,7 +6,7 @@
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Asks ACC which cloud models still have changes that were synced but never published, then publishes only those. Nothing is opened in Revit, and nothing is published until you press Publish Selected."/>
+                   Text="Publish type is the column to act on: models published the old way have their links stripped, so ACC cannot report them and DeeLinkMAP has to open each one. Re-publishing those normally fixes that. Last publish job is only the state of ACC's own job record - these APIs cannot say whether a model has been synced since it was last published. Nothing is opened in Revit, and nothing is published until you press Publish Selected."/>
 
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem><TextBlock x:Name="status_tb" Text="Ready."/></StatusBarItem>
@@ -65,9 +65,9 @@
                      TextChanged="search_changed"
                      ToolTip="Type part of a file name - multiple words all have to match, in any order."/>
             <Button x:Name="clear_search_b" Content="Clear" Width="50" Height="22" Margin="4,0,0,0" Click="clear_search_click"/>
-            <CheckBox x:Name="only_needed_cb" Content="Only files that need publishing"
+            <CheckBox x:Name="only_needed_cb" Content="Only old-style publishes"
                       VerticalAlignment="Center" Margin="14,0,0,0" Click="only_needed_click"/>
-            <Button x:Name="select_needed_b" Content="Tick All That Need It" Width="150" Height="22"
+            <Button x:Name="select_needed_b" Content="Tick All Old-Style" Width="150" Height="22"
                     Margin="14,0,0,0" Click="select_needed_click"/>
             <Button x:Name="select_none_b" Content="None" Width="50" Height="22" Margin="4,0,0,0" Click="select_none_click"/>
         </StackPanel>
@@ -76,8 +76,10 @@
             <DataGrid.Columns>
                 <DataGridCheckBoxColumn Header="Publish" Binding="{Binding selected, Mode=TwoWay}" Width="60"/>
                 <DataGridTextColumn Header="Revit File" Binding="{Binding name}" IsReadOnly="True" Width="*"/>
-                <DataGridTextColumn Header="Status" Binding="{Binding status}" IsReadOnly="True" Width="130"/>
-                <DataGridTextColumn Header="ACC said" Binding="{Binding detail}" IsReadOnly="True" Width="200"/>
+                <DataGridTextColumn Header="Publish type" Binding="{Binding publish_type}" IsReadOnly="True" Width="170"/>
+                <DataGridTextColumn Header="Ver" Binding="{Binding version}" IsReadOnly="True" Width="50"/>
+                <DataGridTextColumn Header="Last publish job" Binding="{Binding status}" IsReadOnly="True" Width="130"/>
+                <DataGridTextColumn Header="ACC said" Binding="{Binding detail}" IsReadOnly="True" Width="110"/>
             </DataGrid.Columns>
         </DataGrid>
     </DockPanel>

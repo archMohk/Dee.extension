@@ -83,6 +83,8 @@ class FileRow(object):
         self.name = name
         self.status = "-"
         self.detail = ""
+        self.publish_type = ""
+        self.version = ""
 
 
 class DeePubCheckWindow(dee_branding.DeeBrandedWindow):
@@ -286,47 +288,67 @@ class DeePubCheckWindow(dee_branding.DeeBrandedWindow):
         for r in self._rows:
             row = by_item.get(r.item_id)
             if row:
-                r.status = row.get("status") or pubsvc.UNKNOWN
+                r.status = row.get("status") or pubsvc.JOB_UNKNOWN
                 r.detail = row.get("detail") or ""
+                r.publish_type = row.get("publish_type_label") or pubsvc.TYPE_UNKNOWN
+                version = row.get("version_number")
+                r.version = "v{0}".format(version) if version else ""
 
         counts = pubsvc.summarize(rows)
         self.logger.info("Publish status scan finished", **counts)
         self._log("Done. {0}".format(self._counts_text(counts)))
 
-        # Pre-tick only what ACC positively said needs publishing. Unknown
-        # is left alone on purpose - publishing on a guess is the whole
-        # thing this tool exists to avoid.
+        # Pre-tick the models a re-publish would genuinely improve: the
+        # ones published the old way, whose links ACC cannot report.
+        # Unknowns are left alone - publishing on a guess is the thing
+        # this tool exists to avoid.
         for r in self._rows:
-            r.selected = (r.status == pubsvc.NEEDS_PUBLISH)
+            r.selected = (r.publish_type == pubsvc.TYPE_OLD)
 
         self._refresh_grid()
         self._update_summary()
 
-        if counts.get(pubsvc.UNKNOWN):
-            self._log("  {0} file(s) came back with wording this tool does not "
-                      "recognise - see the 'ACC said' column. The raw responses "
-                      "are in the log file.".format(counts[pubsvc.UNKNOWN]))
+        self._log("  Publish jobs: {0}".format(self._job_counts_text(counts)))
+        if counts.get(pubsvc.JOB_UNKNOWN):
+            self._log("  {0} file(s) returned job wording this tool does not "
+                      "recognise - see the 'ACC said' column; the raw responses "
+                      "are in the log file.".format(counts[pubsvc.JOB_UNKNOWN]))
 
-        needed = counts.get(pubsvc.NEEDS_PUBLISH, 0)
-        if needed:
+        old_count = counts.get("types", {}).get(pubsvc.TYPE_OLD, 0)
+        if old_count:
             forms.alert(
-                "{0} of {1} file(s) have changes that were synced but never "
-                "published.\n\nThey are ticked for you. Choose a publish mode "
-                "at the bottom and press Publish Selected.\n\n{2}".format(
-                    needed, len(self._rows), self._counts_text(counts)),
-                title="DeePubCheck - Status")
+                "{0} of {1} model(s) were published the old way, with their "
+                "links stripped. ACC holds no link data for those, so "
+                "DeeLinkMAP has to open them one at a time - the slow path "
+                "that has crashed Revit.\n\nThey are ticked. Publish them "
+                "normally (with links) and ACC can report their links "
+                "instantly.\n\n{2}".format(
+                    old_count, len(self._rows), self._counts_text(counts)),
+                title="DeePubCheck - Publish Type")
         else:
             forms.alert(
-                "Nothing needs publishing.\n\n{0}".format(self._counts_text(counts)),
-                title="DeePubCheck - Status")
+                "Every model here was published the current way, so ACC can "
+                "report all their Revit links without opening anything.\n\n"
+                "{0}\n\nNote: these APIs cannot say whether a model has been "
+                "SYNCED since it was last published - see the tool's own notes "
+                "for why.".format(self._counts_text(counts)),
+                title="DeePubCheck - Publish Type")
 
     def _counts_text(self, counts):
+        types = counts.get("types", {})
         parts = []
-        for key in (pubsvc.PUBLISHED, pubsvc.NEEDS_PUBLISH, pubsvc.IN_PROGRESS,
-                    pubsvc.UNKNOWN, pubsvc.ERROR):
+        for key in (pubsvc.TYPE_CURRENT, pubsvc.TYPE_OLD, pubsvc.TYPE_UNKNOWN):
+            if types.get(key):
+                parts.append("{0}: {1}".format(key, types[key]))
+        return "   ".join(parts) if parts else "no files"
+
+    def _job_counts_text(self, counts):
+        parts = []
+        for key in (pubsvc.JOB_DONE, pubsvc.JOB_RUNNING, pubsvc.JOB_NONE,
+                    pubsvc.JOB_UNKNOWN, pubsvc.ERROR):
             if counts.get(key):
                 parts.append("{0}: {1}".format(key, counts[key]))
-        return "   ".join(parts) if parts else "no files"
+        return "   ".join(parts) if parts else "-"
 
     # ---------------- grid ----------------
     def _visible(self):
@@ -334,7 +356,7 @@ class DeePubCheckWindow(dee_branding.DeeBrandedWindow):
         only_needed = self.only_needed_cb.IsChecked is True
         out = []
         for r in self._rows:
-            if only_needed and r.status != pubsvc.NEEDS_PUBLISH:
+            if only_needed and r.publish_type != pubsvc.TYPE_OLD:
                 continue
             if not matches_search(r.name, query):
                 continue
@@ -368,7 +390,7 @@ class DeePubCheckWindow(dee_branding.DeeBrandedWindow):
 
     def select_needed_click(self, sender, args):
         for r in self._rows:
-            if r.status == pubsvc.NEEDS_PUBLISH:
+            if r.publish_type == pubsvc.TYPE_OLD:
                 r.selected = True
         self._refresh_grid()
         self._update_summary()
@@ -392,7 +414,7 @@ class DeePubCheckWindow(dee_branding.DeeBrandedWindow):
         without_links = self.mode_no_links_rb.IsChecked is True
         mode_label = "without links" if without_links else "normal (with links)"
 
-        unknowns = [r for r in ticked if r.status != pubsvc.NEEDS_PUBLISH]
+        unknowns = [r for r in ticked if r.publish_type != pubsvc.TYPE_OLD]
         extra = ""
         if unknowns:
             extra = ("\n\n{0} of them are NOT marked 'Needs publishing' - you "
@@ -425,7 +447,7 @@ class DeePubCheckWindow(dee_branding.DeeBrandedWindow):
                 ok, detail = False, str(e)
             if ok:
                 ok_count += 1
-                row.status = pubsvc.IN_PROGRESS
+                row.status = pubsvc.JOB_RUNNING
                 row.detail = detail
                 row.selected = False
                 self._log("  '{0}': {1}".format(row.name, detail))

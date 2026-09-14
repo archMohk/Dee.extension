@@ -1,47 +1,59 @@
 # -*- coding: utf-8 -*-
-"""Which cloud models in an ACC project still need publishing.
+"""What is known about each cloud model's publishing, and what to do about it.
 
-The two publish tools that already exist both publish BLIND: DeeS.Publish
-publishes every file in a project, DeePublisher publishes whatever you
-tick. Neither asks ACC what actually needs publishing, so both spend real
-time (and ACC processing) re-publishing models that were already up to
-date. This module answers the question first, so only the models that
-need it get published.
+WHAT THIS ANSWERS, AND WHAT IT DOES NOT
+---------------------------------------
+It would be nice to ask ACC "which models have changes that were synced
+but never published?". These APIs do not expose that, and the first cut
+of this module pretended otherwise - worth writing down so it is not
+tried again the same way.
 
-HOW THE STATUS IS READ
-----------------------
-Autodesk's own mechanism: the Data Management Commands API, command
-`commands:autodesk.bim360:C4RModelGetPublishJob`. It reports the publish
-job for a cloud-workshared model - that is, whether the model has changes
-synced to the cloud that have not been published to Docs yet. It is a
-read: the command that actually publishes is C4RModelPublish, which
-acc_api.publish_item() already wraps and which this module never calls.
+C4RModelGetPublishJob was the obvious candidate and it is the wrong
+question. It reports a publish JOB, not a model's publish state. Run live
+against a 155-model project it answered:
 
-A WARNING ABOUT THE PARSING BELOW
----------------------------------
-Unlike acc_links_service, whose every response shape was captured live
-before a line was written, this command's exact response shape has NOT
-been verified against the live service yet - the access token had expired
-at the time of writing and refreshing it means a login in Revit. The APS
-reference pages render as an empty single-page-app shell and cannot be
-read either.
+    63 models  ->  a job with status "complete"
+    92 models  ->  {"jsonapi": {...}, "data": null}   (no job on record)
+     0 models  ->  anything resembling "needs publishing"
 
-So the extraction here is deliberately defensive and deliberately
-LOUD about it:
+Zero, across every model in the project - because that state is not
+something this command reports. "complete" only means a publish job
+finished at some point; it says nothing about syncs made since. Reporting
+that as "Published" told the user their model was current when the API
+had not said so.
 
-  - it looks for a status string in every place the JSON:API envelope
-    could plausibly carry one, rather than assuming one path;
-  - anything it does not recognise becomes UNKNOWN carrying the RAW text,
-    which the tool shows verbatim and writes to the log;
-  - it NEVER silently maps an unrecognised value onto "Published".
+Neither does any per-model RCM endpoint: models/{guid},
+models/{guid}/status, published-versions/{id} and
+versions/{id}/publish-state were all probed live and all 404.
 
-That last point is the one that matters. Guessing "published" for a
-status nobody has seen would tell someone their model is safe when it may
-not be. Guessing "needs publishing" would have them re-publish something
-needlessly. Saying "unknown, here is what ACC said" is the only honest
-answer, and the first live run turns every unknown into a known - the
-same way the dialog handler's unrecognised-dialog logging did.
+And publishStatus inside the RCM linked-files response is per
+RELATIONSHIP, not per model - the same model came back "NotPublished" as
+a link of one host and "Published" as a host itself, in the same minute.
+It records the state of the version a host referenced when that host was
+published, which is a historical fact about the link, not a current fact
+about the model.
+
+SO THIS MODULE REPORTS TWO SEPARATE, HONEST THINGS
+--------------------------------------------------
+1. JOB STATUS - what C4RModelGetPublishJob actually said, named for what
+   it is: a job completed, a job is running now, or no job on record.
+   Useful for "is a publish still churning", not for "is this current".
+
+2. PUBLISH TYPE - from the item's own tip version, verified live during
+   the DeeLinkMAP work. This is the column worth acting on:
+
+     NoZipFile     published the current way. ACC can report this model's
+                   Revit links, so DeeLinkMAP reads it without opening it.
+     WithoutLinks  published with its links stripped. ACC holds no link
+                   data, DeeLinkMAP has to open the model, and opening is
+                   what has been crashing Revit. Re-publishing it normally
+                   is a real, concrete fix.
+
+So "which ones should I publish?" gets a truthful answer - the
+old-workflow ones - even though "which ones are out of date?" cannot be
+answered from here at all.
 """
+
 import threading
 import time
 
@@ -56,38 +68,41 @@ except ImportError:
     from urllib.parse import quote as _quote
 
 import acc_api
+import acc_links_service as _links
 
 BASE_URL = acc_api.BASE_URL
 
-PUBLISHED = "Published"
-NEEDS_PUBLISH = "Needs publishing"
-IN_PROGRESS = "Publishing now"
-UNKNOWN = "Unknown"
+# Publish JOB states - what C4RModelGetPublishJob reports. Named so
+# that nobody reads them as "this model is up to date", which is a
+# different question these APIs do not answer (see the module docstring).
+JOB_DONE = "Job complete"
+JOB_RUNNING = "Publishing now"
+JOB_NONE = "No job on record"
+JOB_UNKNOWN = "Unrecognised"
 ERROR = "Error"
+
+# Publish TYPE - the column worth acting on.
+TYPE_CURRENT = "Current (links readable)"
+TYPE_OLD = "Old publish (re-publish)"
+TYPE_UNKNOWN = "Unknown"
 
 # Raw status text (lower-cased, substring match) -> our status. Extend
 # this as live runs reveal real values; anything absent stays UNKNOWN and
 # is reported verbatim rather than guessed at.
 _STATUS_MAP = (
-    ("notpublished", NEEDS_PUBLISH),
-    ("not published", NEEDS_PUBLISH),
-    ("needspublish", NEEDS_PUBLISH),
-    ("outofdate", NEEDS_PUBLISH),
-    ("out of date", NEEDS_PUBLISH),
-    ("pending", NEEDS_PUBLISH),
-    ("queued", IN_PROGRESS),
-    ("inprogress", IN_PROGRESS),
-    ("in progress", IN_PROGRESS),
-    ("processing", IN_PROGRESS),
-    ("extracting", IN_PROGRESS),
-    ("running", IN_PROGRESS),
-    ("scheduled", IN_PROGRESS),
-    ("published", PUBLISHED),      # AFTER "notpublished"/"not published"
-    ("uptodate", PUBLISHED),
-    ("up to date", PUBLISHED),
-    ("complete", PUBLISHED),
-    ("success", PUBLISHED),
-    ("finished", PUBLISHED),
+    ("failed", ERROR),
+    ("error", ERROR),
+    ("queued", JOB_RUNNING),
+    ("inprogress", JOB_RUNNING),
+    ("processing", JOB_RUNNING),
+    ("extracting", JOB_RUNNING),
+    ("running", JOB_RUNNING),
+    ("scheduled", JOB_RUNNING),
+    ("pending", JOB_RUNNING),
+    ("complete", JOB_DONE),
+    ("success", JOB_DONE),
+    ("finished", JOB_DONE),
+    ("published", JOB_DONE),
 )
 
 _PERMANENT_MARKERS = ("Unauthorized", "Forbidden", "401", "403")
@@ -126,7 +141,10 @@ def classify(raw_text):
     raw_text) - the raw text travels with it so the UI can show exactly
     what ACC said, which is the only way an UNKNOWN ever becomes known."""
     if raw_text is None:
-        return UNKNOWN, ""
+        # "data": null - ACC has no publish job for this model at all.
+        # That is an ANSWER, not a gap, so it gets its own state rather
+        # than being lumped in with wording we failed to parse.
+        return JOB_NONE, ""
     text = str(raw_text).strip()
     # Spaces are stripped too, not just _ and -: without that,
     # "NOT PUBLISHED" failed to match the "not published" needle and
@@ -136,7 +154,7 @@ def classify(raw_text):
     for needle, status in _STATUS_MAP:
         if needle.replace(" ", "") in low:
             return status, text
-    return UNKNOWN, text
+    return JOB_UNKNOWN, text
 
 
 def _find_status_text(node, depth=0):
@@ -220,13 +238,31 @@ def scan_statuses(project_id, items, token, max_workers=6, on_progress=None,
             try:
                 if cancelled[0] or (time.time() - started) > time_budget:
                     rows[index] = {"item_id": item_id, "name": name,
-                                   "status": UNKNOWN,
+                                   "status": JOB_UNKNOWN,
                                    "detail": "not checked - stopped early"}
                 else:
                     status, text, payload = get_publish_job(project_id, item_id, token)
-                    rows[index] = {"item_id": item_id, "name": name,
-                                   "status": status, "detail": text}
-                    if status == UNKNOWN:
+                    row = {"item_id": item_id, "name": name,
+                           "status": status, "detail": text,
+                           "publish_type": None,
+                           "publish_type_label": TYPE_UNKNOWN,
+                           "version_number": None,
+                           "last_published": None}
+                    # The item's own tip version carries the publish TYPE,
+                    # which is the part of this report worth acting on.
+                    # A failure here must not lose the job status we
+                    # already have, so it degrades to "unknown type".
+                    try:
+                        info = _links.get_item_tip(project_id, item_id, token)
+                        row["publish_type"] = info.get("publish_type")
+                        row["publish_type_label"] = classify_publish_type(
+                            info.get("publish_type"))
+                        row["version_number"] = info.get("version_number")
+                        row["last_published"] = info.get("created_time")
+                    except Exception:
+                        pass
+                    rows[index] = row
+                    if status == JOB_UNKNOWN:
                         with lock:
                             if len(unknown_samples) < 3:
                                 unknown_samples.append((name, payload))
@@ -278,17 +314,41 @@ def scan_statuses(project_id, items, token, max_workers=6, on_progress=None,
 
 
 def summarize(rows):
-    counts = {PUBLISHED: 0, NEEDS_PUBLISH: 0, IN_PROGRESS: 0,
-              UNKNOWN: 0, ERROR: 0}
+    """Counts for BOTH columns, kept apart on purpose: the job states and
+    the publish types answer different questions and must not be added
+    together into one misleading total."""
+    counts = {JOB_DONE: 0, JOB_RUNNING: 0, JOB_NONE: 0,
+              JOB_UNKNOWN: 0, ERROR: 0}
+    types = {TYPE_CURRENT: 0, TYPE_OLD: 0, TYPE_UNKNOWN: 0}
     for row in rows:
         status = row.get("status")
         if status in counts:
             counts[status] += 1
+        label = row.get("publish_type_label")
+        if label in types:
+            types[label] += 1
+    counts["types"] = types
     return counts
 
 
-def needs_publishing(rows):
-    """Only the models it is worth publishing. UNKNOWN is deliberately
-    NOT included: publishing on a guess is the thing this tool exists to
-    stop. The user can still tick an unknown by hand if they want it."""
-    return [r for r in rows if r.get("status") == NEEDS_PUBLISH]
+def classify_publish_type(publish_type):
+    """The actionable column. Verified live: a version published as
+    "NoZipFile" can have its Revit links read straight from ACC; one
+    published as "WithoutLinks" cannot, and has to be opened in Revit
+    instead - which is the slow, crash-prone path. Anything else is
+    reported as unknown rather than guessed into one bucket."""
+    if not publish_type:
+        return TYPE_UNKNOWN
+    if publish_type == "NoZipFile":
+        return TYPE_CURRENT
+    if publish_type == "WithoutLinks":
+        return TYPE_OLD
+    return TYPE_UNKNOWN
+
+
+def worth_publishing(rows):
+    """Models a re-publish would actually improve: the ones published the
+    old way, whose links ACC therefore cannot report. Never includes
+    unknowns - publishing on a guess is what this module exists to
+    avoid. Anything else can still be ticked by hand."""
+    return [r for r in rows if r.get("publish_type_label") == TYPE_OLD]
