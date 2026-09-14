@@ -44,3 +44,13 @@ installer/Output/
 # part of the distributed extension, just a private file living in the
 # same OneDrive folder for convenience.
 dashboard/
+
+# Supabase publish credentials. A SECRET key lives here - the extension
+# itself only ever does public, unauthenticated reads, and this file is
+# the one place a key with write access exists on disk.
+tools/.supabase_publish.json
+
+# Which files the Supabase mirror last placed on this PC. Local state,
+# and the record that lets an update delete only its own files rather
+# than anything it does not recognise.
+lib/.dee_mirror_manifest.json
