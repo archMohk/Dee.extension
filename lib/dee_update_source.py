@@ -151,31 +151,80 @@ def _quote(text):
 
 
 def _get_bytes(url, timeout=60):
-    """Returns (data_or_None, detail). Never raises."""
+    """Returns (data_or_None, detail). Never raises.
+
+    On failure `detail` carries the server's OWN message where there is
+    one. Supabase answers a missing bucket with HTTP 400 and a body that
+    says {"code":"NoSuchBucket"} - reporting just "HTTP BadRequest"
+    throws away the only part that tells anyone what to do about it."""
     if _NET:
         try:
             client = HttpClient()
             request = HttpRequestMessage(HttpMethod.Get, url)
             response = client.SendAsync(request).Result
             if not response.IsSuccessStatusCode:
-                return None, "HTTP {0}".format(response.StatusCode)
+                body = ""
+                try:
+                    body = response.Content.ReadAsStringAsync().Result or ""
+                except Exception:
+                    pass
+                return None, _server_message(int(response.StatusCode), body)
             return bytes(response.Content.ReadAsByteArrayAsync().Result), "ok"
         except Exception as e:
             return None, str(e)
     try:
         return _urlreq.urlopen(url, timeout=timeout).read(), "ok"
     except _HTTPError as e:
-        return None, "HTTP {0}".format(e.code)
+        body = ""
+        try:
+            body = e.read().decode("utf-8", "replace")
+        except Exception:
+            pass
+        return None, _server_message(e.code, body)
     except Exception as e:
         return None, str(e)
 
 
+def _server_message(status, body):
+    """The server's own words where it gave any, otherwise the status.
+
+    Returns a string that starts with a machine-readable code when one
+    is known, so callers can branch on it without re-parsing JSON."""
+    code = ""
+    message = ""
+    try:
+        data = json.loads(body) if body else {}
+        if isinstance(data, dict):
+            code = str(data.get("code") or data.get("error") or "")
+            message = str(data.get("message") or "")
+    except Exception:
+        pass
+    if code:
+        return "{0}: {1}".format(code, message or "HTTP {0}".format(status))
+    return "HTTP {0}{1}".format(status, (" - " + message) if message else "")
+
+
 def fetch_manifest(supabase_url, bucket):
-    """The remote index. Returns (manifest_or_None, detail)."""
+    """The remote index. Returns (manifest_or_None, detail).
+
+    `detail` distinguishes the three states that need different answers:
+    the bucket does not exist, the bucket exists but nothing has been
+    published, or the mirror could not be reached at all."""
     url = public_url(supabase_url, bucket, MANIFEST_NAME)
     data, detail = _get_bytes(url)
     if data is None:
-        return None, "could not reach the mirror ({0})".format(detail)
+        low = detail.lower()
+        if "nosuchbucket" in low or "bucket not found" in low:
+            return None, (
+                "the mirror has not been set up yet - there is no '{0}' "
+                "bucket on {1}.\n\nUse GitHub until it is published."
+                .format(bucket, supabase_url))
+        if "notfound" in low or "not found" in low or "404" in low:
+            return None, (
+                "the '{0}' bucket exists but nothing has been published to "
+                "it yet.\n\nUse GitHub until a release is pushed to the "
+                "mirror.".format(bucket))
+        return None, "could not reach the mirror: {0}".format(detail)
     try:
         manifest = json.loads(data.decode("utf-8"))
     except Exception as e:
