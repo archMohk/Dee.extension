@@ -1,3 +1,3 @@
 title: DeeLinkMAP
-tooltip: Scan an ACC project or local folder for Revit files and map each one's own Revit links - each file is opened headlessly and closed, one at a time. Produces an interactive HTML map opened in your browser, color-coded by discipline (AR/ST/ME/...) detected from each file's name. Large batches stop themselves cleanly after a time budget rather than risk a crash. SHIFT+Click to edit the discipline code list.
+tooltip: Map which Revit files link which. On an ACC project the links are read straight from ACC with nothing opened - a whole project answers in seconds. Only models ACC cannot answer for (published the older "without links" way) are opened headlessly one at a time; a local folder is always read that way. Produces an interactive HTML map, color-coded by discipline (AR/ST/ME/...) detected from each file's name. SHIFT+Click to edit the discipline code list.
 context: zero-doc

@@ -3,10 +3,34 @@
 DeeLinkMAP
 Scans an ACC project OR a local folder for Revit files, lets you tick
 which ones to include, and discovers each ticked file's own Revit
-links by opening each one headlessly, reading its RevitLinkType
-elements, and closing it again. Produces a single self-contained,
-interactive HTML map (files as nodes, links as edges) opened in your
-browser - lib/dee_linkmap_service.py owns the map generation.
+links. Produces a single self-contained, interactive HTML map (files
+as nodes, links as edges) opened in your browser -
+lib/dee_linkmap_service.py owns the map generation.
+
+--------------------------------------------------------------------
+ACC models are read over the API first, with nothing opened
+--------------------------------------------------------------------
+On an ACC source the run starts by asking ACC itself for each model's
+links (lib/acc_links_service.py) - no document opened at all, a whole
+155-model project answered in about 20 seconds live. Only models ACC
+cannot answer for fall through to the open-each-file path below.
+
+This is what fixed the two symptoms the open-only version had:
+
+- "could not open: Opening was canceled" on exactly the files that HAD
+  links. A headless attached open has to resolve the model's cloud
+  links too, and every link in the project tested comes back
+  publishStatus NotPublished, so Revit aborted the entire open. The
+  models with links - the only ones that carry any information for a
+  link MAP - were the ones the old path could never read.
+
+- Runs dying at the time budget after a handful of files, because an
+  open costs minutes each and the budget is 6 minutes total.
+
+The API route cannot answer for a version published the older way
+(publishType "WithoutLinks"); those still get opened. It also cannot
+report link instance counts or transforms - see acc_links_service's
+own docstring.
 
 --------------------------------------------------------------------
 The TransmissionData no-open path was REMOVED after a live crash
@@ -76,6 +100,7 @@ from System.Windows.Forms import (
 
 import acc_auth
 import acc_file_browser as afb
+import acc_links_service as als
 import deew_document_manager as docmgr
 import deew_failure_handler as ffh
 import deew_logger
@@ -353,6 +378,87 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
         file_path = self._all_items.get(name)
         return docmgr.open_document_no_detach(self.application, file_path, logger=self.logger)
 
+    def _unread_node(self, row, file_nodes, note):
+        """Puts a file that was never read onto the map anyway, carrying
+        the reason. A file missing from the map entirely reads as 'this
+        file has no links', which is a different - and wrong - claim from
+        'nobody looked'."""
+        node = svc.FileNode(row.name, row.ref)
+        node.error = note
+        file_nodes[row.name] = node
+        return node
+
+    # ---------------- ACC fast path ----------------
+    def _acc_api_pass(self, ticked, file_nodes, results):
+        """Reads each model's Revit links straight from ACC, opening
+        nothing, and fills in file_nodes/results for every one it can
+        answer for. Returns the rows it could NOT answer for, which the
+        caller then opens the old way.
+
+        Never raises: if the whole API pass fails (expired login, no
+        network, an ACC outage), every row is handed back and the run
+        behaves exactly as it did before this path existed."""
+        items = []
+        for row in ticked:
+            item_id = self._all_items.get(row.name)
+            if item_id:
+                items.append((item_id, row.name))
+        if not items:
+            return ticked
+
+        self._log("Asking ACC for links directly - nothing opened...")
+
+        def on_progress(done, total):
+            try:
+                self.status_tb.Text = (
+                    "Reading links from ACC: {0}/{1} (nothing opened)".format(done, total))
+                self._pump()
+            except Exception:
+                pass
+
+        try:
+            scanned = als.scan_project(self._project_id, items, self._token,
+                                       max_workers=6, on_progress=on_progress)
+        except Exception as e:
+            self.logger.exception("ACC link read failed", e)
+            self._log("  ACC link read failed ({0}) - opening every file instead.".format(e))
+            return ticked
+
+        by_item = {}
+        for entry in scanned:
+            by_item[entry.get("item_id")] = entry
+
+        unresolved = []
+        for row in ticked:
+            entry = by_item.get(self._all_items.get(row.name))
+            if entry is None or entry.get("status") != "ok":
+                unresolved.append(row)
+                continue
+            node = svc.FileNode(row.name, row.ref)
+            node.raw_link_targets = [link.get("name")
+                                     for link in entry.get("links", [])
+                                     if link.get("name")]
+            node.scan_method = "acc-api"
+            file_nodes[row.name] = node
+            results.append((True, row.name, "{0} link(s) - read from ACC, not opened".format(
+                len(node.raw_link_targets))))
+
+        answered = len(ticked) - len(unresolved)
+        self._log("  ACC answered for {0} of {1} file(s) in seconds; {2} still "
+                  "need opening.".format(answered, len(ticked), len(unresolved)))
+        if unresolved:
+            # Name the reason once rather than per file - on a project
+            # published the old way this is every single remaining row,
+            # and the fix (re-publish normally) is the same for all.
+            reasons = {}
+            for row in unresolved:
+                entry = by_item.get(self._all_items.get(row.name)) or {}
+                key = entry.get("reason") or entry.get("status") or "not returned by ACC"
+                reasons[key] = reasons.get(key, 0) + 1
+            for key in sorted(reasons):
+                self._log("    {0}: {1} file(s)".format(key, reasons[key]))
+        return unresolved
+
     # ---------------- run ----------------
     def run_click(self, sender, args):
         self._guard(self._run)
@@ -384,32 +490,68 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
             return
         out_path = dlg.FileName
 
-        if len(ticked) > _LARGE_BATCH_WARNING:
-            if not forms.alert(
-                    "{0} files is a large batch - each one is opened, read, and "
-                    "closed in turn, and Revit's own memory use can build up "
-                    "across many open/close cycles in one session.\n\nIf this "
-                    "run runs long, it will stop itself cleanly at the "
-                    "{1}-minute mark rather than push through to a crash, and "
-                    "report which files were skipped. Continue?".format(
-                        len(ticked), int(_TIME_BUDGET_SECONDS / 60)),
-                    title="DeeLinkMAP - Large Batch", yes=True, no=True):
-                return
-
         if not forms.alert(
-                "Scan {0} file(s) for their Revit links?\n\nEach file is opened "
-                "briefly (headless) to read its links, then closed. Nothing is "
-                "ever modified.".format(len(ticked)),
+                "Scan {0} file(s) for their Revit links?\n\nOn an ACC "
+                "project the links are read from ACC first, with nothing "
+                "opened - that takes seconds. Only files ACC cannot answer "
+                "for are then opened headlessly and closed again. Nothing "
+                "is ever modified.".format(len(ticked)),
                 title="DeeLinkMAP - Confirm", yes=True, no=True):
             return
 
         results = []
         file_nodes = {}
         opened_count = failed_count = skipped_count = 0
+        api_count = 0
         run_start = time.time()
         time_budget_hit = False
 
-        self._progress_begin(len(ticked))
+        # ---- ACC fast path: read links over HTTPS, open nothing --------
+        # Every model ACC can answer for is a model nobody has to open.
+        # That matters most for exactly the files that were FAILING: a
+        # headless attached open of a link-bearing cloud model has to
+        # resolve its cloud links too, and those come back NotPublished,
+        # so Revit aborted the whole open ("Opening was canceled") - the
+        # models WITH links were the ones the old path could never read.
+        # It is also what made a run die at its time budget after a
+        # handful of files: opens cost minutes each, this costs about a
+        # tenth of a second. Anything ACC cannot answer for falls
+        # straight through to the open loop below, unchanged.
+        remaining = ticked
+        if self._source_mode() == "acc" and self._project_id:
+            remaining = self._acc_api_pass(ticked, file_nodes, results)
+            api_count = len(ticked) - len(remaining)
+
+        # Files ACC could not answer for. Opening them is the only way
+        # to be certain, but it costs minutes each and the time budget
+        # will cut the run off long before a big project is done - which
+        # is exactly why earlier runs 'did not get all the files'. So ask
+        # rather than assume, and make the fast answer the default: a
+        # complete map that marks those files 'not read' beats a partial
+        # map that silently omits most of them.
+        if remaining:
+            open_them = forms.alert(
+                "{0} file(s) could not be read from ACC.\n\n"
+                "They were published the older way, so ACC holds no link "
+                "data for them - it cannot say whether they have links or "
+                "not.\n\nOpen them one at a time to find out? That is the "
+                "only certain answer, but it takes minutes per file and the "
+                "run stops at the {1}-minute budget, so a large batch will "
+                "not finish.\n\nChoose No to finish now (seconds) with those "
+                "files shown on the map as not read.\n\nThe lasting fix is "
+                "to re-publish those models normally, with links - then ACC "
+                "answers for them instantly.".format(
+                    len(remaining), int(_TIME_BUDGET_SECONDS / 60)),
+                title="DeeLinkMAP - Open the rest?", yes=True, no=True)
+            if not open_them:
+                for row in remaining:
+                    self._unread_node(row, file_nodes,
+                                      "not read - published without link data")
+                    results.append((None, row.name, "not opened - shown on the map as not read"))
+                    skipped_count += 1
+                remaining = []
+
+        self._progress_begin(len(remaining))
         dialog_handler = ffh.make_dialog_handler(self.logger)
         try:
             self.uiapp.DialogBoxShowing += dialog_handler
@@ -417,9 +559,12 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
             self.logger.exception("Could not attach dialog handler", e)
 
         try:
-            for row in ticked:
+            for row in remaining:
                 if time_budget_hit:
+                    self._unread_node(row, file_nodes,
+                                      "not read - run stopped at the time budget")
                     results.append((None, row.name, "skipped - time budget reached"))
+                    skipped_count += 1
                     self._progress_done_one()
                     continue
 
@@ -428,7 +573,10 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
                     self._log("  Time budget reached ({0} min) - stopping cleanly, "
                               "remaining files will be reported as skipped.".format(
                                   int(_TIME_BUDGET_SECONDS / 60)))
+                    self._unread_node(row, file_nodes,
+                                      "not read - run stopped at the time budget")
                     results.append((None, row.name, "skipped - time budget reached"))
+                    skipped_count += 1
                     self._progress_done_one()
                     continue
 
@@ -497,16 +645,18 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
         if time_budget_hit:
             forms.alert(
                 "Stopped after the {0}-minute time budget to avoid pushing "
-                "further - {1} file(s) were skipped and are not in the map. "
-                "Re-run with just the skipped files to pick up where this left "
-                "off.".format(int(_TIME_BUDGET_SECONDS / 60), skipped_count),
+                "further - {1} file(s) were not read. They are on the map, "
+                "marked as not read, so the picture is complete about what "
+                "is known and what is not. Re-run with just those files to "
+                "pick up where this left off.".format(
+                    int(_TIME_BUDGET_SECONDS / 60), skipped_count),
                 title="DeeLinkMAP - Stopped Early")
 
         self._report(results)
         self.status_tb.Text = (
-            "{0} file(s) opened and scanned, {1} failed, {2} skipped. "
-            "{3} link relationship(s) mapped.".format(
-                opened_count, failed_count, skipped_count, len(edges)))
+            "{0} read from ACC without opening, {1} opened and scanned, "
+            "{2} failed, {3} skipped. {4} link relationship(s) mapped.".format(
+                api_count, opened_count, failed_count, skipped_count, len(edges)))
         self._log(self.status_tb.Text)
 
     def _report(self, results):
