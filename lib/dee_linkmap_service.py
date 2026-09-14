@@ -244,6 +244,52 @@ def read_links_by_opening(doc):
     return targets
 
 
+def common_affix_segments(names):
+    """How many leading and trailing name parts every name shares.
+
+    Returns (head, tail). Both are 0 unless at least two names are given
+    - a single file shares nothing with anything, and trimming it would
+    just hide its name for no gain. At least one part is always left in
+    the middle, so a set of names that differ only in their shared
+    sections can never collapse to empty labels."""
+    parts = [name_segments(n) for n in names if n]
+    parts = [p for p in parts if p]
+    if len(parts) < 2:
+        return 0, 0
+    shortest = min(len(p) for p in parts)
+
+    head = 0
+    while head < shortest - 1:
+        value = parts[0][head]
+        if any(p[head] != value for p in parts):
+            break
+        head += 1
+
+    tail = 0
+    while tail < shortest - head - 1:
+        value = parts[0][-1 - tail]
+        if any(p[-1 - tail] != value for p in parts):
+            break
+        tail += 1
+    return head, tail
+
+
+def shorten_name(display_name, head, tail):
+    """The distinguishing middle of a name, given the shared head/tail
+    part counts from common_affix_segments(). Falls back to the name
+    itself whenever trimming would leave nothing useful."""
+    if not display_name:
+        return display_name
+    parts = name_segments(display_name)
+    if not parts or (head == 0 and tail == 0):
+        return display_name
+    end = len(parts) - tail
+    if end <= head:
+        return display_name
+    middle = parts[head:end]
+    return "-".join(middle) if middle else display_name
+
+
 def closed_workset_note(doc):
     """"" if every user workset is open, otherwise a note naming how
     many were closed.
@@ -346,6 +392,11 @@ def build_graph(file_nodes, disciplines=None):
     # map ever share a color, at the (acceptable) cost of a given
     # discipline's color no longer being stable across different maps
     # with a different discipline mix.
+    # What every file name in THIS map has in common. Shared parts carry
+    # no information here, so they come off the labels drawn on the
+    # boxes - the full name is still one click (or one hover) away.
+    head_n, tail_n = common_affix_segments(list(file_nodes.keys()))
+
     detected = dict((name, detect_discipline(name, disciplines)) for name in file_nodes)
     unique_labels = sorted(set(label for _c, label in detected.values()))
     color_by_label = {}
@@ -363,6 +414,7 @@ def build_graph(file_nodes, disciplines=None):
     for name, node in sorted(file_nodes.items()):
         external = []
         link_names = []
+        short_link_names = []
         for raw in node.raw_link_targets:
             stem = target_stem(raw)
             target_name = stem_to_name.get(stem)
@@ -370,8 +422,10 @@ def build_graph(file_nodes, disciplines=None):
             # whether or not it resolved to another file in this scan -
             # the whole point of the box is showing links at a glance,
             # not just the ones that happen to also be selected.
-            link_names.append(target_name if target_name else
-                               os.path.basename(raw.replace("\\", "/")))
+            full_link = (target_name if target_name else
+                         os.path.basename(raw.replace("\\", "/")))
+            link_names.append(full_link)
+            short_link_names.append(shorten_name(full_link, head_n, tail_n))
             if target_name is None or target_name == name:
                 external.append(raw)
                 continue
@@ -388,6 +442,10 @@ def build_graph(file_nodes, disciplines=None):
             "scan_method": node.scan_method,
             "link_count": len(node.raw_link_targets),
             "link_names": link_names,
+            # What the box draws: the same list with the shared head and
+            # tail removed, so it fits instead of ending in an ellipsis.
+            "short_link_names": short_link_names,
+            "short_label": shorten_name(name, head_n, tail_n),
             "external_links": external,
             "discipline_code": code,
             "discipline_label": label,
@@ -722,7 +780,8 @@ _HTML_TEMPLATE = u"""<!DOCTYPE html>
   #panel .label {{ color:#999; text-transform:uppercase; font-size:10px;
     letter-spacing:.5px; margin-bottom:4px; }}
   #panel ul {{ margin:4px 0 0 0; padding-left:16px; }}
-  #panel li {{ margin:2px 0; }}
+  #panel li {{ margin:2px 0; word-break:break-all; }}
+  #panel .inscan {{ color:#8fbf7f; }}
   #panel .warn {{ color:#e57373; }}
   #close_panel {{ position:absolute; top:10px; right:12px; cursor:pointer;
     color:#999; font-size:16px; }}
@@ -749,7 +808,8 @@ _HTML_TEMPLATE = u"""<!DOCTYPE html>
   <div class="row"><div class="label">Discipline</div>
     <div id="panel_discipline"></div></div>
   <div class="row"><div class="label">Revit links (in this file)</div>
-    <div id="panel_count"></div></div>
+    <div id="panel_count"></div>
+    <ul id="panel_links"></ul></div>
   <div class="row"><div class="label">Linked into (by other files here)</div>
     <ul id="panel_in"></ul></div>
   <div class="row"><div class="label">Links not in this scan</div>
@@ -779,6 +839,8 @@ var DATA = {data_json};
       // here simply vanishes from the simulation. That is how the
       // grouping controls first came up empty.
       segments: n.segments || [],
+      short_label: n.short_label || n.label,
+      short_link_names: n.short_link_names || n.link_names || [],
       x: W/2 + Math.cos(angle) * spreadR + (Math.random()-0.5)*40,
       y: H/2 + Math.sin(angle) * spreadR + (Math.random()-0.5)*40,
       vx: 0, vy: 0, fixed: false
@@ -910,7 +972,7 @@ var DATA = {data_json};
     return l;
   }});
 
-  var BOX_W = 190, HEADER_H = 22, LINE_H = 14, MAX_LINES = 5;
+  var BOX_W = 230, HEADER_H = 22, LINE_H = 14, MAX_LINES = 5;
 
   function truncate(text, max) {{
     return text.length > max ? text.slice(0, max - 3) + "..." : text;
@@ -931,7 +993,9 @@ var DATA = {data_json};
     var g = document.createElementNS(NS, "g");
     g.setAttribute("class", "node");
 
-    var names = n.link_names || [];
+    // Shortened for drawing; the full names live in the panel and
+    // in the hover tooltip added below.
+    var names = n.short_link_names || n.link_names || [];
     var shown = names.slice(0, MAX_LINES);
     var extra = names.length - shown.length;
     var bodyLines = shown.length ? shown.length + (extra > 0 ? 1 : 0) : 1;
@@ -949,7 +1013,10 @@ var DATA = {data_json};
     rect.setAttribute("stroke-width", n.error ? "2.2" : "2");
     g.appendChild(rect);
 
-    g.appendChild(svgText(0, -boxH / 2 + 15, truncate(n.label, 26),
+    var hover = document.createElementNS(NS, "title");
+    hover.textContent = n.label;
+    g.appendChild(hover);
+    g.appendChild(svgText(0, -boxH / 2 + 15, truncate(n.short_label, 30),
       "#eee", 12, "bold"));
     g.appendChild(svgText(0, -boxH / 2 + HEADER_H + 10,
       n.discipline_label || "Unknown", boxColor, 10, "bold"));
@@ -960,7 +1027,7 @@ var DATA = {data_json};
         n.error ? "#e57373" : "#888", 10));
     }} else {{
       shown.forEach(function(name, i) {{
-        g.appendChild(svgText(0, y + i * LINE_H, truncate(name, 30), "#ccc", 10));
+        g.appendChild(svgText(0, y + i * LINE_H, truncate(name, 34), "#ccc", 10));
       }});
       if (extra > 0) {{
         g.appendChild(svgText(0, y + shown.length * LINE_H,
@@ -1044,6 +1111,25 @@ var DATA = {data_json};
     discEl.textContent = n.discipline_label || "Unknown";
     discEl.style.color = n.discipline_color || "#888888";
     document.getElementById("panel_count").textContent = n.link_count + " link(s)";
+    // The full names, untruncated. The box can only show five short
+    // ones; this is where you actually read them.
+    var linkUl = document.getElementById("panel_links");
+    linkUl.innerHTML = "";
+    var external = {{}};
+    (n.external_links || []).forEach(function(x) {{ external[x] = true; }});
+    (n.link_names || []).forEach(function(name) {{
+      var li = document.createElement("li");
+      li.textContent = name;
+      // Green marks a link that resolved to another file in this scan,
+      // so it can be told from one pointing outside it.
+      if (!external[name] && byId[name]) li.className = "inscan";
+      linkUl.appendChild(li);
+    }});
+    if (!(n.link_names || []).length) {{
+      var liNone = document.createElement("li");
+      liNone.textContent = n.error ? "(not read)" : "(none)";
+      linkUl.appendChild(liNone);
+    }}
     var inUl = document.getElementById("panel_in");
     inUl.innerHTML = "";
     (incoming[n.id] || []).forEach(function(src) {{
