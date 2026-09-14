@@ -1,0 +1,81 @@
+# Keep the Supabase mirror identical to GitHub, automatically.
+#
+# Every push to master republishes the mirror, so the two can never drift:
+# the mirror is built from `git ls-files` at the commit that was just
+# pushed, which is the same guarantee the manual publisher enforces, only
+# now it cannot be forgotten.
+#
+# WHY THIS IS SAFE ON A PUBLIC REPO
+# ---------------------------------
+# The trigger is `push` to master only. Pull requests - including from
+# forks - do NOT run this, and GitHub does not expose secrets to
+# fork-based workflows in any case. So only someone who can already push
+# to master can cause a publish, which is exactly the set of people who
+# could publish by hand anyway.
+#
+# The key never appears in a log: it reaches the job as a repository
+# secret, and GitHub masks secret values in output. The publisher itself
+# never prints it.
+#
+# SETUP (once)
+# ------------
+# Settings > Secrets and variables > Actions > New repository secret
+#   Name  : SUPABASE_SERVICE_KEY
+#   Value : the Supabase SECRET key (Project Settings > API keys)
+#
+# The URL and bucket are not secrets - they are public identifiers that
+# already appear in the extension's own source - so they live here in
+# plain sight rather than pretending otherwise.
+
+name: Mirror to Supabase
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:        # so a release can also be re-pushed by hand
+
+# Two publishes at once could interleave uploads and advertise a mixed
+# manifest. Queue them instead, and never cancel one midway - a cancelled
+# publish is exactly the half-finished state the manifest-last ordering
+# exists to avoid.
+concurrency:
+  group: supabase-mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check the secret is configured
+        env:
+          KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::SUPABASE_SERVICE_KEY is not set on this repository."
+            echo "Add it under Settings > Secrets and variables > Actions."
+            echo "Until then, GitHub updates keep working and the mirror"
+            echo "simply stays at its previous version."
+            exit 1
+          fi
+
+      - name: Publish to the mirror
+        env:
+          SUPABASE_URL: https://gmuvmeolvkgqkmwvfbjj.supabase.co
+          SUPABASE_BUCKET: dee-extension
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python tools/publish_supabase.py
+
+      - name: Verify the mirror from outside
+        env:
+          SUPABASE_URL: https://gmuvmeolvkgqkmwvfbjj.supabase.co
+          SUPABASE_BUCKET: dee-extension
+        # Unauthenticated, exactly as the extension reads it - so this
+        # checks what users actually get, not what the uploader believed
+        # it sent.
+        run: python tools/verify_mirror.py

@@ -122,6 +122,27 @@ def digest(path):
 
 
 def load_config():
+    """Credentials from the ENVIRONMENT first, then the local file.
+
+    A CI runner has no config file and must never have one: the key
+    reaches it as a repository secret in the environment. A developer's
+    PC is the other way round - nothing in the environment, the key in a
+    gitignored file. Environment wins so a runner cannot pick up a stale
+    file if one is ever committed by mistake."""
+    env_key = os.environ.get("SUPABASE_SERVICE_KEY")
+    if env_key:
+        cfg = {"url": os.environ.get("SUPABASE_URL", "").strip(),
+               "bucket": os.environ.get("SUPABASE_BUCKET", "").strip(),
+               "service_key": env_key.strip()}
+        missing = [name for name in ("url", "bucket") if not cfg[name]]
+        if missing:
+            raise SystemExit(
+                "SUPABASE_SERVICE_KEY is set, so the environment is being "
+                "used for credentials, but {0} missing.".format(
+                    " and ".join("SUPABASE_" + n.upper() for n in missing)))
+        print("config    : environment")
+        return cfg
+
     if not os.path.exists(CONFIG):
         raise SystemExit(
             "No {0}.\n\nCreate it with:\n"
@@ -135,6 +156,7 @@ def load_config():
     for field in ("url", "bucket", "service_key"):
         if not cfg.get(field):
             raise SystemExit("{0} is missing '{1}'".format(CONFIG, field))
+    print("config    : {0}".format(os.path.relpath(CONFIG, ROOT)))
     return cfg
 
 
@@ -197,7 +219,14 @@ def main():
     commit, dirty, unpushed, untracked = git_state()
     print("HEAD      : {0}".format(commit))
     print("working   : {0}".format("DIRTY" if dirty else "clean"))
-    print("unpushed  : {0}".format(unpushed))
+    if os.environ.get("CI"):
+        # A CI run is triggered BY the push, so the checked-out commit is
+        # on GitHub by construction. There is usually no upstream ref to
+        # compare against, and the count would be a meaningless 0 - say
+        # which of the two it is rather than letting it read as proof.
+        print("unpushed  : n/a (CI - this commit IS the pushed one)")
+    else:
+        print("unpushed  : {0}".format(unpushed))
 
     if untracked:
         # Not a blocker - see git_state - but if one of these was meant
@@ -267,8 +296,12 @@ def main():
     print("changed   : {0}".format(len(changed)))
     print("removed   : {0}".format(len(gone)))
     if not changed and not gone:
-        print("\nMirror already matches. Nothing to do.")
-        return 0
+        # Not an early exit. The FILES are already right, but this is a
+        # different commit, and the manifest is what records which commit
+        # the mirror reflects. Leaving it behind would look like drift
+        # while nothing is actually wrong - which happens on any push
+        # that only touched tools/ or installer/, both excluded here.
+        print("\nFiles already match - refreshing the manifest only.")
 
     failed = []
     for index, rel in enumerate(changed, 1):

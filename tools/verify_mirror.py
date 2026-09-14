@@ -1,0 +1,147 @@
+# -*- coding: utf-8 -*-
+"""Check the mirror the way a USER reads it, not the way we wrote it.
+
+    python tools/verify_mirror.py            # sample check
+    python tools/verify_mirror.py --all      # verify every file
+
+Every request here is public and unauthenticated - no key is used or
+needed. That is the point: the publisher can only report what it
+believes it uploaded, which is precisely the thing worth not trusting.
+This fetches what is actually being served and checks it against what
+the manifest claims.
+
+What it verifies:
+
+  * the manifest is reachable and parses;
+  * its commit matches this checkout's HEAD - so a publish that half
+    failed, or never ran, cannot pass silently;
+  * sampled files download and their sha256 matches the manifest;
+  * the installer zip downloads, matches its recorded sha256, has intact
+    CRCs, and has every entry under Dee.extension/ - if that prefix is
+    wrong the installer extracts to the wrong layout and pyRevit finds
+    nothing.
+
+Exits non-zero on any failure, so CI fails the run rather than reporting
+a green publish over a broken mirror.
+"""
+import argparse
+import hashlib
+import io
+import os
+import random
+import subprocess
+import sys
+import zipfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+sys.path.insert(0, os.path.join(ROOT, "lib"))
+
+import dee_update_source as upd  # noqa: E402
+
+SAMPLE = 12
+
+
+def head_commit():
+    proc = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                          cwd=ROOT, capture_output=True, text=True)
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--all", action="store_true",
+                        help="verify every file, not a sample")
+    args = parser.parse_args()
+
+    url = os.environ.get("SUPABASE_URL") or upd.DEFAULT_SUPABASE_URL
+    bucket = os.environ.get("SUPABASE_BUCKET") or upd.DEFAULT_BUCKET
+    print("project : {0}".format(url))
+    print("bucket  : {0}".format(bucket))
+
+    manifest, detail = upd.fetch_manifest(url, bucket)
+    if not manifest:
+        print("\nFAIL - could not read the mirror:\n{0}".format(detail))
+        return 1
+
+    files = manifest.get("files") or {}
+    print("commit  : {0}".format(manifest.get("commit")))
+    print("built   : {0}".format(manifest.get("built")))
+    print("files   : {0}".format(len(files)))
+
+    failures = []
+
+    head = head_commit()
+    if head and head != manifest.get("commit"):
+        failures.append(
+            "mirror is at {0} but HEAD is {1} - the publish did not "
+            "complete, or did not run".format(manifest.get("commit"), head))
+    elif head:
+        print("HEAD    : {0} - matches".format(head))
+
+    if not files:
+        failures.append("the manifest lists no files")
+
+    # --- sampled (or full) file checks ---
+    names = sorted(files)
+    if not args.all and len(names) > SAMPLE:
+        random.seed(manifest.get("commit") or "")
+        names = random.sample(names, SAMPLE)
+    print("\nchecking {0} file(s):".format(len(names)))
+    for rel in names:
+        data, detail = upd._get_bytes(upd.public_url(url, bucket, rel))
+        if data is None:
+            failures.append("{0}: download failed ({1})".format(rel, detail))
+            print("  FAIL  {0}".format(rel))
+            continue
+        if hashlib.sha256(data).hexdigest() != files[rel]["sha256"]:
+            failures.append("{0}: sha256 does not match the manifest".format(rel))
+            print("  FAIL  {0}".format(rel))
+            continue
+        print("  ok    {0}".format(rel))
+
+    # --- the installer's zip ---
+    record = manifest.get("zip") or {}
+    if not record.get("name"):
+        failures.append("the manifest records no installer zip")
+    else:
+        print("\nzip: {0}".format(record["name"]))
+        data, detail = upd._get_bytes(upd.public_url(url, bucket, record["name"]))
+        if data is None:
+            failures.append("zip download failed ({0})".format(detail))
+        elif hashlib.sha256(data).hexdigest() != record.get("sha256"):
+            failures.append("zip sha256 does not match the manifest")
+        else:
+            print("  sha256 ok, {0:.2f} MB".format(len(data) / 1048576.0))
+            try:
+                archive = zipfile.ZipFile(io.BytesIO(data))
+                broken = archive.testzip()
+                if broken:
+                    failures.append("zip has a bad CRC at {0}".format(broken))
+                entries = archive.namelist()
+                stray = [n for n in entries
+                         if not n.startswith("Dee.extension/")][:3]
+                if stray:
+                    failures.append(
+                        "zip entries are not all under Dee.extension/ "
+                        "(e.g. {0}) - it would extract to the wrong layout"
+                        .format(", ".join(stray)))
+                else:
+                    print("  {0} entries, all under Dee.extension/".format(
+                        len(entries)))
+            except zipfile.BadZipFile as e:
+                failures.append("zip is not readable: {0}".format(e))
+
+    print()
+    if failures:
+        print("FAILED - {0} problem(s):".format(len(failures)))
+        for line in failures:
+            print("  * {0}".format(line))
+        return 1
+    print("Mirror verified: what is being served matches what the manifest "
+          "claims.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
