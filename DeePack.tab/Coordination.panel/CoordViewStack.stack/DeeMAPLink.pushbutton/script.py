@@ -56,11 +56,14 @@ clr.AddReference("PresentationFramework")
 clr.AddReference("WindowsBase")
 clr.AddReference("System.Windows.Forms")
 from System import Action
-from System.Windows import (Cursors, CornerRadius, Point, Thickness,
-                           VerticalAlignment, Visibility)
+# Namespaces matter here and are easy to get wrong: Cursors looks like
+# it belongs with Thickness and CornerRadius, but it lives in
+# System.Windows.Input alongside Keyboard - importing it from
+# System.Windows fails at load with "Cannot import name Cursors".
+from System.Windows import (CornerRadius, Point, TextTrimming, Thickness,
+                            VerticalAlignment, Visibility)
 from System.Windows.Controls import Border, Canvas, Panel, TextBlock
-from System.Windows import TextTrimming
-from System.Windows.Input import Keyboard, ModifierKeys
+from System.Windows.Input import Cursors, Keyboard, ModifierKeys
 from System.Windows.Media import (Brushes, Color, DoubleCollection,
                                   PointCollection, SolidColorBrush,
                                   VisualTreeHelper)
