@@ -6,7 +6,7 @@
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Scans an ACC project or a local folder for worksharing Revit files, pools them into two lists, and lets you build a many-to-many link map: tick files in List 1 (sources), tick files in List 2 (targets), press Add Match. Each target host is then opened in the background, every matched source is linked into it, and the host is synchronized back - no file ever opened by hand."/>
+                   Text="Scans an ACC project or a local folder for worksharing Revit files and builds a many-to-many link map. Two ways to build it, both live at once and both feeding the same list: tick files in List 1 and List 2 and press Add Match, or drag a wire from one file to another on the map. Each target host is then opened in the background, every matched source is linked into it, and the host is synchronized back - no file ever opened by hand."/>
 
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem><TextBlock x:Name="status_tb" Text="Ready."/></StatusBarItem>
@@ -90,96 +90,70 @@
         <TextBlock DockPanel.Dock="Top" Text="3. Match files" FontWeight="Bold" Margin="0,0,0,4"/>
 
         <Border DockPanel.Dock="Top" BorderBrush="#888888" BorderThickness="1" Margin="0,0,0,8" Padding="8">
-            <StackPanel>
-                <TextBlock Text="Analysis" FontWeight="Bold" Margin="0,0,0,4"/>
-                <TextBlock x:Name="analysis_tb" TextWrapping="Wrap" FontFamily="Consolas" FontSize="11"
-                           Text="No matches yet. Tick files in both lists and press Add Match."/>
-            </StackPanel>
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Analysis" FontWeight="Bold" Margin="0,0,0,4"/>
+                <ScrollViewer MaxHeight="74" VerticalScrollBarVisibility="Auto">
+                    <TextBlock x:Name="analysis_tb" TextWrapping="Wrap" FontFamily="Consolas" FontSize="11"
+                               Text="No matches yet. Tick files in both lists, or drag a wire on the map."/>
+                </ScrollViewer>
+            </DockPanel>
         </Border>
 
-        <TabControl x:Name="mode_tabs">
-            <TabItem Header="Two Lists">
-            <Grid>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" MinHeight="220"/>
+                <RowDefinition Height="6"/>
+                <RowDefinition Height="150" MinHeight="70"/>
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="0.95*"/>
-                    <ColumnDefinition Width="8"/>
-                    <ColumnDefinition Width="1.1*"/>
-                    <ColumnDefinition Width="8"/>
-                    <ColumnDefinition Width="0.95*"/>
+                    <ColumnDefinition Width="270" MinWidth="160"/>
+                    <ColumnDefinition Width="6"/>
+                    <ColumnDefinition Width="*" MinWidth="320"/>
+                    <ColumnDefinition Width="6"/>
+                    <ColumnDefinition Width="270" MinWidth="160"/>
                 </Grid.ColumnDefinitions>
 
                 <DockPanel Grid.Column="0">
                     <TextBlock DockPanel.Dock="Top" Text="List 1 — Sources (will be linked)" FontWeight="Bold" Margin="0,0,0,4"/>
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
-                        <TextBox x:Name="search1_tb" Width="150" Height="22" VerticalContentAlignment="Center"
+                        <TextBox x:Name="search1_tb" Width="104" Height="22" VerticalContentAlignment="Center"
                                  TextChanged="search1_changed" ToolTip="Type part of a file name - multiple words all have to match, in any order."/>
-                        <Button x:Name="clear_search1_b" Content="Clear" Width="50" Height="22" Margin="4,0,0,0" Click="clear_search1_click"/>
-                        <Button x:Name="select_all1_b" Content="All" Width="40" Height="22" Margin="8,0,0,0" Click="select_all1_click"/>
-                        <Button x:Name="select_none1_b" Content="None" Width="46" Height="22" Margin="4,0,0,0" Click="select_none1_click"/>
+                        <Button x:Name="clear_search1_b" Content="Clear" Width="44" Height="22" Margin="3,0,0,0" Click="clear_search1_click"/>
+                        <Button x:Name="select_all1_b" Content="All" Width="34" Height="22" Margin="6,0,0,0" Click="select_all1_click"/>
+                        <Button x:Name="select_none1_b" Content="None" Width="42" Height="22" Margin="3,0,0,0" Click="select_none1_click"/>
                     </StackPanel>
                     <DataGrid x:Name="list1_grid" AutoGenerateColumns="False" CanUserAddRows="False"
                               CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
                         <DataGrid.Columns>
-                            <DataGridCheckBoxColumn Header="Use" Binding="{Binding selected, Mode=TwoWay}" Width="40"/>
+                            <DataGridCheckBoxColumn Header="Use" Binding="{Binding selected, Mode=TwoWay}" Width="36"/>
                             <DataGridTextColumn Header="Revit File" Binding="{Binding name}" IsReadOnly="True" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </DockPanel>
+
+                <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                              Background="#444" ResizeBehavior="PreviousAndNext"/>
 
                 <DockPanel Grid.Column="2">
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4" HorizontalAlignment="Center">
-                        <Button x:Name="add_match_b" Content="Add Match  -&gt;" Width="120" Height="26" FontWeight="Bold" Click="add_match_click"/>
-                        <Button x:Name="remove_match_b" Content="Remove Selected" Width="120" Height="26" Margin="8,0,0,0" Click="remove_match_click"/>
-                        <Button x:Name="clear_matches_b" Content="Clear All" Width="80" Height="26" Margin="8,0,0,0" Click="clear_matches_click"/>
-                    </StackPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="Matches (Source -&gt; Target)" FontWeight="Bold" Margin="0,4,0,4" HorizontalAlignment="Center"/>
-                    <DataGrid x:Name="matches_grid" AutoGenerateColumns="False" CanUserAddRows="False"
-                              CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Source (linked)" Binding="{Binding source}" IsReadOnly="True" Width="*"/>
-                            <DataGridTextColumn Header="Target (host)" Binding="{Binding target}" IsReadOnly="True" Width="*"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </DockPanel>
-
-                <DockPanel Grid.Column="4">
-                    <TextBlock DockPanel.Dock="Top" Text="List 2 — Targets (hosts)" FontWeight="Bold" Margin="0,0,0,4"/>
+                    <TextBlock DockPanel.Dock="Top" Text="Wire Map — drag from one file to another to link it in" FontWeight="Bold" Margin="0,0,0,4"/>
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
-                        <TextBox x:Name="search2_tb" Width="150" Height="22" VerticalContentAlignment="Center"
-                                 TextChanged="search2_changed" ToolTip="Type part of a file name - multiple words all have to match, in any order."/>
-                        <Button x:Name="clear_search2_b" Content="Clear" Width="50" Height="22" Margin="4,0,0,0" Click="clear_search2_click"/>
-                        <Button x:Name="select_all2_b" Content="All" Width="40" Height="22" Margin="8,0,0,0" Click="select_all2_click"/>
-                        <Button x:Name="select_none2_b" Content="None" Width="46" Height="22" Margin="4,0,0,0" Click="select_none2_click"/>
-                    </StackPanel>
-                    <DataGrid x:Name="list2_grid" AutoGenerateColumns="False" CanUserAddRows="False"
-                              CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
-                        <DataGrid.Columns>
-                            <DataGridCheckBoxColumn Header="Use" Binding="{Binding selected, Mode=TwoWay}" Width="40"/>
-                            <DataGridTextColumn Header="Revit File" Binding="{Binding name}" IsReadOnly="True" Width="*"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </DockPanel>
-            </Grid>
-            </TabItem>
-            <TabItem Header="Wire Map">
-                <DockPanel Margin="6">
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
-                        <TextBlock Text="Show:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBox x:Name="map_search_tb" Width="190" Height="22"
+                        <TextBox x:Name="map_search_tb" Width="150" Height="22"
                                  VerticalContentAlignment="Center" TextChanged="map_search_changed"
                                  ToolTip="Type part of a file name - multiple words all have to match, in any order."/>
-                        <Button x:Name="map_clear_search_b" Content="Clear" Width="50" Height="22"
-                                Margin="4,0,0,0" Click="map_clear_search_click"/>
-                        <Button x:Name="map_refresh_b" Content="Re-arrange" Width="90" Height="22"
-                                Margin="14,0,0,0" Click="map_refresh_click"
+                        <Button x:Name="map_clear_search_b" Content="Clear" Width="44" Height="22"
+                                Margin="3,0,0,0" Click="map_clear_search_click"/>
+                        <Button x:Name="map_refresh_b" Content="Re-arrange" Width="78" Height="22"
+                                Margin="10,0,0,0" Click="map_refresh_click"
                                 ToolTip="Lay the boxes out again from scratch."/>
-                        <Button x:Name="map_clear_wires_b" Content="Clear Wires" Width="90" Height="22"
-                                Margin="6,0,0,0" Click="map_clear_wires_click"/>
-                        <TextBlock x:Name="map_count_tb" VerticalAlignment="Center" Margin="14,0,0,0"
+                        <Button x:Name="map_clear_wires_b" Content="Clear Wires" Width="78" Height="22"
+                                Margin="4,0,0,0" Click="map_clear_wires_click"/>
+                        <TextBlock x:Name="map_count_tb" VerticalAlignment="Center" Margin="10,0,0,0"
                                    Foreground="#888" Text=""/>
                     </StackPanel>
-                    <TextBlock DockPanel.Dock="Bottom" Margin="0,6,0,0" Foreground="#888" FontSize="11"
-                               Text="Drag from one file to another to link the first INTO the second. Click a wire to remove it. Drag a box to move it."/>
+                    <TextBlock DockPanel.Dock="Bottom" Margin="0,4,0,0" Foreground="#888" FontSize="10"
+                               Text="Click a wire to remove it · SHIFT+drag moves a box"/>
                     <Border BorderBrush="#555" BorderThickness="1">
                         <ScrollViewer x:Name="map_scroll"
                                       HorizontalScrollBarVisibility="Auto"
@@ -189,7 +163,49 @@
                         </ScrollViewer>
                     </Border>
                 </DockPanel>
-            </TabItem>
-        </TabControl>
+
+                <GridSplitter Grid.Column="3" Width="6" HorizontalAlignment="Stretch"
+                              Background="#444" ResizeBehavior="PreviousAndNext"/>
+
+                <DockPanel Grid.Column="4">
+                    <TextBlock DockPanel.Dock="Top" Text="List 2 — Targets (hosts)" FontWeight="Bold" Margin="0,0,0,4"/>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBox x:Name="search2_tb" Width="104" Height="22" VerticalContentAlignment="Center"
+                                 TextChanged="search2_changed" ToolTip="Type part of a file name - multiple words all have to match, in any order."/>
+                        <Button x:Name="clear_search2_b" Content="Clear" Width="44" Height="22" Margin="3,0,0,0" Click="clear_search2_click"/>
+                        <Button x:Name="select_all2_b" Content="All" Width="34" Height="22" Margin="6,0,0,0" Click="select_all2_click"/>
+                        <Button x:Name="select_none2_b" Content="None" Width="42" Height="22" Margin="3,0,0,0" Click="select_none2_click"/>
+                    </StackPanel>
+                    <DataGrid x:Name="list2_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                              CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Use" Binding="{Binding selected, Mode=TwoWay}" Width="36"/>
+                            <DataGridTextColumn Header="Revit File" Binding="{Binding name}" IsReadOnly="True" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </Grid>
+
+            <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch"
+                          VerticalAlignment="Center" Background="#444"
+                          ResizeBehavior="PreviousAndNext"/>
+
+            <DockPanel Grid.Row="2">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+                    <TextBlock Text="Matches (Source → Target)" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <Button x:Name="add_match_b" Content="Add Match (ticked lists)" Width="150" Height="24"
+                            Margin="16,0,0,0" FontWeight="Bold" Click="add_match_click"/>
+                    <Button x:Name="remove_match_b" Content="Remove Selected" Width="116" Height="24" Margin="6,0,0,0" Click="remove_match_click"/>
+                    <Button x:Name="clear_matches_b" Content="Clear All" Width="72" Height="24" Margin="6,0,0,0" Click="clear_matches_click"/>
+                </StackPanel>
+                <DataGrid x:Name="matches_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                          CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Source (linked)" Binding="{Binding source}" IsReadOnly="True" Width="*"/>
+                        <DataGridTextColumn Header="Target (host)" Binding="{Binding target}" IsReadOnly="True" Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Grid>
     </DockPanel>
 </Window>
