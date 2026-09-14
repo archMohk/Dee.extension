@@ -1,3 +1,3 @@
 title: DeePubCheck
-tooltip: Ask ACC which cloud models still have changes that were synced but never published, see the answer per file, then publish only those. Works with NO Revit file open: nothing is opened, nothing needs to be open, and nothing is published until you press Publish Selected. A normal publish (with links) is also what lets DeeLinkMAP read a model's Revit links without opening it.
+tooltip: Ask ACC which cloud models still have changes that were synced but never published, see the answer per file, then publish only those. Works with NO Revit file open - nothing is opened, nothing needs to be open, and nothing is published until you press Publish Selected. A normal publish (with links) is also what lets DeeLinkMAP read a model's Revit links without opening it.
 context: zero-doc
