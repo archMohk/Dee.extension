@@ -244,52 +244,6 @@ def read_links_by_opening(doc):
     return targets
 
 
-def common_affix_segments(names):
-    """How many leading and trailing name parts every name shares.
-
-    Returns (head, tail). Both are 0 unless at least two names are given
-    - a single file shares nothing with anything, and trimming it would
-    just hide its name for no gain. At least one part is always left in
-    the middle, so a set of names that differ only in their shared
-    sections can never collapse to empty labels."""
-    parts = [name_segments(n) for n in names if n]
-    parts = [p for p in parts if p]
-    if len(parts) < 2:
-        return 0, 0
-    shortest = min(len(p) for p in parts)
-
-    head = 0
-    while head < shortest - 1:
-        value = parts[0][head]
-        if any(p[head] != value for p in parts):
-            break
-        head += 1
-
-    tail = 0
-    while tail < shortest - head - 1:
-        value = parts[0][-1 - tail]
-        if any(p[-1 - tail] != value for p in parts):
-            break
-        tail += 1
-    return head, tail
-
-
-def shorten_name(display_name, head, tail):
-    """The distinguishing middle of a name, given the shared head/tail
-    part counts from common_affix_segments(). Falls back to the name
-    itself whenever trimming would leave nothing useful."""
-    if not display_name:
-        return display_name
-    parts = name_segments(display_name)
-    if not parts or (head == 0 and tail == 0):
-        return display_name
-    end = len(parts) - tail
-    if end <= head:
-        return display_name
-    middle = parts[head:end]
-    return "-".join(middle) if middle else display_name
-
-
 def closed_workset_note(doc):
     """"" if every user workset is open, otherwise a note naming how
     many were closed.
@@ -392,11 +346,6 @@ def build_graph(file_nodes, disciplines=None):
     # map ever share a color, at the (acceptable) cost of a given
     # discipline's color no longer being stable across different maps
     # with a different discipline mix.
-    # What every file name in THIS map has in common. Shared parts carry
-    # no information here, so they come off the labels drawn on the
-    # boxes - the full name is still one click (or one hover) away.
-    head_n, tail_n = common_affix_segments(list(file_nodes.keys()))
-
     detected = dict((name, detect_discipline(name, disciplines)) for name in file_nodes)
     unique_labels = sorted(set(label for _c, label in detected.values()))
     color_by_label = {}
@@ -414,7 +363,6 @@ def build_graph(file_nodes, disciplines=None):
     for name, node in sorted(file_nodes.items()):
         external = []
         link_names = []
-        short_link_names = []
         for raw in node.raw_link_targets:
             stem = target_stem(raw)
             target_name = stem_to_name.get(stem)
@@ -422,10 +370,8 @@ def build_graph(file_nodes, disciplines=None):
             # whether or not it resolved to another file in this scan -
             # the whole point of the box is showing links at a glance,
             # not just the ones that happen to also be selected.
-            full_link = (target_name if target_name else
-                         os.path.basename(raw.replace("\\", "/")))
-            link_names.append(full_link)
-            short_link_names.append(shorten_name(full_link, head_n, tail_n))
+            link_names.append(target_name if target_name else
+                              os.path.basename(raw.replace("\\", "/")))
             if target_name is None or target_name == name:
                 external.append(raw)
                 continue
@@ -442,10 +388,6 @@ def build_graph(file_nodes, disciplines=None):
             "scan_method": node.scan_method,
             "link_count": len(node.raw_link_targets),
             "link_names": link_names,
-            # What the box draws: the same list with the shared head and
-            # tail removed, so it fits instead of ending in an ellipsis.
-            "short_link_names": short_link_names,
-            "short_label": shorten_name(name, head_n, tail_n),
             "external_links": external,
             "discipline_code": code,
             "discipline_label": label,
@@ -674,7 +616,17 @@ _FILTER_JS = u"""
       tally[k] = (tally[k] || 0) + 1;
       if (tally[k] > busiest) busiest = tally[k];
     });
-    var cell = Math.max(620, 230 * Math.sqrt(busiest));
+    // Sized from the boxes that actually have to fit, not a constant.
+    // Boxes are as wide as their file names now (~310px here, and a
+    // long name can reach 560), so a cell tuned for 190px-wide boxes
+    // left groups too cramped to separate and they overlapped.
+    var wSum = 0, wCount = 0;
+    nodes.forEach(function(n) {
+      if (n.hidden) return;
+      wSum += (n._w || 190); wCount++;
+    });
+    var avgW = wCount ? wSum / wCount : 190;
+    var cell = Math.max(700, 1.5 * avgW * Math.sqrt(busiest));
     GROUPS.order.forEach(function(k, i) {
       var c = i % cols, r = Math.floor(i / cols);
       GROUPS.centres[k] = {
@@ -839,8 +791,6 @@ var DATA = {data_json};
       // here simply vanishes from the simulation. That is how the
       // grouping controls first came up empty.
       segments: n.segments || [],
-      short_label: n.short_label || n.label,
-      short_link_names: n.short_link_names || n.link_names || [],
       x: W/2 + Math.cos(angle) * spreadR + (Math.random()-0.5)*40,
       y: H/2 + Math.sin(angle) * spreadR + (Math.random()-0.5)*40,
       vx: 0, vy: 0, fixed: false
@@ -911,7 +861,12 @@ var DATA = {data_json};
         // Boxes (~190px wide, variable height) need much more separation
         // than the small circles this replaced - tuned so a handful of
         // 5-link boxes don't overlap once settled.
-        force = Math.min(55000 / (dist*dist), 16);
+        // Scaled by how wide these two boxes actually are: a fixed
+        // constant was tuned for one fixed width, and now that a box can
+        // be three times wider than another, the wide ones would sit on
+        // top of each other.
+        var span = ((n1._w || 190) + (n2._w || 190)) / 2;
+        force = Math.min(55000 * (span / 190) / (dist*dist), 16 * (span / 190));
         fx += (dx/dist) * force; fy += (dy/dist) * force;
       }}
       n1.vx = (n1.vx + fx) * 0.75;
@@ -922,7 +877,10 @@ var DATA = {data_json};
       if (!e.source.fixed || !e.target.fixed) {{
         dx = e.target.x - e.source.x; dy = e.target.y - e.source.y;
         dist = Math.sqrt(dx*dx + dy*dy) || 1;
-        var pull = (dist - 260) * 0.02;
+        // Rest length follows the boxes too, so an edge between two
+        // wide boxes does not pull them into each other.
+        var rest = 200 + ((e.source._w || 190) + (e.target._w || 190)) / 2;
+        var pull = (dist - rest) * 0.02;
         var ux = dx/dist, uy = dy/dist;
         if (!e.source.fixed) {{ e.source.vx += ux*pull; e.source.vy += uy*pull; }}
         if (!e.target.fixed) {{ e.target.vx -= ux*pull; e.target.vy -= uy*pull; }}
@@ -932,6 +890,45 @@ var DATA = {data_json};
       if (n.fixed || n.hidden) return;
       n.x += n.vx; n.y += n.vy;
     }});
+
+    // Hard separation. Repulsion alone is a suggestion, and grouping
+    // pulls hard enough to overrule it - with boxes now sized to their
+    // own text, that showed up as 12 overlapping pairs on a 43-file
+    // map. This pass is not a force: any two boxes still overlapping
+    // after the forces have run are simply moved apart, along whichever
+    // axis needs the least movement, so text never lands on text.
+    // Iterates to convergence rather than a fixed number of sweeps:
+    // pushing one pair apart can push another pair together, so a fixed
+    // count left overlaps behind (7 of them, grouped). Stops as soon as
+    // a whole sweep moves nothing, which is the common case, and is
+    // bounded so it can never spin.
+    var moved = true, pass = 0;
+    while (moved && pass < 24) {{
+    moved = false; pass++;
+    for (i = 0; i < nodes.length; i++) {{
+      n1 = nodes[i];
+      if (n1.hidden) continue;
+      for (j = i + 1; j < nodes.length; j++) {{
+        n2 = nodes[j];
+        if (n2.hidden) continue;
+        var needX = ((n1._w || 190) + (n2._w || 190)) / 2 + 14;
+        var needY = ((n1._h || 70) + (n2._h || 70)) / 2 + 12;
+        var sepX = n2.x - n1.x, sepY = n2.y - n1.y;
+        var overX = needX - Math.abs(sepX), overY = needY - Math.abs(sepY);
+        if (overX <= 0 || overY <= 0) continue;
+        moved = true;
+        if (overX < overY) {{
+          var pushX = (sepX < 0 ? -1 : 1) * overX / 2;
+          if (!n1.fixed) n1.x -= pushX;
+          if (!n2.fixed) n2.x += pushX;
+        }} else {{
+          var pushY = (sepY < 0 ? -1 : 1) * overY / 2;
+          if (!n1.fixed) n1.y -= pushY;
+          if (!n2.fixed) n2.y += pushY;
+        }}
+      }}
+    }}
+    }}
   }}
 
   var ticks = 0, settling = false;
@@ -972,7 +969,9 @@ var DATA = {data_json};
     return l;
   }});
 
-  var BOX_W = 230, HEADER_H = 22, LINE_H = 14, MAX_LINES = 5;
+  // Boxes are sized to their own text now, between these bounds.
+  var BOX_MIN_W = 190, BOX_MAX_W = 560;
+  var HEADER_H = 22, LINE_H = 14, MAX_LINES = 5;
 
   function truncate(text, max) {{
     return text.length > max ? text.slice(0, max - 3) + "..." : text;
@@ -992,50 +991,93 @@ var DATA = {data_json};
   var nodeEls = nodes.map(function(n) {{
     var g = document.createElementNS(NS, "g");
     g.setAttribute("class", "node");
+    // In the DOM before anything is measured - getComputedTextLength()
+    // returns 0 for an element that has never been laid out.
+    gNodes.appendChild(g);
 
-    // Shortened for drawing; the full names live in the panel and
-    // in the hover tooltip added below.
-    var names = n.short_link_names || n.link_names || [];
+    // FULL names. They are what the file is actually called, and the
+    // box is sized to them below rather than the other way round.
+    var names = n.link_names || [];
     var shown = names.slice(0, MAX_LINES);
     var extra = names.length - shown.length;
     var bodyLines = shown.length ? shown.length + (extra > 0 ? 1 : 0) : 1;
     var TAG_H = 15;
     var boxH = HEADER_H + TAG_H + bodyLines * LINE_H + 10;
-    n._w = BOX_W; n._h = boxH;
     var boxColor = n.discipline_color || "#888888";
-
-    var rect = document.createElementNS(NS, "rect");
-    rect.setAttribute("x", -BOX_W / 2); rect.setAttribute("y", -boxH / 2);
-    rect.setAttribute("width", BOX_W); rect.setAttribute("height", boxH);
-    rect.setAttribute("rx", 7);
-    rect.setAttribute("fill", "#2b2b2b");
-    rect.setAttribute("stroke", n.error ? "#e57373" : boxColor);
-    rect.setAttribute("stroke-width", n.error ? "2.2" : "2");
-    g.appendChild(rect);
 
     var hover = document.createElementNS(NS, "title");
     hover.textContent = n.label;
     g.appendChild(hover);
-    g.appendChild(svgText(0, -boxH / 2 + 15, truncate(n.short_label, 30),
-      "#eee", 12, "bold"));
-    g.appendChild(svgText(0, -boxH / 2 + HEADER_H + 10,
-      n.discipline_label || "Unknown", boxColor, 10, "bold"));
+
+    var texts = [];
+    function addText(y, text, fill, size, weight) {{
+      var el = svgText(0, y, text, fill, size, weight);
+      g.appendChild(el);
+      texts.push(el);
+      return el;
+    }}
+
+    addText(-boxH / 2 + 15, n.label, "#eee", 12, "bold");
+    addText(-boxH / 2 + HEADER_H + 10, n.discipline_label || "Unknown",
+            boxColor, 10, "bold");
 
     var y = -boxH / 2 + HEADER_H + TAG_H + 10;
     if (!shown.length) {{
-      g.appendChild(svgText(0, y, n.error ? "(scan issue)" : "(no links)",
-        n.error ? "#e57373" : "#888", 10));
+      addText(y, n.error ? "(scan issue)" : "(no links)",
+              n.error ? "#e57373" : "#888", 10);
     }} else {{
       shown.forEach(function(name, i) {{
-        g.appendChild(svgText(0, y + i * LINE_H, truncate(name, 34), "#ccc", 10));
+        addText(y + i * LINE_H, name, "#ccc", 10);
       }});
       if (extra > 0) {{
-        g.appendChild(svgText(0, y + shown.length * LINE_H,
-          "+" + extra + " more - click for full list", "#888", 9));
+        addText(y + shown.length * LINE_H,
+                "+" + extra + " more - click for full list", "#888", 9);
       }}
     }}
 
-    gNodes.appendChild(g);
+    // Measure what was actually rendered, then fit the box to it.
+    var widest = 0;
+    texts.forEach(function(el) {{
+      var w = 0;
+      try {{ w = el.getComputedTextLength(); }} catch (e) {{ w = 0; }}
+      if (w > widest) widest = w;
+    }});
+    var boxW = Math.max(BOX_MIN_W, Math.min(BOX_MAX_W, widest + 24));
+
+    // A name past the ceiling is the only case that still gets cut, and
+    // it is cut to the box that exists rather than to a guessed count.
+    if (widest + 24 > BOX_MAX_W) {{
+      texts.forEach(function(el) {{
+        var full = el.textContent;
+        var guard = 0;
+        while (guard < 200) {{
+          var w = 0;
+          try {{ w = el.getComputedTextLength(); }} catch (e) {{ break; }}
+          if (w <= boxW - 20 || el.textContent.length < 5) break;
+          el.textContent = el.textContent.slice(0, -2) + "\u2026";
+          el.textContent = el.textContent.replace("\u2026\u2026", "\u2026");
+          guard++;
+        }}
+        if (el.textContent !== full) {{
+          var tip = document.createElementNS(NS, "title");
+          tip.textContent = full;
+          el.appendChild(tip);
+        }}
+      }});
+    }}
+
+    n._w = boxW; n._h = boxH;
+
+    var rect = document.createElementNS(NS, "rect");
+    rect.setAttribute("x", -boxW / 2); rect.setAttribute("y", -boxH / 2);
+    rect.setAttribute("width", boxW); rect.setAttribute("height", boxH);
+    rect.setAttribute("rx", 7);
+    rect.setAttribute("fill", "#2b2b2b");
+    rect.setAttribute("stroke", n.error ? "#e57373" : boxColor);
+    rect.setAttribute("stroke-width", n.error ? "2.2" : "2");
+    // Behind the text, but after the <title> so hovering still works.
+    g.insertBefore(rect, hover.nextSibling);
+
     g.addEventListener("click", function(ev) {{ ev.stopPropagation(); openPanel(n); }});
     var dragging = false, dx0 = 0, dy0 = 0;
     g.addEventListener("mousedown", function(ev) {{
