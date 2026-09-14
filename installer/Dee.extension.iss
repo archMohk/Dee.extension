@@ -1,41 +1,45 @@
-; Dee.extension installer for pyRevit (Revit 2024+)
+; ---------------------------------------------------------------------
+; Dee.extension installer
+; ---------------------------------------------------------------------
+; Installs the extension for pyRevit from EITHER of two sources, chosen
+; by the person installing:
 ;
-; This installer does NOT bundle a copy of the extension's code. Instead it
-; drives pyRevit's own CLI ("pyrevit extend ui ...") to clone the extension
-; straight from GitHub into pyRevit's default Extensions folder and register
-; it with pyRevit's extension manager - the same mechanism pyRevit itself
-; recommends for distributing a third-party extension, and what makes the
-; extension's own "Update" button (pyrevit extensions update --all) work
-; correctly afterward. Verified live against this machine's real pyrevit
-; CLI (pyrevit extend ui <name> <url> --dest=<path> clones into
-; <path>\<name>.extension and registers it; pyrevit extensions delete <name>
-; unregisters AND removes the cloned folder) before writing this script.
+;   GitHub  - drives pyRevit's own CLI ("pyrevit extend ui ...") to clone
+;             the repo. The result is a real git clone, so pyRevit's
+;             built-in updater and the extension's Update button can
+;             git-pull it forever after. This is the normal route.
 ;
-; It DOES bundle one small file: acc_config.json (the ACC/APS app's
-; client_id, redirect_uri and region - see lib/acc_auth.py). This is safe to
-; ship inside a distributed binary specifically because of the PKCE OAuth
-; migration: a client_id is a PUBLIC identifier by design (there is no
-; client_secret anymore), the same way any desktop/mobile/SPA app ships its
-; client_id in cleartext - it only lets someone start a login as THEMSELVES,
-; never grants access on its own. The bundled file is only ever written to a
-; fresh install with no existing acc_config.json, and only if the wizard's
-; own "browse to a different one" page was left blank - it never overwrites
-; a machine that already has its own config (see CurStepChanged below).
+;   Mirror  - downloads one zip from Supabase Storage, extracts it, and
+;             registers the folder with "pyrevit extensions paths add".
+;             Needs no git and no access to github.com, which is the
+;             whole point: on a network that blocks GitHub the first
+;             route cannot work at all.
 ;
-; Needs an internet connection at install time (it clones from GitHub) and
-; pyRevit already installed - this installer only adds Dee.extension on top
-; of an existing pyRevit install, it does not install pyRevit itself.
+; Both carry identical files - the mirror is published from `git ls-files`
+; at a commit that is already on GitHub, and the publisher refuses to run
+; otherwise (tools/publish_supabase.py).
+;
+; THE ONE DIFFERENCE WORTH KNOWING, AND THE INSTALLER SAYS IT OUT LOUD:
+; a mirror install is NOT a git clone, so "pyrevit extensions update"
+; will never touch it. Those users update through the extension's own
+; Update button on the mirror setting. It is a one-way choice per install,
+; so it is stated on the page where the choice is made rather than buried.
+;
+; Needs an internet connection at install time (both routes fetch the
+; code) and pyRevit already installed (checked before anything happens).
 ;
 ; Build with Inno Setup 6 (https://jrsoftware.org/isinfo.php):
 ;   ISCC.exe "Dee.extension.iss"
 ; Output lands in installer\Output\DeeExtensionSetup.exe
 
 #define MyAppName "Dee.extension"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "ArchMKD"
 #define MyAppURL "https://github.com/archMohk/Dee.extension"
 #define RepoURL "https://github.com/archMohk/Dee.extension.git"
 #define ExtensionCliName "Dee"
+#define MirrorBase "https://gmuvmeolvkgqkmwvfbjj.supabase.co/storage/v1/object/public/dee-extension"
+#define MirrorZip "Dee.extension.zip"
 
 [Setup]
 AppId={{E70C9D9F-CF93-45B9-9E64-88FC2BD8F608}
@@ -59,10 +63,10 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
-; No code payload - the extension's actual code comes from a live GitHub
-; clone at install time, so this installer stays tiny and always fetches
-; the current version rather than going stale. (It does embed one small
-; JSON credentials file - see [Files] below.)
+; No code payload - the extension's actual code is fetched at install
+; time from whichever source was chosen, so this installer stays tiny and
+; always delivers the current version rather than going stale. (It does
+; embed one small JSON credentials file - see [Files] below.)
 Uninstallable=yes
 
 [Languages]
@@ -74,18 +78,41 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; when a fresh install has no acc_config.json of its own yet.
 Source: "..\acc_config.json"; DestDir: "{tmp}"; Flags: dontcopy
 
-[UninstallRun]
-; pyrevit extensions delete both unregisters the extension AND deletes its
-; cloned folder from disk (verified live) - one call is a complete removal.
-Filename: "cmd.exe"; Parameters: "/c pyrevit extensions delete {#ExtensionCliName}"; Flags: runhidden; RunOnceId: "RemoveDeeExtension"
-
 [Code]
 var
+  SourcePage: TInputOptionWizardPage;
   AccPage: TInputFileWizardPage;
   ExtensionsRoot, ExtDir: string;
+  InstalledViaMirror: Boolean;
+
+const
+  SRC_GITHUB = 0;
+  SRC_MIRROR = 1;
+
+function UseMirror: Boolean;
+begin
+  Result := SourcePage.Values[SRC_MIRROR];
+end;
 
 procedure InitializeWizard;
 begin
+  SourcePage := CreateInputOptionPage(wpWelcome,
+    'Where should the extension come from?',
+    'Both sources carry exactly the same files',
+    'Choose GitHub unless your network blocks it.' + #13#10#13#10 +
+    'GitHub gives you a git clone, which pyRevit can update by itself ' +
+    'forever after - that is the normal route.' + #13#10#13#10 +
+    'The mirror is a direct download that needs no git and no access to ' +
+    'github.com. Worth knowing before you pick it: a mirror install is ' +
+    'NOT a git clone, so "pyrevit extensions update" will never update ' +
+    'it. You would update it from the extension''s own Update button, ' +
+    'set to the mirror. That choice cannot be changed later without ' +
+    'reinstalling.',
+    True, False);
+  SourcePage.Add('GitHub  (recommended - a git clone pyRevit can update itself)');
+  SourcePage.Add('Supabase mirror  (direct download - use if GitHub is blocked)');
+  SourcePage.Values[SRC_GITHUB] := True;
+
   AccPage := CreateInputFilePage(wpSelectDir,
     'ACC Credentials (optional)',
     'A default is already included - only browse if you need a different one',
@@ -100,119 +127,212 @@ begin
   AccPage.Add('acc_config.json:', 'JSON files|*.json|All files|*.*', '.json');
 end;
 
-function PyRevitCliFound(): Boolean;
+function PyRevitInstalled: Boolean;
 var
   ResultCode: Integer;
 begin
   Result := Exec('cmd.exe', '/c pyrevit --version', '', SW_HIDE,
-    ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+                 ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
-function NextButtonClick(CurPageID: Integer): Boolean;
+function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  ResultCode: Integer;
+  ErrorCode: Integer;
 begin
-  Result := True;
-  if CurPageID = wpReady then
+  Result := '';
+  if not PyRevitInstalled then
   begin
-    if not PyRevitCliFound() then
-    begin
-      if MsgBox(
-        'pyRevit does not appear to be installed on this PC - the "pyrevit" ' +
-        'command was not found.' + #13#10#13#10 +
-        'Dee.extension is an add-on for pyRevit, so pyRevit itself needs to ' +
-        'be installed first.' + #13#10#13#10 +
-        'Open the pyRevit download page now?',
-        mbError, MB_YESNO) = IDYES then
-        ShellExec('open', 'https://github.com/pyrevitlabs/pyRevit/releases/latest',
-          '', '', SW_SHOW, ewNoWait, ResultCode);
-      Result := False;
-    end;
+    Result :=
+      'pyRevit does not appear to be installed on this PC - the "pyrevit" ' +
+      'command could not be run.' + #13#10#13#10 +
+      'Install pyRevit first, then run this installer again.';
+    ShellExec('open', 'https://github.com/pyrevitlabs/pyRevit/releases/latest',
+              '', '', SW_SHOW, ewNoWait, ErrorCode);
   end;
+end;
+
+{ Runs a command, waits, and reports whether it succeeded. }
+function RunHidden(const Cmd: string; var Code: Integer): Boolean;
+begin
+  Result := Exec('cmd.exe', '/c ' + Cmd, '', SW_HIDE,
+                 ewWaitUntilTerminated, Code) and (Code = 0);
+end;
+
+{ Downloads the mirror zip and unpacks it into the extensions folder.
+
+  PowerShell does both halves: Invoke-WebRequest for the download and
+  Expand-Archive for the unpack. Both ship with Windows 10 and later, so
+  this needs nothing installed that a target PC does not already have -
+  and notably not git, which is the entire reason this route exists. }
+function InstallFromMirror(var Detail: string): Boolean;
+var
+  Code: Integer;
+  ZipPath, Cmd: string;
+begin
+  ZipPath := ExpandConstant('{tmp}\{#MirrorZip}');
+  Cmd :=
+    'powershell -NoProfile -ExecutionPolicy Bypass -Command "' +
+    '$ErrorActionPreference=''Stop''; ' +
+    '[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; ' +
+    'Invoke-WebRequest -UseBasicParsing -Uri ''{#MirrorBase}/{#MirrorZip}'' ' +
+    '-OutFile ''' + ZipPath + '''; ' +
+    'Expand-Archive -Path ''' + ZipPath + ''' -DestinationPath ''' +
+    ExtensionsRoot + ''' -Force"';
+
+  if not RunHidden(Cmd, Code) then
+  begin
+    Detail :=
+      'The download from the mirror failed (code ' + IntToStr(Code) + ').' +
+      #13#10#13#10 +
+      'Either the mirror has not been published yet, or this PC cannot ' +
+      'reach it. Try the GitHub option instead.';
+    Result := False;
+    Exit;
+  end;
+
+  { Registering the FOLDER is what makes pyRevit find a non-cloned
+    extension - "pyrevit extend" would clone from GitHub, which is
+    exactly what this route is avoiding. }
+  if not RunHidden('pyrevit extensions paths add "' + ExtensionsRoot + '"', Code) then
+  begin
+    Detail :=
+      'The files downloaded, but pyRevit would not register the folder ' +
+      '(code ' + IntToStr(Code) + '):' + #13#10 + ExtensionsRoot;
+    Result := False;
+    Exit;
+  end;
+
+  Detail := '';
+  Result := True;
+end;
+
+function InstallFromGitHub(var Detail: string): Boolean;
+var
+  Code: Integer;
+  Params: string;
+begin
+  if DirExists(ExtDir + '\.git') then
+    Params := 'pyrevit extensions update ' + '{#ExtensionCliName}'
+  else
+    Params := 'pyrevit extend ui ' + '{#ExtensionCliName}' + ' ' +
+              '{#RepoURL}' + ' --dest="' + ExtensionsRoot + '"';
+
+  if not RunHidden(Params, Code) then
+  begin
+    Detail :=
+      'pyRevit could not fetch the extension from GitHub (code ' +
+      IntToStr(Code) + ').' + #13#10#13#10 +
+      'If this PC blocks github.com, run the installer again and choose ' +
+      'the Supabase mirror instead.';
+    Result := False;
+    Exit;
+  end;
+  Detail := '';
+  Result := True;
+end;
+
+procedure PlaceAccConfig;
+var
+  Chosen, Target: string;
+begin
+  Target := ExtDir + '\acc_config.json';
+
+  { An explicit browse wins over everything, including a file that is
+    already there. The wizard page says "only browse if you need a
+    different one", so someone who browsed has said precisely what they
+    want - quietly discarding it is the single outcome they did not ask
+    for. }
+  Chosen := AccPage.Values[0];
+  if (Chosen <> '') and FileExists(Chosen) then
+  begin
+    if not FileCopy(Chosen, Target, False) then
+      MsgBox('Could not copy the acc_config.json you chose into:' + #13#10 +
+             ExtDir + #13#10#13#10 + 'Copy it there by hand to finish.',
+             mbError, MB_OK);
+    Exit;
+  end;
+
+  { Nothing was browsed. An existing config is the user's own app
+    registration - overwriting it would sign their whole team into
+    somebody else's Autodesk app, so the bundled default only ever
+    fills a gap, never replaces. }
+  if FileExists(Target) then
+    Exit;
+
+  ExtractTemporaryFile('acc_config.json');
+  FileCopy(ExpandConstant('{tmp}\acc_config.json'), Target, False);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  ResultCode: Integer;
-  Params: string;
+  Detail: string;
+  Ok: Boolean;
 begin
-  if CurStep = ssPostInstall then
+  if CurStep <> ssPostInstall then
+    Exit;
+
+  ExtensionsRoot := ExpandConstant('{userappdata}\pyRevit\Extensions');
+  ExtDir := ExtensionsRoot + '\{#MyAppName}';
+  ForceDirectories(ExtensionsRoot);
+
+  InstalledViaMirror := UseMirror;
+  if InstalledViaMirror then
+    Ok := InstallFromMirror(Detail)
+  else
+    Ok := InstallFromGitHub(Detail);
+
+  if not Ok then
   begin
-    ExtensionsRoot := ExpandConstant('{userappdata}\pyRevit\Extensions');
-    ExtDir := ExtensionsRoot + '\Dee.extension';
-    ForceDirectories(ExtensionsRoot);
+    MsgBox(Detail, mbError, MB_OK);
+    Exit;
+  end;
 
-    if DirExists(ExtDir) then
-    begin
-      if DirExists(ExtDir + '\.git') then
-      begin
-        WizardForm.StatusLabel.Caption := 'Dee.extension already installed - updating...';
-        Params := '/c pyrevit extensions update ' + '{#ExtensionCliName}';
-        if not Exec('cmd.exe', Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
-           or (ResultCode <> 0) then
-          MsgBox(
-            'Dee.extension was already present but could not be auto-updated ' +
-            '(it may not be registered with pyRevit''s extension manager). It ' +
-            'has been left as-is - use the Update button inside Revit, or ' +
-            'Reload pyRevit, to pick up the latest version.',
-            mbInformation, MB_OK);
-      end
-      else
-      begin
-        MsgBox(
-          'Dee.extension already exists at:' + #13#10 + ExtDir + #13#10#13#10 +
-          'It is not managed by pyRevit''s own extension registry (normal if ' +
-          'it was set up manually), so this installer is leaving it untouched ' +
-          'rather than risk disturbing your existing setup.',
-          mbInformation, MB_OK);
-      end;
-    end
-    else
-    begin
-      WizardForm.StatusLabel.Caption := 'Cloning Dee.extension from GitHub...';
-      Params := '/c pyrevit extend ui ' + '{#ExtensionCliName}' + ' ' + '{#RepoURL}' +
-        ' --dest="' + ExtensionsRoot + '"';
-      if not Exec('cmd.exe', Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
-         or (ResultCode <> 0) then
-      begin
-        MsgBox(
-          'Installing Dee.extension failed (pyrevit extend returned an error). ' +
-          'Make sure you have an internet connection and that pyRevit is fully ' +
-          'installed, then try running this installer again.',
-          mbError, MB_OK);
-        Exit;
-      end;
-    end;
+  if not DirExists(ExtDir) then
+  begin
+    MsgBox('The install reported success but ' + ExtDir + ' is not there. ' +
+           'Nothing further was changed.', mbError, MB_OK);
+    Exit;
+  end;
 
-    if DirExists(ExtDir) then
-    begin
-      if (AccPage.Values[0] <> '') and FileExists(AccPage.Values[0]) then
-      begin
-        // explicit browse always wins, even over an existing file
-        if not CopyFile(AccPage.Values[0], ExtDir + '\acc_config.json', False) then
-          MsgBox(
-            'Could not copy acc_config.json into the extension folder. You ' +
-            'can copy it there by hand:' + #13#10 + ExtDir,
-            mbError, MB_OK);
-      end
-      else if not FileExists(ExtDir + '\acc_config.json') then
-      begin
-        // nothing browsed and no existing config (fresh install, or an
-        // update that never had one) - fall back to the bundled default.
-        // Never overwrites a config that's already there, so re-running
-        // this installer on a machine with its own custom credentials
-        // leaves that file untouched.
-        ExtractTemporaryFile('acc_config.json');
-        if FileExists(ExpandConstant('{tmp}\acc_config.json')) then
-          CopyFile(ExpandConstant('{tmp}\acc_config.json'),
-            ExtDir + '\acc_config.json', False);
-      end;
-    end;
+  PlaceAccConfig;
 
-    MsgBox(
-      'Dee.extension is installed.' + #13#10#13#10 +
-      'Start (or restart) Revit - the Dee ribbon tab will appear ' +
-      'automatically once pyRevit loads it.',
-      mbInformation, MB_OK);
+  if InstalledViaMirror then
+    MsgBox('Installed from the Supabase mirror.' + #13#10#13#10 +
+           'This copy is not a git clone, so "pyrevit extensions update" ' +
+           'will not update it. Use the extension''s own Update button ' +
+           'with "Supabase mirror" selected - it defaults to that ' +
+           'automatically here.' + #13#10#13#10 +
+           'Start Revit to finish loading the extension.',
+           mbInformation, MB_OK)
+  else
+    MsgBox('Installed from GitHub.' + #13#10#13#10 +
+           'Start Revit to finish loading the extension.',
+           mbInformation, MB_OK);
+end;
+
+{ Uninstall has to undo whichever route was used. "pyrevit extensions
+  delete" only knows about clones, so it silently does nothing for a
+  mirror install - that folder has to be unregistered and removed by
+  hand instead. Trying both, in that order, covers either case without
+  the uninstaller needing to remember which one happened. }
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Code: Integer;
+  Root, Dir: string;
+begin
+  if CurUninstallStep <> usUninstall then
+    Exit;
+
+  Root := ExpandConstant('{userappdata}\pyRevit\Extensions');
+  Dir := Root + '\{#MyAppName}';
+
+  Exec('cmd.exe', '/c pyrevit extensions delete {#ExtensionCliName}', '',
+       SW_HIDE, ewWaitUntilTerminated, Code);
+
+  if DirExists(Dir) then
+  begin
+    Exec('cmd.exe', '/c pyrevit extensions paths forget "' + Root + '"', '',
+         SW_HIDE, ewWaitUntilTerminated, Code);
+    DelTree(Dir, True, True, True);
   end;
 end;
