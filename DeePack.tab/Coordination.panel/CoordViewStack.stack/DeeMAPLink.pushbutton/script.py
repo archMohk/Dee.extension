@@ -363,9 +363,14 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         if getattr(self, "_map_ready", False):
             try:
                 self._map_build_filters()
-                self._map_build(keep_positions=False)
+                self._map_build()
             except Exception as e:
+                # Logged AND surfaced. This swallowed a TypeError once -
+                # the call still passed keep_positions after the patchbay
+                # rewrite dropped it - and the only symptom was a Wire Map
+                # that stayed empty with no explanation anywhere.
                 self.logger.exception("Could not build the wire map", e)
+                self._log("Wire map could not be built: {0}".format(e))
 
     def _visible(self, rows, query):
         return [r for r in rows if dms.matches_search(r.name, query)]
