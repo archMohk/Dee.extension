@@ -365,3 +365,67 @@ def describe_plan(plan):
     if plan.get("commit"):
         text += "\nMirror is at commit {0}".format(plan["commit"])
     return text
+
+# --------------------------------------------------------------------
+# Where the mirror is, and which route this PC installed by
+# --------------------------------------------------------------------
+# Not secret. A public bucket read needs no key at all, which is the
+# whole point on a network that blocks github.com: one plain HTTPS GET.
+# The SECRET key lives only in tools/.supabase_publish.json on the
+# developer's machine and never ships.
+DEFAULT_SUPABASE_URL = "https://gmuvmeolvkgqkmwvfbjj.supabase.co"
+DEFAULT_BUCKET = "dee-extension"
+
+# Optional override, for anyone self-hosting their own mirror.
+MIRROR_CONFIG = os.path.join("lib", ".dee_mirror_config.json")
+
+
+def extension_root(start=None):
+    """The extension folder, found by walking up from this file."""
+    here = os.path.dirname(os.path.abspath(start or __file__))
+    return os.path.dirname(here)          # lib/ -> extension root
+
+
+def load_mirror_config(root=None):
+    """(supabase_url, bucket). Defaults unless a config file overrides."""
+    if root is None:
+        root = extension_root()
+    url, bucket = DEFAULT_SUPABASE_URL, DEFAULT_BUCKET
+    try:
+        path = os.path.join(root, MIRROR_CONFIG)
+        if os.path.exists(path):
+            with open(path, "r") as handle:
+                cfg = json.load(handle)
+            url = cfg.get("url") or url
+            bucket = cfg.get("bucket") or bucket
+    except Exception:
+        pass
+    return url, bucket
+
+
+def detect_install_source(root=None):
+    """How this copy got here: SOURCE_GITHUB, SOURCE_SUPABASE, or None.
+
+    A .git folder means pyRevit cloned it, so `pyrevit extensions update`
+    can pull. An applied-manifest file means the mirror put it here, and
+    there is no git to pull from. Both can be true on a developer's
+    machine; git wins there because it is the real repository.
+
+    None means neither - a hand-copied or OneDrive-synced folder, where
+    the GitHub route will find nothing to update and the mirror route is
+    the only one that can do anything."""
+    if root is None:
+        root = extension_root()
+    if os.path.isdir(os.path.join(root, ".git")):
+        return SOURCE_GITHUB
+    if os.path.exists(os.path.join(root, APPLIED_MANIFEST)):
+        return SOURCE_SUPABASE
+    return None
+
+
+def installed_commit(root=None):
+    """The commit the mirror last delivered, if it was the mirror."""
+    if root is None:
+        root = extension_root()
+    applied = load_applied_manifest(root)
+    return applied.get("commit") if isinstance(applied, dict) else None
