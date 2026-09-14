@@ -181,25 +181,54 @@
                                  ToolTip="Type part of a file name - multiple words all have to match, in any order."/>
                         <Button x:Name="map_clear_search_b" Content="Clear" Width="50" Height="22"
                                 Margin="4,0,0,0" Click="map_clear_search_click"/>
-                        <Button x:Name="map_refresh_b" Content="Re-arrange" Width="90" Height="22"
-                                Margin="14,0,0,0" Click="map_refresh_click"
-                                ToolTip="Lay the boxes out again from scratch."/>
+                        <Button x:Name="map_refresh_b" Content="Redraw" Width="70" Height="22"
+                                Margin="14,0,0,0" Click="map_refresh_click"/>
                         <Button x:Name="map_clear_wires_b" Content="Clear Wires" Width="90" Height="22"
                                 Margin="6,0,0,0" Click="map_clear_wires_click"/>
                         <TextBlock x:Name="map_count_tb" VerticalAlignment="Center" Margin="14,0,0,0"
                                    Foreground="#888" Text=""/>
                     </StackPanel>
+
                     <WrapPanel DockPanel.Dock="Top" x:Name="map_filters_panel" Margin="0,0,0,6"/>
-                    <TextBlock DockPanel.Dock="Bottom" Margin="0,6,0,0" Foreground="#888" FontSize="11"
-                               Text="Drag from one file to another to link the first INTO the second · Click a wire to remove it · SHIFT+drag moves a box"/>
-                    <Border BorderBrush="#555" BorderThickness="1">
-                        <ScrollViewer x:Name="map_scroll"
-                                      HorizontalScrollBarVisibility="Auto"
-                                      VerticalScrollBarVisibility="Auto">
-                            <Canvas x:Name="map_canvas" Background="#1E1E1E"
-                                    Width="2600" Height="1600"/>
-                        </ScrollViewer>
+
+                    <Border DockPanel.Dock="Bottom" Background="#2B2B2B" BorderBrush="#555"
+                            BorderThickness="1" Padding="6,4" Margin="0,6,0,0">
+                        <TextBlock x:Name="map_hint_tb" FontSize="11" Foreground="#CCC"
+                                   Text="Click a file on the left, then a file on the right, to link the first into the second."/>
                     </Border>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1*" MinWidth="200"/>
+                            <ColumnDefinition Width="200" MinWidth="90"/>
+                            <ColumnDefinition Width="1*" MinWidth="200"/>
+                        </Grid.ColumnDefinitions>
+
+                        <DockPanel Grid.Column="0">
+                            <TextBlock DockPanel.Dock="Top" Foreground="#F2994D" FontWeight="Bold"
+                                       Margin="0,0,0,3" Text="SOURCES — click one to start"/>
+                            <Border BorderBrush="#555" BorderThickness="1">
+                                <ScrollViewer x:Name="map_left_scroll" VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel x:Name="map_left_panel" Background="#1E1E1E"/>
+                                </ScrollViewer>
+                            </Border>
+                        </DockPanel>
+
+                        <Canvas Grid.Column="1" x:Name="map_canvas" Background="#161616"
+                                ClipToBounds="True"/>
+
+                        <DockPanel Grid.Column="2">
+                            <TextBlock DockPanel.Dock="Top" Foreground="#F2994D" FontWeight="Bold"
+                                       Margin="0,0,0,3" Text="TARGETS — click one to finish"/>
+                            <Border BorderBrush="#555" BorderThickness="1">
+                                <ScrollViewer x:Name="map_right_scroll" VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel x:Name="map_right_panel" Background="#1E1E1E"/>
+                                </ScrollViewer>
+                            </Border>
+                        </DockPanel>
+                    </Grid>
                 </DockPanel>
             </TabItem>
 
