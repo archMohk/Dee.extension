@@ -300,6 +300,12 @@ GLYPHS = {
     "DeePublisher": lambda: cloud() + arrow(48, 84, 48, 62, "accent", 1.3, 12),
     "DeeSPublish": lambda: cloud() + arrow(36, 86, 36, 64, "accent", 1.2, 11)
                                    + arrow(60, 86, 60, 64, "accent", 1.2, 11),
+    # Cloud under a magnifier: this one INSPECTS what is published
+    # before anything is published. Deliberately distinct from
+    # DeePublisher (cloud + one arrow) and DeeSPublish (cloud + two),
+    # which both publish without asking; the magnifier is the same
+    # "review first" motif DeeLinkReview uses.
+    "DeePubCheck": lambda: cloud(42, 38, 0.85) + magnifier(66, 72, 15),
     "DeeWSharing": lambda: cloud(48, 40, 0.85) + [
         cf(30, 78, 6), cf(66, 78, 6), cf(48, 66, 6),
         ln(30, 78, 48, 66, "accent", 1.0), ln(66, 78, 48, 66, "accent", 1.0),

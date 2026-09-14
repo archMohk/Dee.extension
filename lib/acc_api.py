@@ -41,6 +41,13 @@ def api_get(url, token):
     return _get(url, token)
 
 
+def api_post(url, token, body_dict=None, content_type="application/json"):
+    """Public wrapper over the module's pooled-HttpClient POST, the
+    counterpart to api_get above - so sibling modules can issue their own
+    APS calls without standing up a second HttpClient."""
+    return _post(url, token, body_dict, content_type)
+
+
 def list_hubs(token):
     """Returns (hub_id, name, region) tuples. The hub's own "region" field
     (US/EMEA/etc.) is the reliable source for cloud GUID path conversion -

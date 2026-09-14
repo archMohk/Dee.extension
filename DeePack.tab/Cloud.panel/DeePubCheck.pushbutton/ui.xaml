@@ -1,0 +1,84 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeePubCheck — Publish Status, then Publish What Needs It"
+        ShowInTaskbar="False"
+        MinHeight="660" MinWidth="820" Height="720" Width="900"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                   Text="Asks ACC which cloud models still have changes that were synced but never published, then publishes only those. Nothing is opened in Revit, and nothing is published until you press Publish Selected."/>
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem><TextBlock x:Name="status_tb" Text="Ready."/></StatusBarItem>
+        </StatusBar>
+
+        <Grid DockPanel.Dock="Bottom" x:Name="progress_host" Height="26" Margin="0,4,0,4" Visibility="Collapsed">
+            <ProgressBar x:Name="progress_bar" Minimum="0" Maximum="100" Height="26"/>
+            <TextBlock x:Name="progress_text_tb" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       FontWeight="Bold" FontSize="12" Text=""/>
+        </Grid>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
+            <Button x:Name="publish_b" Content="Publish Selected" Width="150" Height="30"
+                    FontWeight="Bold" Click="publish_click" IsEnabled="False"/>
+            <Button x:Name="close_b" Content="Close" Width="90" Height="30" Margin="16,0,0,0" Click="close_click"/>
+            <TextBlock x:Name="summary_tb" VerticalAlignment="Center" Margin="20,0,0,0" Text=""/>
+        </StackPanel>
+
+        <DockPanel DockPanel.Dock="Bottom" Height="110" Margin="0,8,0,0">
+            <TextBlock DockPanel.Dock="Top" Text="Live status" FontWeight="Bold" Margin="0,0,0,4"/>
+            <TextBox x:Name="log_tb" IsReadOnly="True" TextWrapping="NoWrap"
+                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                     FontFamily="Consolas" FontSize="11"/>
+        </DockPanel>
+
+        <GroupBox DockPanel.Dock="Top" Header="1. Project" Margin="0,0,0,8">
+            <Grid Margin="6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" x:Name="pick_project_b" Content="Pick Hub / Project..."
+                        Width="160" Height="26" Click="pick_project_click"/>
+                <TextBlock Grid.Column="1" x:Name="project_tb" VerticalAlignment="Center" Margin="12,0,0,0"
+                           Text="No project selected." FontStyle="Italic"/>
+                <Button Grid.Column="2" x:Name="scan_b" Content="Check Publish Status"
+                        Width="160" Height="26" Click="scan_click" IsEnabled="False"/>
+            </Grid>
+        </GroupBox>
+
+        <GroupBox DockPanel.Dock="Bottom" Header="3. Publish mode" Margin="0,8,0,0">
+            <StackPanel Orientation="Horizontal" Margin="6">
+                <RadioButton x:Name="mode_with_links_rb" GroupName="mode" IsChecked="True"
+                             Content="Normal publish (with links)" VerticalAlignment="Center"/>
+                <RadioButton x:Name="mode_no_links_rb" GroupName="mode" Margin="24,0,0,0"
+                             Content="Publish without links" VerticalAlignment="Center"/>
+                <TextBlock Margin="24,0,0,0" VerticalAlignment="Center" Foreground="#888"
+                           Text="Normal publish is what lets ACC report a model's Revit links afterwards."/>
+            </StackPanel>
+        </GroupBox>
+
+        <TextBlock DockPanel.Dock="Top" Text="2. Results" FontWeight="Bold" Margin="0,0,0,4"/>
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+            <TextBox x:Name="search_tb" Width="200" Height="22" VerticalContentAlignment="Center"
+                     TextChanged="search_changed"
+                     ToolTip="Type part of a file name - multiple words all have to match, in any order."/>
+            <Button x:Name="clear_search_b" Content="Clear" Width="50" Height="22" Margin="4,0,0,0" Click="clear_search_click"/>
+            <CheckBox x:Name="only_needed_cb" Content="Only files that need publishing"
+                      VerticalAlignment="Center" Margin="14,0,0,0" Click="only_needed_click"/>
+            <Button x:Name="select_needed_b" Content="Tick All That Need It" Width="150" Height="22"
+                    Margin="14,0,0,0" Click="select_needed_click"/>
+            <Button x:Name="select_none_b" Content="None" Width="50" Height="22" Margin="4,0,0,0" Click="select_none_click"/>
+        </StackPanel>
+        <DataGrid x:Name="files_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                  CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
+            <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="Publish" Binding="{Binding selected, Mode=TwoWay}" Width="60"/>
+                <DataGridTextColumn Header="Revit File" Binding="{Binding name}" IsReadOnly="True" Width="*"/>
+                <DataGridTextColumn Header="Status" Binding="{Binding status}" IsReadOnly="True" Width="130"/>
+                <DataGridTextColumn Header="ACC said" Binding="{Binding detail}" IsReadOnly="True" Width="200"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>
