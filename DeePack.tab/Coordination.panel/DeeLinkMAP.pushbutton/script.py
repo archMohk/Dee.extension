@@ -370,13 +370,54 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
         self._refresh_list()
 
     # ---------------- open, per source mode ----------------
-    def _open_attached(self, name):
+    def _open_for_reading(self, name):
+        """Opens a model only to READ its links - never to modify it.
+
+        DETACHED, deliberately. This used to call
+        open_cloud_document_attached, borrowed from DeeSuperLINK, which
+        needs an attached open because it writes to the model and
+        synchronizes. DeeLinkMAP never writes anything, and an attached
+        open is the expensive, fragile way to do a read: it binds to the
+        ACC central and has to resolve the model's cloud links, which in
+        this project all report NotPublished. That is what aborted opens
+        with "Opening was canceled", and a Yes to the open-anyway prompt
+        then took Revit down natively on the first file (2026-09-14).
+        Detaching removes the central binding and the link resolution
+        from the critical path; worksets are still opened, so the
+        RevitLinkType elements this tool reads are all present.
+
+        It is a reduction in risk, not a proven cure - a native crash
+        leaves nothing for Python to catch, so the prompt that leads here
+        now defaults to No and says plainly that opening has crashed."""
         if self._source_mode() == "acc":
             item_id = self._all_items.get(name)
-            return afb.open_cloud_document_attached(
+            return afb.open_cloud_document_detached(
                 self.application, self._region, self._project_id, item_id, self._token)
         file_path = self._all_items.get(name)
         return docmgr.open_document_no_detach(self.application, file_path, logger=self.logger)
+
+    def _unread_listing(self, rows, limit=6):
+        """The unreadable files by name and size, for the prompt.
+
+        Size is the deciding fact. The model that crashed Revit on
+        2026-09-14 is 146 MB on ACC and unpacks to 551 MB of elements
+        inside Revit - the access violation came from its own loader
+        part-way through reading that. Anyone about to choose "open
+        them" should see that number first."""
+        detail = getattr(self, "_unread_detail", {}) or {}
+        lines = []
+        for row in rows[:limit]:
+            size = detail.get(row.name)
+            if size:
+                lines.append("  - {0}  ({1:.0f} MB)".format(
+                    row.name, size / 1048576.0))
+            else:
+                lines.append("  - {0}".format(row.name))
+        if len(rows) > limit:
+            lines.append("  - ...and {0} more".format(len(rows) - limit))
+        if not lines:
+            return ""
+        return "\n\n" + "\n".join(lines)
 
     def _unread_node(self, row, file_nodes, note):
         """Puts a file that was never read onto the map anyway, carrying
@@ -407,6 +448,7 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
             return ticked
 
         self._log("Asking ACC for links directly - nothing opened...")
+        self.logger.info("ACC link read starting", files=len(items))
 
         def on_progress(done, total):
             try:
@@ -429,10 +471,12 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
             by_item[entry.get("item_id")] = entry
 
         unresolved = []
+        self._unread_detail = {}
         for row in ticked:
             entry = by_item.get(self._all_items.get(row.name))
             if entry is None or entry.get("status") != "ok":
                 unresolved.append(row)
+                self._unread_detail[row.name] = (entry or {}).get("size")
                 continue
             node = svc.FileNode(row.name, row.ref)
             node.raw_link_targets = [link.get("name")
@@ -444,6 +488,8 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
                 len(node.raw_link_targets))))
 
         answered = len(ticked) - len(unresolved)
+        self.logger.info("ACC link read finished", answered=answered,
+                         requested=len(ticked), need_opening=len(unresolved))
         self._log("  ACC answered for {0} of {1} file(s) in seconds; {2} still "
                   "need opening.".format(answered, len(ticked), len(unresolved)))
         if unresolved:
@@ -457,6 +503,8 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
                 reasons[key] = reasons.get(key, 0) + 1
             for key in sorted(reasons):
                 self._log("    {0}: {1} file(s)".format(key, reasons[key]))
+                self.logger.info("ACC could not answer", reason=key,
+                                 files=reasons[key])
         return unresolved
 
     # ---------------- run ----------------
@@ -530,24 +578,35 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
         # complete map that marks those files 'not read' beats a partial
         # map that silently omits most of them.
         if remaining:
-            open_them = forms.alert(
-                "{0} file(s) could not be read from ACC.\n\n"
-                "They were published the older way, so ACC holds no link "
-                "data for them - it cannot say whether they have links or "
-                "not.\n\nOpen them one at a time to find out? That is the "
-                "only certain answer, but it takes minutes per file and the "
-                "run stops at the {1}-minute budget, so a large batch will "
-                "not finish.\n\nChoose No to finish now (seconds) with those "
-                "files shown on the map as not read.\n\nThe lasting fix is "
-                "to re-publish those models normally, with links - then ACC "
-                "answers for them instantly.".format(
-                    len(remaining), int(_TIME_BUDGET_SECONDS / 60)),
-                title="DeeLinkMAP - Open the rest?", yes=True, no=True)
-            if not open_them:
+            # The question is deliberately phrased so that the DEFAULT
+            # button (Yes) is the SAFE one. It was the other way round on
+            # the first build, and a Yes to "open them?" crashed Revit
+            # outright on the first file - a native crash, nothing Python
+            # can catch or recover from. A prompt whose default answer is
+            # the dangerous one is a bad prompt.
+            message = (
+                "Finish now, without opening anything?\n\n"
+                "{0} file(s) could not be read from ACC - they were published "
+                "the older way, so ACC holds no link data for them and cannot "
+                "say whether they have links or not.\n\n"
+                "Yes - finish in seconds. Those files go on the map marked "
+                "'not read', so the map stays complete about what is known "
+                "and what is not.\n\n"
+                "No - open them one at a time instead. It is the only certain "
+                "answer, but it takes minutes per file, stops at the "
+                "{1}-minute budget, and has crashed Revit on this project.\n\n"
+                "The lasting fix is to re-publish those models normally, with "
+                "links - then ACC answers for them instantly.{2}"
+            ).format(len(remaining), int(_TIME_BUDGET_SECONDS / 60),
+                     self._unread_listing(remaining))
+            finish_now = forms.alert(message, title="DeeLinkMAP - Open the rest?",
+                                     yes=True, no=True)
+            if finish_now:
                 for row in remaining:
                     self._unread_node(row, file_nodes,
                                       "not read - published without link data")
-                    results.append((None, row.name, "not opened - shown on the map as not read"))
+                    results.append((None, row.name,
+                                    "not opened - shown on the map as not read"))
                     skipped_count += 1
                 remaining = []
 
@@ -581,9 +640,12 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
                     continue
 
                 self._progress_step("Scanning {0}".format(row.name))
+                # Logged BEFORE the open, deliberately: if the open
+                # takes Revit down natively there is no 'after'.
+                self.logger.info("Opening to read links", file=row.name)
                 node = svc.FileNode(row.name, row.ref)
 
-                doc, open_detail = self._open_attached(row.name)
+                doc, open_detail = self._open_for_reading(row.name)
                 if doc is None:
                     node.error = "could not open: {0}".format(open_detail)
                     failed_count += 1
