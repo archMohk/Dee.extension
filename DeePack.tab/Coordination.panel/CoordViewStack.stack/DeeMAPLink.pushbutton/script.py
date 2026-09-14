@@ -144,7 +144,8 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         self._map_left_rows = {}
         self._map_right_rows = {}
         self._map_wire_shapes = []
-        self._map_filter_cbs = []
+        self._map_left_cbs = []
+        self._map_right_cbs = []
         self._map_pending = None
         # Wires are positioned from where the rows currently ARE, so they
         # have to be redrawn whenever a column scrolls or the middle
@@ -473,20 +474,31 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
             forms.alert("The wire map hit an error:\n\n{0}\n\n{1}".format(
                 e, traceback.format_exc()[-700:]), title="DeeMAPLink")
 
-    # ---- part filters ----
+    # ---- part filters, one set per column ------------------------
+    # One shared filter could only narrow both sides at once, which is
+    # the wrong shape: the useful question is nearly always "these
+    # sources into those targets" - every AR model into the coordination
+    # file - and that needs the two sides filtered differently.
+
     def _map_segment(self, name, index):
         parts = lms.name_segments(name)
         return parts[index] if 0 <= index < len(parts) else ""
 
     def _map_build_filters(self):
+        """Builds both filter rows for whatever was just scanned."""
+        self._map_left_cbs = self._map_fill_filter_panel(
+            self.map_left_filters_panel, self._map_left_filter_changed)
+        self._map_right_cbs = self._map_fill_filter_panel(
+            self.map_right_filters_panel, self._map_right_filter_changed)
+
+    def _map_fill_filter_panel(self, panel, handler):
         """One dropdown per name part that VARIES across the scan. A part
-        that is identical in every name is a constant, not a filter."""
-        panel = self.map_filters_panel
+        identical in every name is a constant, not a filter."""
         panel.Children.Clear()
-        self._map_filter_cbs = []
+        combos = []
         names = sorted(self._all_items.keys())
         if not names:
-            return
+            return combos
 
         longest = 0
         for name in names:
@@ -499,17 +511,19 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
                 continue
 
             label = TextBlock()
-            label.Text = "Part {0}:".format(index + 1)
+            label.Text = "P{0}".format(index + 1)
             label.Foreground = Brushes.Gray
+            label.FontSize = 10
             label.VerticalAlignment = VerticalAlignment.Center
-            label.Margin = Thickness(8, 0, 4, 0)
+            label.Margin = Thickness(6, 0, 3, 0)
             panel.Children.Add(label)
 
             combo = ComboBox()
-            combo.Width = 92
-            combo.Height = 22
-            combo.ToolTip = "{0} value(s): {1}".format(
-                len(values), ", ".join(values[:12]))
+            combo.Width = 74
+            combo.Height = 21
+            combo.FontSize = 10
+            combo.ToolTip = "Part {0} - {1} value(s): {2}".format(
+                index + 1, len(values), ", ".join(values[:12]))
             combo.Items.Add(self._MAP_ALL)
             for value in values:
                 combo.Items.Add(value)
@@ -517,26 +531,37 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
             # fires SelectionChanged during setup and rebuilds the map
             # while it is still being built.
             combo.SelectedIndex = 0
-            combo.SelectionChanged += self._map_filter_changed
+            combo.SelectionChanged += handler
             combo.Tag = index
             panel.Children.Add(combo)
-            self._map_filter_cbs.append((index, combo))
+            combos.append((index, combo))
+        return combos
 
-    def _map_filter_changed(self, sender, args):
+    def _map_left_filter_changed(self, sender, args):
         if getattr(self, "_map_ready", False):
             self._guard_map(self._map_build)
 
-    def _map_clear_filters(self):
-        for _index, combo in getattr(self, "_map_filter_cbs", []):
+    def _map_right_filter_changed(self, sender, args):
+        if getattr(self, "_map_ready", False):
+            self._guard_map(self._map_build)
+
+    def _map_clear_filters(self, combos):
+        for _index, combo in combos:
             combo.SelectedIndex = 0
 
-    def _map_visible_names(self):
-        query = self._safe_text(self.map_search_tb)
+    def _map_names_for(self, side):
+        """The files visible in ONE column, after that column's own
+        search box and its own dropdowns."""
+        if side == "source":
+            query = self._safe_text(self.map_left_search_tb)
+            combos = getattr(self, "_map_left_cbs", [])
+        else:
+            query = self._safe_text(self.map_right_search_tb)
+            combos = getattr(self, "_map_right_cbs", [])
+
         names = [n for n in sorted(self._all_items.keys())
                  if dms.matches_search(n, query)]
-        # Search AND every chosen part - narrowing, the way stacked
-        # filters are expected to behave.
-        for index, combo in getattr(self, "_map_filter_cbs", []):
+        for index, combo in combos:
             want = combo.SelectedItem
             if not want or want == self._MAP_ALL:
                 continue
@@ -545,20 +570,24 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
 
     # ---- the two columns ----
     def _map_build(self):
-        names = self._map_visible_names()
-        self.map_count_tb.Text = "{0} of {1} file(s)".format(
-            len(names), len(self._all_items))
+        left_names = self._map_names_for("source")
+        right_names = self._map_names_for("target")
+        total = len(self._all_items)
+        self.map_left_count_tb.Text = "{0}/{1}".format(len(left_names), total)
+        self.map_right_count_tb.Text = "{0}/{1}".format(len(right_names), total)
+        self.map_count_tb.Text = "{0} file(s) scanned".format(total)
 
         self.map_left_panel.Children.Clear()
         self.map_right_panel.Children.Clear()
         self._map_left_rows = {}
         self._map_right_rows = {}
 
-        for name in names:
+        for name in left_names:
             left = self._map_make_row(name, "source")
             self.map_left_panel.Children.Add(left)
             self._map_left_rows[name] = left
 
+        for name in right_names:
             right = self._map_make_row(name, "target")
             self.map_right_panel.Children.Add(right)
             self._map_right_rows[name] = right
@@ -755,15 +784,25 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         self._guard_map(self._map_draw_wires)
 
     # ---- toolbar ----
-    def map_search_changed(self, sender, args):
+    def map_left_search_changed(self, sender, args):
         if getattr(self, "_map_ready", False):
             self._guard_map(self._map_build)
 
-    def map_clear_search_click(self, sender, args):
-        # Clears the dropdowns too - a "Clear" that leaves three filters
-        # silently applied is a trap.
-        self._map_clear_filters()
-        self.map_search_tb.Text = ""
+    def map_right_search_changed(self, sender, args):
+        if getattr(self, "_map_ready", False):
+            self._guard_map(self._map_build)
+
+    def map_left_clear_click(self, sender, args):
+        # Clears that column's dropdowns too - a "Clear" that leaves
+        # filters silently applied is a trap.
+        self._map_clear_filters(getattr(self, "_map_left_cbs", []))
+        self.map_left_search_tb.Text = ""
+        if getattr(self, "_map_ready", False):
+            self._guard_map(self._map_build)
+
+    def map_right_clear_click(self, sender, args):
+        self._map_clear_filters(getattr(self, "_map_right_cbs", []))
+        self.map_right_search_tb.Text = ""
         if getattr(self, "_map_ready", False):
             self._guard_map(self._map_build)
 

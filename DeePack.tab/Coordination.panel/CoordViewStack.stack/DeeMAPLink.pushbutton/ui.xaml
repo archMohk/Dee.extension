@@ -5,6 +5,31 @@
         MinHeight="780" MinWidth="1300" Height="860" Width="1380"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
+        <Border DockPanel.Dock="Right" Width="330" Margin="8,0,0,0"
+                BorderBrush="#666" BorderThickness="1,0,0,0" Padding="8,0,0,0">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="MATCHES  (Source → Target)"
+                           FontWeight="Bold" Foreground="#F2994D"
+                           Margin="0,0,0,6"/>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                    <Button x:Name="add_match_b" Content="Add from ticked lists" Width="150"
+                            Height="24" FontWeight="Bold" Click="add_match_click"
+                            ToolTip="Adds every ticked file in List 1 into every ticked file in List 2."/>
+                    <Button x:Name="remove_match_b" Content="Remove" Width="70" Height="24"
+                            Margin="6,0,0,0" Click="remove_match_click"/>
+                </StackPanel>
+                <Button DockPanel.Dock="Bottom" x:Name="clear_matches_b" Content="Clear All"
+                        Height="24" Margin="0,6,0,0" Click="clear_matches_click"/>
+                <DataGrid x:Name="matches_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                          CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Source (linked)" Binding="{Binding source}" IsReadOnly="True" Width="*"/>
+                        <DataGridTextColumn Header="Target (host)" Binding="{Binding target}" IsReadOnly="True" Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Border>
+
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
                    Text="Scans an ACC project or a local folder for worksharing Revit files and builds a many-to-many link map. Two tabs, two ways to build the same list: Two Lists to tick files and press Add Match, or Wire Map to drag a wire from one file to another. Each target host is then opened in the background, every matched source is linked into it, and the host is synchronized back - no file ever opened by hand."/>
 
@@ -104,17 +129,15 @@
             <TabItem Header="Two Lists">
                 <Grid Margin="6">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="1*" MinWidth="180"/>
+                        <ColumnDefinition Width="1*" MinWidth="200"/>
                         <ColumnDefinition Width="6"/>
-                        <ColumnDefinition Width="1.3*" MinWidth="240"/>
-                        <ColumnDefinition Width="6"/>
-                        <ColumnDefinition Width="1*" MinWidth="180"/>
+                        <ColumnDefinition Width="1*" MinWidth="200"/>
                     </Grid.ColumnDefinitions>
 
                     <DockPanel Grid.Column="0">
                         <TextBlock DockPanel.Dock="Top" Text="List 1 — Sources (will be linked)" FontWeight="Bold" Margin="0,0,0,4"/>
                         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
-                            <TextBox x:Name="search1_tb" Width="120" Height="22" VerticalContentAlignment="Center"
+                            <TextBox x:Name="search1_tb" Width="130" Height="22" VerticalContentAlignment="Center"
                                      TextChanged="search1_changed" ToolTip="Type part of a file name - multiple words all have to match, in any order."/>
                             <Button x:Name="clear_search1_b" Content="Clear" Width="46" Height="22" Margin="4,0,0,0" Click="clear_search1_click"/>
                             <Button x:Name="select_all1_b" Content="All" Width="36" Height="22" Margin="6,0,0,0" Click="select_all1_click"/>
@@ -133,29 +156,9 @@
                                   Background="#444" ResizeBehavior="PreviousAndNext"/>
 
                     <DockPanel Grid.Column="2">
-                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4" HorizontalAlignment="Center">
-                            <Button x:Name="add_match_b" Content="Add Match  →" Width="112" Height="26" FontWeight="Bold" Click="add_match_click"/>
-                            <Button x:Name="remove_match_b" Content="Remove Selected" Width="116" Height="26" Margin="6,0,0,0" Click="remove_match_click"/>
-                            <Button x:Name="clear_matches_b" Content="Clear All" Width="72" Height="26" Margin="6,0,0,0" Click="clear_matches_click"/>
-                        </StackPanel>
-                        <TextBlock DockPanel.Dock="Top" Text="Matches (Source → Target)" FontWeight="Bold"
-                                   Margin="0,4,0,4" HorizontalAlignment="Center"/>
-                        <DataGrid x:Name="matches_grid" AutoGenerateColumns="False" CanUserAddRows="False"
-                                  CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="Source (linked)" Binding="{Binding source}" IsReadOnly="True" Width="*"/>
-                                <DataGridTextColumn Header="Target (host)" Binding="{Binding target}" IsReadOnly="True" Width="*"/>
-                            </DataGrid.Columns>
-                        </DataGrid>
-                    </DockPanel>
-
-                    <GridSplitter Grid.Column="3" Width="6" HorizontalAlignment="Stretch"
-                                  Background="#444" ResizeBehavior="PreviousAndNext"/>
-
-                    <DockPanel Grid.Column="4">
                         <TextBlock DockPanel.Dock="Top" Text="List 2 — Targets (hosts)" FontWeight="Bold" Margin="0,0,0,4"/>
                         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
-                            <TextBox x:Name="search2_tb" Width="120" Height="22" VerticalContentAlignment="Center"
+                            <TextBox x:Name="search2_tb" Width="130" Height="22" VerticalContentAlignment="Center"
                                      TextChanged="search2_changed" ToolTip="Type part of a file name - multiple words all have to match, in any order."/>
                             <Button x:Name="clear_search2_b" Content="Clear" Width="46" Height="22" Margin="4,0,0,0" Click="clear_search2_click"/>
                             <Button x:Name="select_all2_b" Content="All" Width="36" Height="22" Margin="6,0,0,0" Click="select_all2_click"/>
@@ -174,22 +177,14 @@
 
             <TabItem Header="Wire Map">
                 <DockPanel Margin="6">
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
-                        <TextBlock Text="Show:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBox x:Name="map_search_tb" Width="190" Height="22"
-                                 VerticalContentAlignment="Center" TextChanged="map_search_changed"
-                                 ToolTip="Type part of a file name - multiple words all have to match, in any order."/>
-                        <Button x:Name="map_clear_search_b" Content="Clear" Width="50" Height="22"
-                                Margin="4,0,0,0" Click="map_clear_search_click"/>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
                         <Button x:Name="map_refresh_b" Content="Redraw" Width="70" Height="22"
-                                Margin="14,0,0,0" Click="map_refresh_click"/>
+                                Click="map_refresh_click"/>
                         <Button x:Name="map_clear_wires_b" Content="Clear Wires" Width="90" Height="22"
                                 Margin="6,0,0,0" Click="map_clear_wires_click"/>
                         <TextBlock x:Name="map_count_tb" VerticalAlignment="Center" Margin="14,0,0,0"
                                    Foreground="#888" Text=""/>
                     </StackPanel>
-
-                    <WrapPanel DockPanel.Dock="Top" x:Name="map_filters_panel" Margin="0,0,0,6"/>
 
                     <Border DockPanel.Dock="Bottom" Background="#2B2B2B" BorderBrush="#555"
                             BorderThickness="1" Padding="6,4" Margin="0,6,0,0">
@@ -199,14 +194,24 @@
 
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="1*" MinWidth="200"/>
-                            <ColumnDefinition Width="200" MinWidth="90"/>
-                            <ColumnDefinition Width="1*" MinWidth="200"/>
+                            <ColumnDefinition Width="1*" MinWidth="220"/>
+                            <ColumnDefinition Width="170" MinWidth="80"/>
+                            <ColumnDefinition Width="1*" MinWidth="220"/>
                         </Grid.ColumnDefinitions>
 
                         <DockPanel Grid.Column="0">
                             <TextBlock DockPanel.Dock="Top" Foreground="#F2994D" FontWeight="Bold"
                                        Margin="0,0,0,3" Text="SOURCES — click one to start"/>
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,3">
+                                <TextBox x:Name="map_left_search_tb" Width="140" Height="22"
+                                         VerticalContentAlignment="Center" TextChanged="map_left_search_changed"
+                                         ToolTip="Filter the SOURCES column only."/>
+                                <Button x:Name="map_left_clear_b" Content="Clear" Width="46" Height="22"
+                                        Margin="4,0,0,0" Click="map_left_clear_click"/>
+                                <TextBlock x:Name="map_left_count_tb" VerticalAlignment="Center"
+                                           Margin="8,0,0,0" Foreground="#888" Text=""/>
+                            </StackPanel>
+                            <WrapPanel DockPanel.Dock="Top" x:Name="map_left_filters_panel" Margin="0,0,0,3"/>
                             <Border BorderBrush="#555" BorderThickness="1">
                                 <ScrollViewer x:Name="map_left_scroll" VerticalScrollBarVisibility="Auto"
                                               HorizontalScrollBarVisibility="Disabled">
@@ -221,6 +226,16 @@
                         <DockPanel Grid.Column="2">
                             <TextBlock DockPanel.Dock="Top" Foreground="#F2994D" FontWeight="Bold"
                                        Margin="0,0,0,3" Text="TARGETS — click one to finish"/>
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,3">
+                                <TextBox x:Name="map_right_search_tb" Width="140" Height="22"
+                                         VerticalContentAlignment="Center" TextChanged="map_right_search_changed"
+                                         ToolTip="Filter the TARGETS column only."/>
+                                <Button x:Name="map_right_clear_b" Content="Clear" Width="46" Height="22"
+                                        Margin="4,0,0,0" Click="map_right_clear_click"/>
+                                <TextBlock x:Name="map_right_count_tb" VerticalAlignment="Center"
+                                           Margin="8,0,0,0" Foreground="#888" Text=""/>
+                            </StackPanel>
+                            <WrapPanel DockPanel.Dock="Top" x:Name="map_right_filters_panel" Margin="0,0,0,3"/>
                             <Border BorderBrush="#555" BorderThickness="1">
                                 <ScrollViewer x:Name="map_right_scroll" VerticalScrollBarVisibility="Auto"
                                               HorizontalScrollBarVisibility="Disabled">
