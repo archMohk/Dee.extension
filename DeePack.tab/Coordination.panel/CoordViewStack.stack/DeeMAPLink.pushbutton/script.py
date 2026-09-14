@@ -45,9 +45,7 @@ docstring for the full list (local ModelPath linking, local-central open
 real project).
 """
 import os
-import tempfile
 import time
-import webbrowser
 import datetime
 
 from pyrevit import forms, script
@@ -58,7 +56,15 @@ clr.AddReference("PresentationFramework")
 clr.AddReference("WindowsBase")
 clr.AddReference("System.Windows.Forms")
 from System import Action
-from System.Windows import Clipboard, Visibility
+from System.Windows import (Cursors, CornerRadius, Point, Thickness,
+                           VerticalAlignment, Visibility)
+from System.Windows.Controls import Border, Canvas, Panel, TextBlock
+from System.Windows import TextTrimming
+from System.Windows.Input import Keyboard, ModifierKeys
+from System.Windows.Media import (Brushes, Color, DoubleCollection,
+                                  PointCollection, SolidColorBrush,
+                                  VisualTreeHelper)
+from System.Windows.Shapes import Line, Polygon
 from System.Windows.Threading import Dispatcher, DispatcherFrame, DispatcherPriority
 from System.Windows.Forms import FolderBrowserDialog, DialogResult
 
@@ -69,7 +75,6 @@ import acc_file_browser as afb
 import deew_document_manager as docmgr
 import deew_failure_handler as ffh
 import deew_logger
-import dee_maplink_planner as planner
 import dee_maplink_service as dms
 import dee_telemetry
 dee_telemetry.check_access("DeeMAPLink")
@@ -127,6 +132,18 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         self.placement_cb.SelectedIndex = 0
         self._refresh_matches()
         self._log("Ready. Pick an ACC project or a local folder to begin.")
+
+        # The canvas handlers live on the CANVAS, not the boxes:
+        # a move or a release that ends on empty space still has
+        # to finish the gesture cleanly.
+        self._map_pos = {}
+        self._map_boxes = {}
+        self._map_wire_shapes = []
+        self._map_drag = None
+        self._map_preview = None
+        self.map_canvas.MouseMove += self._map_canvas_move
+        self.map_canvas.MouseLeftButtonUp += self._map_canvas_up
+        self._map_ready = True
 
     # ---------------- helpers ----------------
     def _log(self, message):
@@ -334,6 +351,12 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         self._log(self.status_tb.Text)
 
     # ---------------- lists ----------------
+        if getattr(self, "_map_ready", False):
+            try:
+                self._map_build(keep_positions=False)
+            except Exception as e:
+                self.logger.exception("Could not build the wire map", e)
+
     def _visible(self, rows, query):
         return [r for r in rows if dms.matches_search(r.name, query)]
 
@@ -394,7 +417,7 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         self._refresh_list2()
 
     # ---------------- matches ----------------
-    # ---------------- visual planner ----------------
+    # ---------------- error guard ----------------
     def _guard(self, fn):
         """Runs fn and turns any escaping exception into a readable
         dialog plus a log entry. An unhandled exception in a WPF click
@@ -408,108 +431,347 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
             forms.alert("DeeMAPLink hit an error:\n\n{0}\n\n{1}".format(
                 e, traceback.format_exc()[-900:]), title="DeeMAPLink")
 
-    def plan_visual_click(self, sender, args):
-        self._guard(self._plan_visual)
+    # ---------------- wire map ----------------
+    # A second way to build the same match list: drag a wire from one
+    # file to another and that IS the match. Everything here edits
+    # self._matches, the same list the two-list tab builds, so the two
+    # tabs are two views of one plan rather than two plans.
+    #
+    # Drawn with plain WPF shapes on a Canvas. Hit-testing on mouse-up
+    # goes through Canvas.InputHitTest rather than mouse capture: capture
+    # would send the release to the box the drag STARTED on, which is
+    # exactly the box we do not want.
 
-    def _plan_visual(self):
-        """Opens the scanned files as a map in the browser, with the
-        current matches already drawn, so links can be planned by
-        dragging arrows instead of ticking two lists."""
-        if not self._all_items:
-            forms.alert("Scan a project or folder first - there is nothing "
-                        "to draw yet.", title="DeeMAPLink")
-            return
+    # DeePack's orange, the same accent the maps and the branding
+    # bar use, so a wire reads as 'this tool drew that'.
+    _WIRE_BRUSH = SolidColorBrush(Color.FromRgb(0xF2, 0x99, 0x4D))
 
-        path = os.path.join(tempfile.gettempdir(),
-                            "DeeMAPLink_plan_{0}.html".format(
-                                datetime.datetime.now().strftime("%Y%m%d_%H%M%S")))
-        ok, detail = planner.export_plan_html(
-            list(self._all_items.keys()), self._matches, path,
-            title=self._project_name or self._local_folder or "DeeMAPLink")
-        if not ok:
-            forms.alert("Could not write the planner page:\n{0}".format(detail),
-                        title="DeeMAPLink")
-            return
+    _BOX_W = 250
+    _BOX_H = 34
+    _COL_GAP = 26
+    _ROW_GAP = 14
 
-        self._log("Planner opened: {0}".format(path))
+    def _guard_map(self, fn):
+        """Canvas handlers are called by WPF, so an exception escaping
+        one surfaces as a bare pyRevit traceback with no clue which
+        gesture caused it."""
         try:
-            webbrowser.open(path)
+            fn()
         except Exception as e:
-            forms.alert("The planner was written to:\n{0}\n\nbut the browser "
-                        "did not open it:\n{1}".format(path, e),
-                        title="DeeMAPLink")
+            import traceback
+            self.logger.exception("Wire map error", e)
+            forms.alert("The wire map hit an error:\n\n{0}\n\n{1}".format(
+                e, traceback.format_exc()[-700:]), title="DeeMAPLink")
+
+    def _map_visible_names(self):
+        query = self._safe_text(self.map_search_tb)
+        return [n for n in sorted(self._all_items.keys())
+                if dms.matches_search(n, query)]
+
+    def _map_build(self, keep_positions=False):
+        """Lays the file boxes out and redraws every wire.
+
+        keep_positions keeps whatever the user has dragged boxes to, so
+        a search or a new wire does not throw their arrangement away."""
+        if not hasattr(self, "_map_pos") or not keep_positions:
+            self._map_pos = {}
+        self._map_boxes = {}
+        canvas = self.map_canvas
+        canvas.Children.Clear()
+
+        names = self._map_visible_names()
+        self.map_count_tb.Text = "{0} of {1} file(s)".format(
+            len(names), len(self._all_items))
+        if not names:
             return
 
-        forms.alert(
-            "The planner is open in your browser.\n\n"
-            "1. Drag from one box to another to link the first model into "
-            "the second.\n"
-            "2. Click an arrow to remove it.\n"
-            "3. Press 'Copy plan for Revit'.\n"
-            "4. Come back here and press 'Paste Plan'.\n\n"
-            "Your current {0} match(es) are already drawn, so nothing is "
-            "lost by going back and forth.".format(len(self._matches)),
-            title="DeeMAPLink - Planner")
+        # Grid placement, widest-first columns. Only used for boxes that
+        # have no position yet, so dragged boxes stay where they were put.
+        area_w = max(900, int(canvas.Width))
+        per_row = max(1, int((area_w - self._COL_GAP) /
+                             (self._BOX_W + self._COL_GAP)))
+        index = 0
+        for name in names:
+            if name not in self._map_pos:
+                col = index % per_row
+                row = index // per_row
+                self._map_pos[name] = (
+                    self._COL_GAP + col * (self._BOX_W + self._COL_GAP),
+                    self._ROW_GAP + row * (self._BOX_H + self._ROW_GAP))
+            index += 1
 
-    def paste_plan_click(self, sender, args):
-        self._guard(self._paste_plan)
+        # Grow the canvas to whatever the layout actually needs, so the
+        # scrollbars can reach the last row.
+        max_y = max(self._map_pos[n][1] for n in names) + self._BOX_H + 40
+        if max_y > canvas.Height:
+            canvas.Height = max_y
 
-    def _paste_plan(self):
-        """Reads a plan the planner page put on the clipboard."""
+        for name in names:
+            box = self._map_make_box(name)
+            x, y = self._map_pos[name]
+            Canvas.SetLeft(box, x)
+            Canvas.SetTop(box, y)
+            Panel.SetZIndex(box, 10)
+            canvas.Children.Add(box)
+            self._map_boxes[name] = box
+
+        self._map_draw_wires()
+
+    def _map_make_box(self, name):
+        colour = self._map_colour_for(name)
+        text = TextBlock()
+        text.Text = name
+        text.Foreground = Brushes.WhiteSmoke
+        text.FontSize = 10
+        text.TextTrimming = TextTrimming.CharacterEllipsis
+        text.VerticalAlignment = VerticalAlignment.Center
+        text.Margin = Thickness(6, 0, 6, 0)
+        text.IsHitTestVisible = False      # clicks belong to the box
+
+        box = Border()
+        box.Width = self._BOX_W
+        box.Height = self._BOX_H
+        box.CornerRadius = CornerRadius(4)
+        box.BorderThickness = Thickness(2)
+        box.BorderBrush = colour
+        box.Background = SolidColorBrush(Color.FromRgb(0x2B, 0x2B, 0x2B))
+        box.Child = text
+        box.Cursor = Cursors.Cross
+        box.ToolTip = name
+        box.Tag = name
+        box.MouseLeftButtonDown += self._map_box_down
+        return box
+
+    def _map_colour_for(self, name):
+        """Discipline colour, read from the same configured code list
+        DeeLinkMAP's map uses - so a file is the same colour in both."""
         try:
-            text = Clipboard.GetText()
-        except Exception as e:
-            forms.alert("Could not read the clipboard:\n{0}".format(e),
-                        title="DeeMAPLink")
-            return
+            import dee_linkmap_service as lms
+            _code, label = lms.detect_discipline(name, lms.load_disciplines())
+            if not hasattr(self, "_map_colours"):
+                self._map_colours = {}
+            if label not in self._map_colours:
+                palette = lms._PALETTE
+                used = len(self._map_colours)
+                hexed = (lms._UNKNOWN_COLOR if label == lms.UNKNOWN_LABEL
+                         else palette[used % len(palette)])
+                self._map_colours[label] = SolidColorBrush(Color.FromRgb(
+                    int(hexed[1:3], 16), int(hexed[3:5], 16), int(hexed[5:7], 16)))
+            return self._map_colours[label]
+        except Exception:
+            return SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88))
 
-        matches, detail = planner.parse_plan(text)
-        if not matches:
-            forms.alert(
-                "No plan found on the clipboard - {0}.\n\nIn the planner "
-                "page, press 'Copy plan for Revit' first. If your browser "
-                "blocks the clipboard, select the JSON in the box at the "
-                "bottom of that page and copy it by hand.".format(detail),
-                title="DeeMAPLink - Nothing To Paste")
-            return
+    # ---- drawing wires ----
+    def _map_centre(self, name):
+        x, y = self._map_pos.get(name, (0, 0))
+        return x + self._BOX_W / 2.0, y + self._BOX_H / 2.0
 
-        # Names are matched against what THIS scan found. A plan made
-        # against a different project would otherwise quietly produce
-        # matches naming files that are not in the run, and the linking
-        # loop would fail on every one of them.
-        known = set(self._all_items.keys())
-        usable, unknown = [], []
-        for source, target in matches:
-            if source in known and target in known:
-                usable.append((source, target))
+    def _map_draw_wires(self):
+        canvas = self.map_canvas
+        for shape in list(getattr(self, "_map_wire_shapes", [])):
+            try:
+                canvas.Children.Remove(shape)
+            except Exception:
+                pass
+        self._map_wire_shapes = []
+
+        for index, pair in enumerate(self._matches):
+            source, target = pair
+            if source not in self._map_boxes or target not in self._map_boxes:
+                continue       # one end filtered out of view
+            x1, y1 = self._map_centre(source)
+            x2, y2 = self._map_centre(target)
+
+            line = Line()
+            line.X1, line.Y1, line.X2, line.Y2 = x1, y1, x2, y2
+            line.Stroke = self._WIRE_BRUSH
+            line.StrokeThickness = 2.0
+            line.ToolTip = "{0}\nlinked into\n{1}\n\n(click to remove)".format(
+                source, target)
+            line.Cursor = Cursors.Hand
+            # A 2px line is nearly impossible to click, so an invisible
+            # fat line sits under it and takes the clicks.
+            hit = Line()
+            hit.X1, hit.Y1, hit.X2, hit.Y2 = x1, y1, x2, y2
+            hit.Stroke = Brushes.Transparent
+            hit.StrokeThickness = 12.0
+            hit.Cursor = Cursors.Hand
+            hit.Tag = index
+            line.Tag = index
+            hit.MouseLeftButtonDown += self._map_wire_down
+            line.MouseLeftButtonDown += self._map_wire_down
+
+            head = self._map_arrow_head(x1, y1, x2, y2)
+            for shape in (hit, line, head):
+                Panel.SetZIndex(shape, 5)
+                canvas.Children.Add(shape)
+                self._map_wire_shapes.append(shape)
+
+    def _map_arrow_head(self, x1, y1, x2, y2):
+        """A filled triangle sitting ON the target box's edge, pointing
+        at it - an arrow buried under the box shows no direction."""
+        import math
+        dx, dy = x2 - x1, y2 - y1
+        length = math.sqrt(dx * dx + dy * dy) or 1.0
+        ux, uy = dx / length, dy / length
+        # step back to the box edge rather than its centre
+        half_w, half_h = self._BOX_W / 2.0 + 2, self._BOX_H / 2.0 + 2
+        scale = min(half_w / (abs(ux) or 0.0001), half_h / (abs(uy) or 0.0001))
+        tipx, tipy = x2 - ux * scale, y2 - uy * scale
+        size = 9.0
+        left = (tipx - ux * size - uy * size * 0.55,
+                tipy - uy * size + ux * size * 0.55)
+        right = (tipx - ux * size + uy * size * 0.55,
+                 tipy - uy * size - ux * size * 0.55)
+        head = Polygon()
+        head.Fill = self._WIRE_BRUSH
+        head.IsHitTestVisible = False
+        head.Points = PointCollection()
+        head.Points.Add(Point(tipx, tipy))
+        head.Points.Add(Point(left[0], left[1]))
+        head.Points.Add(Point(right[0], right[1]))
+        return head
+
+    # ---- gestures ----
+    def _map_box_down(self, sender, args):
+        def run():
+            name = sender.Tag
+            if args.ClickCount == 2:
+                return
+            # SHIFT starts a move, anything else starts a wire - drawing
+            # is what this surface is for, so it gets the plain drag.
+            shift = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift
+            point = args.GetPosition(self.map_canvas)
+            if shift:
+                x, y = self._map_pos[name]
+                self._map_drag = {"mode": "move", "name": name,
+                                  "dx": point.X - x, "dy": point.Y - y}
             else:
-                unknown.append((source, target))
+                self._map_drag = {"mode": "wire", "name": name}
+                preview = Line()
+                preview.X1, preview.Y1 = self._map_centre(name)
+                preview.X2, preview.Y2 = point.X, point.Y
+                preview.Stroke = self._WIRE_BRUSH
+                preview.StrokeThickness = 2.0
+                preview.StrokeDashArray = DoubleCollection()
+                preview.StrokeDashArray.Add(4.0)
+                preview.StrokeDashArray.Add(3.0)
+                preview.IsHitTestVisible = False
+                Panel.SetZIndex(preview, 20)
+                self.map_canvas.Children.Add(preview)
+                self._map_preview = preview
+                sender.BorderThickness = Thickness(3)
+            args.Handled = True
+        self._guard_map(run)
 
-        if not usable:
-            forms.alert(
-                "The pasted plan has {0} match(es), but none of the files it "
-                "names are in the current scan.\n\nIt was probably made "
-                "against a different project or folder.".format(len(matches)),
-                title="DeeMAPLink - Plan Does Not Fit")
-            return
+    def _map_canvas_move(self, sender, args):
+        def run():
+            drag = getattr(self, "_map_drag", None)
+            if not drag:
+                return
+            point = args.GetPosition(self.map_canvas)
+            if drag["mode"] == "wire":
+                preview = getattr(self, "_map_preview", None)
+                if preview is not None:
+                    preview.X2, preview.Y2 = point.X, point.Y
+            else:
+                name = drag["name"]
+                x = max(0, point.X - drag["dx"])
+                y = max(0, point.Y - drag["dy"])
+                self._map_pos[name] = (x, y)
+                box = self._map_boxes.get(name)
+                if box is not None:
+                    Canvas.SetLeft(box, x)
+                    Canvas.SetTop(box, y)
+                self._map_draw_wires()
+        self._guard_map(run)
 
-        note = ""
-        if unknown:
-            note = ("\n\n{0} match(es) name files that are not in this scan "
-                    "and were left out.".format(len(unknown)))
+    def _map_canvas_up(self, sender, args):
+        def run():
+            drag = getattr(self, "_map_drag", None)
+            self._map_drag = None
+            preview = getattr(self, "_map_preview", None)
+            if preview is not None:
+                try:
+                    self.map_canvas.Children.Remove(preview)
+                except Exception:
+                    pass
+                self._map_preview = None
+            if not drag:
+                return
+            source = drag["name"]
+            box = self._map_boxes.get(source)
+            if box is not None:
+                box.BorderThickness = Thickness(2)
+            if drag["mode"] != "wire":
+                return
 
-        if not forms.alert(
-                "Replace the current {0} match(es) with the {1} from the "
-                "planner?{2}".format(len(self._matches), len(usable), note),
-                title="DeeMAPLink - Paste Plan", yes=True, no=True):
-            return
+            target = self._map_hit_name(args.GetPosition(self.map_canvas))
+            if not target or target == source:
+                return
+            pair = (source, target)
+            if pair in self._matches:
+                self._log("Already matched: {0} -> {1}".format(source, target))
+                return
+            self._matches.append(pair)
+            self._refresh_matches()
+            self._log("Wired {0} into {1}".format(source, target))
+        self._guard_map(run)
 
-        self._matches = usable
-        self._refresh_matches()
-        self._log("Pasted {0} match(es) from the planner.".format(len(usable)))
-        for source, target in unknown:
-            self.logger.warning("Pasted match names a file not in this scan",
-                                source=source, target=target)
+    def _map_hit_name(self, point):
+        """Which box is under the point. Walks up from whatever was hit,
+        because the visual under the cursor may be the TextBlock or the
+        Border's own chrome rather than the Border itself."""
+        try:
+            hit = self.map_canvas.InputHitTest(point)
+        except Exception:
+            return None
+        node = hit
+        depth = 0
+        while node is not None and depth < 8:
+            tag = getattr(node, "Tag", None)
+            if isinstance(tag, str) and tag in self._map_boxes:
+                return tag
+            try:
+                node = VisualTreeHelper.GetParent(node)
+            except Exception:
+                return None
+            depth += 1
+        return None
+
+    def _map_wire_down(self, sender, args):
+        def run():
+            index = sender.Tag
+            if not isinstance(index, int) or index >= len(self._matches):
+                return
+            source, target = self._matches[index]
+            del self._matches[index]
+            self._refresh_matches()
+            self._log("Removed wire {0} -> {1}".format(source, target))
+            args.Handled = True
+        self._guard_map(run)
+
+    # ---- toolbar ----
+    def map_search_changed(self, sender, args):
+        if getattr(self, "_map_ready", False):
+            self._guard_map(lambda: self._map_build(keep_positions=True))
+
+    def map_clear_search_click(self, sender, args):
+        self.map_search_tb.Text = ""
+
+    def map_refresh_click(self, sender, args):
+        self._guard_map(lambda: self._map_build(keep_positions=False))
+
+    def map_clear_wires_click(self, sender, args):
+        def run():
+            if not self._matches:
+                return
+            if not forms.alert("Remove all {0} wire(s)?".format(len(self._matches)),
+                               yes=True, no=True):
+                return
+            self._matches = []
+            self._refresh_matches()
+        self._guard_map(run)
 
     def add_match_click(self, sender, args):
         sources = [r.name for r in self._rows1 if r.selected]
@@ -552,6 +814,14 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         self.analysis_tb.Text = dms.analysis_text(groups, est)
 
     # ---------------- opening / model paths (source-mode dispatch) ----------------
+        # The two tabs are two views of ONE plan, so a match added
+        # or removed on the lists tab redraws the wires too.
+        if getattr(self, "_map_ready", False):
+            try:
+                self._map_draw_wires()
+            except Exception:
+                pass
+
     def _open_attached(self, target_name):
         if self._source_mode() == "acc":
             item_id = self._all_items.get(target_name)
