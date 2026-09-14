@@ -10,8 +10,11 @@ WHAT IS ON THE MIRROR IS WHAT IS ON GITHUB
 That is the promise, and it is enforced rather than intended. Before
 uploading anything this refuses to run if:
 
-  * the working tree is dirty - otherwise the mirror would carry code
-    that exists on nobody's machine but yours;
+  * a TRACKED file is modified - otherwise the mirror would carry code
+    that exists on nobody's machine but yours. Untracked files do not
+    block: `git ls-files` cannot see them, so they are never uploaded
+    and cannot breach the guarantee. They are listed as a warning in
+    case one was meant to be committed;
   * HEAD is not pushed - otherwise the mirror would be AHEAD of GitHub,
     and a Supabase user would be running something a GitHub user cannot
     get.
@@ -73,12 +76,26 @@ def run(args):
 
 
 def git_state():
-    """(commit, dirty, unpushed) - the three facts the guarantee rests on."""
+    """(commit, dirty, unpushed, untracked) - what the guarantee rests on.
+
+    `dirty` deliberately ignores UNTRACKED files. The mirror's file list
+    comes from `git ls-files`, so an untracked file can never be
+    uploaded and therefore can never put anything on the mirror that
+    GitHub does not have. Only a modified tracked file can do that.
+
+    Untracked paths come back separately so they can be reported: one
+    of them might be a new file nobody ever added, missing from GitHub
+    and the mirror alike. That is an oversight rather than a breach of
+    parity, so it warns instead of blocking."""
     _rc, commit, _e = run(["git", "rev-parse", "--short", "HEAD"])
-    _rc, status, _e = run(["git", "status", "--porcelain"])
+    _rc, tracked, _e = run(["git", "status", "--porcelain",
+                            "--untracked-files=no"])
+    _rc, everything, _e = run(["git", "status", "--porcelain"])
     rc, ahead, _e = run(["git", "rev-list", "--count", "@{u}..HEAD"])
     unpushed = int(ahead) if rc == 0 and ahead.isdigit() else 0
-    return commit, bool(status.strip()), unpushed
+    untracked = [line[3:].strip() for line in everything.splitlines()
+                 if line.startswith("??")]
+    return commit, bool(tracked.strip()), unpushed, untracked
 
 
 def tracked_files():
@@ -177,10 +194,21 @@ def main():
                         help="publish even with a dirty tree or unpushed commits")
     args = parser.parse_args()
 
-    commit, dirty, unpushed = git_state()
+    commit, dirty, unpushed, untracked = git_state()
     print("HEAD      : {0}".format(commit))
     print("working   : {0}".format("DIRTY" if dirty else "clean"))
     print("unpushed  : {0}".format(unpushed))
+
+    if untracked:
+        # Not a blocker - see git_state - but if one of these was meant
+        # to be part of the release, it is missing from GitHub too.
+        print("\nuntracked (not mirrored, and not on GitHub either):")
+        for path in untracked[:10]:
+            print("   ? {0}".format(path))
+        if len(untracked) > 10:
+            print("   ... and {0} more".format(len(untracked) - 10))
+        print("   If any of those belong in the release, commit and push "
+              "them first.")
 
     if (dirty or unpushed) and not args.check:
         message = []
