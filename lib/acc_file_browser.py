@@ -721,7 +721,8 @@ def pick_files_to_open(all_items, title="Select Files to Open", button_name="Ope
 
 
 def open_cloud_document_detached(application, region, project_id, item_id, token,
-                                  audit=False, discard_worksets=False):
+                                  audit=False, discard_worksets=False,
+                                  close_all_worksets=False):
     """Opens a cloud model HEADLESS and DETACHED via
     Application.OpenDocumentFile - deliberately NOT the
     UIApplication.OpenAndActivateDocument path used by open_cloud_file
@@ -793,11 +794,26 @@ def open_cloud_document_detached(application, region, project_id, item_id, token
             open_options.DetachFromCentralOption = detach_option
             open_options.Audit = bool(audit)
             try:
+                # close_all_worksets exists because of three identical
+                # live crashes (2026-09-13/14): Revit access-violated
+                # inside its own loader at
+                # "catch SelectedPartitionsForEdit and do
+                # decommitDocument" while reading 550-640 MB of element
+                # data, on models with 430-480 thousand elements.
+                # "SelectedPartitions" is worksets, and OpenAllWorksets
+                # is what makes Revit read all of it. A caller that only
+                # wants to LIST something - link names, say - has no use
+                # for that data and should not pay for it.
+                ws_option = (WorksetConfigurationOption.CloseAllWorksets
+                             if close_all_worksets
+                             else WorksetConfigurationOption.OpenAllWorksets)
                 open_options.SetOpenWorksetsConfiguration(
-                    WorksetConfiguration(WorksetConfigurationOption.OpenAllWorksets))
+                    WorksetConfiguration(ws_option))
             except Exception:
                 pass
             document = application.OpenDocumentFile(cloud_path, open_options)
+            if close_all_worksets:
+                label += ", worksets closed"
             return document, label
         except Exception as e:
             errors.append("{0}: {1}".format(label, e))

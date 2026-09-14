@@ -123,6 +123,16 @@ _CACHE_FILE = os.path.join(_THIS_DIR, ".acc_file_cache.json")
 _TIME_BUDGET_SECONDS = 360
 _LARGE_BATCH_WARNING = 15
 
+# Cloud models at or above this size are never opened. Revit access-
+# violated inside its own loader on two of them (2026-09-13 and
+# 2026-09-14), both about 150 MB on ACC, unpacking to 550-640 MB of
+# element data across 430-480 thousand elements. Two data points is not
+# a law, so this sits a little below them rather than exactly on them,
+# and it is one number to change if a bigger model ever opens fine.
+# A skipped file still reaches the map, labelled - unlike a crash,
+# which loses the entire run.
+_MAX_OPEN_BYTES = 120 * 1024 * 1024
+
 
 class FileRow(object):
     """One scanned Revit file. `ref` is an ACC item_id or a local file
@@ -148,6 +158,11 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
         self._local_folder = None
         self._all_items = {}
         self._rows = []
+        # Sizes of the files ACC could not answer for, keyed by name.
+        # Initialised here, not only inside the ACC pass: a local-folder
+        # run never calls that pass, and the size gate would then hit a
+        # missing attribute the moment someone chose to open files.
+        self._unread_detail = {}
         self._log_lines = []
         self._prog_total = 1
         self._prog_done = 0
@@ -386,13 +401,27 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
         from the critical path; worksets are still opened, so the
         RevitLinkType elements this tool reads are all present.
 
-        It is a reduction in risk, not a proven cure - a native crash
-        leaves nothing for Python to catch, so the prompt that leads here
-        now defaults to No and says plainly that opening has crashed."""
+        WORKSETS CLOSED, too, and that is the part aimed squarely at the
+        crash. All three crash journals end the same way - inside
+        Revit's loader at "catch SelectedPartitionsForEdit and do
+        decommitDocument", part-way through reading 550-640 MB of
+        element data. SelectedPartitions is worksets; OpenAllWorksets is
+        what makes Revit read all of it. Listing link names needs none
+        of that data, so it is no longer asked for.
+
+        The trade-off is real and is reported rather than hidden: a link
+        placed only on a closed workset could be missed, so every opened
+        file's result carries closed_workset_note() when any workset was
+        closed.
+
+        A reduction in risk, not a proven cure - a native crash leaves
+        nothing for Python to catch, which is why the prompt that leads
+        here still defaults to not opening at all."""
         if self._source_mode() == "acc":
             item_id = self._all_items.get(name)
             return afb.open_cloud_document_detached(
-                self.application, self._region, self._project_id, item_id, self._token)
+                self.application, self._region, self._project_id, item_id,
+                self._token, close_all_worksets=True)
         file_path = self._all_items.get(name)
         return docmgr.open_document_no_detach(self.application, file_path, logger=self.logger)
 
@@ -592,15 +621,47 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
                 "Yes - finish in seconds. Those files go on the map marked "
                 "'not read', so the map stays complete about what is known "
                 "and what is not.\n\n"
-                "No - open them one at a time instead. It is the only certain "
-                "answer, but it takes minutes per file, stops at the "
-                "{1}-minute budget, and has crashed Revit on this project.\n\n"
+                "No - open them one at a time instead. Each is opened "
+                "detached with its worksets closed, which avoids the model "
+                "load that crashed Revit three times on this project, but it "
+                "still takes minutes per file, still stops at the {1}-minute "
+                "budget, and a link sitting only on a closed workset can be "
+                "missed (the report says so when that is possible).\n\n"
                 "The lasting fix is to re-publish those models normally, with "
                 "links - then ACC answers for them instantly.{2}"
             ).format(len(remaining), int(_TIME_BUDGET_SECONDS / 60),
                      self._unread_listing(remaining))
             finish_now = forms.alert(message, title="DeeLinkMAP - Open the rest?",
                                      yes=True, no=True)
+            if not finish_now:
+                # Opening was chosen - but not for the ones already known
+                # to be big enough to crash.
+                openable, too_big = [], []
+                for row in remaining:
+                    size = self._unread_detail.get(row.name)
+                    if size and size >= _MAX_OPEN_BYTES:
+                        too_big.append(row)
+                    else:
+                        openable.append(row)
+                if too_big:
+                    for row in too_big:
+                        size_mb = (self._unread_detail.get(row.name) or 0) / 1048576.0
+                        note = ("not read - {0:.0f} MB, too large to open safely "
+                                "(Revit has crashed on models this size)".format(size_mb))
+                        self._unread_node(row, file_nodes, note)
+                        results.append((None, row.name, note))
+                        skipped_count += 1
+                        self._log("  '{0}': skipped - {1:.0f} MB".format(row.name, size_mb))
+                    forms.alert(
+                        "{0} file(s) are too large to open safely and were "
+                        "skipped - Revit has crashed while loading models this "
+                        "size on this project. They are on the map, marked as "
+                        "not read.\n\nRe-publish them normally (with links) "
+                        "and ACC can report their links without opening "
+                        "anything.".format(len(too_big)),
+                        title="DeeLinkMAP - Too Large To Open")
+                remaining = openable
+
             if finish_now:
                 for row in remaining:
                     self._unread_node(row, file_nodes,
@@ -657,8 +718,17 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
                         node.raw_link_targets = targets
                         node.scan_method = "opened"
                         opened_count += 1
-                        results.append((True, row.name, "{0} link(s)".format(len(targets))))
-                        self._log("  '{0}': {1} link(s)".format(row.name, len(targets)))
+                        # Qualify the list if worksets were closed, so a
+                        # short answer is never mistaken for a complete
+                        # one.
+                        note = svc.closed_workset_note(doc)
+                        if note:
+                            node.error = note
+                        detail = "{0} link(s)".format(len(targets))
+                        if note:
+                            detail += " - " + note
+                        results.append((True, row.name, detail))
+                        self._log("  '{0}': {1}".format(row.name, detail))
                     except Exception as e:
                         node.error = str(e)
                         failed_count += 1

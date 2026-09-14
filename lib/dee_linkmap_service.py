@@ -244,6 +244,42 @@ def read_links_by_opening(doc):
     return targets
 
 
+def closed_workset_note(doc):
+    """"" if every user workset is open, otherwise a note naming how
+    many were closed.
+
+    Read AFTER a worksets-closed open, to qualify what the link list can
+    be trusted to mean. The workset TABLE is readable either way - it is
+    the elements on closed worksets that are not loaded - so this
+    question can always be answered honestly.
+
+    Returns "" for a non-workshared model too: nothing was closed, so
+    there is nothing to qualify."""
+    try:
+        from Autodesk.Revit.DB import (
+            FilteredWorksetCollector, WorksetKind)
+    except Exception:
+        return ""
+    try:
+        if not doc.IsWorkshared:
+            return ""
+        worksets = list(FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset))
+    except Exception:
+        return ""
+    closed = 0
+    for ws in worksets:
+        try:
+            if not ws.IsOpen:
+                closed += 1
+        except Exception:
+            continue
+    if not closed:
+        return ""
+    return ("read with {0} of {1} worksets closed - a link placed only on a "
+            "closed workset may be missing from this list".format(
+                closed, len(worksets)))
+
+
 def name_segments(display_name):
     """The dash-separated parts of a file name, extension dropped.
 
