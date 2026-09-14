@@ -182,8 +182,8 @@ begin
   if not RunHidden(Cmd, Code) then
   begin
     Detail :=
-      'The download from the mirror failed (code ' + IntToStr(Code) + ').' +
-      #13#10#13#10 +
+      'The download from the mirror failed (code ' +
+      IntToStr(Code) + ').' + #13#10#13#10 +
       'Either the mirror has not been published yet, or this PC cannot ' +
       'reach it. Try the GitHub option instead.';
     Result := False;
@@ -245,7 +245,7 @@ begin
   Chosen := AccPage.Values[0];
   if (Chosen <> '') and FileExists(Chosen) then
   begin
-    if not FileCopy(Chosen, Target, False) then
+    if not CopyFile(Chosen, Target, False) then
       MsgBox('Could not copy the acc_config.json you chose into:' + #13#10 +
              ExtDir + #13#10#13#10 + 'Copy it there by hand to finish.',
              mbError, MB_OK);
@@ -260,7 +260,7 @@ begin
     Exit;
 
   ExtractTemporaryFile('acc_config.json');
-  FileCopy(ExpandConstant('{tmp}\acc_config.json'), Target, False);
+  CopyFile(ExpandConstant('{tmp}\acc_config.json'), Target, False);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

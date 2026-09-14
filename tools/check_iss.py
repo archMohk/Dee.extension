@@ -162,8 +162,23 @@ def check(path):
     code, offset = code_section(text)
     if not code:
         return []
-    code = strip_comments(code)
     problems = []
+
+    # A line whose first non-space character is '#' is read by the
+    # PREPROCESSOR, not by Pascal. So a character literal that happens to
+    # begin a continuation line - `#13#10 +`, the natural way to wrap a
+    # long message - aborts the compile with "Unknown preprocessor
+    # directive". The same literal mid-line, after a '+', is fine.
+    # Directives always have a letter after the '#'; char codes have a
+    # digit or '$'.
+    for index, line in enumerate(code.splitlines()):
+        if re.match(r"^\s*#(?![A-Za-z])", line):
+            problems.append((offset + index + 1, "(preprocessor)",
+                             "line starts with '{0}' - move it onto the "
+                             "previous line, ISPP reads it as a directive"
+                             .format(line.strip()[:20])))
+
+    code = strip_comments(code)
 
     for name, line_no, body in routines(code):
         types = declared_types(body)
