@@ -16,8 +16,17 @@ links for versions published the newer way; a "normal publish, with
 links" is what produces one. Every model published here with links is a
 model DeeLinkMAP can then read without opening anything.
 
-Nothing is opened in Revit. Nothing is published until Publish Selected
-is pressed - the status check is a read.
+Runs with NO Revit file open
+----------------------------
+There is nothing to open and nothing that has to be open. The bundle is
+context: zero-doc, so the button stays live in an empty Revit, and the
+window holds no UIApplication, Document or UIDocument at all - it talks
+to ACC over HTTPS and to nothing else. Publishing happens on ACC's own
+servers; it keeps running there after this window is closed, and after
+Revit is closed.
+
+Nothing is published until Publish Selected is pressed - the status
+check is a read.
 
 Honest about what it does not know
 ----------------------------------
@@ -85,9 +94,11 @@ class DeePubCheckWindow(dee_branding.DeeBrandedWindow):
     _rows = []
     _all_items = {}
 
-    def __init__(self, xaml_file, uiapp):
+    def __init__(self, xaml_file):
+        # No UIApplication, no Document, no UIDocument - deliberately.
+        # This window talks to ACC over HTTPS and to nothing else, so
+        # there is no object here that could need a model to be open.
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
-        self.uiapp = uiapp
         self.logger = deew_logger.DeeWLogger(_TOOL_NAME)
 
         self._token = None
@@ -460,4 +471,4 @@ class DeePubCheckWindow(dee_branding.DeeBrandedWindow):
 
 
 if __name__ == "__main__":
-    DeePubCheckWindow("ui.xaml", __revit__).ShowDialog()
+    DeePubCheckWindow("ui.xaml").ShowDialog()

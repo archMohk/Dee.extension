@@ -1,3 +1,3 @@
 title: DeePublisher
-tooltip: Select Revit cloud files from ACC and batch-publish them. Supports Normal Publish (with links) and Publish without Links. Files are opened silently, published, then closed automatically.
+tooltip: Select Revit cloud files from ACC and batch-publish them. Supports Normal Publish (with links) and Publish without Links. No Revit file is opened and none needs to be open - it drives the ACC service directly, the same way the Publish button in ACC Docs does.
 context: zero-doc
