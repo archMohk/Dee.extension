@@ -77,7 +77,7 @@ _add("System.Windows.Controls", """
     DataGridSelectionUnit DataGridTextColumn Dock DockPanel Grid Image Label
     ListBox ListBoxItem ListView Orientation Panel ProgressBar RadioButton
     ScrollViewer SelectionChangedEventArgs Slider StackPanel TabControl
-    TabItem TextBlock TextBox ToolTip TreeView UserControl
+    TabItem TextBlock TextBox ToolTip TreeView UserControl WrapPanel
 """)
 _add("System.Windows.Shapes", "Ellipse Line Path Polygon Polyline Rectangle")
 _add("System.Windows.Threading",

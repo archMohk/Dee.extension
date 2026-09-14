@@ -62,7 +62,8 @@ from System import Action
 # System.Windows fails at load with "Cannot import name Cursors".
 from System.Windows import (CornerRadius, Point, TextTrimming, Thickness,
                             VerticalAlignment, Visibility)
-from System.Windows.Controls import Border, Canvas, Panel, TextBlock
+from System.Windows.Controls import (Border, Canvas, ComboBox, Panel,
+                                     TextBlock, WrapPanel)
 from System.Windows.Input import Cursors, Keyboard, ModifierKeys
 from System.Windows.Media import (Brushes, Color, DoubleCollection,
                                   PointCollection, SolidColorBrush,
@@ -78,6 +79,7 @@ import acc_file_browser as afb
 import deew_document_manager as docmgr
 import deew_failure_handler as ffh
 import deew_logger
+import dee_linkmap_service as lms
 import dee_maplink_service as dms
 import dee_telemetry
 dee_telemetry.check_access("DeeMAPLink")
@@ -142,6 +144,7 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         self._map_pos = {}
         self._map_boxes = {}
         self._map_wire_shapes = []
+        self._map_filter_cbs = []
         self._map_drag = None
         self._map_preview = None
         self.map_canvas.MouseMove += self._map_canvas_move
@@ -356,6 +359,7 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
     # ---------------- lists ----------------
         if getattr(self, "_map_ready", False):
             try:
+                self._map_build_filters()
                 self._map_build(keep_positions=False)
             except Exception as e:
                 self.logger.exception("Could not build the wire map", e)
@@ -468,8 +472,16 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
 
     def _map_visible_names(self):
         query = self._safe_text(self.map_search_tb)
-        return [n for n in sorted(self._all_items.keys())
-                if dms.matches_search(n, query)]
+        names = [n for n in sorted(self._all_items.keys())
+                 if dms.matches_search(n, query)]
+        # Search AND every chosen part - narrowing, the way anyone
+        # expects stacked filters to behave.
+        for index, combo in getattr(self, "_map_filter_cbs", []):
+            want = combo.SelectedItem
+            if not want or want == self._MAP_ALL:
+                continue
+            names = [n for n in names if self._map_segment(n, index) == want]
+        return names
 
     def _map_build(self, keep_positions=False):
         """Lays the file boxes out and redraws every wire.
@@ -549,7 +561,6 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         """Discipline colour, read from the same configured code list
         DeeLinkMAP's map uses - so a file is the same colour in both."""
         try:
-            import dee_linkmap_service as lms
             _code, label = lms.detect_discipline(name, lms.load_disciplines())
             if not hasattr(self, "_map_colours"):
                 self._map_colours = {}
@@ -563,6 +574,70 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
             return self._map_colours[label]
         except Exception:
             return SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88))
+
+    # ---- part filters -------------------------------------------
+    # The naming convention is positional, so part 3 is always the zone
+    # and part 7 always the discipline. Every part that VARIES across the
+    # scanned files becomes a dropdown; a part that is the same in every
+    # name (the project code, "MOD", the trailing zeros) is a constant,
+    # not a filter, and is left out.
+
+    _MAP_ALL = "(all)"
+
+    def _map_segment(self, name, index):
+        parts = lms.name_segments(name)
+        return parts[index] if 0 <= index < len(parts) else ""
+
+    def _map_build_filters(self):
+        """Rebuilds the dropdown row for whatever was just scanned."""
+        panel = self.map_filters_panel
+        panel.Children.Clear()
+        self._map_filter_cbs = []
+        names = sorted(self._all_items.keys())
+        if not names:
+            return
+
+        longest = 0
+        for name in names:
+            longest = max(longest, len(lms.name_segments(name)))
+
+        for index in range(longest):
+            values = sorted(set(self._map_segment(n, index) for n in names))
+            values = [v for v in values if v]
+            if len(values) < 2:
+                continue
+
+            label = TextBlock()
+            label.Text = "Part {0}:".format(index + 1)
+            label.Foreground = Brushes.Gray
+            label.VerticalAlignment = VerticalAlignment.Center
+            label.Margin = Thickness(8, 0, 4, 0)
+            panel.Children.Add(label)
+
+            combo = ComboBox()
+            combo.Width = 92
+            combo.Height = 22
+            combo.ToolTip = "{0} value(s): {1}".format(
+                len(values), ", ".join(values[:12]))
+            combo.Items.Add(self._MAP_ALL)
+            for value in values:
+                combo.Items.Add(value)
+            # Selected BEFORE the handler is attached: assigning it after
+            # fires SelectionChanged during setup, which rebuilds the map
+            # while it is still being built.
+            combo.SelectedIndex = 0
+            combo.SelectionChanged += self._map_filter_changed
+            combo.Tag = index
+            panel.Children.Add(combo)
+            self._map_filter_cbs.append((index, combo))
+
+    def _map_filter_changed(self, sender, args):
+        if getattr(self, "_map_ready", False):
+            self._guard_map(lambda: self._map_build(keep_positions=True))
+
+    def _map_clear_filters(self):
+        for _index, combo in getattr(self, "_map_filter_cbs", []):
+            combo.SelectedIndex = 0
 
     # ---- drawing wires ----
     def _map_centre(self, name):
@@ -760,7 +835,12 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
             self._guard_map(lambda: self._map_build(keep_positions=True))
 
     def map_clear_search_click(self, sender, args):
+        # Clears the dropdowns as well - a "Clear" that leaves three
+        # filters silently applied is a trap.
+        self._map_clear_filters()
         self.map_search_tb.Text = ""
+        if getattr(self, "_map_ready", False):
+            self._guard_map(lambda: self._map_build(keep_positions=True))
 
     def map_refresh_click(self, sender, args):
         self._guard_map(lambda: self._map_build(keep_positions=False))
