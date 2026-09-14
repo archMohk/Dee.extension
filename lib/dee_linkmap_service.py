@@ -446,6 +446,13 @@ _FILTER_UI = u"""<div id="controls">
       <input id="f_search" type="text" placeholder="part of a file name..."/>
     </div>
     <div class="f_row">
+      <label for="f_arrange">Arrangement</label>
+      <select id="f_arrange">
+        <option value="force">Force &mdash; clusters related files</option>
+        <option value="hierarchy">Hierarchy &mdash; follows the link flow</option>
+      </select>
+    </div>
+    <div class="f_row">
       <label for="f_group">Group by</label>
       <select id="f_group"></select>
     </div>
@@ -509,6 +516,148 @@ _FILTER_JS = u"""
     return m;
   }
 
+
+  // ---- second arrangement: hierarchy by link flow ------------------
+  // An edge here means "source links target", so target sits BELOW
+  // source and every arrow reads downward. A model's row is the longest
+  // link chain reaching it, which puts the shared reference models
+  // everything pulls in along the bottom where they belong.
+  var ARRANGE = "force";
+
+  function visibleNodes() {
+    return nodes.filter(function(n) { return !n.hidden; });
+  }
+
+  function rankNodes(list) {
+    var rank = {};
+    list.forEach(function(n) { rank[n.id] = 0; });
+    var live = edges.filter(function(e) {
+      return !e.source.hidden && !e.target.hidden &&
+             rank.hasOwnProperty(e.source.id) && rank.hasOwnProperty(e.target.id);
+    });
+    // Relaxation rather than a topological sort: link graphs really do
+    // contain cycles (two models linking each other is legal and
+    // happens), and a topological sort has nothing to say about those.
+    // Bounded by the node count, so a cycle costs a few extra passes
+    // instead of spinning.
+    var limit = Math.min(list.length, 60), changed = true, pass = 0;
+    while (changed && pass < limit) {
+      changed = false; pass++;
+      live.forEach(function(e) {
+        var want = rank[e.source.id] + 1;
+        if (want > rank[e.target.id]) { rank[e.target.id] = want; changed = true; }
+      });
+    }
+    return rank;
+  }
+
+  function layoutHierarchy() {
+    var list = visibleNodes();
+    if (!list.length) return;
+    var rank = rankNodes(list);
+
+    var rows = {};
+    var maxRank = 0;
+    list.forEach(function(n) {
+      var r = rank[n.id] || 0;
+      if (r > maxRank) maxRank = r;
+      (rows[r] = rows[r] || []).push(n);
+    });
+
+    // Start each row in a stable order so the result does not jump
+    // around between runs of the same scan.
+    for (var r = 0; r <= maxRank; r++) {
+      if (rows[r]) rows[r].sort(function(a, b) { return a.id < b.id ? -1 : 1; });
+    }
+
+    // Barycentre ordering: put each node near the average position of
+    // the nodes it connects to on the row above, then sweep back up.
+    // Four sweeps is where this stops paying for itself on maps this
+    // size.
+    var index = {};
+    function reindex() {
+      for (var rr = 0; rr <= maxRank; rr++) {
+        (rows[rr] || []).forEach(function(n, i) { index[n.id] = i; });
+      }
+    }
+    reindex();
+    var neighboursUp = {}, neighboursDown = {};
+    edges.forEach(function(e) {
+      if (e.source.hidden || e.target.hidden) return;
+      (neighboursUp[e.target.id] = neighboursUp[e.target.id] || []).push(e.source.id);
+      (neighboursDown[e.source.id] = neighboursDown[e.source.id] || []).push(e.target.id);
+    });
+    function sweep(useUp) {
+      var order = [];
+      for (var rr = 0; rr <= maxRank; rr++) order.push(rr);
+      if (!useUp) order.reverse();
+      order.forEach(function(rr) {
+        var row = rows[rr];
+        if (!row || row.length < 2) return;
+        var table = useUp ? neighboursUp : neighboursDown;
+        row.forEach(function(n) {
+          var near = (table[n.id] || []).filter(function(id) {
+            return index.hasOwnProperty(id);
+          });
+          n._bary = near.length
+            ? near.reduce(function(a, id) { return a + index[id]; }, 0) / near.length
+            : index[n.id];
+        });
+        row.sort(function(a, b) { return a._bary - b._bary; });
+        reindex();
+      });
+    }
+    for (var s = 0; s < 4; s++) sweep(s % 2 === 0);
+
+    // Place them. Rows are spaced by the tallest box in the row above,
+    // columns by each box's own width, so nothing collides and the
+    // gaps stay even whatever the names are.
+    var ROW_GAP = 90, COL_GAP = 34, WRAP_GAP = 26;
+    // A rank with 28 files in it would otherwise be one row about
+    // 9,600px wide, which fits on screen only at a zoom where nothing is
+    // readable. Wide ranks wrap into stacked sub-rows instead. Arrows
+    // still all point downward: a rank's sub-rows are laid out before
+    // the next rank starts, so nothing in rank r+1 ever sits above
+    // anything in rank r.
+    var MAX_ROW_W = 2400;
+    var y = 0;
+    for (var rr = 0; rr <= maxRank; rr++) {
+      var row = rows[rr] || [];
+      if (!row.length) continue;
+
+      var chunks = [], current = [], currentW = 0;
+      row.forEach(function(n) {
+        var w = (n._w || 190) + COL_GAP;
+        if (current.length && currentW + w > MAX_ROW_W) {
+          chunks.push(current); current = []; currentW = 0;
+        }
+        current.push(n); currentW += w;
+      });
+      if (current.length) chunks.push(current);
+
+      chunks.forEach(function(chunk, chunkIndex) {
+        var tallest = 0, total = 0;
+        chunk.forEach(function(n) {
+          tallest = Math.max(tallest, n._h || 70);
+          total += (n._w || 190) + COL_GAP;
+        });
+        total -= COL_GAP;
+        var x = -total / 2;
+        chunk.forEach(function(n) {
+          var w = n._w || 190;
+          n.x = x + w / 2;
+          n.y = y + tallest / 2;
+          n.vx = 0; n.vy = 0;
+          x += w + COL_GAP;
+        });
+        y += tallest + (chunkIndex < chunks.length - 1 ? WRAP_GAP : ROW_GAP);
+      });
+    }
+    // Centre the whole stack on the canvas the force layout uses.
+    var cx = W / 2, cy = H / 2 - y / 2;
+    list.forEach(function(n) { n.x += cx; n.y += cy; });
+  }
+
   function buildControls() {
     var total = maxSegments();
     var groupSel = document.getElementById("f_group");
@@ -539,6 +688,24 @@ _FILTER_JS = u"""
       segSelects.push(sel);
     }
 
+    var arrangeSel = document.getElementById("f_arrange");
+    arrangeSel.addEventListener("change", function() {
+      ARRANGE = arrangeSel.value;
+      // Grouping and hierarchy both decide where a box goes, so they
+      // cannot both be in charge. Hierarchy wins while it is selected,
+      // and the group control is disabled rather than silently ignored.
+      groupSel.disabled = (ARRANGE === "hierarchy");
+      if (ARRANGE === "hierarchy") {
+        GROUPS.active = false;
+        drawGroupFrames();
+      } else if (groupSel.value !== "") {
+        GROUPS.active = true;
+        GROUPS.key = (groupSel.value === "discipline")
+                   ? "discipline" : parseInt(groupSel.value, 10);
+        layoutGroups();
+      }
+      restartLayout();
+    });
     groupSel.addEventListener("change", function() {
       var v = groupSel.value;
       GROUPS.active = (v !== "");
@@ -550,7 +717,8 @@ _FILTER_JS = u"""
     document.getElementById("f_reset").addEventListener("click", function() {
       document.getElementById("f_search").value = "";
       segSelects.forEach(function(s) { s.value = ""; });
-      groupSel.value = "";
+      groupSel.value = ""; groupSel.disabled = false;
+      arrangeSel.value = "force"; ARRANGE = "force";
       GROUPS.active = false; GROUPS.key = null;
       applyFilters();
     });
@@ -933,6 +1101,15 @@ var DATA = {data_json};
 
   var ticks = 0, settling = false;
   function settle() {{
+    // Switching to hierarchy while a force run is still in flight used
+    // to leave the old loop running: it kept calling step() and undoing
+    // the computed rows, so the "rows" came out as a scatter. The loop
+    // checks on every frame whether it is still the arrangement in
+    // charge, and stands down if not.
+    if (typeof ARRANGE !== "undefined" && ARRANGE === "hierarchy") {{
+      settling = false;
+      return;
+    }}
     settling = true;
     step();
     ticks++;
@@ -949,6 +1126,14 @@ var DATA = {data_json};
   // two loops would run at once and the layout would jitter.
   var pendingFit = true;
   function restartLayout() {{
+    if (typeof ARRANGE !== "undefined" && ARRANGE === "hierarchy") {{
+      // Hierarchy is computed, not simulated - there is nothing for the
+      // force loop to do, and letting it run would drag the rows apart.
+      layoutHierarchy();
+      render();
+      fitView();
+      return;
+    }}
     ticks = 0;
     pendingFit = true;
     if (!settling) settle();
