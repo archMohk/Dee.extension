@@ -367,24 +367,44 @@ def _tie_breaker(n, is_alpha):
     return _to_alpha(n) if is_alpha else str(n)
 
 
-def _generate_mode_a(preview_rows, prefix, separator, pad, is_alpha):
+def _combine(added, original_name, placement, separator):
+    """Combines the mode-generated `added` text with the item's own
+    current name, per the Name Placement choice - "add to the current
+    name" (prefix/suffix) rather than always fully replacing it, per the
+    user's explicit request. "replace" keeps the pre-existing behavior
+    (added text alone becomes the whole new name)."""
+    if placement == "prefix":
+        return u"{0}{1}{2}".format(added, separator, original_name)
+    if placement == "suffix":
+        return u"{0}{1}{2}".format(original_name, separator, added)
+    return added
+
+
+def _generate_mode_a(preview_rows, prefix, separator, pad, is_alpha, placement):
     seq_tok = renamer.sequence_token(pad=pad, letters=is_alpha)
     template = u"{0}{1}{2}".format(prefix, separator, seq_tok)
     for i, row in enumerate(preview_rows, start=1):
         ctx = {"sheet": row.picker_row.element, "original_number": row.old_number,
                "original_name": row.old_name, "serial_value": i}
-        row.new_name = renamer.render_template(template, ctx)
+        added = renamer.render_template(template, ctx)
+        row.new_name = _combine(added, row.old_name, placement, separator)
 
 
-def _generate_mode_b(preview_rows, prefix, separator, is_alpha, taken_names):
+def _generate_mode_b(preview_rows, prefix, separator, is_alpha, taken_names, placement):
+    """The tie-breaker collision check runs against the FINAL candidate
+    name (after placement is applied), not the bare prefix - so "Replace"
+    placement still avoids colliding with an existing project name, and
+    "Add Before/After" avoids colliding with another duplicate landing on
+    the same combined name."""
     taken = set(taken_names)
     for row in preview_rows:
-        base = prefix + row.old_name
-        candidate = base
+        added = prefix
+        candidate = _combine(added, row.old_name, placement, separator)
         n = 1
         while candidate in taken:
             n += 1
-            candidate = u"{0}{1}{2}".format(base, separator, _tie_breaker(n, is_alpha))
+            added = u"{0}{1}{2}".format(prefix, separator, _tie_breaker(n, is_alpha))
+            candidate = _combine(added, row.old_name, placement, separator)
         taken.add(candidate)
         row.new_name = candidate
 
@@ -665,6 +685,7 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
 
         self.mode_a_rb.IsChecked = True
         self.counter_numeric_rb.IsChecked = True
+        self.place_prefix_rb.IsChecked = True
 
         self._scan()
 
@@ -742,24 +763,30 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
         except Exception:
             pad = 0
         mode = "A" if bool(self.mode_a_rb.IsChecked) else "B"
-        return prefix, separator, is_alpha, pad, mode
+        if bool(self.place_suffix_rb.IsChecked):
+            placement = "suffix"
+        elif bool(self.place_replace_rb.IsChecked):
+            placement = "replace"
+        else:
+            placement = "prefix"
+        return prefix, separator, is_alpha, pad, mode, placement
 
     def generate_preview_click(self, sender, args):
         checked = [r for r in self._picker_all_rows if r.selected]
         if not checked:
             forms.alert("Check at least one Sheet, View or Schedule on the Pick Items tab first.")
             return
-        prefix, separator, is_alpha, pad, mode = self._read_naming_inputs()
+        prefix, separator, is_alpha, pad, mode, placement = self._read_naming_inputs()
         if not prefix:
             forms.alert("Type a Prefix / Batch Name on the Naming tab first.")
             return
 
         preview_rows = [PreviewRow(r) for r in checked]
         if mode == "A":
-            _generate_mode_a(preview_rows, prefix, separator, pad, is_alpha)
+            _generate_mode_a(preview_rows, prefix, separator, pad, is_alpha, placement)
         else:
             taken_names = _all_taken_names(self.doc)
-            _generate_mode_b(preview_rows, prefix, separator, is_alpha, taken_names)
+            _generate_mode_b(preview_rows, prefix, separator, is_alpha, taken_names, placement)
         taken_numbers = _all_taken_numbers(self.doc)
         _assign_sheet_numbers(preview_rows, taken_numbers)
         _compute_statuses(preview_rows)
@@ -795,7 +822,7 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
                             title="DeeV.S.Dupl. - Confirm", yes=True, no=True):
             return
 
-        prefix, _sep, _alpha, _pad, _mode = self._read_naming_inputs()
+        prefix, _sep, _alpha, _pad, _mode, _placement = self._read_naming_inputs()
         dup_templates = bool(self.dup_templates_cb.IsChecked)
 
         self.run_status_tb.Text = "Running..."

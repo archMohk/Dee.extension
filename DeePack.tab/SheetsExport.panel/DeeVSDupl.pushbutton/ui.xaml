@@ -100,9 +100,20 @@
                             <GroupBox Header="Naming Mode" Padding="6" Margin="0,0,0,8">
                                 <StackPanel>
                                     <RadioButton x:Name="mode_a_rb" GroupName="naming_mode" Margin="0,0,0,6"
-                                                 Content="Mode A - Shared batch counter (e.g. REV-1, REV-2, REV-3...)"/>
+                                                 Content="Mode A - Shared batch counter (one running number/letter across everything checked)"/>
                                     <RadioButton x:Name="mode_b_rb" GroupName="naming_mode"
-                                                 Content="Mode B - Prefix + original name (e.g. REV_A101); counter only breaks a tie"/>
+                                                 Content="Mode B - Per-item (counter only used if a real name clash occurs)"/>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="Name Placement" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <RadioButton x:Name="place_prefix_rb" GroupName="name_placement" Margin="0,0,0,6"
+                                                 Content="Add BEFORE the current name (e.g. REV-1-A101)"/>
+                                    <RadioButton x:Name="place_suffix_rb" GroupName="name_placement" Margin="0,0,0,6"
+                                                 Content="Add AFTER the current name (e.g. A101-REV-1)"/>
+                                    <RadioButton x:Name="place_replace_rb" GroupName="name_placement"
+                                                 Content="Replace the current name entirely (e.g. REV-1)"/>
                                 </StackPanel>
                             </GroupBox>
 
