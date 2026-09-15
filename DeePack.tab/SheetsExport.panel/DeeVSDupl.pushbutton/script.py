@@ -173,6 +173,9 @@ class PreviewRow(object):
         self.old_name = picker_row.name
         self.new_number = picker_row.number
         self.new_name = picker_row.name
+        self.tag_value = ""  # the Prefix+counter token alone (e.g. "N4"),
+                              # not the combined new_name (e.g. "N4-SITE") -
+                              # this is what gets written to the tag parameter
         self.status = ""
 
     @property
@@ -387,6 +390,7 @@ def _generate_mode_a(preview_rows, prefix, sep_before, sep_after, pad, is_alpha,
         ctx = {"sheet": row.picker_row.element, "original_number": row.old_number,
                "original_name": row.old_name, "serial_value": start + idx * step}
         added = renamer.render_template(template, ctx)
+        row.tag_value = added
         row.new_name = _combine(added, row.old_name, placement, sep_after)
 
 
@@ -407,6 +411,7 @@ def _generate_mode_b(preview_rows, prefix, sep_before, sep_after, is_alpha, take
             added = u"{0}{1}{2}".format(prefix, sep_before, _tie_breaker(n, is_alpha))
             candidate = _combine(added, row.old_name, placement, sep_after)
         taken.add(candidate)
+        row.tag_value = added
         row.new_name = candidate
 
 
@@ -430,6 +435,7 @@ def _generate_by_copy(preview_rows_by_copy, prefix, sep_before, sep_after, pad, 
         added = renamer.render_template(template, ctx)
         for row in rows:
             if mode == "A":
+                row.tag_value = added
                 row.new_name = _combine(added, row.old_name, placement, sep_after)
                 continue
             candidate = _combine(added, row.old_name, placement, sep_after)
@@ -440,6 +446,7 @@ def _generate_by_copy(preview_rows_by_copy, prefix, sep_before, sep_after, pad, 
                 cur_added = u"{0}{1}{2}".format(added, sep_before, _tie_breaker(n, is_alpha))
                 candidate = _combine(cur_added, row.old_name, placement, sep_after)
             taken.add(candidate)
+            row.tag_value = cur_added
             row.new_name = candidate
 
 
@@ -571,7 +578,7 @@ def _apply_mapped_template(new_view, original_view, dup_templates, template_map)
 # Phase 3 - per-item duplication, one Transaction per top-level checked
 # item (isolates a single bad item's rollback from the rest of the batch)
 # --------------------------------------------------------------------------
-def _duplicate_view_or_schedule(doc, row, dup_templates, template_map, prefix, param_name):
+def _duplicate_view_or_schedule(doc, row, dup_templates, template_map, param_name):
     original = row.picker_row.element
     t = Transaction(doc, "DeeVSDupl - Duplicate {0}".format(row.kind))
     t.Start()
@@ -580,7 +587,7 @@ def _duplicate_view_or_schedule(doc, row, dup_templates, template_map, prefix, p
         new_el = doc.GetElement(new_id)
         _apply_mapped_template(new_el, original, dup_templates, template_map)
         new_el.Name = row.new_name
-        _set_tag(new_el, prefix, param_name)
+        _set_tag(new_el, row.tag_value, param_name)
         t.Commit()
         return True, "Duplicated as '{0}'".format(row.new_name)
     except Exception as e:
@@ -588,7 +595,7 @@ def _duplicate_view_or_schedule(doc, row, dup_templates, template_map, prefix, p
         return False, "FAILED: {0}".format(e)
 
 
-def _duplicate_sheet(doc, row, dup_templates, template_map, prefix, vp_by_sheet, ssi_by_sheet, param_name):
+def _duplicate_sheet(doc, row, dup_templates, template_map, vp_by_sheet, ssi_by_sheet, param_name):
     original_sheet = row.picker_row.element
     t = Transaction(doc, "DeeVSDupl - Duplicate Sheet")
     t.Start()
@@ -599,7 +606,7 @@ def _duplicate_sheet(doc, row, dup_templates, template_map, prefix, vp_by_sheet,
         new_sheet = ViewSheet.Create(doc, tb_type_id)
         new_sheet.SheetNumber = row.new_number
         new_sheet.Name = row.new_name
-        _set_tag(new_sheet, prefix, param_name)
+        _set_tag(new_sheet, row.tag_value, param_name)
 
         detail_bits = []
         for vp in vp_by_sheet.get(original_sheet.Id.IntegerValue, []):
@@ -613,7 +620,7 @@ def _duplicate_sheet(doc, row, dup_templates, template_map, prefix, vp_by_sheet,
                 new_view.Name = u"{0} - {1}".format(row.new_name, _read_name(src_view) or "View")
             except Exception:
                 pass
-            _set_tag(new_view, prefix, param_name)
+            _set_tag(new_view, row.tag_value, param_name)
             if Viewport.CanAddViewToSheet(doc, new_sheet.Id, new_view.Id):
                 Viewport.Create(doc, new_sheet.Id, new_view.Id, vp.GetBoxCenter())
                 detail_bits.append("1 view")
@@ -628,7 +635,7 @@ def _duplicate_sheet(doc, row, dup_templates, template_map, prefix, vp_by_sheet,
                 new_sched.Name = u"{0} - {1}".format(row.new_name, _read_name(src_sched) or "Schedule")
             except Exception:
                 pass
-            _set_tag(new_sched, prefix, param_name)
+            _set_tag(new_sched, row.tag_value, param_name)
             ScheduleSheetInstance.Create(doc, new_sheet.Id, new_sched.Id, ssi.Point)
             detail_bits.append("1 schedule")
 
@@ -893,7 +900,7 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
                             title="DeeV.S.Dupl. - Confirm", yes=True, no=True):
             return
 
-        prefix, _sb, _sa, _alpha, _pad, _mode, _placement, _start, _step = self._read_naming_inputs()
+        _prefix, _sb, _sa, _alpha, _pad, _mode, _placement, _start, _step = self._read_naming_inputs()
         param_name = self._read_param_name()
         dup_templates = bool(self.dup_templates_cb.IsChecked)
 
@@ -922,13 +929,12 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
                 if getattr(pb, "cancelled", False):
                     break
                 if r.kind == "Sheet":
-                    ok, detail = _duplicate_sheet(self.doc, r, dup_templates, template_map, prefix,
+                    ok, detail = _duplicate_sheet(self.doc, r, dup_templates, template_map,
                                                    vp_by_sheet, ssi_by_sheet, param_name)
                     old_label = u"{0} - {1}".format(r.old_number, r.old_name)
                     new_label = u"{0} - {1}".format(r.new_number, r.new_name)
                 else:
-                    ok, detail = _duplicate_view_or_schedule(self.doc, r, dup_templates, template_map,
-                                                              prefix, param_name)
+                    ok, detail = _duplicate_view_or_schedule(self.doc, r, dup_templates, template_map, param_name)
                     old_label = r.old_name
                     new_label = r.new_name
                 results.append(ResultRow(ok, r.kind, old_label, new_label, detail))
