@@ -128,7 +128,9 @@
 
                             <GroupBox Header="View Templates" Padding="6" Margin="0,0,0,8">
                                 <StackPanel>
-                                    <CheckBox x:Name="dup_templates_cb" Content="Also duplicate View Templates as independent copies" TextWrapping="Wrap"/>
+                                    <CheckBox x:Name="dup_templates_cb">
+                                        <TextBlock Text="Also duplicate View Templates as independent copies" TextWrapping="Wrap"/>
+                                    </CheckBox>
                                     <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,4,0,0"
                                                Text="Unchecked (default) = new views keep sharing the ORIGINAL template, exactly like Revit's own Duplicate View. Checked = a template used by any checked view is copied once per distinct template and the duplicate views point at the new copy instead - the original template and any other views using it are left untouched."/>
                                 </StackPanel>
