@@ -68,7 +68,7 @@ dee_telemetry.check_access("DeeVSDupl")
 
 output = script.get_output()
 _XAML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui.xaml")
-_TAG_PARAM_NAME = "Dee Duplicate Batch"
+_DEFAULT_TAG_PARAM_NAME = "Dee Duplicate Batch"
 
 # Revit rejects these characters in a Sheet Number/Name and most other
 # element names with a runtime exception - copied locally from
@@ -459,16 +459,16 @@ def _compute_statuses(preview_rows):
 # Shared parameter (Phase 1 - own transactions, committed before anything
 # else runs)
 # --------------------------------------------------------------------------
-def _ensure_tag_parameter(doc):
+def _ensure_tag_parameter(doc, param_name):
     warnings = []
     for bic, label in ((BuiltInCategory.OST_Sheets, "Sheets"),
                         (BuiltInCategory.OST_Views, "Views"),
                         (BuiltInCategory.OST_Schedules, "Schedules")):
         try:
             res = dee_shared_param_service.ensure_shared_parameters(
-                doc, doc.Application, [_TAG_PARAM_NAME], bic, label,
+                doc, doc.Application, [param_name], bic, label,
                 transaction_name="DeeVSDupl - Create/Extend Shared Parameter ({0})".format(label))
-            ok, detail = res.get(_TAG_PARAM_NAME, (False, "no result"))
+            ok, detail = res.get(param_name, (False, "no result"))
         except Exception as e:
             ok, detail = False, str(e)
         if not ok:
@@ -476,9 +476,9 @@ def _ensure_tag_parameter(doc):
     return warnings
 
 
-def _set_tag(element, value):
+def _set_tag(element, value, param_name):
     try:
-        p = element.LookupParameter(_TAG_PARAM_NAME)
+        p = element.LookupParameter(param_name)
         if p is not None and not p.IsReadOnly:
             p.Set(value)
     except Exception:
@@ -537,7 +537,7 @@ def _apply_mapped_template(new_view, original_view, dup_templates, template_map)
 # Phase 3 - per-item duplication, one Transaction per top-level checked
 # item (isolates a single bad item's rollback from the rest of the batch)
 # --------------------------------------------------------------------------
-def _duplicate_view_or_schedule(doc, row, dup_templates, template_map, prefix):
+def _duplicate_view_or_schedule(doc, row, dup_templates, template_map, prefix, param_name):
     original = row.picker_row.element
     t = Transaction(doc, "DeeVSDupl - Duplicate {0}".format(row.kind))
     t.Start()
@@ -546,7 +546,7 @@ def _duplicate_view_or_schedule(doc, row, dup_templates, template_map, prefix):
         new_el = doc.GetElement(new_id)
         _apply_mapped_template(new_el, original, dup_templates, template_map)
         new_el.Name = row.new_name
-        _set_tag(new_el, prefix)
+        _set_tag(new_el, prefix, param_name)
         t.Commit()
         return True, "Duplicated as '{0}'".format(row.new_name)
     except Exception as e:
@@ -554,7 +554,7 @@ def _duplicate_view_or_schedule(doc, row, dup_templates, template_map, prefix):
         return False, "FAILED: {0}".format(e)
 
 
-def _duplicate_sheet(doc, row, dup_templates, template_map, prefix, vp_by_sheet, ssi_by_sheet):
+def _duplicate_sheet(doc, row, dup_templates, template_map, prefix, vp_by_sheet, ssi_by_sheet, param_name):
     original_sheet = row.picker_row.element
     t = Transaction(doc, "DeeVSDupl - Duplicate Sheet")
     t.Start()
@@ -565,7 +565,7 @@ def _duplicate_sheet(doc, row, dup_templates, template_map, prefix, vp_by_sheet,
         new_sheet = ViewSheet.Create(doc, tb_type_id)
         new_sheet.SheetNumber = row.new_number
         new_sheet.Name = row.new_name
-        _set_tag(new_sheet, prefix)
+        _set_tag(new_sheet, prefix, param_name)
 
         detail_bits = []
         for vp in vp_by_sheet.get(original_sheet.Id.IntegerValue, []):
@@ -579,7 +579,7 @@ def _duplicate_sheet(doc, row, dup_templates, template_map, prefix, vp_by_sheet,
                 new_view.Name = u"{0} - {1}".format(row.new_name, _read_name(src_view) or "View")
             except Exception:
                 pass
-            _set_tag(new_view, prefix)
+            _set_tag(new_view, prefix, param_name)
             if Viewport.CanAddViewToSheet(doc, new_sheet.Id, new_view.Id):
                 Viewport.Create(doc, new_sheet.Id, new_view.Id, vp.GetBoxCenter())
                 detail_bits.append("1 view")
@@ -594,7 +594,7 @@ def _duplicate_sheet(doc, row, dup_templates, template_map, prefix, vp_by_sheet,
                 new_sched.Name = u"{0} - {1}".format(row.new_name, _read_name(src_sched) or "Schedule")
             except Exception:
                 pass
-            _set_tag(new_sched, prefix)
+            _set_tag(new_sched, prefix, param_name)
             ScheduleSheetInstance.Create(doc, new_sheet.Id, new_sched.Id, ssi.Point)
             detail_bits.append("1 schedule")
 
@@ -771,15 +771,31 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
             placement = "prefix"
         return prefix, separator, is_alpha, pad, mode, placement
 
+    def _read_param_name(self):
+        return (self.param_name_tb.Text or "").strip() or _DEFAULT_TAG_PARAM_NAME
+
+    def _read_copies(self):
+        try:
+            n = int((self.copies_tb.Text or "").strip())
+        except Exception:
+            n = 1
+        return n if n > 0 else 1
+
     def generate_preview_click(self, sender, args):
-        checked = [r for r in self._picker_all_rows if r.selected]
-        if not checked:
+        checked_once = [r for r in self._picker_all_rows if r.selected]
+        if not checked_once:
             forms.alert("Check at least one Sheet, View or Schedule on the Pick Items tab first.")
             return
         prefix, separator, is_alpha, pad, mode, placement = self._read_naming_inputs()
         if not prefix:
             forms.alert("Type a Prefix / Batch Name on the Naming tab first.")
             return
+        copies = self._read_copies()
+        # N full passes over the same checked set, back to back - Mode A's
+        # counter keeps counting across all of them, and Mode B's collision
+        # check (below) naturally avoids clashing with the copies already
+        # staged, so every copy gets distinct names with no extra logic.
+        checked = checked_once * copies
 
         preview_rows = [PreviewRow(r) for r in checked]
         if mode == "A":
@@ -823,11 +839,12 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
             return
 
         prefix, _sep, _alpha, _pad, _mode, _placement = self._read_naming_inputs()
+        param_name = self._read_param_name()
         dup_templates = bool(self.dup_templates_cb.IsChecked)
 
         self.run_status_tb.Text = "Running..."
         results = []
-        warnings = _ensure_tag_parameter(self.doc)
+        warnings = _ensure_tag_parameter(self.doc, param_name)
 
         template_map = {}
         if dup_templates:
@@ -851,11 +868,12 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
                     break
                 if r.kind == "Sheet":
                     ok, detail = _duplicate_sheet(self.doc, r, dup_templates, template_map, prefix,
-                                                   vp_by_sheet, ssi_by_sheet)
+                                                   vp_by_sheet, ssi_by_sheet, param_name)
                     old_label = u"{0} - {1}".format(r.old_number, r.old_name)
                     new_label = u"{0} - {1}".format(r.new_number, r.new_name)
                 else:
-                    ok, detail = _duplicate_view_or_schedule(self.doc, r, dup_templates, template_map, prefix)
+                    ok, detail = _duplicate_view_or_schedule(self.doc, r, dup_templates, template_map,
+                                                              prefix, param_name)
                     old_label = r.old_name
                     new_label = r.new_name
                 results.append(ResultRow(ok, r.kind, old_label, new_label, detail))

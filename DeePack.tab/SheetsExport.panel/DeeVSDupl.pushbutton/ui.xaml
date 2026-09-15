@@ -92,8 +92,27 @@
                             <GroupBox Header="Batch Name / Prefix" Padding="6" Margin="0,0,0,8">
                                 <StackPanel>
                                     <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,0,0,4"
-                                               Text="Required. Also written into every duplicate's 'Dee Duplicate Batch' parameter, so you can group/isolate this batch in Revit's Project Browser afterward."/>
+                                               Text="Required. Also written into every duplicate's tag parameter (named below), so you can group/isolate this batch in Revit's Project Browser afterward."/>
                                     <TextBox x:Name="prefix_tb" FontFamily="Consolas" FontSize="13"/>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="Tag Parameter" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,0,0,4"
+                                               Text="Name of the shared parameter written onto every duplicate. Change this to use a different parameter name - a new one is created the first time you use it; typing back an existing name reuses it."/>
+                                    <TextBox x:Name="param_name_tb" FontFamily="Consolas" FontSize="13" Text="Dee Duplicate Batch"/>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="Copies" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,0,0,4"
+                                               Text="How many full copies of the checked set to create in this one run. The naming standard above continues across every copy (Mode A's counter keeps going; Mode B avoids clashing with the copies already made), so every copy gets distinct names automatically."/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="Number of copies:" VerticalAlignment="Center" Width="110"/>
+                                        <TextBox x:Name="copies_tb" Text="1" Width="50" Height="22"/>
+                                    </StackPanel>
                                 </StackPanel>
                             </GroupBox>
 
