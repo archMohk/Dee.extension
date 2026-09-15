@@ -382,6 +382,12 @@ GLYPHS = {
         rf(26, 24, 46, 32), ln(26, 40, 70, 40, "ink", 0.8),
         ln(26, 50, 70, 50, "ink", 0.8), ln(48, 24, 48, 62, "ink", 0.8),
     ],
+    # Two overlapping sheets (the DeeView "overlap" motif, reused here for
+    # the same "more than one of this" read) plus a small plus-sign accent
+    # to say "duplicate" rather than just "two views".
+    "DeeVSDupl": lambda: sheet(12, 10, 60, 60, "ink", 0.9) + sheet(36, 34, 84, 84, "accent", 1.15) + [
+        ln(70, 16, 84, 16, "accent", 1.4), ln(77, 9, 77, 23, "accent", 1.4),
+    ],
     "DeePrinter": lambda: [
         rc(26, 18, 70, 38, "ink", 0.95, 2),
         rc(16, 38, 80, 66, "ink", 1.0, 4),

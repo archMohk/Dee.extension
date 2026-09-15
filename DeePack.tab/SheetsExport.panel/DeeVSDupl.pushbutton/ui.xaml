@@ -1,0 +1,194 @@
+<Window
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="DeeV.S.Dupl. — Duplicate Sheets, Views &amp; Schedules" Height="760" Width="1280"
+    MinHeight="620" MinWidth="1000"
+    WindowStartupLocation="CenterScreen"
+    ResizeMode="CanResize"
+    ShowInTaskbar="False">
+    <Window.Resources>
+        <Style x:Key="previewRowStyle" TargetType="DataGridRow">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding status}" Value="Ready">
+                    <Setter Property="Background" Value="#C6E0B4"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding status}" Value="Empty">
+                    <Setter Property="Background" Value="#FFE699"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding status}" Value="Duplicate">
+                    <Setter Property="Background" Value="#F4C7C3"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding status}" Value="Invalid">
+                    <Setter Property="Background" Value="#F1948A"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="resultRowStyle" TargetType="DataGridRow">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding ok}" Value="True">
+                    <Setter Property="Background" Value="#C6E0B4"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ok}" Value="False">
+                    <Setter Property="Background" Value="#F4C7C3"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+    <DockPanel Margin="10">
+        <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
+                Width="100" Height="28" HorizontalAlignment="Right" Margin="0,10,0,0"/>
+
+        <TabControl x:Name="main_tabs">
+            <!-- TAB 1: Pick Items -->
+            <TabItem Header="Pick Items">
+                <DockPanel Margin="10">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8" FontSize="12"
+                               Text="Every Sheet, View and Schedule in the project - all pre-checked. Uncheck anything you don't want duplicated. The Has Template column is informational only (see the Naming tab for the template-duplication toggle)."/>
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBox x:Name="pick_search_tb" Width="220" Height="24"/>
+                        <Button x:Name="pick_filter_b" Content="Filter" Width="70" Height="24" Margin="6,0,0,0" Click="pick_filter_click"/>
+                        <Button x:Name="pick_clear_filter_b" Content="Clear" Width="60" Height="24" Margin="4,0,0,0" Click="pick_clear_filter_click"/>
+                    </StackPanel>
+
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <Button x:Name="select_all_b" Content="Select All" Width="90" Height="24" Click="select_all_click"/>
+                        <Button x:Name="select_none_b" Content="Select None" Width="90" Height="24" Margin="6,0,0,0" Click="select_none_click"/>
+                        <Button x:Name="select_all_sheets_b" Content="Select All Sheets" Width="120" Height="24" Margin="16,0,0,0" Click="select_all_sheets_click"/>
+                        <Button x:Name="select_all_views_b" Content="Select All Views" Width="115" Height="24" Margin="6,0,0,0" Click="select_all_views_click"/>
+                        <Button x:Name="select_all_schedules_b" Content="Select All Schedules" Width="135" Height="24" Margin="6,0,0,0" Click="select_all_schedules_click"/>
+                    </WrapPanel>
+
+                    <TextBlock x:Name="picker_summary_tb" DockPanel.Dock="Bottom" Margin="0,8,0,0" FontStyle="Italic"
+                               Text="0 of 0 selected (0 sheets, 0 views, 0 schedules)"/>
+
+                    <DataGrid x:Name="picker_grid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserSortColumns="True"
+                              SelectionMode="Extended" SelectionUnit="FullRow">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Include" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
+                            <DataGridTextColumn Header="Kind" Binding="{Binding kind}" IsReadOnly="True" Width="80"/>
+                            <DataGridTextColumn Header="Number" Binding="{Binding number}" IsReadOnly="True" Width="90"/>
+                            <DataGridTextColumn Header="Name" Binding="{Binding name}" IsReadOnly="True" Width="2*"/>
+                            <DataGridTextColumn Header="Type / Discipline" Binding="{Binding type_label}" IsReadOnly="True" Width="*"/>
+                            <DataGridCheckBoxColumn Header="Has Template" Binding="{Binding has_template}" IsReadOnly="True" Width="90"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- TAB 2: Naming -->
+            <TabItem Header="Naming">
+                <Grid Margin="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="360"/>
+                        <ColumnDefinition Width="10"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Left: naming rule -->
+                    <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel>
+                            <GroupBox Header="Batch Name / Prefix" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,0,0,4"
+                                               Text="Required. Also written into every duplicate's 'Dee Duplicate Batch' parameter, so you can group/isolate this batch in Revit's Project Browser afterward."/>
+                                    <TextBox x:Name="prefix_tb" FontFamily="Consolas" FontSize="13"/>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="Naming Mode" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <RadioButton x:Name="mode_a_rb" GroupName="naming_mode" Margin="0,0,0,6"
+                                                 Content="Mode A - Shared batch counter (e.g. REV-1, REV-2, REV-3...)"/>
+                                    <RadioButton x:Name="mode_b_rb" GroupName="naming_mode"
+                                                 Content="Mode B - Prefix + original name (e.g. REV_A101); counter only breaks a tie"/>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="Counter Style" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                        <RadioButton x:Name="counter_numeric_rb" GroupName="counter_style" Content="Numeric (1, 2, 3...)"
+                                                     Checked="counter_style_changed" VerticalAlignment="Center"/>
+                                        <RadioButton x:Name="counter_alpha_rb" GroupName="counter_style" Content="Alphabetic (A, B, C...)"
+                                                     Checked="counter_style_changed" VerticalAlignment="Center" Margin="20,0,0,0"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                        <TextBlock Text="Pad width:" VerticalAlignment="Center" Width="70"
+                                                   ToolTip="Zero-padding for the numeric counter (e.g. 3 -&gt; 001, 002...). Ignored for the alphabetic counter."/>
+                                        <TextBox x:Name="pad_width_tb" Text="0" Width="50" Height="22"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="Separator:" VerticalAlignment="Center" Width="70"/>
+                                        <TextBox x:Name="separator_tb" Text="-" Width="50" Height="22"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="View Templates" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <CheckBox x:Name="dup_templates_cb" Content="Also duplicate View Templates as independent copies" TextWrapping="Wrap"/>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,4,0,0"
+                                               Text="Unchecked (default) = new views keep sharing the ORIGINAL template, exactly like Revit's own Duplicate View. Checked = a template used by any checked view is copied once per distinct template and the duplicate views point at the new copy instead - the original template and any other views using it are left untouched."/>
+                                </StackPanel>
+                            </GroupBox>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Right: preview + run -->
+                    <DockPanel Grid.Column="2">
+                        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,6" FontSize="12"
+                                   Text="Click Generate Preview to see the exact New Name (and, for Sheets, New Number) before anything is created. Only Ready rows are duplicated when you click Run."/>
+
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                            <Button x:Name="generate_preview_b" Content="Generate Preview" Width="150" Height="30" FontWeight="Bold" Click="generate_preview_click"/>
+                            <Button x:Name="reset_preview_b" Content="Reset Preview" Width="110" Height="30" Margin="6,0,0,0" Click="reset_preview_click"/>
+                        </StackPanel>
+
+                        <Border DockPanel.Dock="Top" Background="#F5F5F5" BorderBrush="#CCCCCC" BorderThickness="0,1,0,1"
+                                Padding="8,6,8,6" Margin="0,0,0,6">
+                            <TextBlock x:Name="preview_counts_tb" HorizontalAlignment="Center" FontWeight="Bold" FontSize="12"
+                                       Text="Check items on Pick Items, set a Prefix, then click Generate Preview."/>
+                        </Border>
+
+                        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+                            <Button x:Name="run_b" Content="Run Duplication" Width="150" Height="32" FontWeight="Bold" Click="run_click"/>
+                            <TextBlock x:Name="run_status_tb" Text="" VerticalAlignment="Center" Margin="16,0,0,0" FontStyle="Italic"/>
+                        </StackPanel>
+
+                        <DataGrid x:Name="preview_grid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserSortColumns="True"
+                                  SelectionMode="Extended" SelectionUnit="FullRow" IsReadOnly="True"
+                                  RowStyle="{StaticResource previewRowStyle}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Kind" Binding="{Binding kind}" Width="80"/>
+                                <DataGridTextColumn Header="Old Name" Binding="{Binding old_text}" Width="2*"/>
+                                <DataGridTextColumn Header="New Name" Binding="{Binding new_text}" Width="2*"/>
+                                <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="90"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- TAB 3: Results -->
+            <TabItem Header="Results">
+                <DockPanel Margin="10">
+                    <TextBlock x:Name="results_summary_tb" DockPanel.Dock="Top" Margin="0,0,0,8" FontWeight="Bold"
+                               Text="Run the duplication from the Naming tab to see results here."/>
+                    <DataGrid x:Name="results_grid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserSortColumns="True"
+                              SelectionMode="Extended" SelectionUnit="FullRow" IsReadOnly="True"
+                              RowStyle="{StaticResource resultRowStyle}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Kind" Binding="{Binding kind}" Width="80"/>
+                            <DataGridTextColumn Header="Original" Binding="{Binding original}" Width="2*"/>
+                            <DataGridTextColumn Header="New" Binding="{Binding new_label}" Width="2*"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status_text}" Width="80"/>
+                            <DataGridTextColumn Header="Detail" Binding="{Binding detail}" Width="3*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>

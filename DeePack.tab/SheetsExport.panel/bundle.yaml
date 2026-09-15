@@ -1,6 +1,7 @@
 title: "Sheets & Export"
 layout:
   - DeeSheet
+  - DeeVSDupl
   - DeeAligner
   - DeePrinter
   - Dee3D

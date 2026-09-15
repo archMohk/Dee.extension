@@ -128,7 +128,7 @@ TOOL_CATEGORIES = {
     "DeeWSync": "cloud",
     "DeeWTransfer": "cloud",
     "DeeWTransmit": "cloud",
-    # Views, Sheets & Documentation (14 tools)
+    # Views, Sheets & Documentation (15 tools)
     "Dee3D": "views_sheets",
     "DeeAligner": "views_sheets",
     "DeeCordiPoint": "views_sheets",
@@ -140,6 +140,7 @@ TOOL_CATEGORIES = {
     "DeeReLevel": "views_sheets",
     "DeeScheduleXL": "views_sheets",
     "DeeSheet": "views_sheets",
+    "DeeVSDupl": "views_sheets",
     "DeeVTemplate": "views_sheets",
     "DeeView": "views_sheets",
     "DeeViewAdjust": "views_sheets",
