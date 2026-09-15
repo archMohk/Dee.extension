@@ -145,13 +145,29 @@
                                                      Checked="counter_style_changed" VerticalAlignment="Center" Margin="20,0,0,0"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                        <TextBlock Text="Start at:" VerticalAlignment="Center" Width="70"
+                                                   ToolTip="First counter value used (e.g. start at 3 -&gt; 3, 4, 5... or C, D, E... for the alphabetic style)."/>
+                                        <TextBox x:Name="start_tb" Text="1" Width="50" Height="22"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                        <TextBlock Text="Step by:" VerticalAlignment="Center" Width="70"
+                                                   ToolTip="How much the counter increases each time (e.g. step 2 -&gt; 1, 3, 5...)."/>
+                                        <TextBox x:Name="step_tb" Text="1" Width="50" Height="22"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                         <TextBlock Text="Pad width:" VerticalAlignment="Center" Width="70"
                                                    ToolTip="Zero-padding for the numeric counter (e.g. 3 -&gt; 001, 002...). Ignored for the alphabetic counter."/>
                                         <TextBox x:Name="pad_width_tb" Text="0" Width="50" Height="22"/>
                                     </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                        <TextBlock Text="Separator before:" VerticalAlignment="Center" Width="105"
+                                                   ToolTip="Goes between the Prefix text and the counter, e.g. Prefix 'N' + '-' + counter '1' -&gt; N-1."/>
+                                        <TextBox x:Name="separator_before_tb" Text="-" Width="50" Height="22"/>
+                                    </StackPanel>
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="Separator:" VerticalAlignment="Center" Width="70"/>
-                                        <TextBox x:Name="separator_tb" Text="-" Width="50" Height="22"/>
+                                        <TextBlock Text="Separator after:" VerticalAlignment="Center" Width="105"
+                                                   ToolTip="Goes between the finished tag (Prefix+counter) and your current name, e.g. N-1 + '-' + A101 -&gt; N-1-A101."/>
+                                        <TextBox x:Name="separator_after_tb" Text="-" Width="50" Height="22"/>
                                     </StackPanel>
                                 </StackPanel>
                             </GroupBox>
