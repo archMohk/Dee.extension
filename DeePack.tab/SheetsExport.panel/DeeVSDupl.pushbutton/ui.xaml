@@ -108,7 +108,7 @@
                             <GroupBox Header="Copies" Padding="6" Margin="0,0,0,8">
                                 <StackPanel>
                                     <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,0,0,4"
-                                               Text="How many full copies of the checked set to create in this one run. The naming standard above continues across every copy (Mode A's counter keeps going; Mode B avoids clashing with the copies already made), so every copy gets distinct names automatically."/>
+                                               Text="How many full copies of the checked set to create in this one run. When more than 1, the counter numbers the COPY, not each item - e.g. every item in copy 1 gets N1, every item in copy 2 gets N2, copy 3 gets N3... Items within one copy keep telling apart by their own current name (see Name Placement)."/>
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="Number of copies:" VerticalAlignment="Center" Width="110"/>
                                         <TextBox x:Name="copies_tb" Text="1" Width="50" Height="22"/>

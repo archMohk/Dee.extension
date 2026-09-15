@@ -409,6 +409,38 @@ def _generate_mode_b(preview_rows, prefix, separator, is_alpha, taken_names, pla
         row.new_name = candidate
 
 
+def _generate_by_copy(preview_rows_by_copy, prefix, separator, pad, is_alpha, mode, placement, taken_names):
+    """Used instead of _generate_mode_a/_generate_mode_b whenever Copies > 1
+    (per the user's explicit request): the counter/letter numbers the
+    COPY, not the item - every item in the same copy shares one added
+    token (e.g. all of copy 1 -> "N1", all of copy 2 -> "N2"), and items
+    within a copy are told apart only by their own current name (via
+    Name Placement), never by a per-item counter. Mode A vs B still only
+    changes whether a live collision tie-break runs on the token (Mode
+    B) or a clash is left for compute_statuses to flag (Mode A) -
+    matching each mode's existing philosophy, just applied per copy
+    instead of per item."""
+    seq_tok = renamer.sequence_token(pad=pad, letters=is_alpha)
+    template = u"{0}{1}{2}".format(prefix, separator, seq_tok)
+    taken = set(taken_names)
+    for copy_index, rows in enumerate(preview_rows_by_copy, start=1):
+        ctx = {"sheet": None, "original_number": "", "original_name": "", "serial_value": copy_index}
+        added = renamer.render_template(template, ctx)
+        for row in rows:
+            if mode == "A":
+                row.new_name = _combine(added, row.old_name, placement, separator)
+                continue
+            candidate = _combine(added, row.old_name, placement, separator)
+            cur_added = added
+            n = 1
+            while candidate in taken:
+                n += 1
+                cur_added = u"{0}{1}{2}".format(added, separator, _tie_breaker(n, is_alpha))
+                candidate = _combine(cur_added, row.old_name, placement, separator)
+            taken.add(candidate)
+            row.new_name = candidate
+
+
 def _assign_sheet_numbers(preview_rows, taken_numbers):
     """Applies the naming result to the Sheet Number too (confirmed with
     the user), not just the Name - original_number + "-" + new_name, with
@@ -791,18 +823,27 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Type a Prefix / Batch Name on the Naming tab first.")
             return
         copies = self._read_copies()
-        # N full passes over the same checked set, back to back - Mode A's
-        # counter keeps counting across all of them, and Mode B's collision
-        # check (below) naturally avoids clashing with the copies already
-        # staged, so every copy gets distinct names with no extra logic.
-        checked = checked_once * copies
 
-        preview_rows = [PreviewRow(r) for r in checked]
-        if mode == "A":
-            _generate_mode_a(preview_rows, prefix, separator, pad, is_alpha, placement)
+        if copies > 1:
+            # One full copy of the checked set per pass. The counter numbers
+            # the COPY, not the item - every item in the same copy shares one
+            # added token, and items within a copy are told apart only by
+            # their own current name (Name Placement), never a per-item
+            # counter - per the user's explicit example (copy 1 -> N1 on
+            # every item, copy 2 -> N2 on every item, ...).
+            preview_rows_by_copy = [[PreviewRow(r) for r in checked_once] for _c in range(copies)]
+            taken_names = _all_taken_names(self.doc) if mode == "B" else set()
+            _generate_by_copy(preview_rows_by_copy, prefix, separator, pad, is_alpha, mode, placement, taken_names)
+            preview_rows = [row for copy_rows in preview_rows_by_copy for row in copy_rows]
         else:
-            taken_names = _all_taken_names(self.doc)
-            _generate_mode_b(preview_rows, prefix, separator, is_alpha, taken_names, placement)
+            # Single run - unchanged: the counter numbers each ITEM.
+            preview_rows = [PreviewRow(r) for r in checked_once]
+            if mode == "A":
+                _generate_mode_a(preview_rows, prefix, separator, pad, is_alpha, placement)
+            else:
+                taken_names = _all_taken_names(self.doc)
+                _generate_mode_b(preview_rows, prefix, separator, is_alpha, taken_names, placement)
+
         taken_numbers = _all_taken_numbers(self.doc)
         _assign_sheet_numbers(preview_rows, taken_numbers)
         _compute_statuses(preview_rows)
