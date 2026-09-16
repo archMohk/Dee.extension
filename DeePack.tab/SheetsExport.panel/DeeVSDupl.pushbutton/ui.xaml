@@ -172,6 +172,16 @@
                                 </StackPanel>
                             </GroupBox>
 
+                            <GroupBox Header="View Duplicate Type" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <CheckBox x:Name="as_dependent_cb">
+                                        <TextBlock Text="Duplicate views as Dependent Views" TextWrapping="Wrap"/>
+                                    </CheckBox>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,4,0,0"
+                                               Text="Unchecked (default) = each new view is fully independent (Revit's own 'Duplicate'). Checked = each new view is a Dependent View of its original (Revit's own 'Duplicate as Dependent') - stays linked to the parent view, same as splitting one plan across several sheets. Only applies to Views; Schedules always duplicate normally. If a checked view's type doesn't support Dependent Views, that row is reported as failed rather than silently duplicated the other way."/>
+                                </StackPanel>
+                            </GroupBox>
+
                             <GroupBox Header="View Templates" Padding="6" Margin="0,0,0,8">
                                 <StackPanel>
                                     <CheckBox x:Name="dup_templates_cb">
@@ -179,6 +189,13 @@
                                     </CheckBox>
                                     <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,4,0,0"
                                                Text="Unchecked (default) = new views keep sharing the ORIGINAL template, exactly like Revit's own Duplicate View. Checked = a template used by any checked view is copied once per distinct template and the duplicate views point at the new copy instead - the original template and any other views using it are left untouched."/>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="Sheet Placement" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888"
+                                               Text="Automatic, no setting needed: if a checked View or Schedule is currently placed on a Sheet that is ALSO checked in this run, its duplicate is placed onto that Sheet's new duplicate, at the same position - not just left floating unplaced (that duplication happens once, as part of the Sheet's own row, so you'll see it reported as 'Skipped standalone' on its own View/Schedule row rather than duplicated twice). If the original Sheet isn't checked too, the duplicate is created but not placed on any sheet."/>
                                 </StackPanel>
                             </GroupBox>
                         </StackPanel>
