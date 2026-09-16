@@ -50,6 +50,11 @@
                         <TextBox x:Name="pick_search_tb" Width="220" Height="24"/>
                         <Button x:Name="pick_filter_b" Content="Filter" Width="70" Height="24" Margin="6,0,0,0" Click="pick_filter_click"/>
                         <Button x:Name="pick_clear_filter_b" Content="Clear" Width="60" Height="24" Margin="4,0,0,0" Click="pick_clear_filter_click"/>
+                        <TextBlock Text="Show:" VerticalAlignment="Center" Margin="24,0,6,0"/>
+                        <CheckBox x:Name="show_sheets_cb" Content="Sheets" VerticalAlignment="Center" Checked="pick_filter_click" Unchecked="pick_filter_click"/>
+                        <CheckBox x:Name="show_views_cb" Content="Views" VerticalAlignment="Center" Margin="12,0,0,0" Checked="pick_filter_click" Unchecked="pick_filter_click"/>
+                        <CheckBox x:Name="show_schedules_cb" Content="Schedules" VerticalAlignment="Center" Margin="12,0,0,0" Checked="pick_filter_click" Unchecked="pick_filter_click"/>
+                        <CheckBox x:Name="show_checked_only_cb" Content="Only checked" VerticalAlignment="Center" Margin="20,0,0,0" Checked="pick_filter_click" Unchecked="pick_filter_click"/>
                     </StackPanel>
 
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
@@ -59,6 +64,17 @@
                         <Button x:Name="select_all_views_b" Content="Select All Views" Width="115" Height="24" Margin="6,0,0,0" Click="select_all_views_click"/>
                         <Button x:Name="select_all_schedules_b" Content="Select All Schedules" Width="135" Height="24" Margin="6,0,0,0" Click="select_all_schedules_click"/>
                     </WrapPanel>
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Selection Preset:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ComboBox x:Name="preset_cb" Width="200" Height="24" IsEditable="True"
+                                  ToolTip="Pick a saved preset to Load/Delete, or type a new name and click Save."/>
+                        <Button x:Name="preset_save_b" Content="Save" Width="70" Height="24" Margin="6,0,0,0" Click="preset_save_click"/>
+                        <Button x:Name="preset_load_b" Content="Load" Width="70" Height="24" Margin="4,0,0,0" Click="preset_load_click"/>
+                        <Button x:Name="preset_delete_b" Content="Delete" Width="70" Height="24" Margin="4,0,0,0" Click="preset_delete_click"/>
+                        <TextBlock Text="Saved on THIS PC only, remembers which Sheets/Views/Schedules were checked (by Sheet Number / View or Schedule Name)."
+                                   VerticalAlignment="Center" Margin="12,0,0,0" FontSize="11" Foreground="#888888" TextWrapping="Wrap"/>
+                    </StackPanel>
 
                     <TextBlock x:Name="picker_summary_tb" DockPanel.Dock="Bottom" Margin="0,8,0,0" FontStyle="Italic"
                                Text="0 of 0 selected (0 sheets, 0 views, 0 schedules)"/>

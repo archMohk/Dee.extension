@@ -61,6 +61,7 @@ from System.Collections.Generic import List
 
 import dee_shared_param_service
 import dee_sheet_renamer_service as renamer
+import deew_settings
 
 import dee_telemetry
 dee_telemetry.check_access("DeeVSDupl")
@@ -754,6 +755,49 @@ def _matches(row, query):
 
 
 # --------------------------------------------------------------------------
+# Selection presets - "save some selection locally" (which Sheets/Views/
+# Schedules were checked on the Pick Items tab), reusing lib/deew_settings.py's
+# generic per-tool JSON store rather than a second, parallel persistence
+# layer - same pattern dee_sheet_renamer_service.py already uses for its own
+# (unrelated) naming-rule presets. Saved under lib/.deew_settings/, which is
+# already gitignored (machine-local, never published) and outside this
+# window's own lifetime, so a preset survives closing/reopening the tool or
+# Revit itself - unlike ElementIds, which are NOT trusted to stay stable
+# across a document close/reopen, each entry is (kind, a stable name: the
+# Sheet Number for a Sheet, the Name for a View/Schedule).
+# --------------------------------------------------------------------------
+_SELECTION_PRESET_TOOL_NAME = "dee_vsdupl_selection_presets"
+
+
+def _row_identity(row):
+    return [row.kind, row.number if row.kind == "Sheet" else row.name]
+
+
+def _list_selection_presets():
+    data = deew_settings.load(_SELECTION_PRESET_TOOL_NAME, {})
+    return sorted(data.keys())
+
+
+def _load_selection_preset(name):
+    data = deew_settings.load(_SELECTION_PRESET_TOOL_NAME, {})
+    return data.get(name)
+
+
+def _save_selection_preset(name, entries):
+    data = deew_settings.load(_SELECTION_PRESET_TOOL_NAME, {})
+    data[name] = entries
+    return deew_settings.save(_SELECTION_PRESET_TOOL_NAME, data)
+
+
+def _delete_selection_preset(name):
+    data = deew_settings.load(_SELECTION_PRESET_TOOL_NAME, {})
+    if name in data:
+        del data[name]
+        return deew_settings.save(_SELECTION_PRESET_TOOL_NAME, data)
+    return True
+
+
+# --------------------------------------------------------------------------
 # Window
 # --------------------------------------------------------------------------
 class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
@@ -768,7 +812,11 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
         self.mode_a_rb.IsChecked = True
         self.counter_numeric_rb.IsChecked = True
         self.place_prefix_rb.IsChecked = True
+        self.show_sheets_cb.IsChecked = True
+        self.show_views_cb.IsChecked = True
+        self.show_schedules_cb.IsChecked = True
 
+        self._refresh_preset_list()
         self._scan()
 
     # -- Pick Items -------------------------------------------------------
@@ -780,7 +828,18 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
 
     def _refresh_picker_grid(self):
         query = (self.pick_search_tb.Text or "").strip()
-        self._picker_filtered_rows = [r for r in self._picker_all_rows if _matches(r, query)]
+        show_kinds = set()
+        if bool(self.show_sheets_cb.IsChecked):
+            show_kinds.add("Sheet")
+        if bool(self.show_views_cb.IsChecked):
+            show_kinds.add("View")
+        if bool(self.show_schedules_cb.IsChecked):
+            show_kinds.add("Schedule")
+        only_checked = bool(self.show_checked_only_cb.IsChecked)
+        self._picker_filtered_rows = [
+            r for r in self._picker_all_rows
+            if r.kind in show_kinds and _matches(r, query) and (not only_checked or r.selected)
+        ]
         self.picker_grid.ItemsSource = None
         self.picker_grid.ItemsSource = self._picker_filtered_rows
         self._update_picker_summary()
@@ -800,6 +859,63 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
     def pick_clear_filter_click(self, sender, args):
         self.pick_search_tb.Text = ""
         self._refresh_picker_grid()
+
+    def _refresh_preset_list(self):
+        names = _list_selection_presets()
+        current_text = self.preset_cb.Text
+        self.preset_cb.ItemsSource = None
+        self.preset_cb.ItemsSource = names
+        self.preset_cb.Text = current_text
+
+    def preset_save_click(self, sender, args):
+        name = (self.preset_cb.Text or "").strip()
+        if not name:
+            forms.alert("Type a name for this selection preset first.")
+            return
+        entries = [_row_identity(r) for r in self._picker_all_rows if r.selected]
+        if not entries:
+            forms.alert("Nothing is checked - check some Sheets/Views/Schedules before saving.")
+            return
+        if _save_selection_preset(name, entries):
+            self._refresh_preset_list()
+            self.preset_cb.Text = name
+            forms.alert("Saved '{0}' ({1} item(s)).".format(name, len(entries)))
+        else:
+            forms.alert("Could not save the preset (see the pyRevit output for details).")
+
+    def preset_load_click(self, sender, args):
+        name = (self.preset_cb.Text or "").strip()
+        if not name:
+            forms.alert("Pick or type a saved preset name first.")
+            return
+        entries = _load_selection_preset(name)
+        if entries is None:
+            forms.alert("No saved preset named '{0}'.".format(name))
+            return
+        wanted = set((e[0], e[1]) for e in entries)
+        matched = 0
+        for r in self._picker_all_rows:
+            key = (r.kind, r.number if r.kind == "Sheet" else r.name)
+            r.selected = key in wanted
+            if r.selected:
+                matched += 1
+        self._refresh_picker_grid()
+        if matched < len(entries):
+            forms.alert("Loaded '{0}' - {1} of {2} saved item(s) matched something in the CURRENT "
+                         "project (the rest may have been renamed or deleted since this preset was saved)."
+                         .format(name, matched, len(entries)))
+
+    def preset_delete_click(self, sender, args):
+        name = (self.preset_cb.Text or "").strip()
+        if not name:
+            forms.alert("Pick or type a saved preset name first.")
+            return
+        if not forms.alert("Delete the saved preset '{0}'?".format(name),
+                            title="DeeV.S.Dupl. - Confirm", yes=True, no=True):
+            return
+        _delete_selection_preset(name)
+        self._refresh_preset_list()
+        self.preset_cb.Text = ""
 
     def select_all_click(self, sender, args):
         for r in self._picker_all_rows:
