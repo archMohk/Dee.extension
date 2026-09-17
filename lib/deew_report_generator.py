@@ -223,3 +223,54 @@ class CleanReportRow(object):
         if "saved" in status or "synchron" in status or "success" in status:
             return "ok"
         return None
+
+
+FUPDATE_REPORT_HEADERS = [
+    "File Name", "Location", "Source", "Family Loaded",
+    "Save/Sync Status", "Warnings", "Errors",
+    "Processing Time", "Date", "Revit Version", "User",
+]
+
+FUPDATE_EXCEL_COL_WIDTHS = [28, 34, 10, 28, 22, 30, 30, 14, 18, 12, 16]
+
+
+class FUpdateReportRow(object):
+    """One row per file processed by DeeLazy's DeeFUpdate module - a
+    separate schema from ReportRow/CleanReportRow above (same reasoning
+    as CleanReportRow's own docstring: different tool, different columns,
+    same duck-typed to_list()/status_tag() interface so export() works
+    unchanged)."""
+
+    def __init__(self, file_name, location, source, family_name, revit_version):
+        self.file_name = file_name
+        self.location = location
+        self.source = source  # "Local" or "Cloud"
+        self.family_name = family_name
+        self.save_status = "Pending"
+        self.warnings = ""
+        self.errors = ""
+        self.processing_time_seconds = 0.0
+        self.date_text = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.revit_version = revit_version
+        try:
+            self.user = os.environ.get("USERNAME", "Unknown")
+        except Exception:
+            self.user = "Unknown"
+
+    def to_list(self):
+        return [
+            self.file_name, self.location, self.source, self.family_name,
+            self.save_status, self.warnings, self.errors,
+            "{0:.1f}s".format(self.processing_time_seconds), self.date_text, self.revit_version,
+            self.user,
+        ]
+
+    def status_tag(self):
+        status = (self.save_status or "").lower()
+        if "fail" in status or "error" in status:
+            return "fail"
+        if "skip" in status:
+            return "skip"
+        if "saved" in status or "synchron" in status or "success" in status or "loaded" in status:
+            return "ok"
+        return None

@@ -27,6 +27,7 @@ from modules import dee_sselect
 from modules import dee_viewsheet
 from modules import dee_view_select
 from modules import dee_draft_coper
+from modules import dee_fupdate
 
 REGISTERED_MODULES = [
     view_cropping.TOOL_INFO,
@@ -35,4 +36,5 @@ REGISTERED_MODULES = [
     dee_viewsheet.TOOL_INFO,
     dee_view_select.TOOL_INFO,
     dee_draft_coper.TOOL_INFO,
+    dee_fupdate.TOOL_INFO,
 ]
