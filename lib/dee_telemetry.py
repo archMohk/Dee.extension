@@ -159,7 +159,7 @@ TOOL_CATEGORIES = {
     "DeeQs": "rooms",
     "DeeRoomStamp": "rooms",
     "DeeRoomXYD": "rooms",
-    # Productivity & Alignment Tools (13 tools)
+    # Productivity & Alignment Tools (14 tools)
     "AlignBottom": "productivity",
     "AlignCenter": "productivity",
     "AlignLeft": "productivity",
@@ -169,6 +169,7 @@ TOOL_CATEGORIES = {
     "DeeAI": "productivity",
     "DeeAssemb": "productivity",
     "DeeBlocktoFamily": "productivity",
+    "DeeFamily": "productivity",
     "DeeLazy": "productivity",
     "DeeTransmit": "productivity",
     "DistributeHorizontal": "productivity",

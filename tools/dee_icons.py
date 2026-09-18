@@ -535,6 +535,15 @@ GLYPHS = {
     ] + arrow(46, 48, 62, 48, "accent", 1.3, 11) + [
         pl([(70, 30), (90, 42), (90, 62), (70, 74), (68, 62), (68, 42)], "ink", 1.0, True),
     ],
+    # Two overlapping picture-frames (the DeeView "more than one" overlap
+    # motif) with a sun+mountain inside the front one - the universal
+    # "image/thumbnail" pictogram, standing in for a gallery of them.
+    "DeeFamily": lambda: [
+        rc(14, 20, 62, 60, "ink", 0.95, 3),
+        rc(30, 34, 84, 80, "accent", 1.15, 3),
+        cf(42, 46, 4, "accent"),
+        pl([(34, 74), (50, 58), (60, 66), (76, 52), (80, 74)], "accent", 1.1),
+    ],
     # A box with its lid open and an accent arrow leaving it - the
     # "send this out" motif. Deliberately NOT the shared cube(): this is
     # a package being issued, not a 3D model, and at 16px the open flaps

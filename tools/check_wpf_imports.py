@@ -82,10 +82,10 @@ _add("System.Windows.Controls", """
 _add("System.Windows.Shapes", "Ellipse Line Path Polygon Polyline Rectangle")
 _add("System.Windows.Threading",
      "Dispatcher DispatcherFrame DispatcherPriority DispatcherTimer")
-_add("System.Windows.Media.Imaging", "BitmapImage BitmapSource")
+_add("System.Windows.Media.Imaging", "BitmapImage BitmapSource BitmapSizeOptions")
 _add("System.Windows.Data", "Binding BindingMode IValueConverter UpdateSourceTrigger")
 _add("System.Windows.Documents", "Hyperlink Run")
-_add("System.Windows.Interop", "WindowInteropHelper")
+_add("System.Windows.Interop", "WindowInteropHelper Imaging")
 _add("System.Windows.Shell", "WindowChrome")
 
 # Not WPF, or not modelled here. Imports from these are left alone rather
