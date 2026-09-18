@@ -58,12 +58,12 @@ except ImportError:  # pragma: no cover - always available in practice
     OrderedDict = dict
 
 from Autodesk.Revit.DB import (
-    RevitLinkType, RevitLinkOptions, RevitLinkInstance, ImportPlacement,
-    Transaction, FilteredElementCollector,
+    RevitLinkType, ImportPlacement, AttachmentType, Transaction, FilteredElementCollector,
 )
 
 import deew_model_scanner as scanner
 import deew_failure_handler as ffh
+import dee_link_create_service as lcs
 
 
 # ==========================================================================
@@ -254,23 +254,22 @@ def already_linked(existing, link_name):
 # extended to attach deew_failure_handler's transaction failure
 # preprocessor (the one thing DeeSuperLINK itself does not yet do).
 # ==========================================================================
-def _link_once(doc, link_name, model_path, placement, logger=None):
-    """A single attempt. Returns (ok, detail, instance_or_None)."""
+def _link_once(doc, link_name, model_path, placement, attachment=AttachmentType.Overlay, logger=None):
+    """A single attempt. Returns (ok, detail, instance_or_None). The
+    actual Create-type/set-AttachmentType/Create-instance sequence now
+    lives in lib/dee_link_create_service.py, shared with DeeSuperLINK and
+    DeeLINK - this function keeps owning its own Transaction/failure-
+    preprocessor."""
     t = Transaction(doc, "DeeMAPLink: link {0}".format(link_name))
     t.Start()
     try:
         ffh.apply_to_transaction(t, logger)
-        result = RevitLinkType.Create(doc, model_path, RevitLinkOptions(False))
-        try:
-            bad = result.ElementId.Value < 0
-        except Exception:
-            bad = result.ElementId.IntegerValue < 0
-        if bad:
+        ok, detail, instance = lcs.create_link(doc, model_path, placement, attachment)
+        if not ok:
             t.RollBack()
-            return False, "link type could not be created", None
-        instance = RevitLinkInstance.Create(doc, result.ElementId, placement)
+            return False, detail, None
         t.Commit()
-        return True, "linked", instance
+        return True, detail, instance
     except Exception as e:
         if t.HasStarted() and not t.HasEnded():
             t.RollBack()
@@ -290,14 +289,14 @@ def _shared_coordinates_look_unestablished(instance):
         return False
 
 
-def link_into(doc, link_name, model_path, placement, fallback=None, logger=None):
+def link_into(doc, link_name, model_path, placement, fallback=None, attachment=AttachmentType.Overlay, logger=None):
     """Creates the link, falling back to `fallback` placement if the
     requested one is rejected outright (Revit can either REFUSE a Shared
     placement, caught here and retried with the fallback, or ACCEPT it
     and quietly place origin-to-origin, checked and reported rather than
     pretended otherwise). Returns (ok, detail) - detail names the
     placement actually used."""
-    ok, detail, instance = _link_once(doc, link_name, model_path, placement, logger)
+    ok, detail, instance = _link_once(doc, link_name, model_path, placement, attachment, logger)
     if ok:
         note = placement_label(placement)
         if placement == ImportPlacement.Shared and _shared_coordinates_look_unestablished(instance):
@@ -307,7 +306,7 @@ def link_into(doc, link_name, model_path, placement, fallback=None, logger=None)
     if fallback is None or fallback == placement:
         return False, detail
 
-    ok2, detail2, _inst = _link_once(doc, link_name, model_path, fallback, logger)
+    ok2, detail2, _inst = _link_once(doc, link_name, model_path, fallback, attachment, logger)
     if ok2:
         return True, "linked - {0} (requested {1} was rejected: {2})".format(
             placement_label(fallback), placement_label(placement), detail)

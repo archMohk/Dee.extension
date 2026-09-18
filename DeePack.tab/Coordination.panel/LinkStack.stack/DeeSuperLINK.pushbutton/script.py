@@ -83,8 +83,7 @@ from System.Windows import Visibility
 from System.Windows.Threading import Dispatcher, DispatcherFrame, DispatcherPriority
 
 from Autodesk.Revit.DB import (
-    RevitLinkType, RevitLinkOptions, RevitLinkInstance, ImportPlacement,
-    Transaction, FilteredElementCollector,
+    RevitLinkType, ImportPlacement, AttachmentType, Transaction, FilteredElementCollector,
 )
 
 import acc_auth
@@ -92,6 +91,7 @@ import acc_api
 import acc_file_browser as afb
 import deew_document_manager as docmgr
 import deew_logger
+import dee_link_create_service as lcs
 import deew_failure_handler as ffh
 import dee_telemetry
 dee_telemetry.check_access("DeeSuperLINK")
@@ -180,7 +180,7 @@ def _placement_label(placement):
     return str(placement)
 
 
-def _link_once(doc, link_name, cloud_path, placement, logger=None):
+def _link_once(doc, link_name, cloud_path, placement, attachment=AttachmentType.Overlay, logger=None):
     """A single attempt. Returns (ok, detail, instance_or_None).
 
     ffh.apply_to_transaction() was missing here from the very first
@@ -191,22 +191,22 @@ def _link_once(doc, link_name, cloud_path, placement, logger=None):
     there to click it in a headless batch, hanging Revit indefinitely -
     exactly what a live "crashing" report looks like from the outside.
     DeeMAPLink (built later, reusing this function as its model) already
-    had this; DeeSuperLINK did not. Fixed to match."""
+    had this; DeeSuperLINK did not. Fixed to match.
+
+    The actual Create-type/set-AttachmentType/Create-instance sequence
+    now lives in lib/dee_link_create_service.py, shared with DeeLINK and
+    DeeMAPLink - this function keeps owning its own Transaction/failure-
+    preprocessor, which differs slightly per tool."""
     t = Transaction(doc, "DeeSuperLINK: link {0}".format(link_name))
     t.Start()
     try:
         ffh.apply_to_transaction(t, logger)
-        result = RevitLinkType.Create(doc, cloud_path, RevitLinkOptions(False))
-        try:
-            bad = result.ElementId.Value < 0
-        except Exception:
-            bad = result.ElementId.IntegerValue < 0
-        if bad:
+        ok, detail, instance = lcs.create_link(doc, cloud_path, placement, attachment)
+        if not ok:
             t.RollBack()
-            return False, "link type could not be created", None
-        instance = RevitLinkInstance.Create(doc, result.ElementId, placement)
+            return False, detail, None
         t.Commit()
-        return True, "linked", instance
+        return True, detail, instance
     except Exception as e:
         if t.HasStarted() and not t.HasEnded():
             t.RollBack()
@@ -254,7 +254,7 @@ def _issues_from_log(logger, start_index, end_index=None):
     return "; ".join(parts)
 
 
-def link_into(doc, link_name, cloud_path, placement, fallback=None, logger=None):
+def link_into(doc, link_name, cloud_path, placement, fallback=None, attachment=AttachmentType.Overlay, logger=None):
     """Creates the link, falling back to `fallback` placement if the
     requested one is rejected outright.
 
@@ -268,7 +268,7 @@ def link_into(doc, link_name, cloud_path, placement, fallback=None, logger=None)
         pretended otherwise.
 
     Returns (ok, detail). detail names the placement actually used."""
-    ok, detail, instance = _link_once(doc, link_name, cloud_path, placement, logger)
+    ok, detail, instance = _link_once(doc, link_name, cloud_path, placement, attachment, logger)
     if ok:
         note = _placement_label(placement)
         if placement == ImportPlacement.Shared and _shared_coordinates_look_unestablished(instance):
@@ -278,7 +278,7 @@ def link_into(doc, link_name, cloud_path, placement, fallback=None, logger=None)
     if fallback is None or fallback == placement:
         return False, detail
 
-    ok2, detail2, _inst = _link_once(doc, link_name, cloud_path, fallback, logger)
+    ok2, detail2, _inst = _link_once(doc, link_name, cloud_path, fallback, attachment, logger)
     if ok2:
         return True, "linked - {0} (requested {1} was rejected: {2})".format(
             _placement_label(fallback), _placement_label(placement), detail)
@@ -439,6 +439,11 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
         if idx is None or idx < 0:
             idx = 0
         return PLACEMENT_OPTIONS[idx][1]
+
+    def _attachment(self):
+        if self.attachment_attachment_rb.IsChecked is True:
+            return AttachmentType.Attachment
+        return AttachmentType.Overlay
 
     def _apply_mode_labels(self):
         if self._mode() == MODE_ONE_TO_MANY:
@@ -605,6 +610,7 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
             return
 
         placement = self._placement()
+        attachment = self._attachment()
         # Shared coordinates only mean something when the two models
         # actually share them - fall back to origin-to-origin otherwise,
         # per the user's explicit request.
@@ -675,7 +681,7 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
                             continue
                         self._progress_step("Linking {0} -> {1}".format(link_name, host.name))
                         ok, link_detail = link_into(doc, link_name, cloud_path, placement, fallback,
-                                                     logger=self.logger)
+                                                     attachment=attachment, logger=self.logger)
                         results.append((ok, "{0} -> {1}".format(link_name, host.name), link_detail))
                         self._log("  '{0}': {1}".format(link_name, link_detail))
                         if ok:

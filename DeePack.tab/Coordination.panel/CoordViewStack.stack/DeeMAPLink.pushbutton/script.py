@@ -72,7 +72,7 @@ from System.Windows.Shapes import Line, Polygon
 from System.Windows.Threading import Dispatcher, DispatcherFrame, DispatcherPriority
 from System.Windows.Forms import FolderBrowserDialog, DialogResult
 
-from Autodesk.Revit.DB import ImportPlacement, ModelPathUtils
+from Autodesk.Revit.DB import ImportPlacement, ModelPathUtils, AttachmentType
 
 import acc_auth
 import acc_file_browser as afb
@@ -228,6 +228,11 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         if idx is None or idx < 0:
             idx = 0
         return dms.PLACEMENT_OPTIONS[idx][1]
+
+    def _attachment(self):
+        if self.attachment_attachment_rb.IsChecked is True:
+            return AttachmentType.Attachment
+        return AttachmentType.Overlay
 
     # ---------------- in-window progress bar ----------------
     # Copied from DeeSuperLINK (same reasoning: a modal WPF window does
@@ -987,6 +992,7 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
             return
 
         placement = self._placement()
+        attachment = self._attachment()
         # Shared coordinates only mean something when the two models
         # actually share them - fall back to origin-to-origin otherwise.
         fallback = ImportPlacement.Origin if placement == ImportPlacement.Shared else None
@@ -1043,7 +1049,8 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
 
                         self._progress_step("Linking {0} -> {1}".format(source_name, target_name))
                         ok, link_detail = dms.link_into(
-                            doc, source_name, model_path, placement, fallback, logger=self.logger)
+                            doc, source_name, model_path, placement, fallback,
+                            attachment=attachment, logger=self.logger)
                         results.append((ok, "{0} -> {1}".format(source_name, target_name), link_detail))
                         self._log("  '{0}': {1}".format(source_name, link_detail))
                         if ok:

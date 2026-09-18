@@ -6,8 +6,7 @@ with a chosen positioning method.
 """
 from pyrevit import forms, script
 from Autodesk.Revit.DB import (
-    RevitLinkType, RevitLinkOptions, RevitLinkInstance,
-    ModelPathUtils, ImportPlacement, Transaction
+    ModelPathUtils, ImportPlacement, AttachmentType, Transaction
 )
 import System
 import threading
@@ -24,6 +23,7 @@ except ImportError:
 
 import acc_auth
 import acc_api
+import dee_link_create_service as lcs
 import dee_telemetry
 dee_telemetry.check_access("DeeLINK")
 
@@ -220,18 +220,19 @@ PLACEMENT_OPTIONS = [
 ]
 
 
-def link_file(doc, name, cloud_path, placement):
+def link_file(doc, name, cloud_path, placement, attachment=AttachmentType.Overlay):
+    """The actual Create-type/set-AttachmentType/Create-instance sequence
+    now lives in lib/dee_link_create_service.py, shared with DeeSuperLINK
+    and DeeMAPLink - this function keeps owning its own Transaction."""
     t = Transaction(doc, "Link: {0}".format(name))
     t.Start()
     try:
-        options = RevitLinkOptions(False)
-        result  = RevitLinkType.Create(doc, cloud_path, options)
-        if result.ElementId.Value < 0:
+        ok, detail, _instance = lcs.create_link(doc, cloud_path, placement, attachment)
+        if not ok:
             t.RollBack()
-            return False, "link type could not be created"
-        RevitLinkInstance.Create(doc, result.ElementId, placement)
+            return False, detail
         t.Commit()
-        return True, "linked"
+        return True, detail
     except Exception as e:
         if t.HasStarted() and not t.HasEnded():
             t.RollBack()
@@ -388,6 +389,17 @@ def main():
         return
     placement = dict(PLACEMENT_OPTIONS)[chosen_label]
 
+    # pick Attachment vs Overlay - Overlay listed/labelled first since it's
+    # Revit's own default and the safer choice (an Attachment link
+    # propagates into further nested links if this document is itself
+    # linked into a third model).
+    attachment_label = forms.CommandSwitchWindow.show(
+        ["Overlay (default)", "Attachment"],
+        message="Link as Attachment or Overlay?")
+    if not attachment_label:
+        return
+    attachment = AttachmentType.Attachment if attachment_label == "Attachment" else AttachmentType.Overlay
+
     # link with progress
     results = []
     total   = len(selected_names)
@@ -408,7 +420,7 @@ def main():
                     project_id, item_id, token)
                 cloud_path = ModelPathUtils.ConvertCloudGUIDsToCloudPath(
                     region, proj_guid, model_guid)
-                ok, detail = link_file(doc, name, cloud_path, placement)
+                ok, detail = link_file(doc, name, cloud_path, placement, attachment)
                 if ok:
                     results.append((True, name, "Linked ({0})".format(chosen_label)))
                 else:
