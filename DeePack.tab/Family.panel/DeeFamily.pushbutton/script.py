@@ -118,7 +118,7 @@ clr.AddReference("WindowsBase")
 import ctypes
 from System import IntPtr, Action
 from System.Windows import Int32Rect, SystemParameters
-from System.Windows.Input import MouseButtonState
+from System.Windows.Input import MouseButtonState, Keyboard
 from System.Windows.Interop import Imaging
 from System.Windows.Media.Imaging import BitmapSizeOptions
 from System.Windows.Threading import DispatcherPriority
@@ -490,7 +490,17 @@ class DeeFamilyWindow(dee_branding.DeeBrandedWindow):
         self._place_state = {"symbol": None}
         self._place_handler = _PlaceEventHandler(self._place_state)
         self._place_event = ExternalEvent.Create(self._place_handler)
+        self.Loaded += self._on_loaded
         self._scan_and_load()
+
+    def _on_loaded(self, sender, args):
+        # So typing starts filtering immediately on open, with no click
+        # into the search box needed first.
+        try:
+            self.search_tb.Focus()
+            Keyboard.Focus(self.search_tb)
+        except Exception:
+            pass
 
     def _set_rows(self, rows):
         self._all_rows = rows
