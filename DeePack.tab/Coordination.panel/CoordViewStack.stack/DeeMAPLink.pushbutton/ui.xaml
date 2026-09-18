@@ -106,6 +106,10 @@
 
         <GroupBox DockPanel.Dock="Top" Header="2. Link Type and options" Margin="0,0,0,8">
             <Grid Margin="6">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="280"/>
@@ -114,13 +118,20 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Link Type:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                <ComboBox Grid.Column="1" x:Name="placement_cb" Height="24"/>
-                <TextBlock Grid.Column="3" Text="Sync comment:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                <TextBox Grid.Column="4" x:Name="sync_comment_tb" Height="24" VerticalContentAlignment="Center"
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Link Type:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <ComboBox Grid.Row="0" Grid.Column="1" x:Name="placement_cb" Height="24"/>
+                <TextBlock Grid.Row="0" Grid.Column="3" Text="Sync comment:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <TextBox Grid.Row="0" Grid.Column="4" x:Name="sync_comment_tb" Height="24" VerticalContentAlignment="Center"
                          Text="Synchronize"/>
-                <CheckBox Grid.Column="5" x:Name="skip_existing_cb" Content="Skip if already linked" IsChecked="True"
+                <CheckBox Grid.Row="0" Grid.Column="5" x:Name="skip_existing_cb" Content="Skip if already linked" IsChecked="True"
                           VerticalAlignment="Center" Margin="20,0,0,0"/>
+
+                <CheckBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="4" x:Name="skip_completed_cb"
+                          Content="Skip hosts already synchronized in a previous run of this batch (recommended - lets a crash mid-batch resume without redoing finished hosts)"
+                          IsChecked="True" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                <Button Grid.Row="1" Grid.Column="5" x:Name="clear_progress_b" Content="Clear History" Width="110" Height="22"
+                        Margin="20,8,0,0" Click="clear_progress_click"
+                        ToolTip="Forget which hosts were already completed for this project/folder, so the next run processes everything again."/>
             </Grid>
         </GroupBox>
 

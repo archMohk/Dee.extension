@@ -79,6 +79,7 @@ import acc_file_browser as afb
 import deew_document_manager as docmgr
 import deew_failure_handler as ffh
 import deew_logger
+import deew_settings
 import dee_linkmap_service as lms
 import dee_maplink_service as dms
 import dee_telemetry
@@ -91,6 +92,54 @@ _TOOL_NAME = "DeeMAPLink"
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 _CACHE_FILE = os.path.join(_THIS_DIR, ".acc_file_cache.json")
+
+# --------------------------------------------------------------------------
+# Resumable batch - a HUGE host model can crash Revit itself (a native
+# access violation deep in Revit's own file-loading code, 0xc0000005,
+# confirmed live via a real crash journal 2026-09-18 - not something any
+# Python try/except can catch, since it happens in unmanaged code before
+# control ever returns here). That means one bad host can take down the
+# whole session mid-batch. What IS fixable: which hosts were ALREADY
+# successfully synchronized before that happens is durably recorded to
+# disk the moment each one finishes - via lib/deew_settings.py's existing
+# generic per-tool JSON store (same mechanism DeeSheet/DeeVSDupl already
+# use for presets) - so re-running the same batch after a crash (or just
+# reopening the tool later) skips hosts already done instead of redoing
+# the whole thing from scratch.
+# --------------------------------------------------------------------------
+_PROGRESS_TOOL_NAME = "DeeMAPLink_progress"
+
+
+def _progress_context_key(mode, project_id, local_folder):
+    """One bucket per ACC project or per local folder, so completed-host
+    history from one project never hides/skips a same-named host in a
+    totally different project."""
+    if mode == "acc":
+        return "acc:{0}".format(project_id or "")
+    return "local:{0}".format(local_folder or "")
+
+
+def _load_done_hosts(context_key):
+    data = deew_settings.load(_PROGRESS_TOOL_NAME, {})
+    return dict(data.get(context_key, {}))
+
+
+def _mark_host_done(context_key, target_name):
+    """Called immediately after a host's Synchronize succeeds - never
+    batched until the end, since the whole point is surviving a crash
+    that happens later in the SAME run."""
+    data = deew_settings.load(_PROGRESS_TOOL_NAME, {})
+    bucket = dict(data.get(context_key, {}))
+    bucket[target_name] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    data[context_key] = bucket
+    deew_settings.save(_PROGRESS_TOOL_NAME, data)
+
+
+def _clear_done_hosts(context_key):
+    data = deew_settings.load(_PROGRESS_TOOL_NAME, {})
+    if context_key in data:
+        del data[context_key]
+        deew_settings.save(_PROGRESS_TOOL_NAME, data)
 
 
 class FileRow(object):
@@ -891,6 +940,12 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
             return None, str(e)
 
     # ---------------- run ----------------
+    def clear_progress_click(self, sender, args):
+        context_key = _progress_context_key(self._source_mode(), self._project_id, self._local_folder)
+        _clear_done_hosts(context_key)
+        forms.alert("Cleared completed-run history for the current project/folder - the next run "
+                     "will process every matched host again, regardless of past runs.")
+
     def run_click(self, sender, args):
         if not self._matches:
             forms.alert("Build at least one match first - tick files in both lists, press Add Match.")
@@ -904,12 +959,30 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
             return
 
         groups = dms.group_by_target(self._matches)
+
+        context_key = _progress_context_key(mode, self._project_id, self._local_folder)
+        skip_completed = (self.skip_completed_cb.IsChecked is True)
+        done_hosts = _load_done_hosts(context_key) if skip_completed else {}
+        already_done_count = sum(1 for t in groups.keys() if t in done_hosts)
+        if skip_completed and done_hosts:
+            groups = dict((t, s) for t, s in groups.items() if t not in done_hosts)
+        if not groups:
+            forms.alert("Every matched host was already synchronized in a previous run of this "
+                         "batch. Uncheck 'Skip hosts already synchronized' or Clear History to "
+                         "redo them.")
+            return
+
         est = dms.estimate_seconds(groups)
         analysis = dms.analysis_text(groups, est)
+        resume_note = ("\n\n{0} host(s) already synchronized in a previous run are being skipped."
+                        .format(already_done_count)) if already_done_count else ""
 
         if not forms.alert(
-                "{0}\n\nEach host is opened, linked, and SYNCHRONIZED back - this modifies {1} real "
-                "shared model(s).\n\nContinue?".format(analysis, len(groups)),
+                "{0}{1}\n\nEach host is opened, linked, and SYNCHRONIZED back - this modifies {2} real "
+                "shared model(s). If Revit crashes partway through (a huge host model can do this - "
+                "see the Log tab), hosts already synchronized before the crash are safely saved; just "
+                "reopen this tool and Run again to pick up where it left off.\n\nContinue?".format(
+                    analysis, resume_note, len(groups)),
                 title="DeeMAPLink - Confirm", yes=True, no=True):
             return
 
@@ -985,12 +1058,21 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
                                         "synchronized" if ok_sync else "sync failed: {0}".format(sync_detail)))
                         self._log("  host {0}".format("Synchronized" if ok_sync else "Linked but sync FAILED"))
                         self._progress_done_one()
-                        if not ok_sync:
+                        if ok_sync:
+                            # Written to disk immediately, not batched until
+                            # the end of the run - see this file's own
+                            # resumable-batch note above. A host that crashes
+                            # Revit LATER in this same run must not erase the
+                            # fact that THIS host's work is already safely
+                            # synchronized.
+                            _mark_host_done(context_key, target_name)
+                        else:
                             self._log("  SYNC ERROR: {0}".format(sync_detail))
                             sync_failed = True
                     else:
                         results.append((None, target_name, "opened - nothing new to link"))
                         self._progress_done_one()
+                        _mark_host_done(context_key, target_name)
                 except Exception as e:
                     results.append((False, target_name, "unexpected error: {0}".format(e)))
                     self.logger.exception("Unexpected error linking", e, file=target_name)
