@@ -7,9 +7,8 @@
     <DockPanel Margin="10">
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-            <TextBox x:Name="search_tb" Width="200" Height="24"/>
-            <Button x:Name="filter_b" Content="Filter" Width="70" Height="24" Margin="6,0,0,0" Click="filter_click"/>
-            <Button x:Name="clear_filter_b" Content="Clear" Width="60" Height="24" Margin="4,0,0,0" Click="clear_filter_click"/>
+            <TextBox x:Name="search_tb" Width="200" Height="24" TextChanged="search_text_changed"/>
+            <Button x:Name="clear_filter_b" Content="Clear" Width="60" Height="24" Margin="6,0,0,0" Click="clear_filter_click"/>
             <TextBlock Text="Discipline:" VerticalAlignment="Center" Margin="16,0,6,0"/>
             <ComboBox x:Name="discipline_cb" Width="180" Height="24" SelectionChanged="discipline_changed"/>
             <Button x:Name="refresh_b" Content="Rescan" Width="80" Height="24" Margin="16,0,0,0" Click="refresh_click"/>

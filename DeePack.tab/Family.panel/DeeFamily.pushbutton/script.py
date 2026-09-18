@@ -32,6 +32,18 @@ UI wait" rule - FamilyTypeRow.resolve_symbol() re-resolves the real
 FamilySymbol fresh, right when one is actually needed (a not-yet-cached
 thumbnail, or placing an instance).
 
+A first-ever scan in a session (or a Rescan) still has to render every
+new thumbnail, which is real, unavoidable work - but the window no
+longer waits for all of it before appearing. The row list (names,
+grouping, search, drag-to-place) is built and shown first, in a fraction
+of the time full thumbnail rendering takes; thumbnails then render in
+small batches, with the window's own Dispatcher pumped between batches
+(Dispatcher.Invoke at Background priority - forces WPF to actually
+repaint before this call returns, without leaving the still-open Revit
+API context the way returning to Revit's idle loop would) so tiles visibly
+fill in progressively instead of the whole window staying frozen/blank
+for the full scan.
+
 --------------------------------------------------------------------
 Thumbnails - ElementType.GetPreviewImage, confirmed via Autodesk's own
 API docs before writing any code (in the Revit API since 2011, stable)
@@ -104,11 +116,12 @@ clr.AddReference("PresentationFramework")
 clr.AddReference("WindowsBase")
 
 import ctypes
-from System import IntPtr
+from System import IntPtr, Action
 from System.Windows import Int32Rect, SystemParameters
 from System.Windows.Input import MouseButtonState
 from System.Windows.Interop import Imaging
 from System.Windows.Media.Imaging import BitmapSizeOptions
+from System.Windows.Threading import DispatcherPriority
 from System.Drawing import Size as DrawingSize
 
 from pyrevit import forms, script
@@ -125,6 +138,7 @@ dee_telemetry.check_access("DeeFamily")
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 _THUMB_PX = 128
+_THUMB_BATCH_SIZE = 24
 _ALL_DISCIPLINES_LABEL = "All Disciplines"
 _OTHER_DISCIPLINE = "Other"
 
@@ -478,6 +492,24 @@ class DeeFamilyWindow(dee_branding.DeeBrandedWindow):
         self._place_event = ExternalEvent.Create(self._place_handler)
         self._scan_and_load()
 
+    def _set_rows(self, rows):
+        self._all_rows = rows
+        disciplines = sorted(set(r.discipline for r in rows))
+        self.discipline_cb.ItemsSource = [_ALL_DISCIPLINES_LABEL] + disciplines
+        self.discipline_cb.SelectedIndex = 0
+        self._refresh()
+
+    def _pump_ui(self):
+        """Forces WPF to process pending render/layout work right now,
+        without leaving this call (and so without leaving the valid
+        Revit API context this scan is running in) - lets tiles visibly
+        fill in between thumbnail batches instead of the window staying
+        frozen for the whole scan."""
+        try:
+            self.Dispatcher.Invoke(Action(lambda: None), DispatcherPriority.Background)
+        except Exception:
+            pass
+
     def _scan_and_load(self, force=False):
         entries = _load_cache_entries(self.doc)
         if force or not entries:
@@ -489,12 +521,30 @@ class DeeFamilyWindow(dee_branding.DeeBrandedWindow):
                     row.thumbnail = cached["thumbnail"]
                 else:
                     new_rows.append(row)
-            with _SafeProgress(title="DeeFamily - loading {value} of {max_value} new thumbnails...",
-                                cancellable=False) as pb:
-                for i, row in enumerate(new_rows):
-                    pb.update_progress(i, len(new_rows))
-                    symbol = row.resolve_symbol()
-                    row.thumbnail = _get_thumbnail(symbol) if symbol is not None else None
+
+            # Show the list (names, grouping, search, drag-to-place) right
+            # away - building it is fast, it's only per-type thumbnail
+            # rendering that's slow. Thumbnails for anything not already
+            # cached then render in small batches, with the window pumped
+            # between batches so tiles visibly fill in as they finish.
+            self._set_rows(rows)
+            self._pump_ui()
+
+            if new_rows:
+                batch = 0
+                with _SafeProgress(title="DeeFamily - loading {value} of {max_value} new thumbnails...",
+                                    cancellable=False) as pb:
+                    for i, row in enumerate(new_rows):
+                        pb.update_progress(i, len(new_rows))
+                        symbol = row.resolve_symbol()
+                        row.thumbnail = _get_thumbnail(symbol) if symbol is not None else None
+                        batch += 1
+                        if batch >= _THUMB_BATCH_SIZE:
+                            batch = 0
+                            self._refresh()
+                            self._pump_ui()
+                self._refresh()
+
             entries = {}
             for row in rows:
                 entries[_eid(row.symbol_id)] = {
@@ -506,12 +556,7 @@ class DeeFamilyWindow(dee_branding.DeeBrandedWindow):
             _save_cache_entries(self.doc, entries)
         else:
             rows = _rows_from_cache(self.doc, entries)
-        self._all_rows = rows
-
-        disciplines = sorted(set(r.discipline for r in rows))
-        self.discipline_cb.ItemsSource = [_ALL_DISCIPLINES_LABEL] + disciplines
-        self.discipline_cb.SelectedIndex = 0
-        self._refresh()
+            self._set_rows(rows)
 
     def _refresh(self):
         query = (self.search_tb.Text or "").strip()
@@ -524,7 +569,7 @@ class DeeFamilyWindow(dee_branding.DeeBrandedWindow):
             len(self._filtered_rows), len(self._family_groups),
             "y" if len(self._family_groups) == 1 else "ies")
 
-    def filter_click(self, sender, args):
+    def search_text_changed(self, sender, args):
         self._refresh()
 
     def clear_filter_click(self, sender, args):
