@@ -10,6 +10,20 @@ Category, so this is a maintained lookup table, not a Revit API value),
 and searchable by name/family/category. Dragging a tile places that type
 into the model, the same way dragging a type out of Project Browser does.
 
+Thumbnails are cached per-document across window opens via pyrevit.
+script's envvar store (AppDomain-scoped, survives closing/reopening this
+tool within the same Revit session, cleared on restart) - opening the
+tool again, or clicking Rescan, only renders thumbnails for types not
+already in the cache, rather than redoing the whole project every time.
+A persistent engine keeps Revit from tearing this tool's objects down
+between clicks, but it does NOT keep plain Python module globals around
+across separate clicks (confirmed the hard way - a first attempt at this
+cache as a bare module dict silently did nothing, since every click gets
+fresh globals) - the envvar store is pyRevit's own documented mechanism
+for exactly this. Only ElementId ints and finished BitmapSources ever go
+in the cache, never a live Element/FamilySymbol, per this repo's own
+"never cache Revit Elements across a UI wait" rule.
+
 --------------------------------------------------------------------
 Thumbnails - ElementType.GetPreviewImage, confirmed via Autodesk's own
 API docs before writing any code (in the Revit API since 2011, stable)
@@ -89,7 +103,7 @@ from System.Windows.Interop import Imaging
 from System.Windows.Media.Imaging import BitmapSizeOptions
 from System.Drawing import Size as DrawingSize
 
-from pyrevit import forms
+from pyrevit import forms, script
 import dee_branding
 
 from Autodesk.Revit.DB import (
@@ -145,6 +159,69 @@ for _n in (
 
 def _discipline_for_category(category_name):
     return _DISCIPLINE_MAP.get(category_name, _OTHER_DISCIPLINE)
+
+
+def _eid(element_id):
+    """ElementId.Value (Revit 2024+, 64-bit) with pre-2024 IntegerValue
+    as the fallback - same compatibility shim as dee_3d_export_service."""
+    try:
+        return int(element_id.Value)
+    except Exception:
+        pass
+    try:
+        return int(element_id.IntegerValue)
+    except Exception:
+        return 0
+
+
+# Thumbnails are the slow part of a scan (GetPreviewImage + GDI convert per
+# type) - cached across window opens via pyrevit.script's envvar store, so
+# reopening the tool (or a plain Rescan) only renders thumbnails for types
+# it hasn't seen before, instead of redoing the whole project every time.
+# Only ElementId ints and finished BitmapSources go in this cache - never a
+# live Element/FamilySymbol, per this repo's own "never cache Revit
+# Elements across a UI wait" rule (a stale wrapper is an uncatchable native
+# crash risk). Rows themselves are always rebuilt fresh from doc.GetElement
+# on every scan - that part is cheap, so there is nothing to gain (and real
+# staleness risk to lose) by caching it too.
+_THUMB_CACHE_ENVVAR = "DeeFamily_thumb_cache"
+
+
+def _doc_cache_key(doc):
+    try:
+        path = doc.PathName
+        if path:
+            return path
+    except Exception:
+        pass
+    try:
+        return doc.Title
+    except Exception:
+        return "unknown"
+
+
+def _load_thumb_cache(doc):
+    try:
+        all_caches = script.get_envvar(_THUMB_CACHE_ENVVAR)
+    except Exception:
+        all_caches = None
+    if not all_caches:
+        return {}
+    return dict(all_caches.get(_doc_cache_key(doc), {}))
+
+
+def _save_thumb_cache(doc, cache):
+    try:
+        all_caches = script.get_envvar(_THUMB_CACHE_ENVVAR)
+    except Exception:
+        all_caches = None
+    if not all_caches:
+        all_caches = {}
+    all_caches[_doc_cache_key(doc)] = cache
+    try:
+        script.set_envvar(_THUMB_CACHE_ENVVAR, all_caches)
+    except Exception:
+        pass
 
 
 def _read_name(element):
@@ -344,9 +421,6 @@ class _PlaceEventHandler(IExternalEventHandler):
         return "DeeFamily place handler"
 
 
-_open_window_ref = {"window": None}
-
-
 class DeeFamilyWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
@@ -360,20 +434,21 @@ class DeeFamilyWindow(dee_branding.DeeBrandedWindow):
         self._place_state = {"symbol": None}
         self._place_handler = _PlaceEventHandler(self._place_state)
         self._place_event = ExternalEvent.Create(self._place_handler)
-        self.Closed += self._on_closed
         self._scan_and_load()
-
-    def _on_closed(self, sender, args):
-        if _open_window_ref.get("window") is self:
-            _open_window_ref["window"] = None
 
     def _scan_and_load(self):
         rows = _collect_family_types(self.doc)
-        with _SafeProgress(title="DeeFamily - loading {value} of {max_value} thumbnails...",
+        thumb_cache = _load_thumb_cache(self.doc)
+        new_rows = [r for r in rows if _eid(r.symbol.Id) not in thumb_cache]
+        with _SafeProgress(title="DeeFamily - loading {value} of {max_value} new thumbnails...",
                             cancellable=False) as pb:
-            for i, row in enumerate(rows):
-                pb.update_progress(i, len(rows))
-                row.thumbnail = _get_thumbnail(row.symbol)
+            for i, row in enumerate(new_rows):
+                pb.update_progress(i, len(new_rows))
+                thumb_cache[_eid(row.symbol.Id)] = _get_thumbnail(row.symbol)
+        for row in rows:
+            row.thumbnail = thumb_cache.get(_eid(row.symbol.Id))
+        if new_rows:
+            _save_thumb_cache(self.doc, thumb_cache)
         self._all_rows = rows
 
         disciplines = sorted(set(r.discipline for r in rows))
@@ -457,18 +532,8 @@ class DeeFamilyWindow(dee_branding.DeeBrandedWindow):
 
 
 def main():
-    existing = _open_window_ref.get("window")
-    if existing is not None:
-        try:
-            if existing.IsLoaded:
-                existing.Activate()
-                return
-        except Exception:
-            pass
-
     doc = __revit__.ActiveUIDocument.Document
     window = DeeFamilyWindow(_XAML_FILE, doc)
-    _open_window_ref["window"] = window
     window.Show()
 
 
