@@ -1,0 +1,5 @@
+title: DeeFamily
+tooltip: Browse every loaded family type in this project with real thumbnails, grouped by family, filterable by discipline, and drag a tile into the model to place it
+engine:
+  clean: false
+  persistent: true

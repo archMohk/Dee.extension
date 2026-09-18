@@ -56,9 +56,9 @@ _add("System.Windows", """
     FontWeights FrameworkElement GridLength HorizontalAlignment Int32Rect
     MessageBox MessageBoxButton MessageBoxImage MessageBoxResult Point
     PropertyPath Rect ResizeMode ResourceDictionary RoutedEventArgs Setter
-    Size SizeToContent Style TextAlignment TextDecorations TextTrimming
-    TextWrapping Thickness UIElement Vector VerticalAlignment Visibility
-    Window WindowStartupLocation WindowState WindowStyle
+    Size SizeToContent Style SystemParameters TextAlignment TextDecorations
+    TextTrimming TextWrapping Thickness UIElement Vector VerticalAlignment
+    Visibility Window WindowStartupLocation WindowState WindowStyle
 """)
 _add("System.Windows.Input", """
     ApplicationCommands CommandBinding Cursor Cursors ICommand InputManager
