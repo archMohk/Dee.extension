@@ -10,19 +10,27 @@ Category, so this is a maintained lookup table, not a Revit API value),
 and searchable by name/family/category. Dragging a tile places that type
 into the model, the same way dragging a type out of Project Browser does.
 
-Thumbnails are cached per-document across window opens via pyrevit.
-script's envvar store (AppDomain-scoped, survives closing/reopening this
-tool within the same Revit session, cleared on restart) - opening the
-tool again, or clicking Rescan, only renders thumbnails for types not
-already in the cache, rather than redoing the whole project every time.
-A persistent engine keeps Revit from tearing this tool's objects down
-between clicks, but it does NOT keep plain Python module globals around
-across separate clicks (confirmed the hard way - a first attempt at this
-cache as a bare module dict silently did nothing, since every click gets
-fresh globals) - the envvar store is pyRevit's own documented mechanism
-for exactly this. Only ElementId ints and finished BitmapSources ever go
-in the cache, never a live Element/FamilySymbol, per this repo's own
-"never cache Revit Elements across a UI wait" rule.
+The whole scan (names + thumbnails, not just thumbnails) is cached per-
+document across window opens via pyrevit.script's envvar store
+(AppDomain-scoped, survives closing/reopening this tool within the same
+Revit session, cleared on restart). A normal open reuses that cache
+outright with ZERO Revit API calls - no collector pass, no per-type
+doc.GetElement/Name reads, no GetPreviewImage - which is what actually
+makes repeat opens fast; caching only the thumbnails and still re-
+walking every family/type on every open left that walk itself as the
+dominant, still-slow cost. Only an explicit Rescan (or the first-ever
+open in a session, with nothing cached yet) touches the Revit API at
+all. A persistent engine keeps Revit from tearing this tool's objects
+down between clicks, but it does NOT keep plain Python module globals
+around across separate clicks (confirmed the hard way - a first attempt
+at this cache as a bare module dict silently did nothing, since every
+click gets fresh globals) - the envvar store is pyRevit's own documented
+mechanism for exactly this. Only ElementId ints and plain data (strings,
+finished BitmapSources) ever go in the cache, never a live Element/
+FamilySymbol, per this repo's own "never cache Revit Elements across a
+UI wait" rule - FamilyTypeRow.resolve_symbol() re-resolves the real
+FamilySymbol fresh, right when one is actually needed (a not-yet-cached
+thumbnail, or placing an instance).
 
 --------------------------------------------------------------------
 Thumbnails - ElementType.GetPreviewImage, confirmed via Autodesk's own
@@ -107,7 +115,7 @@ from pyrevit import forms, script
 import dee_branding
 
 from Autodesk.Revit.DB import (
-    FilteredElementCollector, Family, BuiltInParameter, Transaction)
+    FilteredElementCollector, Family, BuiltInParameter, Transaction, ElementId)
 from Autodesk.Revit.UI import IExternalEventHandler, ExternalEvent
 
 import dee_telemetry
@@ -174,17 +182,21 @@ def _eid(element_id):
         return 0
 
 
-# Thumbnails are the slow part of a scan (GetPreviewImage + GDI convert per
-# type) - cached across window opens via pyrevit.script's envvar store, so
-# reopening the tool (or a plain Rescan) only renders thumbnails for types
-# it hasn't seen before, instead of redoing the whole project every time.
-# Only ElementId ints and finished BitmapSources go in this cache - never a
-# live Element/FamilySymbol, per this repo's own "never cache Revit
-# Elements across a UI wait" rule (a stale wrapper is an uncatchable native
-# crash risk). Rows themselves are always rebuilt fresh from doc.GetElement
-# on every scan - that part is cheap, so there is nothing to gain (and real
-# staleness risk to lose) by caching it too.
-_THUMB_CACHE_ENVVAR = "DeeFamily_thumb_cache"
+# The whole scan result (names + thumbnails, keyed by ElementId int) is
+# cached across window opens via pyrevit.script's envvar store - a normal
+# open reuses it outright with ZERO Revit API calls (no collector pass, no
+# per-type doc.GetElement/Name reads, no GetPreviewImage), which is what
+# actually made repeat opens fast; caching only the thumbnails and still
+# re-walking every family/type on each open left that walk itself as the
+# dominant cost. Only ElementId ints, plain strings, and finished
+# BitmapSources go in this cache - never a live Element/FamilySymbol, per
+# this repo's own "never cache Revit Elements across a UI wait" rule (a
+# stale wrapper is an uncatchable native crash risk); the live FamilySymbol
+# needed for GetPreviewImage or for placing an instance is always resolved
+# fresh via FamilyTypeRow.resolve_symbol() right when it's actually needed.
+# Only an explicit Rescan (or the first-ever open in a session, with
+# nothing cached yet) touches the Revit API to rebuild this cache.
+_SCAN_CACHE_ENVVAR = "DeeFamily_scan_cache"
 
 
 def _doc_cache_key(doc):
@@ -200,9 +212,9 @@ def _doc_cache_key(doc):
         return "unknown"
 
 
-def _load_thumb_cache(doc):
+def _load_cache_entries(doc):
     try:
-        all_caches = script.get_envvar(_THUMB_CACHE_ENVVAR)
+        all_caches = script.get_envvar(_SCAN_CACHE_ENVVAR)
     except Exception:
         all_caches = None
     if not all_caches:
@@ -210,16 +222,16 @@ def _load_thumb_cache(doc):
     return dict(all_caches.get(_doc_cache_key(doc), {}))
 
 
-def _save_thumb_cache(doc, cache):
+def _save_cache_entries(doc, entries):
     try:
-        all_caches = script.get_envvar(_THUMB_CACHE_ENVVAR)
+        all_caches = script.get_envvar(_SCAN_CACHE_ENVVAR)
     except Exception:
         all_caches = None
     if not all_caches:
         all_caches = {}
-    all_caches[_doc_cache_key(doc)] = cache
+    all_caches[_doc_cache_key(doc)] = entries
     try:
-        script.set_envvar(_THUMB_CACHE_ENVVAR, all_caches)
+        script.set_envvar(_SCAN_CACHE_ENVVAR, all_caches)
     except Exception:
         pass
 
@@ -281,13 +293,24 @@ def _get_thumbnail(symbol):
 
 
 class FamilyTypeRow(object):
-    def __init__(self, symbol, family_name, category_name):
-        self.symbol = symbol
+    """Holds an ElementId, never a live symbol - the actual FamilySymbol
+    is resolved fresh via resolve_symbol() only at the moment it's
+    genuinely needed (rendering a not-yet-cached thumbnail, or placing an
+    instance), never held across a window-open gap."""
+    def __init__(self, doc, symbol_id, family_name, category_name, type_name):
+        self.doc = doc
+        self.symbol_id = symbol_id
         self.family_name = family_name or "(unnamed family)"
         self.category_name = category_name or "(uncategorized)"
         self.discipline = _discipline_for_category(self.category_name)
-        self.type_name = _read_name(symbol) or "(unnamed type)"
+        self.type_name = type_name or "(unnamed type)"
         self.thumbnail = None
+
+    def resolve_symbol(self):
+        try:
+            return self.doc.GetElement(self.symbol_id)
+        except Exception:
+            return None
 
 
 class FamilyGroup(object):
@@ -300,6 +323,10 @@ class FamilyGroup(object):
 
 
 def _collect_family_types(doc):
+    """Full Revit-side walk - only called on an explicit Rescan, or the
+    first-ever open in a session with nothing cached yet. This is the
+    part that's actually slow (a doc.GetElement + Name read per loaded
+    type), which is why a normal open skips it entirely via the cache."""
     rows = []
     for fam in FilteredElementCollector(doc).OfClass(Family):
         try:
@@ -317,9 +344,24 @@ def _collect_family_types(doc):
                 symbol = doc.GetElement(tid)
                 if symbol is None:
                     continue
-                rows.append(FamilyTypeRow(symbol, fam_name, cat_name))
+                type_name = _read_name(symbol) or "(unnamed type)"
+                rows.append(FamilyTypeRow(doc, tid, fam_name, cat_name, type_name))
             except Exception:
                 continue
+    rows.sort(key=lambda r: (r.discipline, r.family_name, r.type_name))
+    return rows
+
+
+def _rows_from_cache(doc, entries):
+    """Rebuilds rows purely from cached plain data - no Revit API calls
+    at all, which is what makes a normal (non-Rescan) open fast."""
+    rows = []
+    for id_int, data in entries.items():
+        row = FamilyTypeRow(
+            doc, ElementId(id_int), data.get("family_name"),
+            data.get("category_name"), data.get("type_name"))
+        row.thumbnail = data.get("thumbnail")
+        rows.append(row)
     rows.sort(key=lambda r: (r.discipline, r.family_name, r.type_name))
     return rows
 
@@ -436,19 +478,34 @@ class DeeFamilyWindow(dee_branding.DeeBrandedWindow):
         self._place_event = ExternalEvent.Create(self._place_handler)
         self._scan_and_load()
 
-    def _scan_and_load(self):
-        rows = _collect_family_types(self.doc)
-        thumb_cache = _load_thumb_cache(self.doc)
-        new_rows = [r for r in rows if _eid(r.symbol.Id) not in thumb_cache]
-        with _SafeProgress(title="DeeFamily - loading {value} of {max_value} new thumbnails...",
-                            cancellable=False) as pb:
-            for i, row in enumerate(new_rows):
-                pb.update_progress(i, len(new_rows))
-                thumb_cache[_eid(row.symbol.Id)] = _get_thumbnail(row.symbol)
-        for row in rows:
-            row.thumbnail = thumb_cache.get(_eid(row.symbol.Id))
-        if new_rows:
-            _save_thumb_cache(self.doc, thumb_cache)
+    def _scan_and_load(self, force=False):
+        entries = _load_cache_entries(self.doc)
+        if force or not entries:
+            rows = _collect_family_types(self.doc)
+            new_rows = []
+            for row in rows:
+                cached = entries.get(_eid(row.symbol_id))
+                if cached is not None and cached.get("thumbnail") is not None:
+                    row.thumbnail = cached["thumbnail"]
+                else:
+                    new_rows.append(row)
+            with _SafeProgress(title="DeeFamily - loading {value} of {max_value} new thumbnails...",
+                                cancellable=False) as pb:
+                for i, row in enumerate(new_rows):
+                    pb.update_progress(i, len(new_rows))
+                    symbol = row.resolve_symbol()
+                    row.thumbnail = _get_thumbnail(symbol) if symbol is not None else None
+            entries = {}
+            for row in rows:
+                entries[_eid(row.symbol_id)] = {
+                    "family_name": row.family_name,
+                    "category_name": row.category_name,
+                    "type_name": row.type_name,
+                    "thumbnail": row.thumbnail,
+                }
+            _save_cache_entries(self.doc, entries)
+        else:
+            rows = _rows_from_cache(self.doc, entries)
         self._all_rows = rows
 
         disciplines = sorted(set(r.discipline for r in rows))
@@ -479,7 +536,7 @@ class DeeFamilyWindow(dee_branding.DeeBrandedWindow):
         self._refresh()
 
     def refresh_click(self, sender, args):
-        self._scan_and_load()
+        self._scan_and_load(force=True)
 
     def close_click(self, sender, args):
         self.Close()
@@ -524,7 +581,10 @@ class DeeFamilyWindow(dee_branding.DeeBrandedWindow):
         args.Handled = True
 
     def _request_place(self, row):
-        self._place_state["symbol"] = row.symbol
+        symbol = row.resolve_symbol()
+        if symbol is None:
+            return
+        self._place_state["symbol"] = symbol
         try:
             self._place_event.Raise()
         except Exception:
