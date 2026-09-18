@@ -78,6 +78,7 @@ import os
 import clr
 clr.AddReference("System.Drawing")
 clr.AddReference("PresentationCore")
+clr.AddReference("PresentationFramework")
 clr.AddReference("WindowsBase")
 
 import ctypes
