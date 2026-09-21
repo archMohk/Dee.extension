@@ -4,12 +4,13 @@
 Two things live in this one module because they share the same identity
 resolution and the same "call this one line at the top of a tool" shape:
 
-1. **Telemetry** - one row per tool run (who, which tool, when, and which
-   Revit model - doc.Title - was open at the time), so usage is visible
-   in one place across every machine this extension runs on. The file
-   name is only known at the moment a Dee tool is actually clicked (no
-   separate "on file open" hook exists), which in practice covers the
-   large majority of real sessions given how often these tools get used.
+1. **Telemetry** - one row per tool run (who, which tool, when, which
+   Revit model - doc.Title - was open, and whether that model was
+   workshared/cloud-hosted), so usage is visible in one place across
+   every machine this extension runs on. All of this is only known at
+   the moment a Dee tool is actually clicked (no separate "on file open"
+   hook exists), which in practice covers the large majority of real
+   sessions given how often these tools get used.
 2. **Access control** - `check_access()` is a remote kill-switch. Every
    email is either enabled or disabled in the `allowed_users` Supabase
    table; a brand-new/never-seen email is DISABLED by default (opt-in,
@@ -308,6 +309,40 @@ def _active_file_name():
         return None
 
 
+def _is_workshared():
+    """doc.IsWorkshared - same property this codebase already reads
+    elsewhere (e.g. lib/dee_align_service.py, DeeCloseAll.pushbutton).
+    None (not False) when it can't be determined at all, so the
+    dashboard can tell "checked, not workshared" apart from "unknown"."""
+    try:
+        from pyrevit import HOST_APP
+        doc = HOST_APP.doc
+        if doc is None:
+            return None
+        return bool(doc.IsWorkshared)
+    except Exception:
+        return None
+
+
+def _is_cloud_model():
+    """Whether the open model is ACC/BIM360-hosted. GetCloudModelPath() is
+    documented to THROW (not return None) for a non-cloud document -
+    confirmed before writing this, not assumed - so a caught exception
+    there means "confirmed local", a definite False, not "unknown". The
+    outer try/except still covers genuine unknowns (no doc at all)."""
+    try:
+        from pyrevit import HOST_APP
+        doc = HOST_APP.doc
+        if doc is None:
+            return None
+        try:
+            return doc.GetCloudModelPath() is not None
+        except Exception:
+            return False
+    except Exception:
+        return None
+
+
 def get_or_prompt_identity():
     """Returns the saved email, prompting ONCE (a single text-entry
     dialog) the very first time any Dee tool runs on this machine. Must
@@ -346,7 +381,7 @@ def get_or_prompt_identity():
     return email
 
 
-def _send(tool_name, user_email):
+def _send(tool_name, user_email, file_name, is_workshared, is_cloud):
     try:
         if not SUPABASE_URL or not SUPABASE_ANON_KEY:
             return
@@ -356,7 +391,9 @@ def _send(tool_name, user_email):
             "user_name": user_email,
             "windows_username": _windows_username(),
             "machine_name": _machine_name(),
-            "file_name": _active_file_name(),
+            "file_name": file_name,
+            "is_workshared": is_workshared,
+            "is_cloud": is_cloud,
         })
         request = HttpRequestMessage(HttpMethod.Post, url)
         request.Headers.Add("apikey", SUPABASE_ANON_KEY)
@@ -374,13 +411,26 @@ def log_usage(tool_name):
     """Fire-and-forget usage log - never blocks, never raises. Called
     internally by check_access() on a successful (allowed) check; also
     safe to call standalone if a tool ever needs logging without the
-    access gate for some reason."""
+    access gate for some reason.
+
+    Every Revit-API-derived value (file name, workshared/cloud status) is
+    read HERE, synchronously, on the calling thread - Revit's API is not
+    safe to call from a background thread. Live-caught: file_name (a
+    cheap, near-instant property read) worked fine when this was computed
+    inside the background thread, but is_workshared/is_cloud silently
+    came back None for real events - moving all of it here, before the
+    thread is spawned, fixed it. Only the actual network POST (the slow,
+    blocking part _send() exists to hide) stays backgrounded."""
     try:
         user_email = get_or_prompt_identity()
     except Exception:
         user_email = _windows_username()
 
-    t = threading.Thread(target=_send, args=(tool_name, user_email))
+    file_name = _active_file_name()
+    is_workshared = _is_workshared()
+    is_cloud = _is_cloud_model()
+
+    t = threading.Thread(target=_send, args=(tool_name, user_email, file_name, is_workshared, is_cloud))
     t.daemon = True
     t.start()
 
@@ -512,5 +562,19 @@ def check_access(tool_name):
     warning = result.get("warning")
     if warning:
         forms.alert(warning, title="Dee.extension - Subscription Reminder")
+
+    # Only present at all when the calling email is an admin
+    # (allowed_users.is_admin) - check_user_access() stamps notified_at on
+    # the rows it returns here in the same call, so this fires exactly
+    # once per new pending user, not on every subsequent click.
+    pending = result.get("pending_new_users")
+    if pending:
+        lines = "\n".join(
+            u"- {0} (first seen {1})".format(p.get("email"), p.get("first_seen"))
+            for p in pending)
+        forms.alert(
+            u"New user(s) waiting for approval:\n\n{0}\n\nEnable them from the "
+            u"dashboard.".format(lines),
+            title="Dee.extension - New User(s)")
 
     log_usage(tool_name)
