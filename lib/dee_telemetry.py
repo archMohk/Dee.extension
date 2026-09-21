@@ -4,8 +4,12 @@
 Two things live in this one module because they share the same identity
 resolution and the same "call this one line at the top of a tool" shape:
 
-1. **Telemetry** - one row per tool run (who, which tool, when), so usage
-   is visible in one place across every machine this extension runs on.
+1. **Telemetry** - one row per tool run (who, which tool, when, and which
+   Revit model - doc.Title - was open at the time), so usage is visible
+   in one place across every machine this extension runs on. The file
+   name is only known at the moment a Dee tool is actually clicked (no
+   separate "on file open" hook exists), which in practice covers the
+   large majority of real sessions given how often these tools get used.
 2. **Access control** - `check_access()` is a remote kill-switch. Every
    email is either enabled or disabled in the `allowed_users` Supabase
    table; a brand-new/never-seen email is DISABLED by default (opt-in,
@@ -288,6 +292,22 @@ def _machine_name():
         return "unknown"
 
 
+def _active_file_name():
+    """The currently open Revit model's name (doc.Title - works for both
+    local and cloud/ACC-hosted models, and already excludes the .rvt
+    extension). None if there's no active document (e.g. a zero-doc
+    tool) or anything about reading it fails - never raises, and a
+    missing value here must never block check_access()/log_usage()."""
+    try:
+        from pyrevit import HOST_APP
+        doc = HOST_APP.doc
+        if doc is None:
+            return None
+        return doc.Title or None
+    except Exception:
+        return None
+
+
 def get_or_prompt_identity():
     """Returns the saved email, prompting ONCE (a single text-entry
     dialog) the very first time any Dee tool runs on this machine. Must
@@ -336,6 +356,7 @@ def _send(tool_name, user_email):
             "user_name": user_email,
             "windows_username": _windows_username(),
             "machine_name": _machine_name(),
+            "file_name": _active_file_name(),
         })
         request = HttpRequestMessage(HttpMethod.Post, url)
         request.Headers.Add("apikey", SUPABASE_ANON_KEY)
