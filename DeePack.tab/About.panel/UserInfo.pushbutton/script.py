@@ -82,6 +82,22 @@ class UserInfoWindow(dee_branding.DeeBrandedWindow):
         self.prayer_duration_tb.Text = str(prayer_settings.get(
             "duration_sec", dee_prayer_service.DEFAULT_SETTINGS["duration_sec"]))
 
+        try:
+            city, times = dee_prayer_service.get_today_times()
+        except Exception:
+            city, times = None, None
+        if times:
+            self.prayer_location_tb.Text = u"Today's times for {0}:".format(city)
+            order = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
+            self.prayer_times_tb.Text = u"\n".join(
+                u"{0}:   {1}".format(name, times[name].strftime("%H:%M"))
+                for name in order if name in times)
+        else:
+            self.prayer_location_tb.Text = ""
+            self.prayer_times_tb.Text = ("Prayer times not available - either "
+                                          "this PC's time zone isn't recognized, "
+                                          "or there's no internet connection.")
+
         status = dee_telemetry.load_cached_status()
         summary = dee_telemetry.status_summary()
         self.status_tb.Text = summary or "Not checked yet - open any Dee tool once first."

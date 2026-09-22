@@ -88,37 +88,39 @@ _CHECK_INTERVAL = datetime.timedelta(seconds=30)
 _NOTIFY_WINDOW = datetime.timedelta(minutes=2)
 _PRAYER_NAMES = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
 
-# Windows Time Zone ID -> (IANA name, latitude, longitude). Best-effort,
-# maintained lookup - see module docstring for why this can't just be
-# derived from .NET. Add more zones here by hand as real users hit gaps
-# (a genuinely unmapped zone silently gets no notifications - see below
-# - rather than a wrong guess).
+# Windows Time Zone ID -> (IANA name, latitude, longitude, display city).
+# Best-effort, maintained lookup - see module docstring for why this
+# can't just be derived from .NET. Add more zones here by hand as real
+# users hit gaps (a genuinely unmapped zone silently gets no
+# notifications - see below - rather than a wrong guess). The display
+# city is shown in the User Info window so a user can sanity-check the
+# location their times are being computed for.
 _TZ_TABLE = {
-    "Egypt Standard Time": ("Africa/Cairo", 30.0444, 31.2357),
-    "Arabian Standard Time": ("Asia/Dubai", 25.2048, 55.2708),
-    "Arab Standard Time": ("Asia/Riyadh", 24.7136, 46.6753),
-    "Jordan Standard Time": ("Asia/Amman", 31.9454, 35.9284),
-    "Syria Standard Time": ("Asia/Damascus", 33.5138, 36.2765),
-    "Israel Standard Time": ("Asia/Jerusalem", 31.7683, 35.2137),
-    "Turkey Standard Time": ("Europe/Istanbul", 41.0082, 28.9784),
-    "GTB Standard Time": ("Europe/Bucharest", 44.4268, 26.1025),
-    "GMT Standard Time": ("Europe/London", 51.5074, -0.1278),
-    "W. Europe Standard Time": ("Europe/Berlin", 52.5200, 13.4050),
-    "Central Europe Standard Time": ("Europe/Warsaw", 52.2297, 21.0122),
-    "Romance Standard Time": ("Europe/Paris", 48.8566, 2.3522),
-    "Eastern Standard Time": ("America/New_York", 40.7128, -74.0060),
-    "Central Standard Time": ("America/Chicago", 41.8781, -87.6298),
-    "Mountain Standard Time": ("America/Denver", 39.7392, -104.9903),
-    "Pacific Standard Time": ("America/Los_Angeles", 34.0522, -118.2437),
-    "India Standard Time": ("Asia/Kolkata", 28.6139, 77.2090),
-    "Pakistan Standard Time": ("Asia/Karachi", 24.8607, 67.0011),
-    "Bangladesh Standard Time": ("Asia/Dhaka", 23.8103, 90.4125),
-    "SE Asia Standard Time": ("Asia/Jakarta", -6.2088, 106.8456),
-    "Singapore Standard Time": ("Asia/Kuala_Lumpur", 3.1390, 101.6869),
-    "China Standard Time": ("Asia/Shanghai", 31.2304, 121.4737),
-    "AUS Eastern Standard Time": ("Australia/Sydney", -33.8688, 151.2093),
-    "Morocco Standard Time": ("Africa/Casablanca", 33.5731, -7.5898),
-    "W. Central Africa Standard Time": ("Africa/Lagos", 6.5244, 3.3792),
+    "Egypt Standard Time": ("Africa/Cairo", 30.0444, 31.2357, "Cairo"),
+    "Arabian Standard Time": ("Asia/Dubai", 25.2048, 55.2708, "Dubai"),
+    "Arab Standard Time": ("Asia/Riyadh", 24.7136, 46.6753, "Riyadh"),
+    "Jordan Standard Time": ("Asia/Amman", 31.9454, 35.9284, "Amman"),
+    "Syria Standard Time": ("Asia/Damascus", 33.5138, 36.2765, "Damascus"),
+    "Israel Standard Time": ("Asia/Jerusalem", 31.7683, 35.2137, "Jerusalem"),
+    "Turkey Standard Time": ("Europe/Istanbul", 41.0082, 28.9784, "Istanbul"),
+    "GTB Standard Time": ("Europe/Bucharest", 44.4268, 26.1025, "Bucharest"),
+    "GMT Standard Time": ("Europe/London", 51.5074, -0.1278, "London"),
+    "W. Europe Standard Time": ("Europe/Berlin", 52.5200, 13.4050, "Berlin"),
+    "Central Europe Standard Time": ("Europe/Warsaw", 52.2297, 21.0122, "Warsaw"),
+    "Romance Standard Time": ("Europe/Paris", 48.8566, 2.3522, "Paris"),
+    "Eastern Standard Time": ("America/New_York", 40.7128, -74.0060, "New York"),
+    "Central Standard Time": ("America/Chicago", 41.8781, -87.6298, "Chicago"),
+    "Mountain Standard Time": ("America/Denver", 39.7392, -104.9903, "Denver"),
+    "Pacific Standard Time": ("America/Los_Angeles", 34.0522, -118.2437, "Los Angeles"),
+    "India Standard Time": ("Asia/Kolkata", 28.6139, 77.2090, "Delhi"),
+    "Pakistan Standard Time": ("Asia/Karachi", 24.8607, 67.0011, "Karachi"),
+    "Bangladesh Standard Time": ("Asia/Dhaka", 23.8103, 90.4125, "Dhaka"),
+    "SE Asia Standard Time": ("Asia/Jakarta", -6.2088, 106.8456, "Jakarta"),
+    "Singapore Standard Time": ("Asia/Kuala_Lumpur", 3.1390, 101.6869, "Kuala Lumpur"),
+    "China Standard Time": ("Asia/Shanghai", 31.2304, 121.4737, "Shanghai"),
+    "AUS Eastern Standard Time": ("Australia/Sydney", -33.8688, 151.2093, "Sydney"),
+    "Morocco Standard Time": ("Africa/Casablanca", 33.5731, -7.5898, "Casablanca"),
+    "W. Central Africa Standard Time": ("Africa/Lagos", 6.5244, 3.3792, "Lagos"),
 }
 
 _client = HttpClient()
@@ -240,6 +242,36 @@ def _show_toast(prayer_name, prayer_time, duration_sec):
         pass
 
 
+def _ensure_today_cached(loc):
+    """Shared by the Idling handler and get_today_times() - one cache,
+    so a User Info window open doesn't force a redundant fetch on a day
+    the watcher already fetched, and the watcher doesn't re-fetch just
+    because the window happened to trigger the first fetch of the day."""
+    tz_name, lat, lon, _city = loc
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+    if _state["date"] != today_str:
+        _state["date"] = today_str
+        _state["times"] = _fetch_today_times(lat, lon, tz_name)
+        _state["notified"] = set()
+    return _state["times"]
+
+
+def get_today_times():
+    """Best-effort, for display (e.g. the User Info window) - returns
+    (city_label, {prayer_name: datetime.time}) or (None, None) if the
+    PC's time zone isn't in _TZ_TABLE or the fetch fails. May make a
+    network call the first time it's asked on a given day (short
+    timeout already set on the shared HttpClient) - every later call
+    that same day reuses the cache instantly, same as the watcher."""
+    loc = _location()
+    if loc is None:
+        return None, None
+    times = _ensure_today_cached(loc)
+    if not times:
+        return None, None
+    return loc[3], times
+
+
 def _check_and_notify():
     now = datetime.datetime.now()
     last = _state["last_check"]
@@ -254,18 +286,12 @@ def _check_and_notify():
     loc = _location()
     if loc is None:
         return
-    tz_name, lat, lon = loc
 
-    today_str = now.strftime("%Y-%m-%d")
-    if _state["date"] != today_str:
-        _state["date"] = today_str
-        _state["times"] = _fetch_today_times(lat, lon, tz_name)
-        _state["notified"] = set()
-
-    times = _state["times"]
+    times = _ensure_today_cached(loc)
     if not times:
         return
 
+    now = datetime.datetime.now()
     for name, prayer_time in times.items():
         if name in _state["notified"]:
             continue
