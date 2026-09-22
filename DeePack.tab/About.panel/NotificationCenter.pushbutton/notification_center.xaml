@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Dee.extension — Notification Center"
         ShowInTaskbar="False"
-        Height="560" Width="440" ResizeMode="NoResize"
+        Height="600" Width="440" ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="14">
         <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
@@ -53,6 +53,15 @@
                 </StackPanel>
             </Grid>
 
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBlock Text="Preview theme:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <RadioButton x:Name="theme_dark_rb" Content="Dark" GroupName="hubPreviewTheme"
+                             VerticalAlignment="Center" IsChecked="True"/>
+                <RadioButton x:Name="theme_light_rb" Content="Light" GroupName="hubPreviewTheme"
+                             VerticalAlignment="Center" Margin="10,0,0,0"/>
+                <RadioButton x:Name="theme_colored_rb" Content="Colored" GroupName="hubPreviewTheme"
+                             VerticalAlignment="Center" Margin="10,0,0,0"/>
+            </StackPanel>
             <Button x:Name="test_notification_b" Content="Test Notification" Width="160" Height="28"
                     HorizontalAlignment="Left" Margin="0,0,0,16" Click="test_notification_click"/>
 

@@ -30,6 +30,17 @@ inside it becomes clickable automatically. Same Hyperlink/
 RequestNavigate pattern already proven live in lib/dee_branding.py's own
 footer link.
 
+Three color themes (THEMES/DEFAULT_THEME below): "dark" (the original
+design - dark card, light text), "light" (white card, dark text - closer
+to a native OS/browser notification), "colored" (the card background
+itself is a darkened tint of accent_color, white text - reads as
+strongly branded). All three share the exact same layout/structure
+(accent bar, headline/title/sub, optional image/buttons) - only colors
+change - so adding a theme never risks the sizing work above; only
+_theme_colors() decides what's on screen. theme is per-CALL, not a
+shared setting like position/size: DeeCall sends it per-message, Prayer
+Times saves it as its own persistent choice - see each caller.
+
 Appearance (position on screen, width, minimum height, how long it
 stays) is one shared per-PC setting store ("DeeNotifications", via
 lib/deew_settings.py) - not per-feature - so the "Test Notification"
@@ -108,7 +119,69 @@ _IMAGE_HEIGHT = 90
 # lib/dee_branding.py's own footer link.
 _URL_RE = re.compile(r"((?:https?://|www\.)[^\s<>\"]+)", re.IGNORECASE)
 _TRAILING_PUNCT = u".,!?;:)]}\"'"
-_LINK_COLOR = Color.FromRgb(0x6C, 0xB6, 0xFF)
+
+DEFAULT_THEME = "dark"
+THEMES = [
+    ("dark", "Dark"),
+    ("light", "Light"),
+    ("colored", "Colored"),
+]
+
+# Corner rounding for the whole card - shared by the outer card and the
+# accent bar's own matching corners (must stay equal or the bar would
+# either overhang or leave a square gap at the rounded edge).
+_CORNER_RADIUS = 14
+
+
+def _lighten(color, amount):
+    """amount in [0,1] - 0 leaves color unchanged, 1 reaches white."""
+    r = int(color.R + (255 - color.R) * amount)
+    g = int(color.G + (255 - color.G) * amount)
+    b = int(color.B + (255 - color.B) * amount)
+    return Color.FromRgb(min(255, r), min(255, g), min(255, b))
+
+
+def _darken(color, amount):
+    """amount in [0,1] - 0 leaves color unchanged, 1 reaches black."""
+    r = int(color.R * (1 - amount))
+    g = int(color.G * (1 - amount))
+    b = int(color.B * (1 - amount))
+    return Color.FromRgb(max(0, r), max(0, g), max(0, b))
+
+
+def _theme_colors(theme, accent_color):
+    """Returns the 5 colors a card needs, all derived from just accent_
+    color plus the theme choice - so every existing caller's own accent
+    (prayer's green/orange, DeeCall's blue) still reads as itself in
+    every theme, nothing hardcoded per-feature."""
+    if theme == "light":
+        return {
+            "card_bg": Color.FromRgb(0xFF, 0xFF, 0xFF),
+            "accent_bar": accent_color,
+            "headline_fg": accent_color,
+            "title_fg": Color.FromRgb(0x1A, 0x1D, 0x26),
+            "sub_fg": Color.FromRgb(0x5A, 0x64, 0x72),
+            "link_fg": Color.FromRgb(0x1A, 0x73, 0xE8),
+        }
+    if theme == "colored":
+        card_bg = _darken(accent_color, 0.45)
+        return {
+            "card_bg": card_bg,
+            "accent_bar": accent_color,
+            "headline_fg": Color.FromRgb(0xFF, 0xFF, 0xFF),
+            "title_fg": Color.FromRgb(0xFF, 0xFF, 0xFF),
+            "sub_fg": _lighten(card_bg, 0.55),
+            "link_fg": Color.FromRgb(0xFF, 0xFF, 0xFF),
+        }
+    # default / "dark"
+    return {
+        "card_bg": Color.FromRgb(0x1A, 0x1D, 0x26),
+        "accent_bar": accent_color,
+        "headline_fg": accent_color,
+        "title_fg": Color.FromRgb(0xF2, 0xF3, 0xF5),
+        "sub_fg": Color.FromRgb(0x9A, 0xA1, 0xB0),
+        "link_fg": Color.FromRgb(0x6C, 0xB6, 0xFF),
+    }
 
 
 def load_settings():
@@ -182,10 +255,12 @@ def _on_navigate(sender, args):
     args.Handled = True
 
 
-def _fill_linkified(text_block, text):
+def _fill_linkified(text_block, text, link_color):
     """Populates text_block.Inlines with plain Runs, except any URL
     becomes a real Hyperlink - never touches .Text directly (Inlines and
-    Text are mutually exclusive on a TextBlock)."""
+    Text are mutually exclusive on a TextBlock). link_color: theme-
+    dependent (a light blue reads fine on Dark/Colored's own dark
+    backgrounds, but needs to be a darker blue on Light's white one)."""
     text = text or u""
     pos = 0
     for m in _URL_RE.finditer(text):
@@ -202,7 +277,7 @@ def _fill_linkified(text_block, text):
             try:
                 link = Hyperlink(Run(matched))
                 link.NavigateUri = Uri(nav_target)
-                link.Foreground = SolidColorBrush(_LINK_COLOR)
+                link.Foreground = SolidColorBrush(link_color)
                 link.RequestNavigate += _on_navigate
                 text_block.Inlines.Add(link)
             except Exception:
@@ -235,20 +310,25 @@ def _bitmap_from_bytes(data):
 
 def show_toast(headline, title_text, sub_text, accent_color,
                 duration_sec=None, position=None, width=None, height=None,
-                requires_ack=False, image_base64=None):
+                requires_ack=False, image_base64=None, theme=None):
     """headline: small bold label above the title (e.g. "PRAYER TIME —
     DEE.EXTENSION"). title_text: the big bold line (e.g. a prayer name,
     or "Announcement"). sub_text: the smaller line under it. accent_color
-    is a System.Windows.Media.Color, used for the left bar and headline
-    text - callers pick their own (green/orange/etc. - see
-    dee_prayer_service.py's _ACCENT_NOW/_ACCENT_REMINDER for the existing
-    convention). requires_ack: True shows a Close button and never auto-
-    dismisses (for a message the user must actively acknowledge);
-    False (default) is the original auto-dismiss-after-duration_sec
-    behavior. image_base64: optional base64-encoded image shown above the
-    text. Never raises - a broken toast must never break the caller (the
-    Idling handler, or the button that triggered it)."""
+    is a System.Windows.Media.Color, used for the left bar (every theme)
+    and the headline text (Dark/Light) - callers pick their own (green/
+    orange/etc. - see dee_prayer_service.py's _ACCENT_NOW/_ACCENT_REMINDER
+    for the existing convention). requires_ack: True shows a Close button
+    and never auto-dismisses (for a message the user must actively
+    acknowledge); False (default) is the original auto-dismiss-after-
+    duration_sec behavior. image_base64: optional base64-encoded image
+    shown above the text. theme: "dark" (default)/"light"/"colored" - see
+    THEMES and _theme_colors(); defaults to DEFAULT_THEME if None or
+    unrecognized. Never raises - a broken toast must never break the
+    caller (the Idling handler, or the button that triggered it)."""
     try:
+        colors = _theme_colors(theme if theme in ("dark", "light", "colored") else DEFAULT_THEME,
+                                accent_color)
+
         settings = load_settings()
         position = position or settings.get("position", DEFAULT_SETTINGS["position"])
         width = clamp_width(width if width is not None else
@@ -280,8 +360,8 @@ def show_toast(headline, title_text, sub_text, accent_color,
         window.SizeToContent = SizeToContent.Height
 
         outer = Border()
-        outer.CornerRadius = CornerRadius(10)
-        outer.Background = SolidColorBrush(Color.FromRgb(0x1A, 0x1D, 0x26))
+        outer.CornerRadius = CornerRadius(_CORNER_RADIUS)
+        outer.Background = SolidColorBrush(colors["card_bg"])
         outer.Effect = _build_shadow()
 
         grid = Grid()
@@ -293,8 +373,8 @@ def show_toast(headline, title_text, sub_text, accent_color,
         grid.ColumnDefinitions.Add(content_col)
 
         accent_bar = Border()
-        accent_bar.Background = SolidColorBrush(accent_color)
-        accent_bar.CornerRadius = CornerRadius(10, 0, 0, 10)
+        accent_bar.Background = SolidColorBrush(colors["accent_bar"])
+        accent_bar.CornerRadius = CornerRadius(_CORNER_RADIUS, 0, 0, _CORNER_RADIUS)
         Grid.SetColumn(accent_bar, 0)
         grid.Children.Add(accent_bar)
 
@@ -317,7 +397,7 @@ def show_toast(headline, title_text, sub_text, accent_color,
             save_b = Button()
             save_b.Content = u"Save Image"
             save_b.FontSize = 11
-            save_b.Foreground = SolidColorBrush(accent_color)
+            save_b.Foreground = SolidColorBrush(colors["link_fg"])
             save_b.Background = Brushes.Transparent
             save_b.BorderThickness = Thickness(0)
             save_b.Padding = Thickness(0)
@@ -330,23 +410,23 @@ def show_toast(headline, title_text, sub_text, accent_color,
         headline_tb.Text = headline
         headline_tb.FontSize = 10
         headline_tb.FontWeight = FontWeights.Bold
-        headline_tb.Foreground = SolidColorBrush(accent_color)
+        headline_tb.Foreground = SolidColorBrush(colors["headline_fg"])
         content.Children.Add(headline_tb)
 
         title_tb = TextBlock()
-        title_tb.Foreground = SolidColorBrush(Color.FromRgb(0xF2, 0xF3, 0xF5))
+        title_tb.Foreground = SolidColorBrush(colors["title_fg"])
         title_tb.FontSize = 22
         title_tb.FontWeight = FontWeights.Bold
         title_tb.Margin = Thickness(0, 2, 0, 2)
         title_tb.TextWrapping = TextWrapping.Wrap
-        _fill_linkified(title_tb, title_text)
+        _fill_linkified(title_tb, title_text, colors["link_fg"])
         content.Children.Add(title_tb)
 
         sub_tb = TextBlock()
-        sub_tb.Foreground = SolidColorBrush(Color.FromRgb(0x9A, 0xA1, 0xB0))
+        sub_tb.Foreground = SolidColorBrush(colors["sub_fg"])
         sub_tb.FontSize = 13
         sub_tb.TextWrapping = TextWrapping.Wrap
-        _fill_linkified(sub_tb, sub_text)
+        _fill_linkified(sub_tb, sub_text, colors["link_fg"])
         content.Children.Add(sub_tb)
 
         close_b = None

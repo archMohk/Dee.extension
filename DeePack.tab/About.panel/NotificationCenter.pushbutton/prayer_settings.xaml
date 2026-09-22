@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Dee.extension — Prayer Times"
         ShowInTaskbar="False"
-        Height="470" Width="420" ResizeMode="NoResize"
+        Height="530" Width="420" ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="14">
         <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
@@ -29,12 +29,22 @@
                              VerticalAlignment="Center" Margin="16,0,0,0" Checked="prayer_format_changed"/>
             </StackPanel>
 
-            <StackPanel Margin="0,0,0,14">
+            <StackPanel Margin="0,0,0,10">
                 <TextBlock Text="Notification style:" Margin="0,0,0,4"/>
                 <RadioButton x:Name="prayer_ack_auto_rb" Content="Goes away on its own after a few seconds"
                              GroupName="prayerAckStyle" Margin="0,0,0,4" Checked="prayer_ack_changed"/>
                 <RadioButton x:Name="prayer_ack_required_rb" Content="Stays until I click Close"
                              GroupName="prayerAckStyle" Checked="prayer_ack_changed"/>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                <TextBlock Text="Theme:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <RadioButton x:Name="prayer_theme_dark_rb" Content="Dark" GroupName="prayerTheme"
+                             VerticalAlignment="Center" Checked="prayer_theme_changed"/>
+                <RadioButton x:Name="prayer_theme_light_rb" Content="Light" GroupName="prayerTheme"
+                             VerticalAlignment="Center" Margin="12,0,0,0" Checked="prayer_theme_changed"/>
+                <RadioButton x:Name="prayer_theme_colored_rb" Content="Colored" GroupName="prayerTheme"
+                             VerticalAlignment="Center" Margin="12,0,0,0" Checked="prayer_theme_changed"/>
             </StackPanel>
 
             <TextBlock x:Name="prayer_location_tb" FontSize="11" FontWeight="SemiBold"

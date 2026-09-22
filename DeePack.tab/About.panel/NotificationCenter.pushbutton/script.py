@@ -30,7 +30,14 @@ there are exactly 2 fixed sub-features here, not an open-ended list:
 Prayer Times and DeeCall's own "notification style" choice (auto-dismiss
 vs. requires a Close click) both go through lib/dee_toast.py's
 requires_ack - see that module's docstring for how the toast itself
-renders each style.
+renders each style. Color theme (Dark/Light/Colored, same module's
+THEMES) works the same way but with different SCOPE per caller: DeeCall
+picks it fresh per message (deecall_theme_*_rb, read at Send time, never
+saved), while Prayer Times saves it as one persistent choice like its
+other settings - because a prayer toast isn't individually composed each
+time, there's nothing to pick "per message" for. The hub's own Test
+Notification button has its own throwaway theme_*_rb selection purely
+for previewing - not saved anywhere, not tied to either caller's choice.
 """
 import os
 import datetime
@@ -197,10 +204,15 @@ class NotificationCenterWindow(dee_branding.DeeBrandedWindow):
         self.duration_tb.Text = str(settings["duration_sec"])
 
     def test_notification_click(self, sender, args):
+        theme = "dark"
+        if self.theme_light_rb.IsChecked:
+            theme = "light"
+        elif self.theme_colored_rb.IsChecked:
+            theme = "colored"
         dee_toast.show_toast(
             u"TEST — DEE.EXTENSION", u"Sample Notification",
             u"This is what your notifications will look like.",
-            _ACTIVE_COLOR)
+            _ACTIVE_COLOR, theme=theme)
 
     def prayer_card_click(self, sender, args):
         try:
@@ -240,6 +252,11 @@ class PrayerSettingsWindow(dee_branding.DeeBrandedWindow):
         requires_ack = bool(prayer_settings.get("requires_ack", False))
         self.prayer_ack_required_rb.IsChecked = requires_ack
         self.prayer_ack_auto_rb.IsChecked = not requires_ack
+
+        theme = prayer_settings.get("theme", dee_prayer_service.DEFAULT_SETTINGS["theme"])
+        self.prayer_theme_dark_rb.IsChecked = (theme == "dark")
+        self.prayer_theme_light_rb.IsChecked = (theme == "light")
+        self.prayer_theme_colored_rb.IsChecked = (theme == "colored")
 
         self._update_prayer_times_display(prayer_settings)
 
@@ -309,6 +326,16 @@ class PrayerSettingsWindow(dee_branding.DeeBrandedWindow):
     def prayer_ack_changed(self, sender, args):
         settings = dee_prayer_service.load_settings()
         settings["requires_ack"] = bool(self.prayer_ack_required_rb.IsChecked)
+        dee_prayer_service.save_settings(settings)
+
+    def prayer_theme_changed(self, sender, args):
+        settings = dee_prayer_service.load_settings()
+        if self.prayer_theme_light_rb.IsChecked:
+            settings["theme"] = "light"
+        elif self.prayer_theme_colored_rb.IsChecked:
+            settings["theme"] = "colored"
+        else:
+            settings["theme"] = "dark"
         dee_prayer_service.save_settings(settings)
 
     def close_click(self, sender, args):
@@ -449,6 +476,12 @@ class DeeCallWindow(dee_branding.DeeBrandedWindow):
         requires_ack = bool(self.deecall_ack_required_rb.IsChecked)
         image_base64 = self._image_base64
 
+        theme = "dark"
+        if self.deecall_theme_light_rb.IsChecked:
+            theme = "light"
+        elif self.deecall_theme_colored_rb.IsChecked:
+            theme = "colored"
+
         target_emails = None
         if self.target_specific_rb.IsChecked:
             target_emails = [cb.Tag for cb in self._recipient_checkboxes if cb.IsChecked]
@@ -486,7 +519,7 @@ class DeeCallWindow(dee_branding.DeeBrandedWindow):
 
         ok, reason = dee_broadcast_service.send_message(
             email, text, requires_ack=requires_ack, image_base64=image_base64,
-            target_emails=target_emails)
+            target_emails=target_emails, theme=theme)
         if ok:
             self.message_tb.Text = ""
             self.remove_image_click(sender, args)

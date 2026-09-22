@@ -93,7 +93,7 @@ TOOL_NAME = "DeePrayer"
 DEFAULT_SETTINGS = {
     "enabled": True, "time_format": "24",
     "reminder_enabled": False, "reminder_minutes": 10,
-    "requires_ack": False,
+    "requires_ack": False, "theme": "dark",
 }
 
 # Reused colors: green = the moment has arrived (matches the existing
@@ -204,7 +204,7 @@ def _fetch_today_times(lat, lon, tz_name):
         return None
 
 
-def _show_toast(prayer_name, headline, sub_text, kind="now", requires_ack=False):
+def _show_toast(prayer_name, headline, sub_text, kind="now", requires_ack=False, theme=None):
     """kind: "now" (the prayer time has arrived, green accent) or
     "reminder" (a heads-up N minutes before, orange - Dee.extension's
     own brand accent from dee_branding's footer bar). Appearance
@@ -212,9 +212,12 @@ def _show_toast(prayer_name, headline, sub_text, kind="now", requires_ack=False)
     shared settings - not passed here, see module docstring.
     requires_ack: the user's own "Notification style" choice (User
     Info/Notification Center) - stays until Close instead of auto-
-    dismissing."""
+    dismissing. theme: the user's own persistent "dark"/"light"/"colored"
+    choice - unlike DeeCall's per-message theme, prayer toasts always use
+    whatever's saved (they're not individually composed)."""
     accent = _ACCENT_NOW if kind == "now" else _ACCENT_REMINDER
-    dee_toast.show_toast(headline, prayer_name, sub_text, accent, requires_ack=requires_ack)
+    dee_toast.show_toast(headline, prayer_name, sub_text, accent,
+                          requires_ack=requires_ack, theme=theme)
 
 
 def _ensure_today_cached(loc):
@@ -271,6 +274,7 @@ def _check_and_notify():
     reminder_enabled = settings.get("reminder_enabled", False)
     reminder_minutes = settings.get("reminder_minutes", DEFAULT_SETTINGS["reminder_minutes"])
     requires_ack = settings.get("requires_ack", False)
+    theme = settings.get("theme", DEFAULT_SETTINGS["theme"])
 
     for name, prayer_time in times.items():
         prayer_dt = datetime.datetime.combine(now.date(), prayer_time)
@@ -284,14 +288,14 @@ def _check_and_notify():
                 _show_toast(
                     name, u"UPCOMING PRAYER — DEE.EXTENSION",
                     u"in {0} min — {1}".format(reminder_minutes, time_text),
-                    kind="reminder", requires_ack=requires_ack)
+                    kind="reminder", requires_ack=requires_ack, theme=theme)
 
         if name not in _state["notified"]:
             if datetime.timedelta(0) <= (now - prayer_dt) <= _NOTIFY_WINDOW:
                 _state["notified"].add(name)
                 _show_toast(
                     name, u"PRAYER TIME — DEE.EXTENSION",
-                    time_text, kind="now", requires_ack=requires_ack)
+                    time_text, kind="now", requires_ack=requires_ack, theme=theme)
 
 
 def _on_idling(sender, args):

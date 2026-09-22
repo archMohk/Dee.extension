@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Dee.extension — DeeCall"
         ShowInTaskbar="False"
-        Height="860" Width="460" ResizeMode="NoResize"
+        Height="910" Width="460" ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="14">
         <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
@@ -55,6 +55,16 @@
                              GroupName="deecallAckStyle" Margin="0,0,0,4" IsChecked="True"/>
                 <RadioButton x:Name="deecall_ack_required_rb" Content="Stays on screen until the user clicks Close"
                              GroupName="deecallAckStyle" Margin="0,0,0,12"/>
+
+                <TextBlock Text="Theme:" Margin="0,0,0,4"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                    <RadioButton x:Name="deecall_theme_dark_rb" Content="Dark" GroupName="deecallTheme"
+                                 VerticalAlignment="Center" IsChecked="True"/>
+                    <RadioButton x:Name="deecall_theme_light_rb" Content="Light" GroupName="deecallTheme"
+                                 VerticalAlignment="Center" Margin="12,0,0,0"/>
+                    <RadioButton x:Name="deecall_theme_colored_rb" Content="Colored" GroupName="deecallTheme"
+                                 VerticalAlignment="Center" Margin="12,0,0,0"/>
+                </StackPanel>
 
                 <TextBlock Text="Image (optional):" Margin="0,0,0,4"/>
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
