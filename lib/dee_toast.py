@@ -17,7 +17,10 @@ at all - the toast stays on screen until the user actively clicks it.
 An optional image_base64 (already-encoded, e.g. from DeeCall's Attach
 Image) renders above the text via a plain BitmapImage-from-MemoryStream
 decode - a bad/corrupt payload drops the image only, never the rest of
-the toast (see _decode_image).
+the toast (see _decode_image_bytes/_bitmap_from_bytes). Whenever an
+image is shown, a small "Save Image" link sits under it - a
+SaveFileDialog writing the same raw decoded bytes straight to disk, so
+the recipient isn't stuck with a toast-sized preview only.
 
 Appearance (position on screen, size, how long it stays) is one shared
 per-PC setting store ("DeeNotifications", via lib/deew_settings.py) -
@@ -33,18 +36,21 @@ import clr
 clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
 clr.AddReference("WindowsBase")
+clr.AddReference("System.Windows.Forms")
 
 from System import TimeSpan, Convert
-from System.IO import MemoryStream
+from System.IO import MemoryStream, File
 from System.Windows import (
     Window, WindowStyle, ResizeMode, Thickness, CornerRadius,
     SystemParameters, FontWeights, GridLength, GridUnitType,
     VerticalAlignment, HorizontalAlignment, TextWrapping)
 from System.Windows.Controls import StackPanel, TextBlock, Border, Grid, ColumnDefinition, Button, Image
+from System.Windows.Input import Cursors
 from System.Windows.Media import SolidColorBrush, Color, Brushes, Stretch
 from System.Windows.Media.Effects import DropShadowEffect
 from System.Windows.Media.Imaging import BitmapImage, BitmapCacheOption
 from System.Windows.Threading import DispatcherTimer
+from System.Windows.Forms import SaveFileDialog, DialogResult
 
 import deew_settings
 
@@ -76,6 +82,10 @@ _MARGIN = 16.0
 _ACK_BUTTON_EXTRA = 40
 _IMAGE_HEIGHT = 90
 _IMAGE_EXTRA = _IMAGE_HEIGHT + 10
+# A "Save Image" link under the image - independent of requires_ack, so
+# even an auto-dismissing toast with an image gets a chance to save it
+# before it closes.
+_SAVE_LINK_EXTRA = 22
 
 
 def load_settings():
@@ -120,14 +130,24 @@ def _compute_origin(position, width, height):
     return work_area.Right - width - _MARGIN, work_area.Bottom - height - _MARGIN
 
 
-def _decode_image(image_base64):
-    """Returns a frozen BitmapImage, or None if image_base64 is empty or
-    can't be decoded - a bad/corrupt payload should drop the image, not
-    break the rest of the toast."""
+def _decode_image_bytes(image_base64):
+    """Returns raw decoded bytes, or None if image_base64 is empty or
+    isn't valid base64. Kept separate from the BitmapImage build below
+    because the Save Image button needs the raw bytes to write to disk,
+    not just something WPF can render."""
     if not image_base64:
         return None
     try:
-        data = Convert.FromBase64String(image_base64)
+        return Convert.FromBase64String(image_base64)
+    except Exception:
+        return None
+
+
+def _bitmap_from_bytes(data):
+    """Returns a frozen BitmapImage built from raw image bytes, or None
+    if the bytes aren't a decodable image - a bad/corrupt payload should
+    drop the image, not break the rest of the toast."""
+    try:
         stream = MemoryStream(data)
         bmp = BitmapImage()
         bmp.BeginInit()
@@ -165,12 +185,15 @@ def show_toast(headline, title_text, sub_text, accent_color,
         duration_sec = clamp_duration(duration_sec if duration_sec is not None else
                                        settings.get("duration_sec", DEFAULT_SETTINGS["duration_sec"]))
 
-        image = _decode_image(image_base64)
+        image_bytes = _decode_image_bytes(image_base64)
+        image = _bitmap_from_bytes(image_bytes) if image_bytes is not None else None
+        if image is None:
+            image_bytes = None
         height = base_height
         if requires_ack:
             height += _ACK_BUTTON_EXTRA
         if image is not None:
-            height += _IMAGE_EXTRA
+            height += _IMAGE_EXTRA + _SAVE_LINK_EXTRA
 
         window = Window()
         window.WindowStyle = getattr(WindowStyle, "None")
@@ -205,13 +228,29 @@ def show_toast(headline, title_text, sub_text, accent_color,
         content.Margin = Thickness(16, 14, 16, 14)
         content.VerticalAlignment = VerticalAlignment.Center
 
+        save_b = None
         if image is not None:
             image_ctrl = Image()
             image_ctrl.Source = image
             image_ctrl.Stretch = Stretch.Uniform
             image_ctrl.Height = _IMAGE_HEIGHT
-            image_ctrl.Margin = Thickness(0, 0, 0, 8)
+            image_ctrl.Margin = Thickness(0, 0, 0, 2)
             content.Children.Add(image_ctrl)
+
+            # A plain link-styled Button (no border/background) rather
+            # than a full button - reads as "Save Image", not another
+            # box competing with Close for attention.
+            save_b = Button()
+            save_b.Content = u"Save Image"
+            save_b.FontSize = 11
+            save_b.Foreground = SolidColorBrush(accent_color)
+            save_b.Background = Brushes.Transparent
+            save_b.BorderThickness = Thickness(0)
+            save_b.Padding = Thickness(0)
+            save_b.HorizontalAlignment = HorizontalAlignment.Left
+            save_b.Cursor = Cursors.Hand
+            save_b.Margin = Thickness(0, 0, 0, 6)
+            content.Children.Add(save_b)
 
         headline_tb = TextBlock()
         headline_tb.Text = headline
@@ -257,6 +296,19 @@ def show_toast(headline, title_text, sub_text, accent_color,
         window.Top = top
 
         window.Show()
+
+        if save_b is not None:
+            def _on_save_click(sender, args):
+                try:
+                    dlg = SaveFileDialog()
+                    dlg.Filter = "JPEG Image (*.jpg)|*.jpg"
+                    dlg.FileName = "DeeCall_Image.jpg"
+                    dlg.Title = "Save Image"
+                    if dlg.ShowDialog() == DialogResult.OK:
+                        File.WriteAllBytes(dlg.FileName, image_bytes)
+                except Exception:
+                    pass
+            save_b.Click += _on_save_click
 
         if close_b is not None:
             # requires_ack: no timer at all - only the Close button
