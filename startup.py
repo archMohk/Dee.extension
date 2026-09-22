@@ -17,14 +17,15 @@ On the developer's own PC (plain OneDrive-synced folder, not a
 must never raise or hang - a failed/offline pull should never block
 Revit startup.
 
-Also starts the prayer-time notification watcher (lib/
-dee_prayer_service.py) - subscribes to UIApplication.Idling so it can
-run in the background for the rest of the Revit session with no button
-click at all. Wrapped in its own try/except, same as the update check
-above - a failure here must never break the ribbon or Revit startup.
-See that module's own docstring for the full mechanism and its known,
-still-to-be-live-tested risk (whether this subscription genuinely
-survives a whole session).
+Also starts two background watchers, each its own UIApplication.Idling
+subscription so they run for the rest of the Revit session with no
+button click at all: lib/dee_prayer_service.py (prayer-time toasts) and
+lib/dee_broadcast_service.py (DeeTUT admin broadcasts). Each wrapped in
+its own try/except, same as the update check above - a failure in
+either must never break the ribbon, Revit startup, or the other
+watcher. See dee_prayer_service's own docstring for the full mechanism
+and its known, still-to-be-live-tested risk (whether a subscription
+made here genuinely survives a whole session).
 """
 import clr
 clr.AddReference("System")
@@ -48,5 +49,12 @@ try:
     from pyrevit import HOST_APP
     import dee_prayer_service
     dee_prayer_service.start_watching(HOST_APP.uiapp)
+except Exception:
+    pass
+
+try:
+    from pyrevit import HOST_APP
+    import dee_broadcast_service
+    dee_broadcast_service.start_watching(HOST_APP.uiapp)
 except Exception:
     pass

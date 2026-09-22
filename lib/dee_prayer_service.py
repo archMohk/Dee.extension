@@ -75,29 +75,23 @@ import clr
 clr.AddReference("System")
 clr.AddReference("System.Net.Http")
 clr.AddReference("PresentationCore")
-clr.AddReference("PresentationFramework")
-clr.AddReference("WindowsBase")
 
 from System import TimeSpan, TimeZoneInfo
 from System.Net.Http import HttpClient, HttpRequestMessage, HttpMethod
-from System.Windows import (
-    Window, WindowStyle, ResizeMode, Thickness, CornerRadius,
-    SystemParameters, FontWeights, GridLength, GridUnitType,
-    VerticalAlignment)
-from System.Windows.Controls import StackPanel, TextBlock, Border, Grid, ColumnDefinition
-from System.Windows.Media import SolidColorBrush, Color, Brushes
-from System.Windows.Media.Effects import DropShadowEffect
-from System.Windows.Threading import DispatcherTimer
+from System.Windows.Media import Color
 
 import deew_settings
+import dee_toast
 
 TOOL_NAME = "DeePrayer"
 # time_format: "24" (05:12) or "12" (5:12 AM). reminder_enabled/
 # reminder_minutes: an extra heads-up toast N minutes BEFORE each
-# prayer, on top of the at-time one. All per-user, same local-settings
-# mechanism, all adjustable from the User Info window.
+# prayer, on top of the at-time one. Appearance (how long it stays on
+# screen, position, size) is NOT here - that's the shared
+# dee_toast.DEFAULT_SETTINGS ("DeeNotifications"), used by every kind of
+# toast this extension shows, not just prayer.
 DEFAULT_SETTINGS = {
-    "enabled": True, "duration_sec": 10, "time_format": "24",
+    "enabled": True, "time_format": "24",
     "reminder_enabled": False, "reminder_minutes": 10,
 }
 
@@ -209,107 +203,14 @@ def _fetch_today_times(lat, lon, tz_name):
         return None
 
 
-def _build_shadow():
-    effect = DropShadowEffect()
-    effect.Color = Color.FromRgb(0, 0, 0)
-    effect.Opacity = 0.4
-    effect.BlurRadius = 20
-    effect.ShadowDepth = 4
-    effect.Direction = 270
-    return effect
-
-
-def _show_toast(prayer_name, headline, sub_text, duration_sec, kind="now"):
+def _show_toast(prayer_name, headline, sub_text, kind="now"):
     """kind: "now" (the prayer time has arrived, green accent) or
     "reminder" (a heads-up N minutes before, orange - Dee.extension's
-    own brand accent from dee_branding's footer bar)."""
-    try:
-        width, height, margin = 320.0, 100.0, 16.0
-        accent = _ACCENT_NOW if kind == "now" else _ACCENT_REMINDER
-
-        window = Window()
-        window.WindowStyle = getattr(WindowStyle, "None")
-        window.ResizeMode = ResizeMode.NoResize
-        window.ShowInTaskbar = False
-        window.Topmost = True
-        window.AllowsTransparency = True
-        window.Background = Brushes.Transparent
-        window.Width = width
-        window.Height = height
-
-        outer = Border()
-        outer.CornerRadius = CornerRadius(10)
-        outer.Background = SolidColorBrush(Color.FromRgb(0x1A, 0x1D, 0x26))
-        outer.Effect = _build_shadow()
-
-        grid = Grid()
-        accent_col = ColumnDefinition()
-        accent_col.Width = GridLength(6)
-        content_col = ColumnDefinition()
-        content_col.Width = GridLength(1, GridUnitType.Star)
-        grid.ColumnDefinitions.Add(accent_col)
-        grid.ColumnDefinitions.Add(content_col)
-
-        accent_bar = Border()
-        accent_bar.Background = SolidColorBrush(accent)
-        accent_bar.CornerRadius = CornerRadius(10, 0, 0, 10)
-        Grid.SetColumn(accent_bar, 0)
-        grid.Children.Add(accent_bar)
-
-        content = StackPanel()
-        content.Margin = Thickness(16, 14, 16, 14)
-        content.VerticalAlignment = VerticalAlignment.Center
-
-        kind_tb = TextBlock()
-        kind_tb.Text = headline
-        kind_tb.FontSize = 10
-        kind_tb.FontWeight = FontWeights.Bold
-        kind_tb.Foreground = SolidColorBrush(accent)
-        content.Children.Add(kind_tb)
-
-        name_tb = TextBlock()
-        name_tb.Text = prayer_name
-        name_tb.Foreground = SolidColorBrush(Color.FromRgb(0xF2, 0xF3, 0xF5))
-        name_tb.FontSize = 24
-        name_tb.FontWeight = FontWeights.Bold
-        name_tb.Margin = Thickness(0, 2, 0, 2)
-        content.Children.Add(name_tb)
-
-        sub_tb = TextBlock()
-        sub_tb.Text = sub_text
-        sub_tb.Foreground = SolidColorBrush(Color.FromRgb(0x9A, 0xA1, 0xB0))
-        sub_tb.FontSize = 13
-        content.Children.Add(sub_tb)
-
-        Grid.SetColumn(content, 1)
-        grid.Children.Add(content)
-
-        outer.Child = grid
-        window.Content = outer
-
-        work_area = SystemParameters.WorkArea
-        window.Left = work_area.Right - width - margin
-        window.Top = work_area.Bottom - height - margin
-
-        window.Show()
-
-        timer = DispatcherTimer()
-        timer.Interval = TimeSpan.FromSeconds(max(1, duration_sec))
-
-        def _on_tick(sender, args):
-            try:
-                timer.Stop()
-            except Exception:
-                pass
-            try:
-                window.Close()
-            except Exception:
-                pass
-
-        timer.Tick += _on_tick
-        timer.Start()
-    except Exception:
-        pass
+    own brand accent from dee_branding's footer bar). Appearance
+    (duration/position/size) is whatever's saved in dee_toast's own
+    shared settings - not passed here, see module docstring."""
+    accent = _ACCENT_NOW if kind == "now" else _ACCENT_REMINDER
+    dee_toast.show_toast(headline, prayer_name, sub_text, accent)
 
 
 def _ensure_today_cached(loc):
@@ -363,7 +264,6 @@ def _check_and_notify():
         return
 
     now = datetime.datetime.now()
-    duration = settings.get("duration_sec", DEFAULT_SETTINGS["duration_sec"])
     reminder_enabled = settings.get("reminder_enabled", False)
     reminder_minutes = settings.get("reminder_minutes", DEFAULT_SETTINGS["reminder_minutes"])
 
@@ -379,14 +279,14 @@ def _check_and_notify():
                 _show_toast(
                     name, u"UPCOMING PRAYER — DEE.EXTENSION",
                     u"in {0} min — {1}".format(reminder_minutes, time_text),
-                    duration, kind="reminder")
+                    kind="reminder")
 
         if name not in _state["notified"]:
             if datetime.timedelta(0) <= (now - prayer_dt) <= _NOTIFY_WINDOW:
                 _state["notified"].add(name)
                 _show_toast(
                     name, u"PRAYER TIME — DEE.EXTENSION",
-                    time_text, duration, kind="now")
+                    time_text, kind="now")
 
 
 def _on_idling(sender, args):

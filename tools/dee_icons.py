@@ -572,6 +572,18 @@ GLYPHS = {
     # profile/account glyph, no accent needed since there's no single
     # "verb" this button performs beyond showing who you are.
     "UserInfo": lambda: person(48, 46, 1.35, "ink", 1.1),
+    # Bell silhouette - dome arc, sloped sides, base line, hanger loop,
+    # accent clapper. The one new glyph shape in this set (no other
+    # button is a bell), chosen because "notification" has no existing
+    # shared motif to reuse the way e.g. the cloud or sheet ones do.
+    "NotificationCenter": lambda: [
+        ar(24, 18, 72, 66, 180, 360, "ink", 1.3),
+        ln(24, 42, 20, 70, "ink", 1.3),
+        ln(72, 42, 76, 70, "ink", 1.3),
+        ln(20, 70, 76, 70, "ink", 1.3),
+        rc(44, 10, 52, 18, "ink", 1.3, 4),
+        cf(48, 82, 6, "accent"),
+    ],
     "WebSite": lambda: [
         ci(48, 48, 32, "ink", 1.0), ln(16, 48, 80, 48, "ink", 0.85),
         ar(30, 16, 66, 80, 90, 270, "ink", 0.85), ar(30, 16, 66, 80, 270, 90, "ink", 0.85),

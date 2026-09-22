@@ -8,9 +8,13 @@ the whole point of this button is to let someone see their OWN status
 even while blocked, rather than being gated by the very thing it is
 showing. Everything shown is either cached/local (no network call on
 open) or explicitly re-checked via the "Check Now" button.
+
+Prayer time settings used to live in this window - moved out to the
+new Notification Center (About.panel/NotificationCenter.pushbutton),
+which is the general home for everything this extension pops up as a
+toast, not just prayer times.
 """
 import os
-import datetime
 
 import clr
 clr.AddReference("PresentationCore")
@@ -20,7 +24,6 @@ from pyrevit import forms
 import dee_branding
 import dee_telemetry
 import dee_ribbon_mode
-import dee_prayer_service
 
 try:
     import acc_auth
@@ -38,17 +41,6 @@ _TAB_ICON_PATH = os.path.join(_EXTENSION_ROOT, "icon.png")
 # for consistency rather than picking new colours.
 _ACTIVE_COLOR = Color.FromRgb(0x2E, 0x7D, 0x32)
 _INACTIVE_COLOR = Color.FromRgb(0xC6, 0x28, 0x28)
-_TIME_COLOR = Color.FromRgb(0x22, 0x22, 0x22)
-_TIME_DIM_COLOR = Color.FromRgb(0xAA, 0xAA, 0xAA)
-
-_PRAYER_ORDER = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
-_PRAYER_TB_NAMES = {
-    "Fajr": "prayer_time_fajr",
-    "Dhuhr": "prayer_time_dhuhr",
-    "Asr": "prayer_time_asr",
-    "Maghrib": "prayer_time_maghrib",
-    "Isha": "prayer_time_isha",
-}
 
 
 def _expires_text(status):
@@ -85,23 +77,6 @@ class UserInfoWindow(dee_branding.DeeBrandedWindow):
         email = dee_telemetry.get_cached_identity()
         self.email_tb.Text = email or "(not set yet - open any Dee tool once)"
 
-        # Loaded here in code, not set via XAML attributes on
-        # prayer_enabled_cb - a Checked/Unchecked handler wired in XAML
-        # can fire the moment IsChecked is set there, before the rest of
-        # this window is ready (see feedback_wpf_xaml_early_event_fire).
-        prayer_settings = dee_prayer_service.load_settings()
-        self.prayer_enabled_cb.IsChecked = bool(prayer_settings.get("enabled", True))
-        self.prayer_duration_tb.Text = str(prayer_settings.get(
-            "duration_sec", dee_prayer_service.DEFAULT_SETTINGS["duration_sec"]))
-        self.prayer_reminder_cb.IsChecked = bool(prayer_settings.get("reminder_enabled", False))
-        self.prayer_reminder_minutes_tb.Text = str(prayer_settings.get(
-            "reminder_minutes", dee_prayer_service.DEFAULT_SETTINGS["reminder_minutes"]))
-        is_12h = prayer_settings.get("time_format") == "12"
-        self.prayer_format_12_rb.IsChecked = is_12h
-        self.prayer_format_24_rb.IsChecked = not is_12h
-
-        self._update_prayer_times_display(prayer_settings)
-
         status = dee_telemetry.load_cached_status()
         summary = dee_telemetry.status_summary()
         self.status_tb.Text = summary or "Not checked yet - open any Dee tool once first."
@@ -119,42 +94,6 @@ class UserInfoWindow(dee_branding.DeeBrandedWindow):
                                  "Not configured - see acc_config.example.json")
         else:
             self.acc_tb.Text = "Unknown"
-
-    def _update_prayer_times_display(self, prayer_settings):
-        """Split out from _refresh() so prayer_format_changed can
-        re-render just the times without touching prayer_enabled_cb/
-        prayer_format_*_rb - those have Checked/Unchecked handlers
-        wired in XAML, and re-setting their IsChecked from inside a
-        handler they themselves trigger would recurse."""
-        try:
-            city, times = dee_prayer_service.get_today_times()
-        except Exception:
-            city, times = None, None
-
-        now_time = datetime.datetime.now().time()
-        next_name = None
-        if times:
-            upcoming = [n for n in _PRAYER_ORDER if n in times and times[n] > now_time]
-            next_name = upcoming[0] if upcoming else None
-            self.prayer_location_tb.Text = u"Today's times for {0}".format(city)
-        else:
-            self.prayer_location_tb.Text = (
-                u"Prayer times not available - either this PC's time zone "
-                u"isn't recognized, or there's no internet connection.")
-
-        for name in _PRAYER_ORDER:
-            tb = getattr(self, _PRAYER_TB_NAMES[name])
-            if times and name in times:
-                tb.Text = dee_prayer_service.format_time(times[name], prayer_settings)
-                if name == next_name:
-                    tb.Foreground = SolidColorBrush(_ACTIVE_COLOR)
-                elif times[name] <= now_time:
-                    tb.Foreground = SolidColorBrush(_TIME_DIM_COLOR)
-                else:
-                    tb.Foreground = SolidColorBrush(_TIME_COLOR)
-            else:
-                tb.Text = u"—"
-                tb.Foreground = SolidColorBrush(_TIME_DIM_COLOR)
 
     def check_now_click(self, sender, args):
         email = dee_telemetry.get_cached_identity()
@@ -179,44 +118,6 @@ class UserInfoWindow(dee_branding.DeeBrandedWindow):
             return
         dee_telemetry.clear_identity()
         self._refresh()
-
-    def prayer_setting_changed(self, sender, args):
-        settings = dee_prayer_service.load_settings()
-        settings["enabled"] = bool(self.prayer_enabled_cb.IsChecked)
-        dee_prayer_service.save_settings(settings)
-
-    def prayer_duration_changed(self, sender, args):
-        settings = dee_prayer_service.load_settings()
-        try:
-            seconds = int(float(self.prayer_duration_tb.Text))
-        except Exception:
-            seconds = dee_prayer_service.DEFAULT_SETTINGS["duration_sec"]
-        seconds = max(1, min(seconds, 120))
-        self.prayer_duration_tb.Text = str(seconds)
-        settings["duration_sec"] = seconds
-        dee_prayer_service.save_settings(settings)
-
-    def prayer_reminder_changed(self, sender, args):
-        settings = dee_prayer_service.load_settings()
-        settings["reminder_enabled"] = bool(self.prayer_reminder_cb.IsChecked)
-        dee_prayer_service.save_settings(settings)
-
-    def prayer_reminder_minutes_changed(self, sender, args):
-        settings = dee_prayer_service.load_settings()
-        try:
-            minutes = int(float(self.prayer_reminder_minutes_tb.Text))
-        except Exception:
-            minutes = dee_prayer_service.DEFAULT_SETTINGS["reminder_minutes"]
-        minutes = max(1, min(minutes, 120))
-        self.prayer_reminder_minutes_tb.Text = str(minutes)
-        settings["reminder_minutes"] = minutes
-        dee_prayer_service.save_settings(settings)
-
-    def prayer_format_changed(self, sender, args):
-        settings = dee_prayer_service.load_settings()
-        settings["time_format"] = "12" if self.prayer_format_12_rb.IsChecked else "24"
-        dee_prayer_service.save_settings(settings)
-        self._update_prayer_times_display(settings)
 
     def close_click(self, sender, args):
         self.Close()
