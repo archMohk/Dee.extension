@@ -10,6 +10,7 @@ showing. Everything shown is either cached/local (no network call on
 open) or explicitly re-checked via the "Check Now" button.
 """
 import os
+import datetime
 
 import clr
 clr.AddReference("PresentationCore")
@@ -37,6 +38,17 @@ _TAB_ICON_PATH = os.path.join(_EXTENSION_ROOT, "icon.png")
 # for consistency rather than picking new colours.
 _ACTIVE_COLOR = Color.FromRgb(0x2E, 0x7D, 0x32)
 _INACTIVE_COLOR = Color.FromRgb(0xC6, 0x28, 0x28)
+_TIME_COLOR = Color.FromRgb(0x22, 0x22, 0x22)
+_TIME_DIM_COLOR = Color.FromRgb(0xAA, 0xAA, 0xAA)
+
+_PRAYER_ORDER = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
+_PRAYER_TB_NAMES = {
+    "Fajr": "prayer_time_fajr",
+    "Dhuhr": "prayer_time_dhuhr",
+    "Asr": "prayer_time_asr",
+    "Maghrib": "prayer_time_maghrib",
+    "Isha": "prayer_time_isha",
+}
 
 
 def _expires_text(status):
@@ -86,17 +98,31 @@ class UserInfoWindow(dee_branding.DeeBrandedWindow):
             city, times = dee_prayer_service.get_today_times()
         except Exception:
             city, times = None, None
+
+        now_time = datetime.datetime.now().time()
+        next_name = None
         if times:
-            self.prayer_location_tb.Text = u"Today's times for {0}:".format(city)
-            order = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
-            self.prayer_times_tb.Text = u"\n".join(
-                u"{0}:   {1}".format(name, times[name].strftime("%H:%M"))
-                for name in order if name in times)
+            upcoming = [n for n in _PRAYER_ORDER if n in times and times[n] > now_time]
+            next_name = upcoming[0] if upcoming else None
+            self.prayer_location_tb.Text = u"Today's times for {0}".format(city)
         else:
-            self.prayer_location_tb.Text = ""
-            self.prayer_times_tb.Text = ("Prayer times not available - either "
-                                          "this PC's time zone isn't recognized, "
-                                          "or there's no internet connection.")
+            self.prayer_location_tb.Text = (
+                u"Prayer times not available - either this PC's time zone "
+                u"isn't recognized, or there's no internet connection.")
+
+        for name in _PRAYER_ORDER:
+            tb = getattr(self, _PRAYER_TB_NAMES[name])
+            if times and name in times:
+                tb.Text = times[name].strftime("%H:%M")
+                if name == next_name:
+                    tb.Foreground = SolidColorBrush(_ACTIVE_COLOR)
+                elif times[name] <= now_time:
+                    tb.Foreground = SolidColorBrush(_TIME_DIM_COLOR)
+                else:
+                    tb.Foreground = SolidColorBrush(_TIME_COLOR)
+            else:
+                tb.Text = u"—"
+                tb.Foreground = SolidColorBrush(_TIME_DIM_COLOR)
 
         status = dee_telemetry.load_cached_status()
         summary = dee_telemetry.status_summary()
