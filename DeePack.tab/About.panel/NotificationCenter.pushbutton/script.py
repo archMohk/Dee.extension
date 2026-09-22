@@ -211,9 +211,27 @@ class PrayerSettingsWindow(dee_branding.DeeBrandedWindow):
 class DeeTUTWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
-        self._show_as_admin(self._is_admin_cached())
+        self._show_as_admin(self._check_is_admin())
 
-    def _is_admin_cached(self):
+    def _check_is_admin(self):
+        """A live check, not the local cache - is_admin was only added
+        to check_user_access()'s response partway through this feature's
+        own build, so anyone whose LAST tool click predates that change
+        has a cached status with no is_admin field at all, which read as
+        "not admin" even for the real owner (live-caught: this happened
+        to the owner's own account on first open). DeeTUT is opened
+        rarely and needs network access to actually send anyway, so
+        paying for one live check on open - same cost as UserInfo's own
+        "Check Now" - is worth it here, unlike UserInfo's own default
+        no-network-on-open design. Falls back to the cached value only
+        if the live check itself fails (e.g. no internet)."""
+        email = dee_telemetry.get_cached_identity()
+        if email:
+            try:
+                fresh = dee_telemetry.refresh_status(email)
+                return bool(fresh.get("is_admin"))
+            except Exception:
+                pass
         status = dee_telemetry.load_cached_status()
         return bool(status and status.get("is_admin"))
 

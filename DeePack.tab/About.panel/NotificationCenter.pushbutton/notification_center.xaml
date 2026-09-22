@@ -2,12 +2,17 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Dee.extension — Notification Center"
         ShowInTaskbar="False"
-        Height="440" Width="440" ResizeMode="NoResize"
+        Height="560" Width="440" ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="14">
         <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
                 Width="100" Height="28" HorizontalAlignment="Right" Margin="0,12,0,0"/>
 
+        <!-- ScrollViewer as a safety net, not just a taller Height - a
+             plain StackPanel silently CLIPS content that doesn't fit
+             instead of erroring, which is exactly how the DeeTUT button
+             went missing the first time this shipped. -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel>
             <TextBlock Text="Notification appearance" FontWeight="Bold" Margin="0,0,0,8"/>
             <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888" Margin="0,0,0,10"
@@ -61,5 +66,6 @@
                 </StackPanel>
             </Border>
         </StackPanel>
+        </ScrollViewer>
     </DockPanel>
 </Window>
