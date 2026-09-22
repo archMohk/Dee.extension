@@ -3,10 +3,18 @@
 dee_prayer_service
 A prayer-time reminder that shows a small toast, bottom-right of the
 screen, on its own - no button click - at each of the 5 daily prayer
-times while Revit is open. On by default for every user, self-service
-(each person can turn it off or change how long it stays on screen from
-the User Info window - UserInfo.pushbutton), purely local to their own
-PC. Wired in from startup.py, not a pushbutton itself.
+times while Revit is open, and optionally an extra heads-up toast N
+minutes before each one too. On by default for every user, self-service
+(each person can turn it off, change how long it stays on screen, pick
+12h/24h, and set the reminder lead time from the User Info window -
+UserInfo.pushbutton), purely local to their own PC. Wired in from
+startup.py, not a pushbutton itself.
+
+The toast itself: a dark rounded card with a colored left accent bar and
+a soft drop shadow - green for "the prayer time has arrived", orange for
+"reminder, N minutes to go" (reusing lib/dee_branding.py's own footer-
+bar orange, so a reminder unmistakably reads as Dee.extension's, not a
+generic OS toast).
 
 --------------------------------------------------------------------
 The one genuinely new mechanism in this repo: running continuously in
@@ -74,17 +82,32 @@ from System import TimeSpan, TimeZoneInfo
 from System.Net.Http import HttpClient, HttpRequestMessage, HttpMethod
 from System.Windows import (
     Window, WindowStyle, ResizeMode, Thickness, CornerRadius,
-    SystemParameters, FontWeights)
-from System.Windows.Controls import StackPanel, TextBlock, Border
+    SystemParameters, FontWeights, GridLength, GridUnitType,
+    VerticalAlignment)
+from System.Windows.Controls import StackPanel, TextBlock, Border, Grid, ColumnDefinition
 from System.Windows.Media import SolidColorBrush, Color, Brushes
+from System.Windows.Media.Effects import DropShadowEffect
 from System.Windows.Threading import DispatcherTimer
 
 import deew_settings
 
 TOOL_NAME = "DeePrayer"
-# time_format: "24" (05:12) or "12" (5:12 AM) - a per-user display
-# choice, same local-settings mechanism as enabled/duration_sec.
-DEFAULT_SETTINGS = {"enabled": True, "duration_sec": 10, "time_format": "24"}
+# time_format: "24" (05:12) or "12" (5:12 AM). reminder_enabled/
+# reminder_minutes: an extra heads-up toast N minutes BEFORE each
+# prayer, on top of the at-time one. All per-user, same local-settings
+# mechanism, all adjustable from the User Info window.
+DEFAULT_SETTINGS = {
+    "enabled": True, "duration_sec": 10, "time_format": "24",
+    "reminder_enabled": False, "reminder_minutes": 10,
+}
+
+# Reused colors: green = the moment has arrived (matches the existing
+# card highlight in User Info); orange = the extension's own brand
+# accent (lib/dee_branding.py's footer bar), reused here for "upcoming"
+# so a reminder toast reads as unmistakably Dee.extension's, not a
+# generic OS notification.
+_ACCENT_NOW = Color.FromRgb(0x3E, 0xCF, 0x8E)
+_ACCENT_REMINDER = Color.FromRgb(0xF2, 0x99, 0x4D)
 
 _CHECK_INTERVAL = datetime.timedelta(seconds=30)
 _NOTIFY_WINDOW = datetime.timedelta(minutes=2)
@@ -128,7 +151,8 @@ _TZ_TABLE = {
 _client = HttpClient()
 _client.Timeout = TimeSpan.FromSeconds(8)
 
-_state = {"last_check": None, "date": None, "times": None, "notified": set()}
+_state = {"last_check": None, "date": None, "times": None,
+          "notified": set(), "reminded": set()}
 
 
 def load_settings():
@@ -185,9 +209,23 @@ def _fetch_today_times(lat, lon, tz_name):
         return None
 
 
-def _show_toast(prayer_name, time_text, duration_sec):
+def _build_shadow():
+    effect = DropShadowEffect()
+    effect.Color = Color.FromRgb(0, 0, 0)
+    effect.Opacity = 0.4
+    effect.BlurRadius = 20
+    effect.ShadowDepth = 4
+    effect.Direction = 270
+    return effect
+
+
+def _show_toast(prayer_name, headline, sub_text, duration_sec, kind="now"):
+    """kind: "now" (the prayer time has arrived, green accent) or
+    "reminder" (a heads-up N minutes before, orange - Dee.extension's
+    own brand accent from dee_branding's footer bar)."""
     try:
-        width, height, margin = 300.0, 86.0, 16.0
+        width, height, margin = 320.0, 100.0, 16.0
+        accent = _ACCENT_NOW if kind == "now" else _ACCENT_REMINDER
 
         window = Window()
         window.WindowStyle = getattr(WindowStyle, "None")
@@ -199,37 +237,55 @@ def _show_toast(prayer_name, time_text, duration_sec):
         window.Width = width
         window.Height = height
 
-        border = Border()
-        border.Background = SolidColorBrush(Color.FromRgb(0x1E, 0x22, 0x2D))
-        border.BorderBrush = SolidColorBrush(Color.FromRgb(0x3E, 0xCF, 0x8E))
-        border.BorderThickness = Thickness(1)
-        border.CornerRadius = CornerRadius(8)
-        border.Padding = Thickness(14)
+        outer = Border()
+        outer.CornerRadius = CornerRadius(10)
+        outer.Background = SolidColorBrush(Color.FromRgb(0x1A, 0x1D, 0x26))
+        outer.Effect = _build_shadow()
 
-        stack = StackPanel()
+        grid = Grid()
+        accent_col = ColumnDefinition()
+        accent_col.Width = GridLength(6)
+        content_col = ColumnDefinition()
+        content_col.Width = GridLength(1, GridUnitType.Star)
+        grid.ColumnDefinitions.Add(accent_col)
+        grid.ColumnDefinitions.Add(content_col)
 
-        title = TextBlock()
-        title.Text = u"Prayer Time — Dee.extension"
-        title.Foreground = SolidColorBrush(Color.FromRgb(0x8B, 0x93, 0xA7))
-        title.FontSize = 11
-        stack.Children.Add(title)
+        accent_bar = Border()
+        accent_bar.Background = SolidColorBrush(accent)
+        accent_bar.CornerRadius = CornerRadius(10, 0, 0, 10)
+        Grid.SetColumn(accent_bar, 0)
+        grid.Children.Add(accent_bar)
+
+        content = StackPanel()
+        content.Margin = Thickness(16, 14, 16, 14)
+        content.VerticalAlignment = VerticalAlignment.Center
+
+        kind_tb = TextBlock()
+        kind_tb.Text = headline
+        kind_tb.FontSize = 10
+        kind_tb.FontWeight = FontWeights.Bold
+        kind_tb.Foreground = SolidColorBrush(accent)
+        content.Children.Add(kind_tb)
 
         name_tb = TextBlock()
         name_tb.Text = prayer_name
-        name_tb.Foreground = SolidColorBrush(Color.FromRgb(0x3E, 0xCF, 0x8E))
-        name_tb.FontSize = 20
+        name_tb.Foreground = SolidColorBrush(Color.FromRgb(0xF2, 0xF3, 0xF5))
+        name_tb.FontSize = 24
         name_tb.FontWeight = FontWeights.Bold
         name_tb.Margin = Thickness(0, 2, 0, 2)
-        stack.Children.Add(name_tb)
+        content.Children.Add(name_tb)
 
-        time_tb = TextBlock()
-        time_tb.Text = time_text
-        time_tb.Foreground = SolidColorBrush(Color.FromRgb(0xE7, 0xE9, 0xEE))
-        time_tb.FontSize = 14
-        stack.Children.Add(time_tb)
+        sub_tb = TextBlock()
+        sub_tb.Text = sub_text
+        sub_tb.Foreground = SolidColorBrush(Color.FromRgb(0x9A, 0xA1, 0xB0))
+        sub_tb.FontSize = 13
+        content.Children.Add(sub_tb)
 
-        border.Child = stack
-        window.Content = border
+        Grid.SetColumn(content, 1)
+        grid.Children.Add(content)
+
+        outer.Child = grid
+        window.Content = outer
 
         work_area = SystemParameters.WorkArea
         window.Left = work_area.Right - width - margin
@@ -267,6 +323,7 @@ def _ensure_today_cached(loc):
         _state["date"] = today_str
         _state["times"] = _fetch_today_times(lat, lon, tz_name)
         _state["notified"] = set()
+        _state["reminded"] = set()
     return _state["times"]
 
 
@@ -306,15 +363,30 @@ def _check_and_notify():
         return
 
     now = datetime.datetime.now()
+    duration = settings.get("duration_sec", DEFAULT_SETTINGS["duration_sec"])
+    reminder_enabled = settings.get("reminder_enabled", False)
+    reminder_minutes = settings.get("reminder_minutes", DEFAULT_SETTINGS["reminder_minutes"])
+
     for name, prayer_time in times.items():
-        if name in _state["notified"]:
-            continue
         prayer_dt = datetime.datetime.combine(now.date(), prayer_time)
-        delta = now - prayer_dt
-        if datetime.timedelta(0) <= delta <= _NOTIFY_WINDOW:
-            _state["notified"].add(name)
-            duration = settings.get("duration_sec", DEFAULT_SETTINGS["duration_sec"])
-            _show_toast(name, format_time(prayer_time, settings), duration)
+        time_text = format_time(prayer_time, settings)
+
+        if (reminder_enabled and reminder_minutes > 0
+                and name not in _state["reminded"]):
+            reminder_dt = prayer_dt - datetime.timedelta(minutes=reminder_minutes)
+            if datetime.timedelta(0) <= (now - reminder_dt) <= _NOTIFY_WINDOW:
+                _state["reminded"].add(name)
+                _show_toast(
+                    name, u"UPCOMING PRAYER — DEE.EXTENSION",
+                    u"in {0} min — {1}".format(reminder_minutes, time_text),
+                    duration, kind="reminder")
+
+        if name not in _state["notified"]:
+            if datetime.timedelta(0) <= (now - prayer_dt) <= _NOTIFY_WINDOW:
+                _state["notified"].add(name)
+                _show_toast(
+                    name, u"PRAYER TIME — DEE.EXTENSION",
+                    time_text, duration, kind="now")
 
 
 def _on_idling(sender, args):

@@ -93,6 +93,9 @@ class UserInfoWindow(dee_branding.DeeBrandedWindow):
         self.prayer_enabled_cb.IsChecked = bool(prayer_settings.get("enabled", True))
         self.prayer_duration_tb.Text = str(prayer_settings.get(
             "duration_sec", dee_prayer_service.DEFAULT_SETTINGS["duration_sec"]))
+        self.prayer_reminder_cb.IsChecked = bool(prayer_settings.get("reminder_enabled", False))
+        self.prayer_reminder_minutes_tb.Text = str(prayer_settings.get(
+            "reminder_minutes", dee_prayer_service.DEFAULT_SETTINGS["reminder_minutes"]))
         is_12h = prayer_settings.get("time_format") == "12"
         self.prayer_format_12_rb.IsChecked = is_12h
         self.prayer_format_24_rb.IsChecked = not is_12h
@@ -191,6 +194,22 @@ class UserInfoWindow(dee_branding.DeeBrandedWindow):
         seconds = max(1, min(seconds, 120))
         self.prayer_duration_tb.Text = str(seconds)
         settings["duration_sec"] = seconds
+        dee_prayer_service.save_settings(settings)
+
+    def prayer_reminder_changed(self, sender, args):
+        settings = dee_prayer_service.load_settings()
+        settings["reminder_enabled"] = bool(self.prayer_reminder_cb.IsChecked)
+        dee_prayer_service.save_settings(settings)
+
+    def prayer_reminder_minutes_changed(self, sender, args):
+        settings = dee_prayer_service.load_settings()
+        try:
+            minutes = int(float(self.prayer_reminder_minutes_tb.Text))
+        except Exception:
+            minutes = dee_prayer_service.DEFAULT_SETTINGS["reminder_minutes"]
+        minutes = max(1, min(minutes, 120))
+        self.prayer_reminder_minutes_tb.Text = str(minutes)
+        settings["reminder_minutes"] = minutes
         dee_prayer_service.save_settings(settings)
 
     def prayer_format_changed(self, sender, args):

@@ -53,12 +53,13 @@ def _add(namespace, names):
 _add("System.Windows", """
     Application Clipboard CornerRadius DataObject DataFormats DependencyObject
     DependencyProperty DragDrop DragDropEffects Duration FontStyles
-    FontWeights FrameworkElement GridLength HorizontalAlignment Int32Rect
-    MessageBox MessageBoxButton MessageBoxImage MessageBoxResult Point
-    PropertyPath Rect ResizeMode ResourceDictionary RoutedEventArgs Setter
-    Size SizeToContent Style SystemParameters TextAlignment TextDecorations
-    TextTrimming TextWrapping Thickness UIElement Vector VerticalAlignment
-    Visibility Window WindowStartupLocation WindowState WindowStyle
+    FontWeights FrameworkElement GridLength GridUnitType HorizontalAlignment
+    Int32Rect MessageBox MessageBoxButton MessageBoxImage MessageBoxResult
+    Point PropertyPath Rect ResizeMode ResourceDictionary RoutedEventArgs
+    Setter Size SizeToContent Style SystemParameters TextAlignment
+    TextDecorations TextTrimming TextWrapping Thickness UIElement Vector
+    VerticalAlignment Visibility Window WindowStartupLocation WindowState
+    WindowStyle
 """)
 _add("System.Windows.Input", """
     ApplicationCommands CommandBinding Cursor Cursors ICommand InputManager
@@ -72,17 +73,19 @@ _add("System.Windows.Media", """
     TranslateTransform VisualTreeHelper
 """)
 _add("System.Windows.Controls", """
-    Border Button Canvas CheckBox ComboBox ComboBoxItem ContentControl
-    DataGrid DataGridLength DataGridLengthUnitType DataGridSelectionMode
-    DataGridSelectionUnit DataGridTextColumn Dock DockPanel Grid Image Label
-    ListBox ListBoxItem ListView Orientation Panel ProgressBar RadioButton
-    ScrollViewer SelectionChangedEventArgs Slider StackPanel TabControl
-    TabItem TextBlock TextBox ToolTip TreeView UserControl WrapPanel
+    Border Button Canvas CheckBox ColumnDefinition ComboBox ComboBoxItem
+    ContentControl DataGrid DataGridLength DataGridLengthUnitType
+    DataGridSelectionMode DataGridSelectionUnit DataGridTextColumn Dock
+    DockPanel Grid Image Label ListBox ListBoxItem ListView Orientation Panel
+    ProgressBar RadioButton ScrollViewer SelectionChangedEventArgs Slider
+    StackPanel TabControl TabItem TextBlock TextBox ToolTip TreeView
+    UserControl WrapPanel
 """)
 _add("System.Windows.Shapes", "Ellipse Line Path Polygon Polyline Rectangle")
 _add("System.Windows.Threading",
      "Dispatcher DispatcherFrame DispatcherPriority DispatcherTimer")
 _add("System.Windows.Media.Imaging", "BitmapImage BitmapSource BitmapSizeOptions")
+_add("System.Windows.Media.Effects", "DropShadowEffect")
 _add("System.Windows.Data", "Binding BindingMode IValueConverter UpdateSourceTrigger")
 _add("System.Windows.Documents", "Hyperlink Run")
 _add("System.Windows.Interop", "WindowInteropHelper Imaging")

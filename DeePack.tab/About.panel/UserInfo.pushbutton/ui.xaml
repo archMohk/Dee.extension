@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Dee.extension — User Info"
         ShowInTaskbar="False"
-        Height="505" Width="440" ResizeMode="NoResize"
+        Height="535" Width="440" ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="14">
 
@@ -19,6 +19,14 @@
                         <TextBox x:Name="prayer_duration_tb" Width="40" Height="22" Margin="6,0,6,0"
                                  TextAlignment="Center" LostFocus="prayer_duration_changed"/>
                         <TextBlock Text="seconds" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <CheckBox x:Name="prayer_reminder_cb" Content="Also remind me"
+                                  VerticalAlignment="Center" Checked="prayer_reminder_changed" Unchecked="prayer_reminder_changed"/>
+                        <TextBox x:Name="prayer_reminder_minutes_tb" Width="36" Height="22" Margin="6,0,6,0"
+                                 TextAlignment="Center" LostFocus="prayer_reminder_minutes_changed"/>
+                        <TextBlock Text="minutes before each prayer" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
