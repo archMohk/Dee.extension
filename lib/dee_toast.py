@@ -377,6 +377,17 @@ def show_toast(headline, title_text, sub_text, accent_color,
         window.SizeChanged += _reposition
 
         window.Show()
+        # SizeToContent can under-measure on the very first paint of a
+        # WindowStyle=None + AllowsTransparency window (seen live: 3
+        # lines of wrapped title text left the Close button clipped past
+        # the bottom edge, even though the same design fixed a shorter
+        # 2-line case cleanly). UpdateLayout() right after Show() forces
+        # an authoritative, synchronous re-measure/re-arrange against the
+        # REAL final content - not just another guessed offset - so
+        # ActualHeight (and the reposition below) are correct before the
+        # user ever perceives a wrong size.
+        window.UpdateLayout()
+        _reposition()
 
         if save_b is not None:
             def _on_save_click(sender, args):
