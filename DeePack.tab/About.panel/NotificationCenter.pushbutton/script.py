@@ -50,13 +50,14 @@ clr.AddReference("System.Windows.Forms")
 clr.AddReference("System.Drawing")
 from System import Convert
 from System.IO import MemoryStream
-from System.Windows import Visibility, Thickness
+from System.Windows import (
+    Visibility, Thickness, CornerRadius, VerticalAlignment, FontWeights, TextWrapping)
 from System.Windows.Input import Cursors
-from System.Windows.Controls import CheckBox
+from System.Windows.Controls import CheckBox, TextBlock, Border, StackPanel, Orientation
 from System.Windows.Media import SolidColorBrush, Color, Brushes
 from System.Windows.Media.Imaging import BitmapImage, BitmapCacheOption
-from System.Windows.Forms import OpenFileDialog, DialogResult
-from System.Drawing import Bitmap, Graphics, Image as DrawingImage
+from System.Windows.Forms import OpenFileDialog, DialogResult, ColorDialog
+from System.Drawing import Bitmap, Graphics, Image as DrawingImage, Color as DrawingColor
 from System.Drawing.Drawing2D import InterpolationMode
 from System.Drawing.Imaging import ImageFormat
 
@@ -125,6 +126,137 @@ def _resize_and_encode_image(path):
         original.Dispose()
     return Convert.ToBase64String(data), data
 
+
+def _show_color_dialog(current_hex):
+    """The classic Windows color picker (basic swatches + a full custom
+    RGB/HSL editor) - reused as-is rather than hand-building a palette,
+    same "use the native dialog" pattern as OpenFileDialog/SaveFileDialog
+    elsewhere in this extension. Returns a new "#RRGGBB" string, or None
+    if the user cancelled."""
+    dlg = ColorDialog()
+    dlg.FullOpen = True
+    current = dee_toast.parse_hex_color(current_hex)
+    if current is not None:
+        try:
+            dlg.Color = DrawingColor.FromArgb(current.R, current.G, current.B)
+        except Exception:
+            pass
+    if dlg.ShowDialog() != DialogResult.OK:
+        return None
+    picked = dlg.Color
+    return dee_toast.color_to_hex(Color.FromRgb(picked.R, picked.G, picked.B))
+
+
+class _ColorThemePicker(object):
+    """Background + text color swatches for the Colored theme, plus a
+    small live preview card beside them - built once in code (not XAML,
+    since it's the exact same widget reused identically by 3 different
+    windows: the hub's Test-preview, Prayer Times' persistent choice, and
+    DeeCall's per-message choice). on_change (optional) fires after every
+    pick - Prayer Times uses it to save immediately; the hub and DeeCall
+    just read .bg_hex/.fg_hex later (at Test-click / Send-click time)."""
+    _DEFAULT_BG = u"#2E4B6E"
+    _DEFAULT_FG = u"#FFFFFF"
+
+    def __init__(self, host_panel, on_change=None):
+        self.bg_hex = self._DEFAULT_BG
+        self.fg_hex = self._DEFAULT_FG
+        self._on_change = on_change
+
+        row = StackPanel()
+        row.Orientation = Orientation.Horizontal
+
+        pickers = StackPanel()
+        pickers.Margin = Thickness(0, 0, 12, 0)
+
+        bg_row = StackPanel()
+        bg_row.Orientation = Orientation.Horizontal
+        bg_row.Margin = Thickness(0, 0, 0, 6)
+        bg_label = TextBlock()
+        bg_label.Text = u"Background:"
+        bg_label.VerticalAlignment = VerticalAlignment.Center
+        bg_label.Width = 80
+        self.bg_swatch = Border()
+        self.bg_swatch.Width = 28
+        self.bg_swatch.Height = 22
+        self.bg_swatch.CornerRadius = CornerRadius(3)
+        self.bg_swatch.BorderBrush = Brushes.Gray
+        self.bg_swatch.BorderThickness = Thickness(1)
+        self.bg_swatch.Cursor = Cursors.Hand
+        self.bg_swatch.MouseLeftButtonUp += self._pick_bg
+        bg_row.Children.Add(bg_label)
+        bg_row.Children.Add(self.bg_swatch)
+
+        fg_row = StackPanel()
+        fg_row.Orientation = Orientation.Horizontal
+        fg_label = TextBlock()
+        fg_label.Text = u"Text:"
+        fg_label.VerticalAlignment = VerticalAlignment.Center
+        fg_label.Width = 80
+        self.fg_swatch = Border()
+        self.fg_swatch.Width = 28
+        self.fg_swatch.Height = 22
+        self.fg_swatch.CornerRadius = CornerRadius(3)
+        self.fg_swatch.BorderBrush = Brushes.Gray
+        self.fg_swatch.BorderThickness = Thickness(1)
+        self.fg_swatch.Cursor = Cursors.Hand
+        self.fg_swatch.MouseLeftButtonUp += self._pick_fg
+        fg_row.Children.Add(fg_label)
+        fg_row.Children.Add(self.fg_swatch)
+
+        pickers.Children.Add(bg_row)
+        pickers.Children.Add(fg_row)
+
+        self.preview = Border()
+        self.preview.Width = 120
+        self.preview.Height = 50
+        self.preview.CornerRadius = CornerRadius(8)
+        preview_text = TextBlock()
+        preview_text.Text = u"Preview"
+        preview_text.FontWeight = FontWeights.Bold
+        preview_text.FontSize = 12
+        preview_text.Margin = Thickness(8)
+        preview_text.TextWrapping = TextWrapping.Wrap
+        preview_text.VerticalAlignment = VerticalAlignment.Center
+        self._preview_text = preview_text
+        self.preview.Child = preview_text
+
+        row.Children.Add(pickers)
+        row.Children.Add(self.preview)
+        host_panel.Children.Add(row)
+
+        self._refresh_preview()
+
+    def _refresh_preview(self):
+        bg = dee_toast.parse_hex_color(self.bg_hex) or Color.FromRgb(0x2E, 0x4B, 0x6E)
+        fg = dee_toast.parse_hex_color(self.fg_hex) or Color.FromRgb(0xFF, 0xFF, 0xFF)
+        self.bg_swatch.Background = SolidColorBrush(bg)
+        self.fg_swatch.Background = SolidColorBrush(fg)
+        self.preview.Background = SolidColorBrush(bg)
+        self._preview_text.Foreground = SolidColorBrush(fg)
+
+    def _pick_bg(self, sender, args):
+        picked = _show_color_dialog(self.bg_hex)
+        if picked:
+            self.bg_hex = picked
+            self._refresh_preview()
+            if self._on_change:
+                self._on_change()
+
+    def _pick_fg(self, sender, args):
+        picked = _show_color_dialog(self.fg_hex)
+        if picked:
+            self.fg_hex = picked
+            self._refresh_preview()
+            if self._on_change:
+                self._on_change()
+
+    def set_colors(self, bg_hex, fg_hex):
+        self.bg_hex = bg_hex or self._DEFAULT_BG
+        self.fg_hex = fg_hex or self._DEFAULT_FG
+        self._refresh_preview()
+
+
 _PRAYER_ORDER = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
 _PRAYER_TB_NAMES = {
     "Fajr": "prayer_time_fajr",
@@ -141,6 +273,15 @@ class NotificationCenterWindow(dee_branding.DeeBrandedWindow):
         self.position_cb.ItemsSource = [label for _code, label in dee_toast.POSITIONS]
         self._wire_card(self.prayer_card_b, self.prayer_card_click)
         self._wire_card(self.deecall_card_b, self.deecall_card_click)
+        self._color_picker = _ColorThemePicker(self.color_picker_host)
+        # Set in code, not XAML - these now have wired Checked handlers
+        # (theme_changed, needed to toggle the color picker's visibility),
+        # and setting IsChecked from XAML on a control with a wired
+        # handler can fire it before the rest of this window is ready
+        # (see feedback_wpf_xaml_early_event_fire). Safe here since this
+        # runs after every named element theme_changed touches already
+        # exists.
+        self.theme_dark_rb.IsChecked = True
         self._refresh()
 
     def _wire_card(self, border, on_click):
@@ -203,6 +344,10 @@ class NotificationCenterWindow(dee_branding.DeeBrandedWindow):
         self.height_tb.Text = str(settings["height"])
         self.duration_tb.Text = str(settings["duration_sec"])
 
+    def theme_changed(self, sender, args):
+        colored = bool(self.theme_colored_rb.IsChecked)
+        self.color_picker_host.Visibility = Visibility.Visible if colored else Visibility.Collapsed
+
     def test_notification_click(self, sender, args):
         theme = "dark"
         if self.theme_light_rb.IsChecked:
@@ -212,7 +357,8 @@ class NotificationCenterWindow(dee_branding.DeeBrandedWindow):
         dee_toast.show_toast(
             u"TEST — DEE.EXTENSION", u"Sample Notification",
             u"This is what your notifications will look like.",
-            _ACTIVE_COLOR, theme=theme)
+            _ACTIVE_COLOR, theme=theme,
+            theme_bg=self._color_picker.bg_hex, theme_fg=self._color_picker.fg_hex)
 
     def prayer_card_click(self, sender, args):
         try:
@@ -233,6 +379,8 @@ class NotificationCenterWindow(dee_branding.DeeBrandedWindow):
 class PrayerSettingsWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        self._color_picker = _ColorThemePicker(
+            self.prayer_color_picker_host, on_change=self._save_theme_colors)
         self._refresh()
 
     def _refresh(self):
@@ -257,8 +405,18 @@ class PrayerSettingsWindow(dee_branding.DeeBrandedWindow):
         self.prayer_theme_dark_rb.IsChecked = (theme == "dark")
         self.prayer_theme_light_rb.IsChecked = (theme == "light")
         self.prayer_theme_colored_rb.IsChecked = (theme == "colored")
+        self._color_picker.set_colors(
+            prayer_settings.get("theme_bg"), prayer_settings.get("theme_fg"))
+        self.prayer_color_picker_host.Visibility = (
+            Visibility.Visible if theme == "colored" else Visibility.Collapsed)
 
         self._update_prayer_times_display(prayer_settings)
+
+    def _save_theme_colors(self):
+        settings = dee_prayer_service.load_settings()
+        settings["theme_bg"] = self._color_picker.bg_hex
+        settings["theme_fg"] = self._color_picker.fg_hex
+        dee_prayer_service.save_settings(settings)
 
     def _update_prayer_times_display(self, prayer_settings):
         """Split out from _refresh() so prayer_format_changed can
@@ -330,13 +488,16 @@ class PrayerSettingsWindow(dee_branding.DeeBrandedWindow):
 
     def prayer_theme_changed(self, sender, args):
         settings = dee_prayer_service.load_settings()
+        colored = bool(self.prayer_theme_colored_rb.IsChecked)
         if self.prayer_theme_light_rb.IsChecked:
             settings["theme"] = "light"
-        elif self.prayer_theme_colored_rb.IsChecked:
+        elif colored:
             settings["theme"] = "colored"
         else:
             settings["theme"] = "dark"
         dee_prayer_service.save_settings(settings)
+        self.prayer_color_picker_host.Visibility = (
+            Visibility.Visible if colored else Visibility.Collapsed)
 
     def close_click(self, sender, args):
         self.Close()
@@ -348,13 +509,16 @@ class DeeCallWindow(dee_branding.DeeBrandedWindow):
         self._image_base64 = None
         self._recipients_loaded = False
         self._recipient_checkboxes = []
-        # Set in code, not XAML - target_all_rb has a wired Checked
-        # handler (target_mode_changed), and setting IsChecked from XAML
-        # on a control with a wired handler can fire it before the rest
-        # of this window is ready (see feedback_wpf_xaml_early_event_fire).
-        # Safe here since this runs after the base __init__ has already
-        # loaded every named element target_mode_changed touches.
+        self._color_picker = _ColorThemePicker(self.deecall_color_picker_host)
+        # Set in code, not XAML - target_all_rb/deecall_theme_dark_rb both
+        # have wired Checked handlers (target_mode_changed/theme_changed),
+        # and setting IsChecked from XAML on a control with a wired
+        # handler can fire it before the rest of this window is ready
+        # (see feedback_wpf_xaml_early_event_fire). Safe here since this
+        # runs after the base __init__ has already loaded every named
+        # element those handlers touch.
         self.target_all_rb.IsChecked = True
+        self.deecall_theme_dark_rb.IsChecked = True
         self._show_as_admin(self._check_is_admin())
 
     def _check_is_admin(self):
@@ -427,6 +591,11 @@ class DeeCallWindow(dee_branding.DeeBrandedWindow):
         if specific and not self._recipients_loaded:
             self._load_recipients()
 
+    def theme_changed(self, sender, args):
+        colored = bool(self.deecall_theme_colored_rb.IsChecked)
+        self.deecall_color_picker_host.Visibility = (
+            Visibility.Visible if colored else Visibility.Collapsed)
+
     def _load_recipients(self):
         self.recipients_status_tb.Text = u"Loading users..."
         email = dee_telemetry.get_cached_identity()
@@ -477,10 +646,13 @@ class DeeCallWindow(dee_branding.DeeBrandedWindow):
         image_base64 = self._image_base64
 
         theme = "dark"
+        theme_bg = theme_fg = None
         if self.deecall_theme_light_rb.IsChecked:
             theme = "light"
         elif self.deecall_theme_colored_rb.IsChecked:
             theme = "colored"
+            theme_bg = self._color_picker.bg_hex
+            theme_fg = self._color_picker.fg_hex
 
         target_emails = None
         if self.target_specific_rb.IsChecked:
@@ -519,7 +691,8 @@ class DeeCallWindow(dee_branding.DeeBrandedWindow):
 
         ok, reason = dee_broadcast_service.send_message(
             email, text, requires_ack=requires_ack, image_base64=image_base64,
-            target_emails=target_emails, theme=theme)
+            target_emails=target_emails, theme=theme,
+            theme_bg=theme_bg, theme_fg=theme_fg)
         if ok:
             self.message_tb.Text = ""
             self.remove_image_click(sender, args)

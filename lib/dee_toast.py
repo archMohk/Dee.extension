@@ -149,11 +149,35 @@ def _darken(color, amount):
     return Color.FromRgb(max(0, r), max(0, g), max(0, b))
 
 
-def _theme_colors(theme, accent_color):
-    """Returns the 5 colors a card needs, all derived from just accent_
-    color plus the theme choice - so every existing caller's own accent
-    (prayer's green/orange, DeeCall's blue) still reads as itself in
-    every theme, nothing hardcoded per-feature."""
+def parse_hex_color(hex_str):
+    """"#RRGGBB" or "RRGGBB" -> Color, or None if empty/not parseable -
+    shared by every caller that lets a user pick a custom color (right
+    now just the Colored theme's background/text pickers) so there's one
+    canonical parser, not a copy per window."""
+    if not hex_str:
+        return None
+    s = hex_str.strip().lstrip(u"#")
+    if len(s) != 6:
+        return None
+    try:
+        return Color.FromRgb(int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+    except Exception:
+        return None
+
+
+def color_to_hex(color):
+    return u"#{0:02X}{1:02X}{2:02X}".format(color.R, color.G, color.B)
+
+
+def _theme_colors(theme, accent_color, custom_bg=None, custom_fg=None):
+    """Returns the 5 colors a card needs. Dark/Light are always derived
+    from accent_color alone. Colored normally is too (a darkened tint of
+    accent_color, white text) UNLESS custom_bg/custom_fg (already-parsed
+    Color objects, from the user's own color pickers) are given - then
+    those win outright, and sub_fg/link_fg are derived FROM custom_fg
+    (a dimmed/semi-transparent version) rather than hardcoded white, so
+    a picked dark text color on a picked light background still reads
+    correctly instead of vanishing."""
     if theme == "light":
         return {
             "card_bg": Color.FromRgb(0xFF, 0xFF, 0xFF),
@@ -164,14 +188,15 @@ def _theme_colors(theme, accent_color):
             "link_fg": Color.FromRgb(0x1A, 0x73, 0xE8),
         }
     if theme == "colored":
-        card_bg = _darken(accent_color, 0.45)
+        card_bg = custom_bg if custom_bg is not None else _darken(accent_color, 0.45)
+        fg = custom_fg if custom_fg is not None else Color.FromRgb(0xFF, 0xFF, 0xFF)
         return {
             "card_bg": card_bg,
             "accent_bar": accent_color,
-            "headline_fg": Color.FromRgb(0xFF, 0xFF, 0xFF),
-            "title_fg": Color.FromRgb(0xFF, 0xFF, 0xFF),
-            "sub_fg": _lighten(card_bg, 0.55),
-            "link_fg": Color.FromRgb(0xFF, 0xFF, 0xFF),
+            "headline_fg": fg if custom_fg is not None else Color.FromRgb(0xFF, 0xFF, 0xFF),
+            "title_fg": fg,
+            "sub_fg": Color.FromArgb(0xB3, fg.R, fg.G, fg.B),
+            "link_fg": fg,
         }
     # default / "dark"
     return {
@@ -310,9 +335,12 @@ def _bitmap_from_bytes(data):
 
 def show_toast(headline, title_text, sub_text, accent_color,
                 duration_sec=None, position=None, width=None, height=None,
-                requires_ack=False, image_base64=None, theme=None):
+                requires_ack=False, image_base64=None, theme=None,
+                theme_bg=None, theme_fg=None):
     """headline: small bold label above the title (e.g. "PRAYER TIME —
-    DEE.EXTENSION"). title_text: the big bold line (e.g. a prayer name,
+    DEE.EXTENSION") - optional, pass "" or None to skip it entirely (no
+    blank line left behind, the layout just starts at title_text).
+    title_text: the big bold line (e.g. a prayer name,
     or "Announcement"). sub_text: the smaller line under it. accent_color
     is a System.Windows.Media.Color, used for the left bar (every theme)
     and the headline text (Dark/Light) - callers pick their own (green/
@@ -323,11 +351,14 @@ def show_toast(headline, title_text, sub_text, accent_color,
     duration_sec behavior. image_base64: optional base64-encoded image
     shown above the text. theme: "dark" (default)/"light"/"colored" - see
     THEMES and _theme_colors(); defaults to DEFAULT_THEME if None or
-    unrecognized. Never raises - a broken toast must never break the
-    caller (the Idling handler, or the button that triggered it)."""
+    unrecognized. theme_bg/theme_fg: "#RRGGBB" strings from the user's own
+    color pickers - only meaningful when theme=="colored" (see
+    _theme_colors' own docstring), ignored otherwise. Never raises - a
+    broken toast must never break the caller (the Idling handler, or the
+    button that triggered it)."""
     try:
         colors = _theme_colors(theme if theme in ("dark", "light", "colored") else DEFAULT_THEME,
-                                accent_color)
+                                accent_color, parse_hex_color(theme_bg), parse_hex_color(theme_fg))
 
         settings = load_settings()
         position = position or settings.get("position", DEFAULT_SETTINGS["position"])
@@ -406,12 +437,13 @@ def show_toast(headline, title_text, sub_text, accent_color,
             save_b.Margin = Thickness(0, 0, 0, 6)
             content.Children.Add(save_b)
 
-        headline_tb = TextBlock()
-        headline_tb.Text = headline
-        headline_tb.FontSize = 10
-        headline_tb.FontWeight = FontWeights.Bold
-        headline_tb.Foreground = SolidColorBrush(colors["headline_fg"])
-        content.Children.Add(headline_tb)
+        if headline:
+            headline_tb = TextBlock()
+            headline_tb.Text = headline
+            headline_tb.FontSize = 10
+            headline_tb.FontWeight = FontWeights.Bold
+            headline_tb.Foreground = SolidColorBrush(colors["headline_fg"])
+            content.Children.Add(headline_tb)
 
         title_tb = TextBlock()
         title_tb.Foreground = SolidColorBrush(colors["title_fg"])

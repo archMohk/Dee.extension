@@ -108,7 +108,7 @@ _state = {"last_check": None}
 
 
 def send_message(sender_email, message_text, requires_ack=False, image_base64=None,
-                  target_emails=None, theme=None):
+                  target_emails=None, theme=None, theme_bg=None, theme_fg=None):
     """Synchronous, like dee_telemetry.refresh_status() - this is a
     deliberate, user-initiated action (the Send button), not a
     background poll, so the caller needs to know success/failure right
@@ -116,7 +116,9 @@ def send_message(sender_email, message_text, requires_ack=False, image_base64=No
     own choices from the DeeCall compose window - target_emails is None
     for "everyone" (unchanged default) or a list of emails for specific
     recipients only; theme is "dark"/"light"/"colored" (see
-    dee_toast.THEMES); see dee_toast.show_toast and _check_and_notify for
+    dee_toast.THEMES); theme_bg/theme_fg are "#RRGGBB" strings from the
+    Colored theme's own color pickers, ignored server-side unless
+    theme=="colored"; see dee_toast.show_toast and _check_and_notify for
     what each does on the receiving end. Returns (ok, reason) - reason is
     None on success, or a short string ("not_admin", "empty_message",
     "image_too_large", "empty_targets", or the raw error) on failure.
@@ -128,6 +130,7 @@ def send_message(sender_email, message_text, requires_ack=False, image_base64=No
             "sender_email": sender_email, "message_text": message_text,
             "requires_ack": bool(requires_ack), "image_base64": image_base64,
             "target_emails": target_emails, "theme": theme or dee_toast.DEFAULT_THEME,
+            "theme_bg": theme_bg, "theme_fg": theme_fg,
         })
         request = HttpRequestMessage(HttpMethod.Post, url)
         request.Headers.Add("apikey", dee_telemetry.SUPABASE_ANON_KEY)
@@ -205,7 +208,7 @@ def _cleanup_old_images():
 def _fetch_new_messages(since_id):
     url = ("{0}/rest/v1/broadcast_messages?id=gt.{1}&order=id.asc"
            "&select=id,sender_email,message_text,created_at,requires_ack,image_base64,"
-           "target_emails,theme"
+           "target_emails,theme,theme_bg,theme_fg"
            .format(dee_telemetry.SUPABASE_URL.rstrip("/"), since_id))
     try:
         request = HttpRequestMessage(HttpMethod.Get, url)
@@ -251,10 +254,11 @@ def _check_and_notify():
             show_it = bool(my_email) and my_email in normalized_targets
         if text and show_it:
             dee_toast.show_toast(
-                u"ANNOUNCEMENT — DEE.EXTENSION", text, u"", _ACCENT,
+                u"", text, u"", _ACCENT,
                 requires_ack=bool(row.get("requires_ack")),
                 image_base64=row.get("image_base64"),
-                theme=row.get("theme"))
+                theme=row.get("theme"),
+                theme_bg=row.get("theme_bg"), theme_fg=row.get("theme_fg"))
         if isinstance(rid, (int, float)) and rid > max_id:
             max_id = rid
 
