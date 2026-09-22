@@ -93,7 +93,36 @@ class UserInfoWindow(dee_branding.DeeBrandedWindow):
         self.prayer_enabled_cb.IsChecked = bool(prayer_settings.get("enabled", True))
         self.prayer_duration_tb.Text = str(prayer_settings.get(
             "duration_sec", dee_prayer_service.DEFAULT_SETTINGS["duration_sec"]))
+        is_12h = prayer_settings.get("time_format") == "12"
+        self.prayer_format_12_rb.IsChecked = is_12h
+        self.prayer_format_24_rb.IsChecked = not is_12h
 
+        self._update_prayer_times_display(prayer_settings)
+
+        status = dee_telemetry.load_cached_status()
+        summary = dee_telemetry.status_summary()
+        self.status_tb.Text = summary or "Not checked yet - open any Dee tool once first."
+        is_active = bool(status and status.get("allowed"))
+        self.status_tb.Foreground = SolidColorBrush(
+            _ACTIVE_COLOR if is_active else _INACTIVE_COLOR)
+        self.expires_tb.Text = _expires_text(status)
+
+        if acc_auth is not None:
+            try:
+                ready = acc_auth.is_configured()
+            except Exception:
+                ready = False
+            self.acc_tb.Text = ("Ready" if ready else
+                                 "Not configured - see acc_config.example.json")
+        else:
+            self.acc_tb.Text = "Unknown"
+
+    def _update_prayer_times_display(self, prayer_settings):
+        """Split out from _refresh() so prayer_format_changed can
+        re-render just the times without touching prayer_enabled_cb/
+        prayer_format_*_rb - those have Checked/Unchecked handlers
+        wired in XAML, and re-setting their IsChecked from inside a
+        handler they themselves trigger would recurse."""
         try:
             city, times = dee_prayer_service.get_today_times()
         except Exception:
@@ -113,7 +142,7 @@ class UserInfoWindow(dee_branding.DeeBrandedWindow):
         for name in _PRAYER_ORDER:
             tb = getattr(self, _PRAYER_TB_NAMES[name])
             if times and name in times:
-                tb.Text = times[name].strftime("%H:%M")
+                tb.Text = dee_prayer_service.format_time(times[name], prayer_settings)
                 if name == next_name:
                     tb.Foreground = SolidColorBrush(_ACTIVE_COLOR)
                 elif times[name] <= now_time:
@@ -123,24 +152,6 @@ class UserInfoWindow(dee_branding.DeeBrandedWindow):
             else:
                 tb.Text = u"—"
                 tb.Foreground = SolidColorBrush(_TIME_DIM_COLOR)
-
-        status = dee_telemetry.load_cached_status()
-        summary = dee_telemetry.status_summary()
-        self.status_tb.Text = summary or "Not checked yet - open any Dee tool once first."
-        is_active = bool(status and status.get("allowed"))
-        self.status_tb.Foreground = SolidColorBrush(
-            _ACTIVE_COLOR if is_active else _INACTIVE_COLOR)
-        self.expires_tb.Text = _expires_text(status)
-
-        if acc_auth is not None:
-            try:
-                ready = acc_auth.is_configured()
-            except Exception:
-                ready = False
-            self.acc_tb.Text = ("Ready" if ready else
-                                 "Not configured - see acc_config.example.json")
-        else:
-            self.acc_tb.Text = "Unknown"
 
     def check_now_click(self, sender, args):
         email = dee_telemetry.get_cached_identity()
@@ -181,6 +192,12 @@ class UserInfoWindow(dee_branding.DeeBrandedWindow):
         self.prayer_duration_tb.Text = str(seconds)
         settings["duration_sec"] = seconds
         dee_prayer_service.save_settings(settings)
+
+    def prayer_format_changed(self, sender, args):
+        settings = dee_prayer_service.load_settings()
+        settings["time_format"] = "12" if self.prayer_format_12_rb.IsChecked else "24"
+        dee_prayer_service.save_settings(settings)
+        self._update_prayer_times_display(settings)
 
     def close_click(self, sender, args):
         self.Close()

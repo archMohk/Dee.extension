@@ -82,7 +82,9 @@ from System.Windows.Threading import DispatcherTimer
 import deew_settings
 
 TOOL_NAME = "DeePrayer"
-DEFAULT_SETTINGS = {"enabled": True, "duration_sec": 10}
+# time_format: "24" (05:12) or "12" (5:12 AM) - a per-user display
+# choice, same local-settings mechanism as enabled/duration_sec.
+DEFAULT_SETTINGS = {"enabled": True, "duration_sec": 10, "time_format": "24"}
 
 _CHECK_INTERVAL = datetime.timedelta(seconds=30)
 _NOTIFY_WINDOW = datetime.timedelta(minutes=2)
@@ -137,6 +139,18 @@ def save_settings(settings):
     deew_settings.save(TOOL_NAME, settings)
 
 
+def format_time(t, settings=None):
+    """Renders a datetime.time as "05:12" (24) or "5:12 AM" (12) per the
+    saved time_format setting - shared by the toast and the User Info
+    card so the two can never disagree with each other."""
+    if settings is None:
+        settings = load_settings()
+    if settings.get("time_format") == "12":
+        text = t.strftime("%I:%M %p")
+        return text[1:] if text.startswith("0") else text
+    return t.strftime("%H:%M")
+
+
 def _location():
     try:
         tz_id = TimeZoneInfo.Local.Id
@@ -171,7 +185,7 @@ def _fetch_today_times(lat, lon, tz_name):
         return None
 
 
-def _show_toast(prayer_name, prayer_time, duration_sec):
+def _show_toast(prayer_name, time_text, duration_sec):
     try:
         width, height, margin = 300.0, 86.0, 16.0
 
@@ -209,7 +223,7 @@ def _show_toast(prayer_name, prayer_time, duration_sec):
         stack.Children.Add(name_tb)
 
         time_tb = TextBlock()
-        time_tb.Text = prayer_time.strftime("%H:%M")
+        time_tb.Text = time_text
         time_tb.Foreground = SolidColorBrush(Color.FromRgb(0xE7, 0xE9, 0xEE))
         time_tb.FontSize = 14
         stack.Children.Add(time_tb)
@@ -300,7 +314,7 @@ def _check_and_notify():
         if datetime.timedelta(0) <= delta <= _NOTIFY_WINDOW:
             _state["notified"].add(name)
             duration = settings.get("duration_sec", DEFAULT_SETTINGS["duration_sec"])
-            _show_toast(name, prayer_time, duration)
+            _show_toast(name, format_time(prayer_time, settings), duration)
 
 
 def _on_idling(sender, args):
