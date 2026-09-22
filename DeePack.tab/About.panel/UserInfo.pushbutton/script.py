@@ -19,6 +19,7 @@ from pyrevit import forms
 import dee_branding
 import dee_telemetry
 import dee_ribbon_mode
+import dee_prayer_service
 
 try:
     import acc_auth
@@ -72,6 +73,15 @@ class UserInfoWindow(dee_branding.DeeBrandedWindow):
         email = dee_telemetry.get_cached_identity()
         self.email_tb.Text = email or "(not set yet - open any Dee tool once)"
 
+        # Loaded here in code, not set via XAML attributes on
+        # prayer_enabled_cb - a Checked/Unchecked handler wired in XAML
+        # can fire the moment IsChecked is set there, before the rest of
+        # this window is ready (see feedback_wpf_xaml_early_event_fire).
+        prayer_settings = dee_prayer_service.load_settings()
+        self.prayer_enabled_cb.IsChecked = bool(prayer_settings.get("enabled", True))
+        self.prayer_duration_tb.Text = str(prayer_settings.get(
+            "duration_sec", dee_prayer_service.DEFAULT_SETTINGS["duration_sec"]))
+
         status = dee_telemetry.load_cached_status()
         summary = dee_telemetry.status_summary()
         self.status_tb.Text = summary or "Not checked yet - open any Dee tool once first."
@@ -113,6 +123,22 @@ class UserInfoWindow(dee_branding.DeeBrandedWindow):
             return
         dee_telemetry.clear_identity()
         self._refresh()
+
+    def prayer_setting_changed(self, sender, args):
+        settings = dee_prayer_service.load_settings()
+        settings["enabled"] = bool(self.prayer_enabled_cb.IsChecked)
+        dee_prayer_service.save_settings(settings)
+
+    def prayer_duration_changed(self, sender, args):
+        settings = dee_prayer_service.load_settings()
+        try:
+            seconds = int(float(self.prayer_duration_tb.Text))
+        except Exception:
+            seconds = dee_prayer_service.DEFAULT_SETTINGS["duration_sec"]
+        seconds = max(1, min(seconds, 120))
+        self.prayer_duration_tb.Text = str(seconds)
+        settings["duration_sec"] = seconds
+        dee_prayer_service.save_settings(settings)
 
     def close_click(self, sender, args):
         self.Close()

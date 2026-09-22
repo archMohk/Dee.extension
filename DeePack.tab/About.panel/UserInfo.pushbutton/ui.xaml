@@ -2,11 +2,26 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Dee.extension — User Info"
         ShowInTaskbar="False"
-        Height="340" Width="440" ResizeMode="NoResize"
+        Height="400" Width="440" ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="14">
 
         <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+            <Border BorderBrush="#3a3f4d" BorderThickness="0,1,0,0" Margin="0,0,0,10" Padding="0,10,0,0">
+                <StackPanel>
+                    <TextBlock Text="Prayer time notifications" FontWeight="Bold" Margin="0,0,0,6"/>
+                    <StackPanel Orientation="Horizontal">
+                        <CheckBox x:Name="prayer_enabled_cb" Content="Show a notification at each prayer time"
+                                  VerticalAlignment="Center" Checked="prayer_setting_changed" Unchecked="prayer_setting_changed"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <TextBlock Text="Stays on screen for" VerticalAlignment="Center"/>
+                        <TextBox x:Name="prayer_duration_tb" Width="40" Height="22" Margin="6,0,6,0"
+                                 TextAlignment="Center" LostFocus="prayer_duration_changed"/>
+                        <TextBlock Text="seconds" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
             <StackPanel Orientation="Horizontal">
                 <Button x:Name="check_now_b" Content="Check Now" Width="110" Height="28" Click="check_now_click"
                         ToolTip="Runs a fresh check against the server instead of showing the last cached result."/>
