@@ -31,6 +31,8 @@ import datetime
 
 import clr
 clr.AddReference("PresentationCore")
+clr.AddReference("PresentationFramework")
+clr.AddReference("WindowsBase")
 clr.AddReference("System.Windows.Forms")
 clr.AddReference("System.Drawing")
 from System import Convert
