@@ -22,22 +22,29 @@ image is shown, a small "Save Image" link sits under it - a
 SaveFileDialog writing the same raw decoded bytes straight to disk, so
 the recipient isn't stuck with a toast-sized preview only.
 
-Any http(s):// URL typed into title_text/sub_text renders as a real,
-clickable Hyperlink (opens the system default browser via
-System.Diagnostics.Process.Start) - no separate "link" field anywhere,
-callers just type a normal message and a URL inside it becomes
-clickable automatically. Same Hyperlink/RequestNavigate pattern already
-proven live in lib/dee_branding.py's own footer link.
+Any http(s):// URL (or a bare www.something) typed into title_text/
+sub_text renders as a real, clickable Hyperlink (opens the system
+default browser via System.Diagnostics.Process.Start) - no separate
+"link" field anywhere, callers just type a normal message and a URL
+inside it becomes clickable automatically. Same Hyperlink/
+RequestNavigate pattern already proven live in lib/dee_branding.py's own
+footer link.
 
-Appearance (position on screen, size, how long it stays) is one shared
-per-PC setting store ("DeeNotifications", via lib/deew_settings.py) -
-not per-feature - so the "Test Notification" button in the Notification
-Center window previews exactly what BOTH prayer notifications and DeeCall
-broadcasts will look like, and adjusting it once affects every caller.
-show_toast()'s duration_sec/position/width/height parameters are for
-PREVIEWING an unsaved value (the Test button passes the current, maybe-
-not-yet-saved field values); every real caller just omits them and gets
-whatever's actually saved.
+Appearance (position on screen, width, minimum height, how long it
+stays) is one shared per-PC setting store ("DeeNotifications", via
+lib/deew_settings.py) - not per-feature - so the "Test Notification"
+button in the Notification Center window previews what every kind of
+toast this extension shows will roughly look like. The actual window
+HEIGHT is not fixed to that setting though - Window.SizeToContent grows
+it to fit whatever's really in the card (wrapped text, an image, Close/
+Save Image buttons), with the saved height acting as a floor, not a
+ceiling; a bottom-anchored position (bottom_left/bottom_right) keeps its
+bottom edge fixed by repositioning Top on SizeChanged once the real
+height is known - see _compute_top's docstring. show_toast()'s
+duration_sec/position/width/height parameters are for PREVIEWING an
+unsaved value (the Test button passes the current, maybe-not-yet-saved
+field values); every real caller just omits them and gets whatever's
+actually saved.
 """
 import re
 
@@ -52,7 +59,7 @@ from System import TimeSpan, Convert, Uri
 from System.Diagnostics import Process
 from System.IO import MemoryStream, File
 from System.Windows import (
-    Window, WindowStyle, ResizeMode, Thickness, CornerRadius,
+    Window, WindowStyle, ResizeMode, SizeToContent, Thickness, CornerRadius,
     SystemParameters, FontWeights, GridLength, GridUnitType,
     VerticalAlignment, HorizontalAlignment, TextWrapping)
 from System.Windows.Controls import StackPanel, TextBlock, Border, Grid, ColumnDefinition, Button, Image
@@ -87,24 +94,20 @@ _MIN_HEIGHT, _MAX_HEIGHT = 70, 220
 _MIN_DURATION, _MAX_DURATION = 1, 120
 _MARGIN = 16.0
 
-# Extra window height added on top of the saved/passed height when a
-# toast needs a Close button (requires_ack) and/or an image - both grow
-# the card beyond whatever size the user picked for a plain text toast,
-# so they're added on top rather than eating into it.
-_ACK_BUTTON_EXTRA = 40
 _IMAGE_HEIGHT = 90
-_IMAGE_EXTRA = _IMAGE_HEIGHT + 10
-# A "Save Image" link under the image - independent of requires_ack, so
-# even an auto-dismissing toast with an image gets a chance to save it
-# before it closes.
-_SAVE_LINK_EXTRA = 22
 
-# Any http(s):// URL typed into a toast's title/sub text becomes a real,
-# clickable Hyperlink - no separate "link" field needed anywhere (DeeCall
-# just types the link into the message like normal text). Same
-# Hyperlink/RequestNavigate -> Process.Start pattern already proven live
-# in lib/dee_branding.py's own footer link.
-_URL_RE = re.compile(r"(https?://[^\s<>\"]+)")
+# Any http(s):// URL, or a bare www.something, typed into a toast's
+# title/sub text becomes a real, clickable Hyperlink - no separate
+# "link" field needed anywhere (DeeCall just types the link into the
+# message like normal text). www.-only addresses get "https://"
+# prepended for navigation (kept out of the DISPLAYED text, which stays
+# exactly as typed). Trailing punctuation right after a URL (a period
+# ending the sentence, a closing bracket, etc.) is peeled off so it
+# doesn't get swallowed into the link itself. Same Hyperlink/
+# RequestNavigate -> Process.Start pattern already proven live in
+# lib/dee_branding.py's own footer link.
+_URL_RE = re.compile(r"((?:https?://|www\.)[^\s<>\"]+)", re.IGNORECASE)
+_TRAILING_PUNCT = u".,!?;:)]}\"'"
 _LINK_COLOR = Color.FromRgb(0x6C, 0xB6, 0xFF)
 
 
@@ -138,16 +141,24 @@ def _build_shadow():
     return effect
 
 
-def _compute_origin(position, width, height):
+def _compute_left(position, width):
     work_area = SystemParameters.WorkArea
-    if position == "bottom_left":
-        return work_area.Left + _MARGIN, work_area.Bottom - height - _MARGIN
-    if position == "top_right":
-        return work_area.Right - width - _MARGIN, work_area.Top + _MARGIN
-    if position == "top_left":
-        return work_area.Left + _MARGIN, work_area.Top + _MARGIN
-    # default / "bottom_right"
-    return work_area.Right - width - _MARGIN, work_area.Bottom - height - _MARGIN
+    if position in ("bottom_left", "top_left"):
+        return work_area.Left + _MARGIN
+    return work_area.Right - width - _MARGIN  # bottom_right / top_right
+
+
+def _compute_top(position, actual_height):
+    """actual_height: the window's real, laid-out height - unlike width,
+    height now depends on content (see show_toast's SizeToContent), so
+    this can't be computed until WPF has actually measured it. Top
+    positions don't care (constant regardless of height); bottom
+    positions anchor the BOTTOM edge, so Top must be recomputed whenever
+    actual_height changes (wired to the window's SizeChanged)."""
+    work_area = SystemParameters.WorkArea
+    if position in ("top_left", "top_right"):
+        return work_area.Top + _MARGIN
+    return work_area.Bottom - actual_height - _MARGIN  # bottom_left / bottom_right
 
 
 def _decode_image_bytes(image_base64):
@@ -172,25 +183,34 @@ def _on_navigate(sender, args):
 
 
 def _fill_linkified(text_block, text):
-    """Populates text_block.Inlines with plain Runs, except any
-    http(s):// URL becomes a real Hyperlink - never touches .Text
-    directly (Inlines and Text are mutually exclusive on a TextBlock)."""
+    """Populates text_block.Inlines with plain Runs, except any URL
+    becomes a real Hyperlink - never touches .Text directly (Inlines and
+    Text are mutually exclusive on a TextBlock)."""
     text = text or u""
     pos = 0
     for m in _URL_RE.finditer(text):
         if m.start() > pos:
             text_block.Inlines.Add(Run(text[pos:m.start()]))
-        url = m.group(1)
-        try:
-            link = Hyperlink(Run(url))
-            link.NavigateUri = Uri(url)
-            link.Foreground = SolidColorBrush(_LINK_COLOR)
-            link.RequestNavigate += _on_navigate
-            text_block.Inlines.Add(link)
-        except Exception:
-            # Not a URL Uri can actually parse (rare) - show as plain text
-            # rather than dropping it.
-            text_block.Inlines.Add(Run(url))
+        matched = m.group(1)
+        trail = u""
+        while matched and matched[-1] in _TRAILING_PUNCT:
+            trail = matched[-1] + trail
+            matched = matched[:-1]
+        if matched:
+            nav_target = matched if matched.lower().startswith(("http://", "https://")) \
+                else u"https://" + matched
+            try:
+                link = Hyperlink(Run(matched))
+                link.NavigateUri = Uri(nav_target)
+                link.Foreground = SolidColorBrush(_LINK_COLOR)
+                link.RequestNavigate += _on_navigate
+                text_block.Inlines.Add(link)
+            except Exception:
+                # Not a URL Uri can actually parse (rare) - show as plain
+                # text rather than dropping it.
+                text_block.Inlines.Add(Run(matched))
+        if trail:
+            text_block.Inlines.Add(Run(trail))
         pos = m.end()
     if pos < len(text):
         text_block.Inlines.Add(Run(text[pos:]))
@@ -242,11 +262,6 @@ def show_toast(headline, title_text, sub_text, accent_color,
         image = _bitmap_from_bytes(image_bytes) if image_bytes is not None else None
         if image is None:
             image_bytes = None
-        height = base_height
-        if requires_ack:
-            height += _ACK_BUTTON_EXTRA
-        if image is not None:
-            height += _IMAGE_EXTRA + _SAVE_LINK_EXTRA
 
         window = Window()
         window.WindowStyle = getattr(WindowStyle, "None")
@@ -256,7 +271,13 @@ def show_toast(headline, title_text, sub_text, accent_color,
         window.AllowsTransparency = True
         window.Background = Brushes.Transparent
         window.Width = width
-        window.Height = height
+        # Height adjusts to whatever's actually in the card (wrapped
+        # text, an image, the Close/Save Image buttons) instead of a
+        # fixed guess that kept needing a new manual offset for every
+        # new piece of content - base_height (the user's own saved/
+        # passed size) becomes a MINIMUM, not the final word.
+        window.MinHeight = base_height
+        window.SizeToContent = SizeToContent.Height
 
         outer = Border()
         outer.CornerRadius = CornerRadius(10)
@@ -344,9 +365,16 @@ def show_toast(headline, title_text, sub_text, accent_color,
         outer.Child = grid
         window.Content = outer
 
-        left, top = _compute_origin(position, width, height)
-        window.Left = left
-        window.Top = top
+        window.Left = _compute_left(position, width)
+        # Initial guess using the minimum height, corrected below once
+        # WPF actually knows the real (content-driven) height - avoids a
+        # visible jump for the common case where content fits at
+        # MinHeight, while still ending up correct when it doesn't.
+        window.Top = _compute_top(position, base_height)
+
+        def _reposition(sender=None, args=None):
+            window.Top = _compute_top(position, window.ActualHeight)
+        window.SizeChanged += _reposition
 
         window.Show()
 
