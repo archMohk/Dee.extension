@@ -501,6 +501,13 @@ GLYPHS = {
         rc(22, 18, 74, 82, "ink", 1.0, 4), rc(38, 12, 58, 24, "ink", 0.9, 3),
         pl([(28, 54), (38, 54), (44, 42), (52, 66), (58, 54), (68, 54)], "accent", 1.4),
     ],
+    # Two overlapping circles (the two elements being joined) with the
+    # overlap itself accented - a plain Venn-diagram metaphor for "join,"
+    # no existing motif in this file to reuse.
+    "DeeJoin": lambda: [
+        ci(36, 48, 26, "ink", 1.3), ci(60, 48, 26, "ink", 1.3),
+        cf(48, 48, 10, "accent"),
+    ],
     "DeeCleaner": lambda: [
         ln(64, 20, 42, 54, "ink", 1.2),
         pf([(30, 50), (54, 64), (40, 88), (20, 74)]),

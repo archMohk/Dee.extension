@@ -155,6 +155,7 @@ TOOL_CATEGORIES = {
     "DeeForce": "health",
     "DeeGetDWG": "health",
     "DeeHealth": "health",
+    "DeeJoin": "health",
     "DeeOpener": "health",
     "DeeRehoster": "health",
     "DeeSYNC": "health",
