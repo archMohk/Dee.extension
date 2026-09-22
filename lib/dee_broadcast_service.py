@@ -3,12 +3,38 @@
 dee_broadcast_service
 DeeCall's background half: lets the owner (allowed_users.is_admin) send a
 message - text, optionally with an image, optionally requiring the
-recipient to click Close instead of auto-dismissing - that shows up as a
-toast on every user's PC, the next time their own Idling watcher checks
-in. Same overall shape as lib/dee_prayer_service.py - a separate
+recipient to click Close instead of auto-dismissing, optionally aimed at
+specific people instead of everyone - that shows up as a toast on every
+targeted user's PC, the next time their own Idling watcher checks in.
+Same overall shape as lib/dee_prayer_service.py - a separate
 UIApplication.Idling subscription, throttled, reusing lib/dee_toast.py
 for the actual popup - but checked less often (broadcasts aren't
 time-critical the way prayer times are).
+
+--------------------------------------------------------------------
+Targeting specific people: filtered on the RECEIVING end, not the DB
+--------------------------------------------------------------------
+target_emails (None = everyone, same as before this feature existed; a
+list of lowercased emails = only those people) is stored on the row and
+handed back to every PC exactly like every other column, via the same
+already-public anon SELECT - broadcast_messages was never meant to hide
+its content, only the TOAST is gated to the right audience. Each PC's
+_check_and_notify() decides for itself whether to actually show a toast
+by comparing target_emails against its own dee_telemetry
+get_cached_identity() - honest tradeoff: a message's TEXT is technically
+fetchable by anyone who queries the REST API directly (same as before
+targeting existed), "targeted" only means "only the right people see it
+pop up as a toast through the normal app". Good enough for an internal
+team announcement tool; not meant to carry anything actually
+confidential.
+
+Picking recipients needs the team roster, which - unlike
+broadcast_messages - was never meant to be public (it's basically
+allowed_users), so DeeCall's compose window calls a THIRD RPC,
+list_broadcast_recipients(admin_email), gated by the exact same
+is_admin check as sending. Same self-reported-email trust model as
+send_broadcast_message itself (see that RPC's own comment) - not a new
+or weaker boundary, just the same one applied to a second endpoint.
 
 --------------------------------------------------------------------
 Why sending needs a server-side check, not just a client-side one
@@ -78,21 +104,26 @@ _client.Timeout = TimeSpan.FromSeconds(8)
 _state = {"last_check": None}
 
 
-def send_message(sender_email, message_text, requires_ack=False, image_base64=None):
+def send_message(sender_email, message_text, requires_ack=False, image_base64=None,
+                  target_emails=None):
     """Synchronous, like dee_telemetry.refresh_status() - this is a
     deliberate, user-initiated action (the Send button), not a
     background poll, so the caller needs to know success/failure right
-    away. requires_ack/image_base64 are the sender's own choices from the
-    DeeCall compose window - see dee_toast.show_toast for what each does
-    on the receiving end. Returns (ok, reason) - reason is None on
-    success, or a short string ("not_admin", "empty_message",
-    "image_too_large", or the raw error) on failure. Never raises."""
+    away. requires_ack/image_base64/target_emails are the sender's own
+    choices from the DeeCall compose window - target_emails is None for
+    "everyone" (unchanged default) or a list of emails for specific
+    recipients only; see dee_toast.show_toast and _check_and_notify for
+    what each does on the receiving end. Returns (ok, reason) - reason is
+    None on success, or a short string ("not_admin", "empty_message",
+    "image_too_large", "empty_targets", or the raw error) on failure.
+    Never raises."""
     try:
         url = "{0}/rest/v1/rpc/send_broadcast_message".format(
             dee_telemetry.SUPABASE_URL.rstrip("/"))
         body = json.dumps({
             "sender_email": sender_email, "message_text": message_text,
             "requires_ack": bool(requires_ack), "image_base64": image_base64,
+            "target_emails": target_emails,
         })
         request = HttpRequestMessage(HttpMethod.Post, url)
         request.Headers.Add("apikey", dee_telemetry.SUPABASE_ANON_KEY)
@@ -111,6 +142,35 @@ def send_message(sender_email, message_text, requires_ack=False, image_base64=No
         return False, reason or "unknown"
     except Exception as e:
         return False, str(e)
+
+
+def list_recipients(admin_email):
+    """Synchronous - the DeeCall window calls this once, lazily, only if
+    the admin actually switches to "Specific users" (never on every
+    open, since most sends are still "everyone"). Returns
+    (ok, users, reason) - users is a list of {"email", "is_admin",
+    "enabled"} dicts on success, [] on failure. Never raises."""
+    try:
+        url = "{0}/rest/v1/rpc/list_broadcast_recipients".format(
+            dee_telemetry.SUPABASE_URL.rstrip("/"))
+        body = json.dumps({"admin_email": admin_email})
+        request = HttpRequestMessage(HttpMethod.Post, url)
+        request.Headers.Add("apikey", dee_telemetry.SUPABASE_ANON_KEY)
+        request.Headers.Add("Authorization", "Bearer " + dee_telemetry.SUPABASE_ANON_KEY)
+        content = StringContent(body)
+        content.Headers.ContentType = MediaTypeHeaderValue("application/json")
+        request.Content = content
+        response = _client.SendAsync(request).Result
+        response_body = response.Content.ReadAsStringAsync().Result
+        if not response.IsSuccessStatusCode:
+            return False, [], "http_error: {0}".format(response_body)
+        result = json.loads(response_body)
+        if isinstance(result, dict) and result.get("ok"):
+            return True, result.get("users") or [], None
+        reason = result.get("reason") if isinstance(result, dict) else None
+        return False, [], reason or "unknown"
+    except Exception as e:
+        return False, [], str(e)
 
 
 def _cleanup_old_images():
@@ -140,7 +200,7 @@ def _cleanup_old_images():
 
 def _fetch_new_messages(since_id):
     url = ("{0}/rest/v1/broadcast_messages?id=gt.{1}&order=id.asc"
-           "&select=id,sender_email,message_text,created_at,requires_ack,image_base64"
+           "&select=id,sender_email,message_text,created_at,requires_ack,image_base64,target_emails"
            .format(dee_telemetry.SUPABASE_URL.rstrip("/"), since_id))
     try:
         request = HttpRequestMessage(HttpMethod.Get, url)
@@ -173,10 +233,18 @@ def _check_and_notify():
         return
 
     max_id = since_id
+    my_email = None  # resolved lazily - only needed if a targeted row shows up
     for row in rows:
         rid = row.get("id")
         text = (row.get("message_text") or "").strip()
-        if text:
+        targets = row.get("target_emails")
+        show_it = True
+        if targets:
+            if my_email is None:
+                my_email = (dee_telemetry.get_cached_identity() or u"").strip().lower()
+            normalized_targets = [(t or u"").strip().lower() for t in targets]
+            show_it = bool(my_email) and my_email in normalized_targets
+        if text and show_it:
             dee_toast.show_toast(
                 u"ANNOUNCEMENT — DEE.EXTENSION", text, u"", _ACCENT,
                 requires_ack=bool(row.get("requires_ack")),

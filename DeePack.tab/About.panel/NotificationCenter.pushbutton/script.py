@@ -14,12 +14,18 @@ there are exactly 2 fixed sub-features here, not an open-ended list:
   (UserInfo.pushbutton no longer shows it) - same fields, same
   lib/dee_prayer_service.py logic, unchanged.
 - DeeCallWindow: lets an admin (allowed_users.is_admin) broadcast a
-  message - text, an optional image, and a choice of auto-dismiss vs.
-  stays-until-Close - that shows up as a toast on every user's PC via
+  message - text, an optional image, a choice of auto-dismiss vs.
+  stays-until-Close, and a choice of Everyone vs. specific people - that
+  shows up as a toast on every targeted user's PC via
   lib/dee_broadcast_service.py. A non-admin sees an explanatory message
   instead of the compose box - gated first by the locally cached access
   status (instant, no network), then re-verified live right before an
   actual send so a stale cache can never let a since-demoted admin send.
+  "Specific users" lazily loads the team roster (only on first switching
+  to that mode, not on every open) into a filterable, checkbox-per-user
+  list with Select All/None - Select All/None only ever touch whatever
+  the filter currently has visible, so filtering to a domain then
+  Select All is a normal way to pick a whole group at once.
 
 Prayer Times and DeeCall's own "notification style" choice (auto-dismiss
 vs. requires a Close click) both go through lib/dee_toast.py's
@@ -39,6 +45,7 @@ from System import Convert
 from System.IO import MemoryStream
 from System.Windows import Visibility, Thickness
 from System.Windows.Input import Cursors
+from System.Windows.Controls import CheckBox
 from System.Windows.Media import SolidColorBrush, Color, Brushes
 from System.Windows.Media.Imaging import BitmapImage, BitmapCacheOption
 from System.Windows.Forms import OpenFileDialog, DialogResult
@@ -312,6 +319,15 @@ class DeeCallWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self._image_base64 = None
+        self._recipients_loaded = False
+        self._recipient_checkboxes = []
+        # Set in code, not XAML - target_all_rb has a wired Checked
+        # handler (target_mode_changed), and setting IsChecked from XAML
+        # on a control with a wired handler can fire it before the rest
+        # of this window is ready (see feedback_wpf_xaml_early_event_fire).
+        # Safe here since this runs after the base __init__ has already
+        # loaded every named element target_mode_changed touches.
+        self.target_all_rb.IsChecked = True
         self._show_as_admin(self._check_is_admin())
 
     def _check_is_admin(self):
@@ -378,6 +394,53 @@ class DeeCallWindow(dee_branding.DeeBrandedWindow):
         self.remove_image_b.Visibility = Visibility.Collapsed
         self.image_status_tb.Text = u"No image attached"
 
+    def target_mode_changed(self, sender, args):
+        specific = bool(self.target_specific_rb.IsChecked)
+        self.target_panel.Visibility = Visibility.Visible if specific else Visibility.Collapsed
+        if specific and not self._recipients_loaded:
+            self._load_recipients()
+
+    def _load_recipients(self):
+        self.recipients_status_tb.Text = u"Loading users..."
+        email = dee_telemetry.get_cached_identity()
+        if not email:
+            self.recipients_status_tb.Text = u"Could not load users - no identity on file."
+            return
+        ok, users, reason = dee_broadcast_service.list_recipients(email)
+        self._recipients_loaded = True
+        if not ok:
+            self.recipients_status_tb.Text = u"Could not load users - {0}".format(reason)
+            return
+
+        self.recipients_panel.Children.Clear()
+        self._recipient_checkboxes = []
+        for u in users:
+            user_email = (u.get("email") or u"").strip()
+            if not user_email:
+                continue
+            cb = CheckBox()
+            cb.Content = user_email + (u"  (admin)" if u.get("is_admin") else u"")
+            cb.Tag = user_email.lower()
+            cb.Margin = Thickness(0, 2, 0, 2)
+            self.recipients_panel.Children.Add(cb)
+            self._recipient_checkboxes.append(cb)
+        self.recipients_status_tb.Text = u"{0} users".format(len(self._recipient_checkboxes))
+
+    def recipient_filter_changed(self, sender, args):
+        query = (self.recipient_filter_tb.Text or u"").strip().lower()
+        for cb in self._recipient_checkboxes:
+            cb.Visibility = Visibility.Visible if query in (cb.Tag or u"") else Visibility.Collapsed
+
+    def select_all_click(self, sender, args):
+        for cb in self._recipient_checkboxes:
+            if cb.Visibility == Visibility.Visible:
+                cb.IsChecked = True
+
+    def select_none_click(self, sender, args):
+        for cb in self._recipient_checkboxes:
+            if cb.Visibility == Visibility.Visible:
+                cb.IsChecked = False
+
     def send_click(self, sender, args):
         text = (self.message_tb.Text or u"").strip()
         if not text:
@@ -385,9 +448,21 @@ class DeeCallWindow(dee_branding.DeeBrandedWindow):
             return
         requires_ack = bool(self.deecall_ack_required_rb.IsChecked)
         image_base64 = self._image_base64
-        if not forms.alert(
-                u"Send this to every Dee.extension user right now?\n\n{0}".format(text),
-                title="Dee.extension - DeeCall", yes=True, no=True):
+
+        target_emails = None
+        if self.target_specific_rb.IsChecked:
+            target_emails = [cb.Tag for cb in self._recipient_checkboxes if cb.IsChecked]
+            if not target_emails:
+                forms.alert(u"Select at least one recipient, or choose Everyone.",
+                            title="Dee.extension - DeeCall")
+                return
+
+        if target_emails is None:
+            confirm_text = u"Send this to every Dee.extension user right now?\n\n{0}".format(text)
+        else:
+            confirm_text = u"Send this to {0} selected user(s) right now?\n\n{1}".format(
+                len(target_emails), text)
+        if not forms.alert(confirm_text, title="Dee.extension - DeeCall", yes=True, no=True):
             return
 
         email = dee_telemetry.get_cached_identity()
@@ -410,11 +485,15 @@ class DeeCallWindow(dee_branding.DeeBrandedWindow):
             return
 
         ok, reason = dee_broadcast_service.send_message(
-            email, text, requires_ack=requires_ack, image_base64=image_base64)
+            email, text, requires_ack=requires_ack, image_base64=image_base64,
+            target_emails=target_emails)
         if ok:
             self.message_tb.Text = ""
             self.remove_image_click(sender, args)
-            self.send_status_tb.Text = u"Sent - everyone, including you, will see it as a toast."
+            if target_emails is None:
+                self.send_status_tb.Text = u"Sent - everyone, including you, will see it as a toast."
+            else:
+                self.send_status_tb.Text = u"Sent to {0} selected user(s).".format(len(target_emails))
         else:
             self.send_status_tb.Text = u"Could not send - {0}".format(reason)
 
