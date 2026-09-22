@@ -10,13 +10,13 @@
 
         <!-- ScrollViewer as a safety net, not just a taller Height - a
              plain StackPanel silently CLIPS content that doesn't fit
-             instead of erroring, which is exactly how the DeeTUT button
+             instead of erroring, which is exactly how the DeeCall button
              went missing the first time this shipped. -->
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel>
             <TextBlock Text="Notification appearance" FontWeight="Bold" Margin="0,0,0,8"/>
             <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888" Margin="0,0,0,10"
-                       Text="Applies to every notification this extension shows - prayer times and DeeTUT announcements alike."/>
+                       Text="Applies to every notification this extension shows - prayer times and DeeCall announcements alike."/>
 
             <Grid Margin="0,0,0,10">
                 <Grid.ColumnDefinitions>
@@ -61,8 +61,8 @@
                     <TextBlock Text="Notifications" FontWeight="Bold" Margin="0,0,0,8"/>
                     <Button x:Name="prayer_card_b" Content="Prayer Times" Height="40" Margin="0,0,0,8"
                             HorizontalContentAlignment="Left" Padding="10,0,0,0" Click="prayer_card_click"/>
-                    <Button x:Name="deetut_card_b" Content="DeeTUT — send an announcement to everyone" Height="40"
-                            HorizontalContentAlignment="Left" Padding="10,0,0,0" Click="deetut_card_click"/>
+                    <Button x:Name="deecall_card_b" Content="DeeCall — send an announcement to everyone" Height="40"
+                            HorizontalContentAlignment="Left" Padding="10,0,0,0" Click="deecall_card_click"/>
                 </StackPanel>
             </Border>
         </StackPanel>

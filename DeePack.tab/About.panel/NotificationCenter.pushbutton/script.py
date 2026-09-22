@@ -13,7 +13,7 @@ there are exactly 2 fixed sub-features here, not an open-ended list:
 - PrayerSettingsWindow: moved here from the old User Info window
   (UserInfo.pushbutton no longer shows it) - same fields, same
   lib/dee_prayer_service.py logic, unchanged.
-- DeeTUTWindow: lets an admin (allowed_users.is_admin) broadcast a
+- DeeCallWindow: lets an admin (allowed_users.is_admin) broadcast a
   plain-text message that shows up as a toast on every user's PC via
   lib/dee_broadcast_service.py. A non-admin sees an explanatory message
   instead of the compose box - gated first by the locally cached access
@@ -38,7 +38,7 @@ import dee_telemetry
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _HUB_XAML = os.path.join(_THIS_DIR, "notification_center.xaml")
 _PRAYER_XAML = os.path.join(_THIS_DIR, "prayer_settings.xaml")
-_DEETUT_XAML = os.path.join(_THIS_DIR, "deetut.xaml")
+_DEECALL_XAML = os.path.join(_THIS_DIR, "deecall.xaml")
 
 _ACTIVE_COLOR = Color.FromRgb(0x2E, 0x7D, 0x32)
 _TIME_COLOR = Color.FromRgb(0x22, 0x22, 0x22)
@@ -110,11 +110,11 @@ class NotificationCenterWindow(dee_branding.DeeBrandedWindow):
         except Exception as e:
             forms.alert(u"Could not open Prayer Times:\n{0}".format(e))
 
-    def deetut_card_click(self, sender, args):
+    def deecall_card_click(self, sender, args):
         try:
-            DeeTUTWindow(_DEETUT_XAML).ShowDialog()
+            DeeCallWindow(_DEECALL_XAML).ShowDialog()
         except Exception as e:
-            forms.alert(u"Could not open DeeTUT:\n{0}".format(e))
+            forms.alert(u"Could not open DeeCall:\n{0}".format(e))
 
     def close_click(self, sender, args):
         self.Close()
@@ -208,7 +208,7 @@ class PrayerSettingsWindow(dee_branding.DeeBrandedWindow):
         self.Close()
 
 
-class DeeTUTWindow(dee_branding.DeeBrandedWindow):
+class DeeCallWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self._show_as_admin(self._check_is_admin())
@@ -219,7 +219,7 @@ class DeeTUTWindow(dee_branding.DeeBrandedWindow):
         own build, so anyone whose LAST tool click predates that change
         has a cached status with no is_admin field at all, which read as
         "not admin" even for the real owner (live-caught: this happened
-        to the owner's own account on first open). DeeTUT is opened
+        to the owner's own account on first open). DeeCall is opened
         rarely and needs network access to actually send anyway, so
         paying for one live check on open - same cost as UserInfo's own
         "Check Now" - is worth it here, unlike UserInfo's own default
@@ -242,17 +242,17 @@ class DeeTUTWindow(dee_branding.DeeBrandedWindow):
     def send_click(self, sender, args):
         text = (self.message_tb.Text or u"").strip()
         if not text:
-            forms.alert(u"Type a message first.", title="Dee.extension - DeeTUT")
+            forms.alert(u"Type a message first.", title="Dee.extension - DeeCall")
             return
         if not forms.alert(
                 u"Send this to every Dee.extension user right now?\n\n{0}".format(text),
-                title="Dee.extension - DeeTUT", yes=True, no=True):
+                title="Dee.extension - DeeCall", yes=True, no=True):
             return
 
         email = dee_telemetry.get_cached_identity()
         if not email:
             forms.alert(u"No email on file yet - open any Dee tool once first.",
-                        title="Dee.extension - DeeTUT")
+                        title="Dee.extension - DeeCall")
             return
 
         # Re-verify live right before actually sending - the cached
@@ -271,7 +271,7 @@ class DeeTUTWindow(dee_branding.DeeBrandedWindow):
         ok, reason = dee_broadcast_service.send_message(email, text)
         if ok:
             self.message_tb.Text = ""
-            self.send_status_tb.Text = u"Sent."
+            self.send_status_tb.Text = u"Sent - everyone, including you, will see it as a toast."
         else:
             self.send_status_tb.Text = u"Could not send - {0}".format(reason)
 

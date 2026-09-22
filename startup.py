@@ -20,7 +20,7 @@ Revit startup.
 Also starts two background watchers, each its own UIApplication.Idling
 subscription so they run for the rest of the Revit session with no
 button click at all: lib/dee_prayer_service.py (prayer-time toasts) and
-lib/dee_broadcast_service.py (DeeTUT admin broadcasts). Each wrapped in
+lib/dee_broadcast_service.py (DeeCall admin broadcasts). Each wrapped in
 its own try/except, same as the update check above - a failure in
 either must never break the ribbon, Revit startup, or the other
 watcher. See dee_prayer_service's own docstring for the full mechanism

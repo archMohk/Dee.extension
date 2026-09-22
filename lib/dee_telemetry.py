@@ -458,7 +458,7 @@ def _check_user_access_sync(email, tool_category=None):
     response dict - {"allowed": bool, "reason": str, "warning": str|None,
     "expires_at": str|None, "pending_new_users": list|None, "is_admin":
     bool} - see that SQL function's own definition for exactly what each
-    field means. "is_admin" lets a caller (e.g. DeeTUT) know instantly,
+    field means. "is_admin" lets a caller (e.g. DeeCall) know instantly,
     from the cached status alone, whether to show admin-only controls -
     always re-verify live right before anything that actually acts on
     it, since a cached value can go stale. Raises on any failure (network,

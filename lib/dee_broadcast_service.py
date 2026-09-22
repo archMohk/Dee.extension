@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 dee_broadcast_service
-DeeTUT's background half: lets the owner (allowed_users.is_admin) send a
+DeeCall's background half: lets the owner (allowed_users.is_admin) send a
 plain-text message that shows up as a toast on every user's PC, the next
 time their own Idling watcher checks in. Same overall shape as
 lib/dee_prayer_service.py - a separate UIApplication.Idling subscription,

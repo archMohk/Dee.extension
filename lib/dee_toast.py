@@ -5,7 +5,7 @@ The shared toast-notification renderer - a dark rounded card with a
 colored left accent bar and a soft drop shadow, non-modal, auto-
 dismissing. Extracted from lib/dee_prayer_service.py (where this exact
 design was built and confirmed live - a real toast fired correctly for
-Dhuhr) once lib/dee_broadcast_service.py (DeeTUT) needed the identical
+Dhuhr) once lib/dee_broadcast_service.py (DeeCall) needed the identical
 mechanism for a completely different kind of message. Anything in this
 extension that wants to pop a toast calls show_toast() here instead of
 building its own window.
@@ -13,7 +13,7 @@ building its own window.
 Appearance (position on screen, size, how long it stays) is one shared
 per-PC setting store ("DeeNotifications", via lib/deew_settings.py) -
 not per-feature - so the "Test Notification" button in the Notification
-Center window previews exactly what BOTH prayer notifications and DeeTUT
+Center window previews exactly what BOTH prayer notifications and DeeCall
 broadcasts will look like, and adjusting it once affects every caller.
 show_toast()'s duration_sec/position/width/height parameters are for
 PREVIEWING an unsaved value (the Test button passes the current, maybe-
