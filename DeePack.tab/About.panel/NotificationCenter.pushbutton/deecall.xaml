@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Dee.extension — DeeCall"
         ShowInTaskbar="False"
-        Height="620" Width="460" ResizeMode="NoResize"
+        Height="680" Width="460" ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="14">
         <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
@@ -22,7 +22,9 @@
                 <TextBlock Text="Send a message to every Dee.extension user" FontWeight="Bold"
                            TextWrapping="Wrap" Margin="0,0,0,10"/>
                 <TextBox x:Name="message_tb" Height="100" AcceptsReturn="True" TextWrapping="Wrap"
-                         VerticalScrollBarVisibility="Auto" Margin="0,0,0,12"/>
+                         VerticalScrollBarVisibility="Auto" Margin="0,0,0,4"/>
+                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888" Margin="0,0,0,12"
+                           Text="Tip: any http:// or https:// link you type becomes clickable."/>
 
                 <TextBlock Text="Notification style:" Margin="0,0,0,4"/>
                 <RadioButton x:Name="deecall_ack_auto_rb" Content="Goes away on its own after a few seconds"
@@ -40,9 +42,11 @@
                                Foreground="#888" Margin="10,0,0,0" Text="No image attached"/>
                 </StackPanel>
                 <Border x:Name="image_preview_border" Height="110" Background="#f2f2f4" CornerRadius="5"
-                        Margin="0,0,0,12" Visibility="Collapsed">
+                        Margin="0,0,0,4" Visibility="Collapsed">
                     <Image x:Name="image_preview_img" Stretch="Uniform" Margin="4"/>
                 </Border>
+                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888" Margin="0,0,0,12"
+                           Text="Images are removed from the server automatically 3 days after sending - the message text stays."/>
 
                 <Button x:Name="send_b" Content="Send to Everyone" Width="150" Height="28"
                         HorizontalAlignment="Left" Click="send_click"/>

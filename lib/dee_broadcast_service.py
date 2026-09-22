@@ -34,6 +34,18 @@ since these are meant to be seen by everyone by design), shows each new
 row as a toast, advances the local high-water mark. Simpler than
 per-user "seen" rows server-side, and consistent with how every other
 per-PC preference in this extension is stored.
+
+--------------------------------------------------------------------
+Images don't stay in the database forever
+--------------------------------------------------------------------
+An attached image is only meant to reach people while it's still
+useful, not accumulate in the table indefinitely - _cleanup_old_images()
+calls a second RPC, cleanup_old_broadcast_images(), once/day per PC
+(its own throttle, separate from the message-check one above) that
+nulls out image_base64 for any message older than 3 days. The message
+TEXT is never touched, only the image. Several PCs calling this same
+day is harmless - the RPC's own WHERE clause makes a repeat call a
+no-op, so there's no need to coordinate who "owns" the cleanup.
 """
 import datetime
 import json
@@ -101,6 +113,31 @@ def send_message(sender_email, message_text, requires_ack=False, image_base64=No
         return False, str(e)
 
 
+def _cleanup_old_images():
+    """Best-effort, throttled to once/day per PC via its own settings
+    key (separate from last_seen_id, so a cleanup failure never blocks
+    message delivery). Harmless if several PCs' watchers all call this
+    the same day - see module docstring. Never raises."""
+    settings = deew_settings.load(TOOL_NAME, {"last_seen_id": 0})
+    today_str = datetime.date.today().isoformat()
+    if settings.get("last_cleanup_date") == today_str:
+        return
+    try:
+        url = "{0}/rest/v1/rpc/cleanup_old_broadcast_images".format(
+            dee_telemetry.SUPABASE_URL.rstrip("/"))
+        request = HttpRequestMessage(HttpMethod.Post, url)
+        request.Headers.Add("apikey", dee_telemetry.SUPABASE_ANON_KEY)
+        request.Headers.Add("Authorization", "Bearer " + dee_telemetry.SUPABASE_ANON_KEY)
+        content = StringContent("{}")
+        content.Headers.ContentType = MediaTypeHeaderValue("application/json")
+        request.Content = content
+        _client.SendAsync(request).Result
+    except Exception:
+        pass
+    settings["last_cleanup_date"] = today_str
+    deew_settings.save(TOOL_NAME, settings)
+
+
 def _fetch_new_messages(since_id):
     url = ("{0}/rest/v1/broadcast_messages?id=gt.{1}&order=id.asc"
            "&select=id,sender_email,message_text,created_at,requires_ack,image_base64"
@@ -125,6 +162,8 @@ def _check_and_notify():
     if last is not None and (now - last) < _CHECK_INTERVAL:
         return
     _state["last_check"] = now
+
+    _cleanup_old_images()
 
     settings = deew_settings.load(TOOL_NAME, {"last_seen_id": 0})
     since_id = settings.get("last_seen_id", 0)

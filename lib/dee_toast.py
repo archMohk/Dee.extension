@@ -22,6 +22,13 @@ image is shown, a small "Save Image" link sits under it - a
 SaveFileDialog writing the same raw decoded bytes straight to disk, so
 the recipient isn't stuck with a toast-sized preview only.
 
+Any http(s):// URL typed into title_text/sub_text renders as a real,
+clickable Hyperlink (opens the system default browser via
+System.Diagnostics.Process.Start) - no separate "link" field anywhere,
+callers just type a normal message and a URL inside it becomes
+clickable automatically. Same Hyperlink/RequestNavigate pattern already
+proven live in lib/dee_branding.py's own footer link.
+
 Appearance (position on screen, size, how long it stays) is one shared
 per-PC setting store ("DeeNotifications", via lib/deew_settings.py) -
 not per-feature - so the "Test Notification" button in the Notification
@@ -32,19 +39,24 @@ PREVIEWING an unsaved value (the Test button passes the current, maybe-
 not-yet-saved field values); every real caller just omits them and gets
 whatever's actually saved.
 """
+import re
+
 import clr
+clr.AddReference("System")
 clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
 clr.AddReference("WindowsBase")
 clr.AddReference("System.Windows.Forms")
 
-from System import TimeSpan, Convert
+from System import TimeSpan, Convert, Uri
+from System.Diagnostics import Process
 from System.IO import MemoryStream, File
 from System.Windows import (
     Window, WindowStyle, ResizeMode, Thickness, CornerRadius,
     SystemParameters, FontWeights, GridLength, GridUnitType,
     VerticalAlignment, HorizontalAlignment, TextWrapping)
 from System.Windows.Controls import StackPanel, TextBlock, Border, Grid, ColumnDefinition, Button, Image
+from System.Windows.Documents import Hyperlink, Run
 from System.Windows.Input import Cursors
 from System.Windows.Media import SolidColorBrush, Color, Brushes, Stretch
 from System.Windows.Media.Effects import DropShadowEffect
@@ -86,6 +98,14 @@ _IMAGE_EXTRA = _IMAGE_HEIGHT + 10
 # even an auto-dismissing toast with an image gets a chance to save it
 # before it closes.
 _SAVE_LINK_EXTRA = 22
+
+# Any http(s):// URL typed into a toast's title/sub text becomes a real,
+# clickable Hyperlink - no separate "link" field needed anywhere (DeeCall
+# just types the link into the message like normal text). Same
+# Hyperlink/RequestNavigate -> Process.Start pattern already proven live
+# in lib/dee_branding.py's own footer link.
+_URL_RE = re.compile(r"(https?://[^\s<>\"]+)")
+_LINK_COLOR = Color.FromRgb(0x6C, 0xB6, 0xFF)
 
 
 def load_settings():
@@ -141,6 +161,39 @@ def _decode_image_bytes(image_base64):
         return Convert.FromBase64String(image_base64)
     except Exception:
         return None
+
+
+def _on_navigate(sender, args):
+    try:
+        Process.Start(str(args.Uri))
+    except Exception:
+        pass
+    args.Handled = True
+
+
+def _fill_linkified(text_block, text):
+    """Populates text_block.Inlines with plain Runs, except any
+    http(s):// URL becomes a real Hyperlink - never touches .Text
+    directly (Inlines and Text are mutually exclusive on a TextBlock)."""
+    text = text or u""
+    pos = 0
+    for m in _URL_RE.finditer(text):
+        if m.start() > pos:
+            text_block.Inlines.Add(Run(text[pos:m.start()]))
+        url = m.group(1)
+        try:
+            link = Hyperlink(Run(url))
+            link.NavigateUri = Uri(url)
+            link.Foreground = SolidColorBrush(_LINK_COLOR)
+            link.RequestNavigate += _on_navigate
+            text_block.Inlines.Add(link)
+        except Exception:
+            # Not a URL Uri can actually parse (rare) - show as plain text
+            # rather than dropping it.
+            text_block.Inlines.Add(Run(url))
+        pos = m.end()
+    if pos < len(text):
+        text_block.Inlines.Add(Run(text[pos:]))
 
 
 def _bitmap_from_bytes(data):
@@ -260,19 +313,19 @@ def show_toast(headline, title_text, sub_text, accent_color,
         content.Children.Add(headline_tb)
 
         title_tb = TextBlock()
-        title_tb.Text = title_text
         title_tb.Foreground = SolidColorBrush(Color.FromRgb(0xF2, 0xF3, 0xF5))
         title_tb.FontSize = 22
         title_tb.FontWeight = FontWeights.Bold
         title_tb.Margin = Thickness(0, 2, 0, 2)
         title_tb.TextWrapping = TextWrapping.Wrap
+        _fill_linkified(title_tb, title_text)
         content.Children.Add(title_tb)
 
         sub_tb = TextBlock()
-        sub_tb.Text = sub_text
         sub_tb.Foreground = SolidColorBrush(Color.FromRgb(0x9A, 0xA1, 0xB0))
         sub_tb.FontSize = 13
         sub_tb.TextWrapping = TextWrapping.Wrap
+        _fill_linkified(sub_tb, sub_text)
         content.Children.Add(sub_tb)
 
         close_b = None
