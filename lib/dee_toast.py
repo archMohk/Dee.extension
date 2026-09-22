@@ -2,13 +2,22 @@
 """
 dee_toast
 The shared toast-notification renderer - a dark rounded card with a
-colored left accent bar and a soft drop shadow, non-modal, auto-
-dismissing. Extracted from lib/dee_prayer_service.py (where this exact
-design was built and confirmed live - a real toast fired correctly for
-Dhuhr) once lib/dee_broadcast_service.py (DeeCall) needed the identical
-mechanism for a completely different kind of message. Anything in this
-extension that wants to pop a toast calls show_toast() here instead of
-building its own window.
+colored left accent bar and a soft drop shadow, always non-modal.
+Extracted from lib/dee_prayer_service.py (where this exact design was
+built and confirmed live - a real toast fired correctly for Dhuhr) once
+lib/dee_broadcast_service.py (DeeCall) needed the identical mechanism
+for a completely different kind of message. Anything in this extension
+that wants to pop a toast calls show_toast() here instead of building
+its own window.
+
+Two dismiss styles, per show_toast()'s requires_ack argument: the
+default auto-dismisses after duration_sec (a DispatcherTimer closes it);
+requires_ack=True instead adds a Close button and never starts a timer
+at all - the toast stays on screen until the user actively clicks it.
+An optional image_base64 (already-encoded, e.g. from DeeCall's Attach
+Image) renders above the text via a plain BitmapImage-from-MemoryStream
+decode - a bad/corrupt payload drops the image only, never the rest of
+the toast (see _decode_image).
 
 Appearance (position on screen, size, how long it stays) is one shared
 per-PC setting store ("DeeNotifications", via lib/deew_settings.py) -
@@ -25,14 +34,16 @@ clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
 clr.AddReference("WindowsBase")
 
-from System import TimeSpan
+from System import TimeSpan, Convert
+from System.IO import MemoryStream
 from System.Windows import (
     Window, WindowStyle, ResizeMode, Thickness, CornerRadius,
     SystemParameters, FontWeights, GridLength, GridUnitType,
-    VerticalAlignment, TextWrapping)
-from System.Windows.Controls import StackPanel, TextBlock, Border, Grid, ColumnDefinition
-from System.Windows.Media import SolidColorBrush, Color, Brushes
+    VerticalAlignment, HorizontalAlignment, TextWrapping)
+from System.Windows.Controls import StackPanel, TextBlock, Border, Grid, ColumnDefinition, Button, Image
+from System.Windows.Media import SolidColorBrush, Color, Brushes, Stretch
 from System.Windows.Media.Effects import DropShadowEffect
+from System.Windows.Media.Imaging import BitmapImage, BitmapCacheOption
 from System.Windows.Threading import DispatcherTimer
 
 import deew_settings
@@ -57,6 +68,14 @@ _MIN_WIDTH, _MAX_WIDTH = 220, 500
 _MIN_HEIGHT, _MAX_HEIGHT = 70, 220
 _MIN_DURATION, _MAX_DURATION = 1, 120
 _MARGIN = 16.0
+
+# Extra window height added on top of the saved/passed height when a
+# toast needs a Close button (requires_ack) and/or an image - both grow
+# the card beyond whatever size the user picked for a plain text toast,
+# so they're added on top rather than eating into it.
+_ACK_BUTTON_EXTRA = 40
+_IMAGE_HEIGHT = 90
+_IMAGE_EXTRA = _IMAGE_HEIGHT + 10
 
 
 def load_settings():
@@ -101,25 +120,57 @@ def _compute_origin(position, width, height):
     return work_area.Right - width - _MARGIN, work_area.Bottom - height - _MARGIN
 
 
+def _decode_image(image_base64):
+    """Returns a frozen BitmapImage, or None if image_base64 is empty or
+    can't be decoded - a bad/corrupt payload should drop the image, not
+    break the rest of the toast."""
+    if not image_base64:
+        return None
+    try:
+        data = Convert.FromBase64String(image_base64)
+        stream = MemoryStream(data)
+        bmp = BitmapImage()
+        bmp.BeginInit()
+        bmp.CacheOption = BitmapCacheOption.OnLoad
+        bmp.StreamSource = stream
+        bmp.EndInit()
+        bmp.Freeze()
+        return bmp
+    except Exception:
+        return None
+
+
 def show_toast(headline, title_text, sub_text, accent_color,
-                duration_sec=None, position=None, width=None, height=None):
+                duration_sec=None, position=None, width=None, height=None,
+                requires_ack=False, image_base64=None):
     """headline: small bold label above the title (e.g. "PRAYER TIME —
     DEE.EXTENSION"). title_text: the big bold line (e.g. a prayer name,
     or "Announcement"). sub_text: the smaller line under it. accent_color
     is a System.Windows.Media.Color, used for the left bar and headline
     text - callers pick their own (green/orange/etc. - see
     dee_prayer_service.py's _ACCENT_NOW/_ACCENT_REMINDER for the existing
-    convention). Never raises - a broken toast must never break the
-    caller (the Idling handler, or the button that triggered it)."""
+    convention). requires_ack: True shows a Close button and never auto-
+    dismisses (for a message the user must actively acknowledge);
+    False (default) is the original auto-dismiss-after-duration_sec
+    behavior. image_base64: optional base64-encoded image shown above the
+    text. Never raises - a broken toast must never break the caller (the
+    Idling handler, or the button that triggered it)."""
     try:
         settings = load_settings()
         position = position or settings.get("position", DEFAULT_SETTINGS["position"])
         width = clamp_width(width if width is not None else
                              settings.get("width", DEFAULT_SETTINGS["width"]))
-        height = clamp_height(height if height is not None else
-                               settings.get("height", DEFAULT_SETTINGS["height"]))
+        base_height = clamp_height(height if height is not None else
+                                    settings.get("height", DEFAULT_SETTINGS["height"]))
         duration_sec = clamp_duration(duration_sec if duration_sec is not None else
                                        settings.get("duration_sec", DEFAULT_SETTINGS["duration_sec"]))
+
+        image = _decode_image(image_base64)
+        height = base_height
+        if requires_ack:
+            height += _ACK_BUTTON_EXTRA
+        if image is not None:
+            height += _IMAGE_EXTRA
 
         window = Window()
         window.WindowStyle = getattr(WindowStyle, "None")
@@ -154,6 +205,14 @@ def show_toast(headline, title_text, sub_text, accent_color,
         content.Margin = Thickness(16, 14, 16, 14)
         content.VerticalAlignment = VerticalAlignment.Center
 
+        if image is not None:
+            image_ctrl = Image()
+            image_ctrl.Source = image
+            image_ctrl.Stretch = Stretch.Uniform
+            image_ctrl.Height = _IMAGE_HEIGHT
+            image_ctrl.Margin = Thickness(0, 0, 0, 8)
+            content.Children.Add(image_ctrl)
+
         headline_tb = TextBlock()
         headline_tb.Text = headline
         headline_tb.FontSize = 10
@@ -177,6 +236,16 @@ def show_toast(headline, title_text, sub_text, accent_color,
         sub_tb.TextWrapping = TextWrapping.Wrap
         content.Children.Add(sub_tb)
 
+        close_b = None
+        if requires_ack:
+            close_b = Button()
+            close_b.Content = u"Close"
+            close_b.Width = 70
+            close_b.Height = 24
+            close_b.Margin = Thickness(0, 10, 0, 0)
+            close_b.HorizontalAlignment = HorizontalAlignment.Right
+            content.Children.Add(close_b)
+
         Grid.SetColumn(content, 1)
         grid.Children.Add(content)
 
@@ -189,20 +258,30 @@ def show_toast(headline, title_text, sub_text, accent_color,
 
         window.Show()
 
-        timer = DispatcherTimer()
-        timer.Interval = TimeSpan.FromSeconds(duration_sec)
+        if close_b is not None:
+            # requires_ack: no timer at all - only the Close button
+            # dismisses this one, per its whole point.
+            def _on_close_click(sender, args):
+                try:
+                    window.Close()
+                except Exception:
+                    pass
+            close_b.Click += _on_close_click
+        else:
+            timer = DispatcherTimer()
+            timer.Interval = TimeSpan.FromSeconds(duration_sec)
 
-        def _on_tick(sender, args):
-            try:
-                timer.Stop()
-            except Exception:
-                pass
-            try:
-                window.Close()
-            except Exception:
-                pass
+            def _on_tick(sender, args):
+                try:
+                    timer.Stop()
+                except Exception:
+                    pass
+                try:
+                    window.Close()
+                except Exception:
+                    pass
 
-        timer.Tick += _on_tick
-        timer.Start()
+            timer.Tick += _on_tick
+            timer.Start()
     except Exception:
         pass

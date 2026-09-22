@@ -69,7 +69,7 @@ _add("System.Windows.Input", """
 _add("System.Windows.Media", """
     Brush Brushes Color ColorConverter DoubleCollection FontFamily Geometry
     ImageSource Matrix PathGeometry PointCollection RectangleGeometry
-    RotateTransform ScaleTransform SolidColorBrush TransformGroup
+    RotateTransform ScaleTransform SolidColorBrush Stretch TransformGroup
     TranslateTransform VisualTreeHelper
 """)
 _add("System.Windows.Controls", """
@@ -84,7 +84,7 @@ _add("System.Windows.Controls", """
 _add("System.Windows.Shapes", "Ellipse Line Path Polygon Polyline Rectangle")
 _add("System.Windows.Threading",
      "Dispatcher DispatcherFrame DispatcherPriority DispatcherTimer")
-_add("System.Windows.Media.Imaging", "BitmapImage BitmapSource BitmapSizeOptions")
+_add("System.Windows.Media.Imaging", "BitmapCacheOption BitmapImage BitmapSource BitmapSizeOptions")
 _add("System.Windows.Media.Effects", "DropShadowEffect")
 _add("System.Windows.Data", "Binding BindingMode IValueConverter UpdateSourceTrigger")
 _add("System.Windows.Documents", "Hyperlink Run")

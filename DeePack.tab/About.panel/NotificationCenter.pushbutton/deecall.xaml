@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Dee.extension — DeeCall"
         ShowInTaskbar="False"
-        Height="420" Width="440" ResizeMode="NoResize"
+        Height="620" Width="460" ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="14">
         <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
@@ -21,8 +21,29 @@
             <StackPanel x:Name="admin_panel">
                 <TextBlock Text="Send a message to every Dee.extension user" FontWeight="Bold"
                            TextWrapping="Wrap" Margin="0,0,0,10"/>
-                <TextBox x:Name="message_tb" Height="110" AcceptsReturn="True" TextWrapping="Wrap"
+                <TextBox x:Name="message_tb" Height="100" AcceptsReturn="True" TextWrapping="Wrap"
                          VerticalScrollBarVisibility="Auto" Margin="0,0,0,12"/>
+
+                <TextBlock Text="Notification style:" Margin="0,0,0,4"/>
+                <RadioButton x:Name="deecall_ack_auto_rb" Content="Goes away on its own after a few seconds"
+                             GroupName="deecallAckStyle" Margin="0,0,0,4" IsChecked="True"/>
+                <RadioButton x:Name="deecall_ack_required_rb" Content="Stays on screen until the user clicks Close"
+                             GroupName="deecallAckStyle" Margin="0,0,0,12"/>
+
+                <TextBlock Text="Image (optional):" Margin="0,0,0,4"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button x:Name="attach_image_b" Content="Attach Image..." Width="120" Height="26"
+                            HorizontalAlignment="Left" Click="attach_image_click"/>
+                    <Button x:Name="remove_image_b" Content="Remove" Width="70" Height="26" Margin="8,0,0,0"
+                            HorizontalAlignment="Left" Click="remove_image_click" Visibility="Collapsed"/>
+                    <TextBlock x:Name="image_status_tb" VerticalAlignment="Center" FontSize="11"
+                               Foreground="#888" Margin="10,0,0,0" Text="No image attached"/>
+                </StackPanel>
+                <Border x:Name="image_preview_border" Height="110" Background="#f2f2f4" CornerRadius="5"
+                        Margin="0,0,0,12" Visibility="Collapsed">
+                    <Image x:Name="image_preview_img" Stretch="Uniform" Margin="4"/>
+                </Border>
+
                 <Button x:Name="send_b" Content="Send to Everyone" Width="150" Height="28"
                         HorizontalAlignment="Left" Click="send_click"/>
                 <TextBlock x:Name="send_status_tb" TextWrapping="Wrap" FontSize="11" Margin="0,10,0,0" Text=""/>

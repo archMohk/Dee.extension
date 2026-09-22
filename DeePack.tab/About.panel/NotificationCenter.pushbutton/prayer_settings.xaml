@@ -2,12 +2,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Dee.extension — Prayer Times"
         ShowInTaskbar="False"
-        Height="400" Width="420" ResizeMode="NoResize"
+        Height="470" Width="420" ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="14">
         <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
                 Width="100" Height="28" HorizontalAlignment="Right" Margin="0,12,0,0"/>
 
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel>
             <CheckBox x:Name="prayer_enabled_cb" Content="Show a notification at each prayer time"
                       Margin="0,0,0,10" Checked="prayer_setting_changed" Unchecked="prayer_setting_changed"/>
@@ -20,12 +21,20 @@
                 <TextBlock Text="minutes before each prayer" VerticalAlignment="Center"/>
             </StackPanel>
 
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                 <TextBlock Text="Time format:" VerticalAlignment="Center" Margin="0,0,8,0"/>
                 <RadioButton x:Name="prayer_format_24_rb" Content="24-hour" GroupName="prayerTimeFormat"
                              VerticalAlignment="Center" Checked="prayer_format_changed"/>
                 <RadioButton x:Name="prayer_format_12_rb" Content="12-hour" GroupName="prayerTimeFormat"
                              VerticalAlignment="Center" Margin="16,0,0,0" Checked="prayer_format_changed"/>
+            </StackPanel>
+
+            <StackPanel Margin="0,0,0,14">
+                <TextBlock Text="Notification style:" Margin="0,0,0,4"/>
+                <RadioButton x:Name="prayer_ack_auto_rb" Content="Goes away on its own after a few seconds"
+                             GroupName="prayerAckStyle" Margin="0,0,0,4" Checked="prayer_ack_changed"/>
+                <RadioButton x:Name="prayer_ack_required_rb" Content="Stays until I click Close"
+                             GroupName="prayerAckStyle" Checked="prayer_ack_changed"/>
             </StackPanel>
 
             <TextBlock x:Name="prayer_location_tb" FontSize="11" FontWeight="SemiBold"
@@ -69,5 +78,6 @@
                 </Grid>
             </Border>
         </StackPanel>
+        </ScrollViewer>
     </DockPanel>
 </Window>

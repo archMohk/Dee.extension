@@ -59,10 +59,23 @@
             <Border BorderBrush="#3a3f4d" BorderThickness="0,1,0,0" Padding="0,14,0,0">
                 <StackPanel>
                     <TextBlock Text="Notifications" FontWeight="Bold" Margin="0,0,0,8"/>
-                    <Button x:Name="prayer_card_b" Content="Prayer Times" Height="40" Margin="0,0,0,8"
-                            HorizontalContentAlignment="Left" Padding="10,0,0,0" Click="prayer_card_click"/>
-                    <Button x:Name="deecall_card_b" Content="DeeCall — send an announcement to everyone" Height="40"
-                            HorizontalContentAlignment="Left" Padding="10,0,0,0" Click="deecall_card_click"/>
+                    <!-- Hover-highlight cards, not plain Buttons - same whole-card
+                         click/hover pattern as DeeLazy's module launcher
+                         (wired in script.py, not here - see _wire_card). -->
+                    <Border x:Name="prayer_card_b" Height="52" Margin="0,0,0,8" CornerRadius="6"
+                            BorderThickness="1" Background="Transparent">
+                        <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="Prayer Times" FontWeight="Bold" FontSize="14"/>
+                            <TextBlock Text="On/off, reminder lead time, 12h/24h format" FontSize="11" Foreground="#888"/>
+                        </StackPanel>
+                    </Border>
+                    <Border x:Name="deecall_card_b" Height="52" CornerRadius="6"
+                            BorderThickness="1" Background="Transparent">
+                        <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="DeeCall" FontWeight="Bold" FontSize="14"/>
+                            <TextBlock Text="Send an announcement to everyone" FontSize="11" Foreground="#888"/>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </Border>
         </StackPanel>

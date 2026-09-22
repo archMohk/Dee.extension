@@ -2,11 +2,13 @@
 """
 dee_broadcast_service
 DeeCall's background half: lets the owner (allowed_users.is_admin) send a
-plain-text message that shows up as a toast on every user's PC, the next
-time their own Idling watcher checks in. Same overall shape as
-lib/dee_prayer_service.py - a separate UIApplication.Idling subscription,
-throttled, reusing lib/dee_toast.py for the actual popup - but checked
-less often (broadcasts aren't time-critical the way prayer times are).
+message - text, optionally with an image, optionally requiring the
+recipient to click Close instead of auto-dismissing - that shows up as a
+toast on every user's PC, the next time their own Idling watcher checks
+in. Same overall shape as lib/dee_prayer_service.py - a separate
+UIApplication.Idling subscription, throttled, reusing lib/dee_toast.py
+for the actual popup - but checked less often (broadcasts aren't
+time-critical the way prayer times are).
 
 --------------------------------------------------------------------
 Why sending needs a server-side check, not just a client-side one
@@ -64,17 +66,22 @@ _client.Timeout = TimeSpan.FromSeconds(8)
 _state = {"last_check": None}
 
 
-def send_message(sender_email, message_text):
+def send_message(sender_email, message_text, requires_ack=False, image_base64=None):
     """Synchronous, like dee_telemetry.refresh_status() - this is a
     deliberate, user-initiated action (the Send button), not a
     background poll, so the caller needs to know success/failure right
-    away. Returns (ok, reason) - reason is None on success, or a short
-    string ("not_admin", "empty_message", or the raw error) on failure.
-    Never raises."""
+    away. requires_ack/image_base64 are the sender's own choices from the
+    DeeCall compose window - see dee_toast.show_toast for what each does
+    on the receiving end. Returns (ok, reason) - reason is None on
+    success, or a short string ("not_admin", "empty_message",
+    "image_too_large", or the raw error) on failure. Never raises."""
     try:
         url = "{0}/rest/v1/rpc/send_broadcast_message".format(
             dee_telemetry.SUPABASE_URL.rstrip("/"))
-        body = json.dumps({"sender_email": sender_email, "message_text": message_text})
+        body = json.dumps({
+            "sender_email": sender_email, "message_text": message_text,
+            "requires_ack": bool(requires_ack), "image_base64": image_base64,
+        })
         request = HttpRequestMessage(HttpMethod.Post, url)
         request.Headers.Add("apikey", dee_telemetry.SUPABASE_ANON_KEY)
         request.Headers.Add("Authorization", "Bearer " + dee_telemetry.SUPABASE_ANON_KEY)
@@ -96,7 +103,7 @@ def send_message(sender_email, message_text):
 
 def _fetch_new_messages(since_id):
     url = ("{0}/rest/v1/broadcast_messages?id=gt.{1}&order=id.asc"
-           "&select=id,sender_email,message_text,created_at"
+           "&select=id,sender_email,message_text,created_at,requires_ack,image_base64"
            .format(dee_telemetry.SUPABASE_URL.rstrip("/"), since_id))
     try:
         request = HttpRequestMessage(HttpMethod.Get, url)
@@ -132,7 +139,9 @@ def _check_and_notify():
         text = (row.get("message_text") or "").strip()
         if text:
             dee_toast.show_toast(
-                u"ANNOUNCEMENT — DEE.EXTENSION", text, u"", _ACCENT)
+                u"ANNOUNCEMENT — DEE.EXTENSION", text, u"", _ACCENT,
+                requires_ack=bool(row.get("requires_ack")),
+                image_base64=row.get("image_base64"))
         if isinstance(rid, (int, float)) and rid > max_id:
             max_id = rid
 
