@@ -17,6 +17,12 @@ injects the model data into it. The output has zero external references.
 
 What ends up in the file
 ------------------------
+- The heavy fields (positions, parts, element boxes) are raw-DEFLATE
+  compressed behind their base64 (~3x smaller file), inflated by the
+  viewer at load - see deflate_b64().
+- Elements are exported BIGGEST-FIRST and small elements get an
+  automatically reduced triangulation LOD (_adaptive_lod), so a
+  triangle budget cuts fittings and hardware, never walls and floors.
 - Triangles, quantised to 16 bits per axis against the model's own
   bounding box. For a 200 m building that is ~3 mm of positional
   detail - far finer than anything visible on a phone - and it halves
@@ -112,7 +118,23 @@ COLOR_BY_MATERIAL = "Material (falls back to category colour)"
 COLOR_BY_CATEGORY = "Category"
 COLOR_MODES = [COLOR_BY_MATERIAL, COLOR_BY_CATEGORY]
 
+# (label shown in the export dialog, mode key the viewer understands).
+# The file ALWAYS carries material colours - the viewer derives the
+# Category / Plain / Hatch styles itself and can switch between all four
+# live, so this choice only sets which style the file OPENS in.
+VIEW_MODES = [
+    ("Material colours (recommended)", "material"),
+    ("Category colours", "category"),
+    ("Plain white (clay model)", "normal"),
+    ("Hatch (sketch look)", "hatch"),
+]
+
 DEFAULT_MAX_TRIANGLES = 1500000
+# The "Unlimited" checkbox's actual budget - a ceiling far past any real
+# building model (2 billion triangles is ~24 GB of positions alone), so
+# in practice nothing is ever cut, while build_scene's budget arithmetic
+# stays intact rather than growing a special no-limit branch.
+UNLIMITED_TRIANGLES = 2000000000
 # Past this a mid-range phone starts to struggle with the buffers even
 # though the file itself still opens. Reported, never silently enforced.
 PHONE_COMFORT_TRIANGLES = 600000
@@ -233,6 +255,41 @@ def b64_array(arr):
     if sys.byteorder != "little":
         arr.byteswap()
     return base64.b64encode(_arr_bytes(arr)).decode("ascii")
+
+
+def deflate_b64(b64_str):
+    """Raw-DEFLATE the bytes behind a base64 string, return them as a new
+    (much shorter) base64 string. Quantised vertex data is highly
+    repetitive, so this shrinks the heavy payload fields ~3x - the
+    difference between an "Unlimited" export that opens and one that
+    doesn't (live report: unlimited file too large to open).
+
+    Under IronPython the work happens in .NET (Convert/DeflateStream),
+    entered VIA the base64 string on purpose: Convert.FromBase64String
+    is a single native call, where converting a Python byte string to a
+    .NET byte[] element-by-element would crawl through millions of
+    items. Under CPython (the standalone tests) zlib provides the same
+    raw stream by stripping the zlib header and checksum. Both sides
+    produce headerless DEFLATE - exactly what the viewer's
+    DecompressionStream("deflate-raw") (or its embedded fallback
+    inflater) expects."""
+    try:
+        from System import Convert
+        from System.IO import MemoryStream
+        from System.IO.Compression import DeflateStream, CompressionMode
+        raw = Convert.FromBase64String(b64_str)
+        ms = MemoryStream()
+        ds = DeflateStream(ms, CompressionMode.Compress)
+        ds.Write(raw, 0, raw.Length)
+        ds.Dispose()          # flushes the final block
+        out = Convert.ToBase64String(ms.ToArray())
+        ms.Dispose()
+        return out
+    except ImportError:
+        import zlib
+        raw = base64.b64decode(b64_str)
+        compressed = zlib.compress(raw, 9)[2:-4]  # strip header + adler32
+        return base64.b64encode(compressed).decode("ascii")
 
 
 def pack_u16(values):
@@ -366,19 +423,57 @@ def display_units(doc):
         return 1000.0, "mm"
 
 
+NO_CATEGORY = "(No category)"
+
+
+def _category_name(element):
+    """Grouping name for the category checklist and the per-part colour.
+    Never raises and never returns empty - an element without a usable
+    category still has to survive the allow-list filter in build_scene,
+    which matches on this exact string."""
+    try:
+        name = element.Category.Name
+        if name:
+            return name
+    except Exception:
+        pass
+    return NO_CATEGORY
+
+
 def _is_model_element(element):
+    """Deliberately permissive: anything that is not view-specific (2D
+    tags, dimensions, detail items) gets a chance. The old version also
+    required Category.CategoryType == Model, which silently dropped
+    whole classes of real geometry - imported CAD, DirectShapes and
+    generic elements with no category at all, plus the odd non-Model
+    category that still owns solids. The geometry walk is the real
+    filter now: an element that tessellates to nothing is discarded
+    there anyway, so admitting more candidates costs iteration time,
+    never file size. RevitLinkInstance is the one explicit exclusion -
+    its geometry is the whole linked model, which the 'Include linked
+    models' path already handles properly (with the link's transform);
+    letting it through here would draw every link even when that option
+    is off, and draw it twice when it is on."""
     try:
         if element.ViewSpecific:
             return False
     except Exception:
         pass
+    if isinstance(element, RevitLinkInstance):
+        return False
     try:
         cat = element.Category
-        if cat is None:
-            return False
-        return cat.CategoryType == CategoryType.Model
     except Exception:
-        return False
+        cat = None
+    if cat is None:
+        return True
+    try:
+        # Annotation categories can never carry exportable 3D solids,
+        # and skipping them keeps levels/grids/reference planes from
+        # cluttering the category checklist with rows that export nothing.
+        return cat.CategoryType != CategoryType.Annotation
+    except Exception:
+        return True
 
 
 def collect_view_elements(doc, view):
@@ -401,12 +496,8 @@ def categories_of(elements):
     filter, so it must not tessellate anything."""
     counts = {}
     for el in elements:
-        try:
-            name = el.Category.Name
-        except Exception:
-            continue
-        if name:
-            counts[name] = counts.get(name, 0) + 1
+        name = _category_name(el)
+        counts[name] = counts.get(name, 0) + 1
     return sorted(counts.items(), key=lambda kv: kv[0].lower())
 
 
@@ -694,6 +785,41 @@ def _element_params(element, scene):
     return out
 
 
+def _element_diag_ft(element):
+    """Rough bounding-box diagonal in FEET (model-wide bbox, view-
+    independent). 0.0 when no box is available - such elements sort
+    last and get the smallest LOD, which is the right default for the
+    geometry-less stragglers that produce nothing anyway."""
+    try:
+        bb = element.get_BoundingBox(None)
+        if bb is None:
+            return 0.0
+        dx = bb.Max.X - bb.Min.X
+        dy = bb.Max.Y - bb.Min.Y
+        dz = bb.Max.Z - bb.Min.Z
+        return (dx * dx + dy * dy + dz * dz) ** 0.5
+    except Exception:
+        return 0.0
+
+
+# Adaptive detail: an element's own size decides how finely its curved
+# faces are triangulated. A door handle at Fine quality can cost more
+# triangles than the whole wall it sits on, and nobody zooms a phone
+# into a valve - so small elements get a fraction of the chosen LOD.
+# Thresholds in metres of bounding-box diagonal.
+_LOD_SMALL_M, _LOD_SMALL_FACTOR = 0.6, 0.35
+_LOD_MEDIUM_M, _LOD_MEDIUM_FACTOR = 2.5, 0.65
+
+
+def _adaptive_lod(base_lod, diag_ft):
+    diag_m = diag_ft * FEET_TO_M
+    if diag_m < _LOD_SMALL_M:
+        return max(0.05, base_lod * _LOD_SMALL_FACTOR)
+    if diag_m < _LOD_MEDIUM_M:
+        return max(0.05, base_lod * _LOD_MEDIUM_FACTOR)
+    return base_lod
+
+
 def _geometry_options(detail_name):
     opts = Options()
     opts.ComputeReferences = False
@@ -832,7 +958,8 @@ def build_scene(doc, view, options, progress=None):
     """options keys:
         detail          ViewDetailLevel member name
         lod             0..1 for Face.Triangulate
-        color_mode      one of COLOR_MODES
+        view_mode       a VIEW_MODES key - only recorded in the payload
+                        (colours are always baked by material)
         categories      set of allowed category names, or None for all
         include_links   bool
         include_params  bool
@@ -840,7 +967,11 @@ def build_scene(doc, view, options, progress=None):
     progress(done, total, label) -> return False to cancel.
     """
     scene = Scene()
-    scene.book = ColorBook(doc, options.get("color_mode", COLOR_BY_MATERIAL))
+    # Material colours are always what gets baked, whatever display style
+    # the export dialog picked - the viewer needs them to offer its
+    # Material style at all, and it derives Category/Plain/Hatch from the
+    # category names it already carries.
+    scene.book = ColorBook(doc, COLOR_BY_MATERIAL)
 
     allowed = options.get("categories")
     lod = float(options.get("lod", 0.35))
@@ -882,7 +1013,17 @@ def build_scene(doc, view, options, progress=None):
         scene.sources.append(source_row[source_label])
 
     for source_label, source_doc, xform, elements in sources:
-        for element in elements:
+        # Biggest elements first (bounding-box diagonal, one cheap native
+        # call each). When the triangle budget cuts an export short, it's
+        # now bolts and fittings that fall off the end - never the walls,
+        # floors and roofs that make the model recognizable. (Live report:
+        # a budget-cut export looked like "too many elements not shown"
+        # because the cut order used to be whatever the collector felt
+        # like.) The same size feeds the adaptive LOD below.
+        sized = [(el, _element_diag_ft(el)) for el in elements]
+        sized.sort(key=lambda pair: -pair[1])
+
+        for element, diag_ft in sized:
             done += 1
             if progress is not None and (done % 25 == 0 or done == total):
                 if progress(done, total, source_label) is False:
@@ -894,15 +1035,14 @@ def build_scene(doc, view, options, progress=None):
             if scene.triangles >= max_tris:
                 scene.hit_budget = True
                 scene.notes.append(
-                    "Stopped at the {0} triangle limit - {1} of {2} elements had been "
-                    "processed. Lower the mesh quality, or untick some categories, to "
-                    "fit the whole view.".format(max_tris, done, total))
+                    "Stopped at the {0:,} triangle limit - {1:,} of {2:,} elements made "
+                    "it in. Elements are exported biggest-first, so what was left out "
+                    "is the smallest detail (fittings, hardware), not walls or floors. "
+                    "Raise the limit, lower the mesh quality, or untick categories to "
+                    "fit more.".format(max_tris, done, total))
                 return scene
 
-            try:
-                cat_name = element.Category.Name or ""
-            except Exception:
-                continue
+            cat_name = _category_name(element)
             if allowed is not None and cat_name not in allowed:
                 continue
 
@@ -922,7 +1062,8 @@ def build_scene(doc, view, options, progress=None):
                           "tris": scene.tri_trans, "elem": elem_index},
             }
 
-            _walk_geometry(geom, xform, element, scene, cat_name, lod, buckets, box)
+            _walk_geometry(geom, xform, element, scene, cat_name,
+                           _adaptive_lod(lod, diag_ft), buckets, box)
 
             scene.tri_opaque = buckets["opaque"]["tris"]
             scene.tri_trans = buckets["trans"]["tris"]
@@ -989,10 +1130,14 @@ def build_payload(doc, scene, meta):
     disp_per_m, disp_unit = display_units(doc)
 
     payload = {
-        "v": 1,
+        "v": 2,
+        # cmp=1: pos/ebox/parts are raw-DEFLATE compressed behind their
+        # base64 (see deflate_b64) - the viewer inflates them at load.
+        "cmp": 1,
         "model": to_text(meta.get("model", "")),
         "view": to_text(meta.get("view", "")),
         "date": to_text(meta.get("date", "")),
+        "mode": to_text(meta.get("mode", "material")),
         "tris": scene.triangles,
         "qmin": origin,
         "qscale": scale,
@@ -1001,9 +1146,9 @@ def build_payload(doc, scene, meta):
         "dispPerM": disp_per_m,
         "dispUnit": to_text(disp_unit),
         "opaqueVerts": scene.tri_opaque * 3,
-        "pos": b64_array(quantised),
-        "ebox": b64_array(ebox_q),
-        "parts": b64_array(parts),
+        "pos": deflate_b64(b64_array(quantised)),
+        "ebox": deflate_b64(b64_array(ebox_q)),
+        "parts": deflate_b64(b64_array(parts)),
         "colors": scene.book.colors,
         "strings": scene.strings.items,
         "els": scene.els,

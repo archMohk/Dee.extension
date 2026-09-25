@@ -322,6 +322,13 @@ select{
         <button id="vw_persp">Perspective</button>
         <button id="vw_ortho">Isometric</button>
       </div>
+      <div class="slab"><span>Display style</span><span></span></div>
+      <div class="seg" id="vm_seg">
+        <button data-vm="material">Material</button>
+        <button data-vm="category">Category</button>
+        <button data-vm="normal">Plain</button>
+        <button data-vm="hatch">Hatch</button>
+      </div>
       <div class="slab"><span>Lens angle</span><span id="vw_fovlab">49&deg;</span></div>
       <input type="range" id="vw_fov" min="10" max="100" value="49">
       <div class="slab"><span>Turn (azimuth)</span><span id="vw_azlab">-135&deg;</span></div>
@@ -495,6 +502,7 @@ select{
   <p><b>Section box</b> (in the menu) &mdash; drag the sliders, or press <b>Edit box</b> to drag a visible box in 3D: the orange squares push in one side at a time, the blue dot moves the whole box.</p>
   <p><b>Laser</b> &mdash; tap a point, on the model or in empty space, and six rays fire outward from it (+X/-X, +Y/-Y, +Z/-Z), each showing the distance to the nearest face it hits. Every probe is kept in the menu's <b>Laser rays</b> list - tap one there to revisit it, or the &times; to delete it.</p>
   <p><b>View</b> (in the menu) &mdash; switch between perspective and isometric, set the lens angle and the exact turn and height, choose the measuring units, and make the whole model or single categories see-through. The keyplan in the corner shows where you are looking from.</p>
+  <p><b>Display style</b> (in the menu's View section) &mdash; <b>Material</b> shows real material colours, <b>Category</b> gives every category its own colour, <b>Plain</b> is a clean clay model, and <b>Hatch</b> is a sketch look with hatched shading. Switch any time - nothing is lost.</p>
   <p><b>Reset all</b> puts every category, every hidden element and the section box back to how the file opened.</p>
   <p style="margin-top:10px">This file works with no internet connection. It can be copied, emailed or shared like any other file.</p>
   <button class="close" id="help_close">Got it</button>
@@ -546,6 +554,146 @@ function b64Bytes(b64){
   }
   for (; i < n; i++) out[i] = bin.charCodeAt(i);
   return out;
+}
+
+/* ==================================================================
+   raw-DEFLATE inflate - the exporter compresses the heavy payload
+   fields (pos/parts/ebox) so an Unlimited export stays openable.
+   Native DecompressionStream("deflate-raw") does the work on any
+   current browser; the hand-written inflater below (a compact port of
+   Mark Adler's puff) covers older ones, so the file never depends on
+   one API existing.
+   ================================================================== */
+function _inflateRaw(src){
+  var out = new Uint8Array(1 << 18), outLen = 0;
+  var pos = 0, bitBuf = 0, bitCnt = 0;
+  function ensure(n){
+    if (outLen + n <= out.length) return;
+    var size = out.length;
+    while (size < outLen + n) size <<= 1;
+    var bigger = new Uint8Array(size);
+    bigger.set(out.subarray(0, outLen));
+    out = bigger;
+  }
+  function bits(need){
+    while (bitCnt < need){
+      if (pos >= src.length) throw new Error("inflate: out of input");
+      bitBuf |= src[pos++] << bitCnt;
+      bitCnt += 8;
+    }
+    var val = bitBuf & ((1 << need) - 1);
+    bitBuf >>>= need; bitCnt -= need;
+    return val;
+  }
+  function buildHuff(lengths){
+    var MAXBITS = 15, count = new Int32Array(MAXBITS + 1), i;
+    for (i = 0; i < lengths.length; i++) count[lengths[i]]++;
+    count[0] = 0;
+    var offs = new Int32Array(MAXBITS + 1);
+    for (i = 1; i < MAXBITS; i++) offs[i + 1] = offs[i] + count[i];
+    var symbol = new Int32Array(lengths.length);
+    for (i = 0; i < lengths.length; i++)
+      if (lengths[i]) symbol[offs[lengths[i]]++] = i;
+    return { count: count, symbol: symbol };
+  }
+  function decode(h){
+    var code = 0, first = 0, index = 0;
+    for (var len = 1; len <= 15; len++){
+      code |= bits(1);
+      var cnt = h.count[len];
+      if (code - first < cnt) return h.symbol[index + (code - first)];
+      index += cnt; first = (first + cnt) << 1; code <<= 1;
+    }
+    throw new Error("inflate: bad code");
+  }
+  var LB=[3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258];
+  var LE=[0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];
+  var DB=[1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577];
+  var DE=[0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];
+  function block(lit, dist){
+    for (;;){
+      var sym = decode(lit);
+      if (sym < 256){ ensure(1); out[outLen++] = sym; }
+      else if (sym === 256) return;
+      else {
+        sym -= 257;
+        if (sym >= 29) throw new Error("inflate: bad length");
+        var len = LB[sym] + bits(LE[sym]);
+        var dsym = decode(dist);
+        if (dsym >= 30) throw new Error("inflate: bad distance");
+        var d = DB[dsym] + bits(DE[dsym]);
+        if (d > outLen) throw new Error("inflate: distance too far");
+        ensure(len);
+        for (var k = 0; k < len; k++){ out[outLen] = out[outLen - d]; outLen++; }
+      }
+    }
+  }
+  var fixedLit = null, fixedDist = null;
+  for (;;){
+    var last = bits(1), type = bits(2);
+    if (type === 0){
+      bitBuf = 0; bitCnt = 0;                      /* byte-align */
+      if (pos + 4 > src.length) throw new Error("inflate: stored header");
+      var n = src[pos] | (src[pos + 1] << 8);
+      pos += 4;                                     /* skip LEN + NLEN */
+      if (pos + n > src.length) throw new Error("inflate: stored data");
+      ensure(n);
+      out.set(src.subarray(pos, pos + n), outLen);
+      outLen += n; pos += n;
+    } else if (type === 1){
+      if (!fixedLit){
+        var ll = new Array(288), k;
+        for (k = 0; k < 144; k++) ll[k] = 8;
+        for (; k < 256; k++) ll[k] = 9;
+        for (; k < 280; k++) ll[k] = 7;
+        for (; k < 288; k++) ll[k] = 8;
+        fixedLit = buildHuff(ll);
+        var dl = new Array(30);
+        for (k = 0; k < 30; k++) dl[k] = 5;
+        fixedDist = buildHuff(dl);
+      }
+      block(fixedLit, fixedDist);
+    } else if (type === 2){
+      var hlit = bits(5) + 257, hdist = bits(5) + 1, hclen = bits(4) + 4;
+      var ORD = [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];
+      var clen = new Array(19), i2;
+      for (i2 = 0; i2 < 19; i2++) clen[i2] = 0;
+      for (i2 = 0; i2 < hclen; i2++) clen[ORD[i2]] = bits(3);
+      var ch = buildHuff(clen);
+      var lens = new Array(hlit + hdist), at = 0;
+      while (at < hlit + hdist){
+        var s = decode(ch);
+        if (s < 16) lens[at++] = s;
+        else if (s === 16){
+          if (at === 0) throw new Error("inflate: bad repeat");
+          var prev = lens[at - 1], rep = 3 + bits(2);
+          while (rep--) lens[at++] = prev;
+        } else if (s === 17){ var r0 = 3 + bits(3); while (r0--) lens[at++] = 0; }
+        else { var r1 = 11 + bits(7); while (r1--) lens[at++] = 0; }
+      }
+      block(buildHuff(lens.slice(0, hlit)), buildHuff(lens.slice(hlit)));
+    } else throw new Error("inflate: bad block type");
+    if (last) break;
+  }
+  return out.subarray(0, outLen);
+}
+
+function inflateBytes(u8){
+  if (typeof DecompressionStream === "function"){
+    try {
+      var ds = new DecompressionStream("deflate-raw");
+      var stream = new Blob([u8]).stream().pipeThrough(ds);
+      return new Response(stream).arrayBuffer().then(function(buf){
+        return new Uint8Array(buf);
+      });
+    } catch (e) { /* deflate-raw unsupported - fall through */ }
+  }
+  try { return Promise.resolve(_inflateRaw(u8)); }
+  catch (err){ return Promise.reject(err); }
+}
+
+function bytesOf(field){
+  return (field instanceof Uint8Array) ? field : b64Bytes(field);
 }
 
 /* The writer emits little-endian.  Every consumer device in practice is
@@ -652,6 +800,7 @@ var FS = [
 "uniform vec3 u_eye;",
 "uniform float u_pick;",
 "uniform float u_alpha;",
+"uniform float u_hatch;",
 "void main(){",
 "  if (v_vis < 0.01) discard;",
 "  if (any(lessThan(v_wld, u_cmin)) || any(greaterThan(v_wld, u_cmax))) discard;",
@@ -665,6 +814,14 @@ var FS = [
 "  float spec = pow(max(dot(reflect(-L, n), vd), 0.0), 26.0) * 0.16;",
 "  float rim  = pow(1.0 - max(dot(n, vd), 0.0), 3.0) * 0.14;",
 "  vec3 c = v_col.rgb * (amb + diff * 0.56) + spec + rim;",
+   /* screen-space diagonal hatching - the 'sketch' display style.
+      Denser in shadow, so the shading still reads on paper-white */
+"  if (u_hatch > 0.5){",
+"    float hd = fract((gl_FragCoord.x + gl_FragCoord.y) / 9.0);",
+"    float ln = 1.0 - smoothstep(0.0, 0.22, hd);",
+"    float dk = clamp(1.15 - (amb + diff * 0.56), 0.25, 1.0);",
+"    c = mix(c, c * 0.42, ln * dk);",
+"  }",
 "  c = mix(c, vec3(1.0, 0.60, 0.20), v_sel * 0.70);",
 "  gl_FragColor = vec4(c, v_col.a * v_vis * u_alpha);",
 "}"].join("\n");
@@ -695,6 +852,71 @@ var GHOST = 0.22;                 /* how faint a ghosted category is     */
 var ghostActive = false;          /* set by refreshVisibility            */
 var lastMVP = null;               /* so the overlay projects exactly     */
 var nav = { zoom: 1.0, invert: false, cursor: true, move: 1.0, pivot: true };
+var VIEWMODE = "material";        /* material | category | normal | hatch */
+var CLAY = [224, 222, 216];       /* base colour of Plain and Hatch modes */
+
+/* The same deterministic category palette the exporter uses (see
+   category_palette_color in dee_3d_export_service.py) - ported so the
+   Category display style needs nothing extra in the file: the category
+   NAME is already here, and hashing it gives the identical colour the
+   export would have baked. */
+var _catColCache = {};
+function catPalette(name){
+  name = name || "?";
+  if (_catColCache[name]) return _catColCache[name];
+  var h = 0;
+  for (var i = 0; i < name.length; i++) h = (h * 131 + name.charCodeAt(i)) & 0x7FFFFFFF;
+  var hue = (h % 360) / 360, sat = 0.26 + ((h >> 9) % 17) / 100, val = 0.68 + ((h >> 17) % 20) / 100;
+  var i6 = Math.floor(hue * 6), f = hue * 6 - i6;
+  var p = val * (1 - sat), q = val * (1 - f * sat), t = val * (1 - (1 - f) * sat);
+  var rgb = [[val,t,p],[q,val,p],[p,val,t],[p,q,val],[t,p,val],[val,p,q]][i6 % 6];
+  var out = [Math.floor(rgb[0]*255), Math.floor(rgb[1]*255), Math.floor(rgb[2]*255), 255];
+  _catColCache[name] = out;
+  return out;
+}
+
+/* rgba for one part under the current display style. Plain/Hatch keep
+   the MATERIAL alpha so glass stays see-through in every style. */
+function partColor(p){
+  var col = colors[parts[p*4+1]] || [190,190,190,255];
+  if (VIEWMODE === "category"){
+    var el = els[parts[p*4]];
+    return catPalette(el ? strs[el[0]] : "?");
+  }
+  if (VIEWMODE === "normal" || VIEWMODE === "hatch")
+    return [CLAY[0], CLAY[1], CLAY[2], col[3]];
+  return col;
+}
+
+function fillColors(dst){
+  for (var p = 0; p < nParts; p++){
+    var col = partColor(p);
+    var vs = parts[p*4+2] * 3, vc = parts[p*4+3] * 3;
+    for (var i = vs; i < vs + vc; i++){
+      dst[i*4] = col[0]; dst[i*4+1] = col[1]; dst[i*4+2] = col[2]; dst[i*4+3] = col[3];
+    }
+  }
+}
+
+function setViewMode(mode){
+  if (mode !== "material" && mode !== "category" && mode !== "normal" && mode !== "hatch")
+    mode = "material";
+  VIEWMODE = mode;
+  var seg = $("vm_seg");
+  if (seg){
+    var bs = seg.querySelectorAll("button");
+    for (var i = 0; i < bs.length; i++)
+      bs[i].className = bs[i].getAttribute("data-vm") === mode ? "on" : "";
+  }
+  /* colours live in one GPU buffer - rebuild and re-upload it */
+  if (gl && buf.col){
+    var tmp = new Uint8Array(nVerts * 4);
+    fillColors(tmp);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf.col);
+    gl.bufferData(gl.ARRAY_BUFFER, tmp, gl.STATIC_DRAW);
+  }
+  invalidate();
+}
 
 /* multi-select: a second, additive selection set alongside the single
    selElem/selPart pair above. Feeds Isolate/Hide/Section-box actions and
@@ -760,12 +982,12 @@ var pos16 = null, nrmI8 = null, colU8 = null, partF32 = null;
 function stepDecode(){
   if (!DATA || !DATA.pos) throw new Error("This file carries no geometry.");
 
-  var pb = b64Bytes(DATA.pos);
+  var pb = bytesOf(DATA.pos);
   if (!LITTLE) swap16(pb);
   pos16 = new Uint16Array(pb.buffer, pb.byteOffset, pb.byteLength >> 1);
   nVerts = pos16.length / 3;
 
-  var qb = b64Bytes(DATA.parts);
+  var qb = bytesOf(DATA.parts);
   if (!LITTLE) swap32(qb);
   parts = new Uint32Array(qb.buffer, qb.byteOffset, qb.byteLength >> 2);
   nParts = parts.length / 4;
@@ -773,6 +995,7 @@ function stepDecode(){
   els = DATA.els || [];
   strs = DATA.strings || [];
   colors = DATA.colors || [[190,190,190,255]];
+  if (DATA.mode) VIEWMODE = DATA.mode;
   nOpaqueVerts = DATA.opaqueVerts || nVerts;
   bmin = DATA.bmin; bmax = DATA.bmax;
   diag = Math.sqrt(
@@ -782,7 +1005,7 @@ function stepDecode(){
      are, which is what makes "zoom to this element" and "fit what is
      actually visible" possible without re-scanning every triangle. */
   if (DATA.ebox){
-    var bb = b64Bytes(DATA.ebox);
+    var bb = bytesOf(DATA.ebox);
     if (!LITTLE) swap16(bb);
     var q = new Uint16Array(bb.buffer, bb.byteOffset, bb.byteLength >> 1);
     ebox = new Float32Array(q.length);
@@ -826,11 +1049,10 @@ function stepNormals(){
   var qs = DATA.qscale;
   var p, v0, v1, v2, i, j;
 
+  fillColors(colU8);
   for (p = 0; p < nParts; p++){
-    var col = colors[parts[p*4+1]] || [190,190,190,255];
     var vs = parts[p*4+2] * 3, vc = parts[p*4+3] * 3;
     for (i = vs; i < vs + vc; i++){
-      colU8[i*4] = col[0]; colU8[i*4+1] = col[1]; colU8[i*4+2] = col[2]; colU8[i*4+3] = col[3];
       partF32[i] = p;
       visArr[i] = 255;
     }
@@ -878,7 +1100,7 @@ function stepGL(){
     A[n] = gl.getAttribLocation(prog, n);
   });
   ["u_mvp","u_qmin","u_qscale","u_sel","u_cmin","u_cmax","u_eye","u_pick",
-   "u_alpha"].forEach(function(n){
+   "u_alpha","u_hatch"].forEach(function(n){
     U[n] = gl.getUniformLocation(prog, n);
   });
 
@@ -999,6 +1221,7 @@ function draw(pickPass){
   gl.uniform1f(U.u_sel, pickPass ? -1 : selPart);
   gl.uniform1f(U.u_pick, pickPass ? 1 : 0);
   gl.uniform1f(U.u_alpha, pickPass ? 1 : GLOBAL_ALPHA);
+  gl.uniform1f(U.u_hatch, (!pickPass && VIEWMODE === "hatch") ? 1 : 0);
 
   bindAttribs();
 
@@ -3155,6 +3378,15 @@ function wireView(){
   on($("vw_persp"), "click", function(){ setProjection(false); });
   on($("vw_ortho"), "click", function(){ setProjection(true); });
 
+  var vmButtons = $("vm_seg").querySelectorAll("button");
+  for (i = 0; i < vmButtons.length; i++){
+    on(vmButtons[i], "click", function(ev){
+      setViewMode(ev.currentTarget.getAttribute("data-vm"));
+    });
+    vmButtons[i].className =
+      vmButtons[i].getAttribute("data-vm") === VIEWMODE ? "on" : "";
+  }
+
   on($("vw_fov"), "input", function(ev){
     viewTouched = Date.now();
     FOV = parseInt(ev.target.value, 10) * Math.PI / 180;
@@ -3223,6 +3455,21 @@ function wireView(){
 /* go */
 if (!DATA){
   fail("This file was not written correctly - the model data is missing.");
+} else if (DATA.cmp){
+  /* v2 payload: pos/parts/ebox are raw-DEFLATE behind their base64 -
+     inflate them (async when DecompressionStream is available) before
+     the normal staged boot touches them. */
+  $("sp_txt").textContent = "Unpacking model…";
+  Promise.all([
+    inflateBytes(b64Bytes(DATA.pos)).then(function(u){ DATA.pos = u; }),
+    inflateBytes(b64Bytes(DATA.parts)).then(function(u){ DATA.parts = u; }),
+    DATA.ebox
+      ? inflateBytes(b64Bytes(DATA.ebox)).then(function(u){ DATA.ebox = u; })
+      : Promise.resolve()
+  ]).then(function(){ runNext(); }, function(err){
+    fail("Could not unpack the model data: " +
+         ((err && err.message) ? err.message : String(err)));
+  });
 } else {
   runNext();
 }

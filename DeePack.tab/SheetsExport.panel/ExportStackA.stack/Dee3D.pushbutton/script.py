@@ -166,19 +166,21 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
 
         for label, _detail, _lod in core.QUALITY_PRESETS:
             self.quality_cb.Items.Add(label)
-        for mode in core.COLOR_MODES:
-            self.color_cb.Items.Add(mode)
+        for label, _key in core.VIEW_MODES:
+            self.color_cb.Items.Add(label)
 
         # Assigned here rather than in the XAML: a selection set in the
         # markup fires the handler before this object has its fields.
         self.quality_cb.SelectedIndex = self._clamp(
             self._settings.get("quality", 1), len(core.QUALITY_PRESETS))
         self.color_cb.SelectedIndex = self._clamp(
-            self._settings.get("color_mode", 0), len(core.COLOR_MODES))
+            self._settings.get("color_mode", 0), len(core.VIEW_MODES))
         self.links_cb.IsChecked = bool(self._settings.get("include_links"))
         self.params_cb.IsChecked = bool(self._settings.get("include_params"))
         self.open_cb.IsChecked = bool(self._settings.get("open_after", True))
         self.limit_tb.Text = str(self._settings.get("max_triangles", core.DEFAULT_MAX_TRIANGLES))
+        self.unlimited_cb.IsChecked = bool(self._settings.get("unlimited", False))
+        self.limit_tb.IsEnabled = not self.unlimited_cb.IsChecked
 
         self._ready = True
         self._refresh_views()
@@ -309,21 +311,35 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
     def cats_none_click(self, sender, args):
         self._guard(self._set_all_cats, False)
 
+    def unlimited_toggled(self, sender, args):
+        # XAML fires Checked the moment IsChecked is set - the box may
+        # not be fully built yet, so touch limit_tb defensively.
+        try:
+            self.limit_tb.IsEnabled = not bool(self.unlimited_cb.IsChecked)
+        except Exception:
+            pass
+
     # ---------------- export ----------------
     def _read_options(self):
         q_index = max(0, self.quality_cb.SelectedIndex)
         _label, detail, lod = core.QUALITY_PRESETS[q_index]
-        try:
-            max_tris = int(str(self.limit_tb.Text).replace(",", "").strip())
-        except Exception:
-            max_tris = core.DEFAULT_MAX_TRIANGLES
-        if max_tris < 1000:
-            max_tris = 1000
+        if self.unlimited_cb.IsChecked is True:
+            # "Unlimited": grab the whole view at full detail. Not
+            # literally infinite - a ceiling far past any real model
+            # keeps build_scene's budget arithmetic intact.
+            max_tris = core.UNLIMITED_TRIANGLES
+        else:
+            try:
+                max_tris = int(str(self.limit_tb.Text).replace(",", "").strip())
+            except Exception:
+                max_tris = core.DEFAULT_MAX_TRIANGLES
+            if max_tris < 1000:
+                max_tris = 1000
         included = set(r.name for r in self._cat_rows if r.included)
         return {
             "detail": detail,
             "lod": lod,
-            "color_mode": core.COLOR_MODES[max(0, self.color_cb.SelectedIndex)],
+            "view_mode": core.VIEW_MODES[max(0, self.color_cb.SelectedIndex)][1],
             "categories": included,
             "include_links": self.links_cb.IsChecked is True,
             "include_params": self.params_cb.IsChecked is True,
@@ -338,7 +354,13 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
                 "include_links": self.links_cb.IsChecked is True,
                 "include_params": self.params_cb.IsChecked is True,
                 "open_after": self.open_cb.IsChecked is True,
-                "max_triangles": self._read_options()["max_triangles"],
+                "unlimited": self.unlimited_cb.IsChecked is True,
+                # The box's own number is what persists, not the huge
+                # unlimited ceiling - unticking Unlimited later gets the
+                # user their last real limit back.
+                "max_triangles": (int(str(self.limit_tb.Text).replace(",", "").strip())
+                                  if str(self.limit_tb.Text).replace(",", "").strip().isdigit()
+                                  else core.DEFAULT_MAX_TRIANGLES),
                 "last_folder": self._settings.get("last_folder", ""),
             })
         except Exception:
@@ -423,6 +445,7 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
                 "model": model_name,
                 "view": view_name,
                 "date": DateTime.Now.ToString("yyyy-MM-dd HH:mm"),
+                "mode": options["view_mode"],
             })
             size = core.write_html(payload, out_path)
 
@@ -458,6 +481,8 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
             ("Triangles", "{0:,}".format(scene.triangles)),
             ("Colours", "{0}".format(len(scene.book.colors))),
             ("Quality", core.QUALITY_PRESETS[max(0, self.quality_cb.SelectedIndex)][0]),
+            ("Opens in", core.VIEW_MODES[max(0, self.color_cb.SelectedIndex)][0] +
+             " (all four styles switchable inside the file)"),
             ("Linked models", "included" if options["include_links"] else "not included"),
             ("Element parameters", "included" if options["include_params"] else "not included"),
         ]

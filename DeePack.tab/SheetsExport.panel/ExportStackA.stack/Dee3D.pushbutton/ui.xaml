@@ -58,16 +58,19 @@
                 <ComboBox Grid.Row="0" Grid.Column="1" x:Name="quality_cb" Height="24"
                           ToolTip="Controls how finely curved surfaces are broken into triangles. Coarse gives a much smaller file, which matters most on a phone."/>
 
-                <TextBlock Grid.Row="0" Grid.Column="3" Text="Colour by:" Margin="0,0,6,0"
+                <TextBlock Grid.Row="0" Grid.Column="3" Text="Opens as:" Margin="0,0,6,0"
                            VerticalAlignment="Center"/>
                 <ComboBox Grid.Row="0" Grid.Column="4" x:Name="color_cb" Height="24"
-                          ToolTip="Material uses each surface's real Revit material, falling back to a per-category colour where no material is assigned."/>
+                          ToolTip="The display style the file OPENS in. Whoever views it can switch between Material, Category, Plain (clay) and Hatch (sketch) styles at any time from the viewer's View menu - the file always carries the real material colours."/>
 
                 <StackPanel Grid.Row="0" Grid.Column="6" Orientation="Horizontal">
                     <TextBlock Text="Triangle limit:" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <TextBox x:Name="limit_tb" Width="90" Height="24" Text="1500000"
                              VerticalContentAlignment="Center"
                              ToolTip="A safety stop. The export ends cleanly at this many triangles and tells you what it left out, instead of producing a file too big to open."/>
+                    <CheckBox x:Name="unlimited_cb" Content="Unlimited" Margin="8,0,0,0"
+                              VerticalAlignment="Center" Checked="unlimited_toggled" Unchecked="unlimited_toggled"
+                              ToolTip="No safety stop - export EVERYTHING in the view at the chosen quality, however many triangles that is. The whole model with all its detail ends up in the file. A very large model can produce a file that is slow (or impossible) to open on a phone - the export report warns you when it crosses that line."/>
                 </StackPanel>
 
                 <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="7"
