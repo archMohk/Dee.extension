@@ -1,0 +1,19 @@
+# Force LF everywhere, regardless of core.autocrlf on any given
+# machine. Without this, Windows' common core.autocrlf=true setting
+# rewrites some tracked files to CRLF on checkout - invisible to `git
+# status` (which normalizes the comparison) but a real byte-level
+# difference to anything that hashes the file as-is, like
+# tools/publish_supabase.py's drift check. That caused the same handful
+# of files to keep re-appearing as "changed" on every branch/merge with
+# no actual content change - this setting removes the platform
+# dependency that let it happen at all.
+* text=auto eol=lf
+
+# Binary assets - never touched by line-ending conversion regardless of
+# the rule above, but explicit is safer than relying on Git's own
+# content-sniffing to guess right for every current and future file.
+*.png binary
+*.mp4 binary
+*.zip binary
+*.exe binary
+*.ico binary
