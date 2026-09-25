@@ -46,8 +46,17 @@ dee_telemetry.check_access("Dee3DView")
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _HUB_XAML = os.path.join(_THIS_DIR, "ui.xaml")
 _CLEAR_XAML = os.path.join(_THIS_DIR, "clear3d.xaml")
-_MONO_SCRIPT = os.path.join(os.path.dirname(_THIS_DIR),
-                            "ViewStack.stack", "DeeMono.pushbutton", "script.py")
+# Resolved from the TAB ROOT (two levels up: .panel, then .pushbutton),
+# not as a sibling of this bundle's own panel - DeeMono lives under
+# ViewsDatums.panel, a DIFFERENT panel from wherever Dee3DView itself
+# sits. A sibling-relative path broke the moment Dee3DView moved from
+# ViewsDatums.panel into its own Model.panel (live report: "Could not
+# find a part of the path ...\script.py"), because dirname(_THIS_DIR)
+# then pointed at Model.panel instead of ViewsDatums.panel. Anchoring
+# on the tab root survives any future panel move the same way.
+_TAB_DIR = os.path.dirname(os.path.dirname(_THIS_DIR))
+_MONO_SCRIPT = os.path.join(_TAB_DIR, "ViewsDatums.panel", "ViewStack.stack",
+                            "DeeMono.pushbutton", "script.py")
 
 # Same hover treatment as the Notification Center hub's cards.
 _HOVER_ACCENT = Color.FromRgb(0xF2, 0x99, 0x4D)

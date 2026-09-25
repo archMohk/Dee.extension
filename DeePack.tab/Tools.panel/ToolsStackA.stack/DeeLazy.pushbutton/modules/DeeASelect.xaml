@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeLazy — DeeASelect"
         ShowInTaskbar="False"
-        MinHeight="520" MinWidth="520" Height="640" Width="560"
+        MinHeight="560" MinWidth="560" Height="680" Width="600"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
@@ -16,6 +16,11 @@
 
         <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,8">
             <TextBlock x:Name="summary_tb" FontSize="11" Foreground="#555" Margin="0,0,0,8" Text=""/>
+            <CheckBox x:Name="movable_only_cb" Margin="0,0,0,8" Checked="movable_toggle_changed" Unchecked="movable_toggle_changed"
+                      ToolTip="An element counts as movable only if it is not pinned, has a Location Revit can translate, and is not a member of a Group (a single group member can't move on its own outside group-edit mode).">
+                <TextBlock Text="Only select MOVABLE elements (excludes pinned, grouped, and location-less elements)"
+                           TextWrapping="Wrap"/>
+            </CheckBox>
             <StackPanel Orientation="Horizontal">
                 <CheckBox x:Name="close_after_cb" Content="Close after selecting" IsChecked="True"
                           VerticalAlignment="Center"/>
@@ -49,34 +54,44 @@
                     ToolTip="Ticks every category whose type is Annotation, unticks everything else."/>
         </Grid>
 
-        <Grid DockPanel.Dock="Top" Margin="4,0,4,4">
+        <!-- Header row - same column widths AND same outer margins as the
+             ListBox's own DataTemplate below, so labels sit directly above
+             their column's values. The Category header is inset by the
+             checkbox's own width so it centers over the NAME text, not
+             the checkbox next to it. -->
+        <Grid DockPanel.Dock="Top" Margin="4,0,4,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="90"/>
-                <ColumnDefinition Width="60"/>
+                <ColumnDefinition Width="150"/>
             </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="Category" FontWeight="Bold" FontSize="11" Foreground="#666"/>
-            <TextBlock Grid.Column="1" Text="Type" FontWeight="Bold" FontSize="11" Foreground="#666"/>
+            <TextBlock Grid.Column="0" Text="Category" FontWeight="Bold" FontSize="11" Foreground="#666"
+                       Margin="24,0,0,0"/>
+            <TextBlock Grid.Column="1" Text="Type" FontWeight="Bold" FontSize="11" Foreground="#666"
+                       HorizontalAlignment="Center"/>
             <TextBlock Grid.Column="2" Text="Count" FontWeight="Bold" FontSize="11" Foreground="#666"
-                       HorizontalAlignment="Right"/>
+                       HorizontalAlignment="Center"/>
         </Grid>
+        <Border DockPanel.Dock="Top" BorderBrush="#BBBBBB" BorderThickness="0,0,0,1" Margin="4,4,4,6"/>
 
-        <ListBox x:Name="cats_lb">
+        <ListBox x:Name="cats_lb" HorizontalContentAlignment="Stretch">
             <ListBox.ItemTemplate>
                 <DataTemplate>
                     <Grid Margin="0,2,4,2">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="90"/>
-                            <ColumnDefinition Width="60"/>
+                            <ColumnDefinition Width="150"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Orientation="Horizontal">
                             <CheckBox IsChecked="{Binding checked}"
                                       Checked="cat_toggled" Unchecked="cat_toggled"/>
                             <TextBlock Text="{Binding name}" Margin="8,0,0,0" TextWrapping="Wrap"/>
                         </StackPanel>
-                        <TextBlock Grid.Column="1" Text="{Binding type_label}" Foreground="#888"/>
-                        <TextBlock Grid.Column="2" Text="{Binding count}" HorizontalAlignment="Right"/>
+                        <TextBlock Grid.Column="1" Text="{Binding type_label}" Foreground="#888"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Text="{Binding count_label}"
+                                   HorizontalAlignment="Center"/>
                     </Grid>
                 </DataTemplate>
             </ListBox.ItemTemplate>
