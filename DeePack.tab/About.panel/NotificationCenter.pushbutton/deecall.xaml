@@ -83,8 +83,13 @@
                 <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888" Margin="0,0,0,12"
                            Text="Images are removed from the server automatically 3 days after sending - the message text stays."/>
 
-                <Button x:Name="send_b" Content="Send to Everyone" Width="150" Height="28"
-                        HorizontalAlignment="Left" Click="send_click"/>
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="preview_b" Content="Preview on my screen" Width="150" Height="28"
+                            HorizontalAlignment="Left" Click="preview_click"
+                            ToolTip="Shows this exact message as a notification on YOUR screen only - nothing is sent to anyone. Use it to check the text, theme and colours before sending."/>
+                    <Button x:Name="send_b" Content="Send to Everyone" Width="150" Height="28"
+                            Margin="10,0,0,0" HorizontalAlignment="Left" Click="send_click"/>
+                </StackPanel>
                 <TextBlock x:Name="send_status_tb" TextWrapping="Wrap" FontSize="11" Margin="0,10,0,0" Text=""/>
             </StackPanel>
         </StackPanel>

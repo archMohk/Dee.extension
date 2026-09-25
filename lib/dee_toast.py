@@ -107,17 +107,25 @@ _MARGIN = 16.0
 
 _IMAGE_HEIGHT = 90
 
-# Any http(s):// URL, or a bare www.something, typed into a toast's
-# title/sub text becomes a real, clickable Hyperlink - no separate
-# "link" field needed anywhere (DeeCall just types the link into the
-# message like normal text). www.-only addresses get "https://"
-# prepended for navigation (kept out of the DISPLAYED text, which stays
-# exactly as typed). Trailing punctuation right after a URL (a period
-# ending the sentence, a closing bracket, etc.) is peeled off so it
-# doesn't get swallowed into the link itself. Same Hyperlink/
-# RequestNavigate -> Process.Start pattern already proven live in
-# lib/dee_branding.py's own footer link.
-_URL_RE = re.compile(r"((?:https?://|www\.)[^\s<>\"]+)", re.IGNORECASE)
+# Any http(s):// URL, a bare www.something, or a bare domain on a
+# well-known TLD (autodesk.com/docs, wa.me/123, bit.ly/x ...) typed into
+# a toast's title/sub text becomes a real, clickable Hyperlink - no
+# separate "link" field needed anywhere (DeeCall just types the link
+# into the message like normal text). Schemeless addresses get
+# "https://" prepended for navigation (kept out of the DISPLAYED text,
+# which stays exactly as typed). The bare-domain alternative is
+# deliberately limited to a TLD allow-list so ordinary file names
+# ("plan.rvt", "site.dwg") never turn into links. Trailing punctuation
+# right after a URL (a period ending the sentence, a closing bracket,
+# etc.) is peeled off so it doesn't get swallowed into the link itself.
+# Same Hyperlink/RequestNavigate -> Process.Start pattern already proven
+# live in lib/dee_branding.py's own footer link.
+_URL_RE = re.compile(
+    r"((?:https?://|www\.)[^\s<>\"]+"
+    r"|(?:[a-z0-9][a-z0-9-]*\.)+"
+    r"(?:com|net|org|io|co|me|app|dev|info|link|ly|sa|ae|uk|us|de|edu|gov)"
+    r"\b(?:/[^\s<>\"]*)?)",
+    re.IGNORECASE)
 _TRAILING_PUNCT = u".,!?;:)]}\"'"
 
 DEFAULT_THEME = "dark"
@@ -364,8 +372,6 @@ def show_toast(headline, title_text, sub_text, accent_color,
         position = position or settings.get("position", DEFAULT_SETTINGS["position"])
         width = clamp_width(width if width is not None else
                              settings.get("width", DEFAULT_SETTINGS["width"]))
-        base_height = clamp_height(height if height is not None else
-                                    settings.get("height", DEFAULT_SETTINGS["height"]))
         duration_sec = clamp_duration(duration_sec if duration_sec is not None else
                                        settings.get("duration_sec", DEFAULT_SETTINGS["duration_sec"]))
 
@@ -382,12 +388,14 @@ def show_toast(headline, title_text, sub_text, accent_color,
         window.AllowsTransparency = True
         window.Background = Brushes.Transparent
         window.Width = width
-        # Height adjusts to whatever's actually in the card (wrapped
-        # text, an image, the Close/Save Image buttons) instead of a
-        # fixed guess that kept needing a new manual offset for every
-        # new piece of content - base_height (the user's own saved/
-        # passed size) becomes a MINIMUM, not the final word.
-        window.MinHeight = base_height
+        # Height is fully content-driven: exactly what's in the card
+        # (wrapped text, an image, the Close/Save Image buttons), with
+        # only a small structural minimum so a one-word toast still
+        # reads as a card. The old saved "height" setting used to act
+        # as a floor here, which left short messages floating in an
+        # oversized box - live feedback asked for the window to match
+        # the content instead, so that setting no longer participates.
+        window.MinHeight = _MIN_HEIGHT
         window.SizeToContent = SizeToContent.Height
 
         outer = Border()
@@ -478,11 +486,9 @@ def show_toast(headline, title_text, sub_text, accent_color,
         window.Content = outer
 
         window.Left = _compute_left(position, width)
-        # Initial guess using the minimum height, corrected below once
-        # WPF actually knows the real (content-driven) height - avoids a
-        # visible jump for the common case where content fits at
-        # MinHeight, while still ending up correct when it doesn't.
-        window.Top = _compute_top(position, base_height)
+        # Initial guess using the structural minimum, corrected below
+        # once WPF actually knows the real (content-driven) height.
+        window.Top = _compute_top(position, _MIN_HEIGHT)
 
         def _reposition(sender=None, args=None):
             window.Top = _compute_top(position, window.ActualHeight)

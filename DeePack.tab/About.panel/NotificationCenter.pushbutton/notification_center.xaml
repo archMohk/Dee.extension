@@ -27,7 +27,6 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Position:" VerticalAlignment="Center" Margin="0,0,0,8"/>
@@ -40,14 +39,12 @@
                     <TextBlock Text="px" VerticalAlignment="Center" Margin="6,0,0,0"/>
                 </StackPanel>
 
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="Height:" VerticalAlignment="Center" Margin="0,0,0,8"/>
-                <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
-                    <TextBox x:Name="height_tb" Width="60" Height="22" TextAlignment="Center" LostFocus="appearance_changed"/>
-                    <TextBlock Text="px" VerticalAlignment="Center" Margin="6,0,0,0"/>
-                </StackPanel>
-
-                <TextBlock Grid.Row="3" Grid.Column="0" Text="Stays for:" VerticalAlignment="Center"/>
-                <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal">
+                <!-- No Height field: the toast sizes itself to its content
+                     (dee_toast sets SizeToContent=Height) - a fixed height
+                     either clipped long messages or left short ones floating
+                     in an oversized card. -->
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Stays for:" VerticalAlignment="Center"/>
+                <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal">
                     <TextBox x:Name="duration_tb" Width="60" Height="22" TextAlignment="Center" LostFocus="appearance_changed"/>
                     <TextBlock Text="seconds" VerticalAlignment="Center" Margin="6,0,0,0"/>
                 </StackPanel>

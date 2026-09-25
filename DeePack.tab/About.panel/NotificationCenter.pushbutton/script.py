@@ -236,20 +236,30 @@ class _ColorThemePicker(object):
         self._preview_text.Foreground = SolidColorBrush(fg)
 
     def _pick_bg(self, sender, args):
-        picked = _show_color_dialog(self.bg_hex)
-        if picked:
-            self.bg_hex = picked
-            self._refresh_preview()
-            if self._on_change:
-                self._on_change()
+        # WPF swallows exceptions raised inside an event handler, which
+        # made any failure here look exactly like "clicking the swatch
+        # does nothing" (live report: picking a colour didn't preview).
+        # Guarded so a real error is SHOWN instead of vanishing.
+        try:
+            picked = _show_color_dialog(self.bg_hex)
+            if picked:
+                self.bg_hex = picked
+                self._refresh_preview()
+                if self._on_change:
+                    self._on_change()
+        except Exception as e:
+            forms.alert(u"Could not pick a colour:\n{0}".format(e))
 
     def _pick_fg(self, sender, args):
-        picked = _show_color_dialog(self.fg_hex)
-        if picked:
-            self.fg_hex = picked
-            self._refresh_preview()
-            if self._on_change:
-                self._on_change()
+        try:
+            picked = _show_color_dialog(self.fg_hex)
+            if picked:
+                self.fg_hex = picked
+                self._refresh_preview()
+                if self._on_change:
+                    self._on_change()
+        except Exception as e:
+            forms.alert(u"Could not pick a colour:\n{0}".format(e))
 
     def set_colors(self, bg_hex, fg_hex):
         self.bg_hex = bg_hex or self._DEFAULT_BG
@@ -315,7 +325,6 @@ class NotificationCenterWindow(dee_branding.DeeBrandedWindow):
         except ValueError:
             self.position_cb.SelectedIndex = 0
         self.width_tb.Text = str(settings.get("width", dee_toast.DEFAULT_SETTINGS["width"]))
-        self.height_tb.Text = str(settings.get("height", dee_toast.DEFAULT_SETTINGS["height"]))
         self.duration_tb.Text = str(settings.get(
             "duration_sec", dee_toast.DEFAULT_SETTINGS["duration_sec"]))
 
@@ -330,10 +339,6 @@ class NotificationCenterWindow(dee_branding.DeeBrandedWindow):
         except Exception:
             settings["width"] = dee_toast.DEFAULT_SETTINGS["width"]
         try:
-            settings["height"] = dee_toast.clamp_height(int(float(self.height_tb.Text)))
-        except Exception:
-            settings["height"] = dee_toast.DEFAULT_SETTINGS["height"]
-        try:
             settings["duration_sec"] = dee_toast.clamp_duration(int(float(self.duration_tb.Text)))
         except Exception:
             settings["duration_sec"] = dee_toast.DEFAULT_SETTINGS["duration_sec"]
@@ -341,7 +346,6 @@ class NotificationCenterWindow(dee_branding.DeeBrandedWindow):
         # Reflect any clamping back into the boxes so the field never
         # silently disagrees with what's actually saved.
         self.width_tb.Text = str(settings["width"])
-        self.height_tb.Text = str(settings["height"])
         self.duration_tb.Text = str(settings["duration_sec"])
 
     def theme_changed(self, sender, args):
@@ -637,14 +641,10 @@ class DeeCallWindow(dee_branding.DeeBrandedWindow):
             if cb.Visibility == Visibility.Visible:
                 cb.IsChecked = False
 
-    def send_click(self, sender, args):
-        text = (self.message_tb.Text or u"").strip()
-        if not text:
-            forms.alert(u"Type a message first.", title="Dee.extension - DeeCall")
-            return
-        requires_ack = bool(self.deecall_ack_required_rb.IsChecked)
-        image_base64 = self._image_base64
-
+    def _current_style(self):
+        """(theme, theme_bg, theme_fg) exactly as a send would use them -
+        shared by Send and the local Preview button so what you preview
+        is what recipients get."""
         theme = "dark"
         theme_bg = theme_fg = None
         if self.deecall_theme_light_rb.IsChecked:
@@ -653,6 +653,34 @@ class DeeCallWindow(dee_branding.DeeBrandedWindow):
             theme = "colored"
             theme_bg = self._color_picker.bg_hex
             theme_fg = self._color_picker.fg_hex
+        return theme, theme_bg, theme_fg
+
+    def preview_click(self, sender, args):
+        """Pops the composed message as a toast on THIS screen only -
+        nothing is sent, no admin check needed. Exists because 'pick a
+        colour, send, wait for your own toast' was the only way to see
+        the Colored theme before (live report: colours felt like they
+        did nothing)."""
+        try:
+            text = (self.message_tb.Text or u"").strip() or u"Sample DeeCall announcement"
+            theme, theme_bg, theme_fg = self._current_style()
+            dee_toast.show_toast(
+                u"PREVIEW — NOT SENT", text, u"",
+                dee_broadcast_service._ACCENT,
+                requires_ack=bool(self.deecall_ack_required_rb.IsChecked),
+                image_base64=self._image_base64,
+                theme=theme, theme_bg=theme_bg, theme_fg=theme_fg)
+        except Exception as e:
+            forms.alert(u"Could not preview:\n{0}".format(e))
+
+    def send_click(self, sender, args):
+        text = (self.message_tb.Text or u"").strip()
+        if not text:
+            forms.alert(u"Type a message first.", title="Dee.extension - DeeCall")
+            return
+        requires_ack = bool(self.deecall_ack_required_rb.IsChecked)
+        image_base64 = self._image_base64
+        theme, theme_bg, theme_fg = self._current_style()
 
         target_emails = None
         if self.target_specific_rb.IsChecked:

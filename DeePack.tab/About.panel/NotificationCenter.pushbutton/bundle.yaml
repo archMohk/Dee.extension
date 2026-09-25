@@ -1,2 +1,3 @@
 title: Notification Center
-tooltip: General notification appearance (position, size, how long it stays) plus Prayer Times and DeeCall announcements
+tooltip: General notification appearance (position, size, how long it stays) plus Prayer Times and DeeCall announcements. Works with no Revit file open.
+context: zero-doc
