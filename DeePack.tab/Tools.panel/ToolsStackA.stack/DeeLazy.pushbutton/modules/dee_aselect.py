@@ -95,10 +95,19 @@ NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
    itself, or only the Group instance is - not exhaustively confirmed
    across Revit versions. Either way every element the collector DOES
    return is included; nothing is deliberately excluded.
-2. Selection.SetElementIds' behaviour/performance on a very large
-   (100,000+) element set - wrapped in try/except so a refusal reports
-   the real Revit error rather than crashing the window, but not
-   exercised live at that scale.
+2. Selection.SetElementIds' / ElementTransformUtils.MoveElements' behaviour
+   on a very large (100,000+) element set - a live report described Revit
+   closing outright (no error dialog) after clicking Select then Move on
+   what was likely an "All"-ticked whole project. That shape - nothing
+   raised, Revit just gone - is consistent with a native/out-of-memory
+   failure, which no amount of try/except in this script can catch (a
+   managed exception handler only ever sees a MANAGED exception). Added
+   _LARGE_SELECTION_WARN_THRESHOLD (50,000 elements) so Select and Move
+   both stop for one extra confirmation past that size and suggest
+   narrowing the ticked categories - this cannot guarantee Revit won't
+   still struggle with a huge set, but it stops the tool from silently
+   handing the whole project to the API in one call. Still not
+   exercised live at real 100,000+ scale.
 3. The exact category NAME Revit uses in this project's language for
    each entry in _STARTS_UNCHECKED - written from the standard English
    names; a localized Revit UI may use different strings, in which case
@@ -146,6 +155,38 @@ _STARTS_UNCHECKED = set(n.lower() for n in [
     u"Schedules",
     u"Building Type Settings",
 ])
+
+# HARD exclusion from Move specifically (not from Select - highlighting
+# these is harmless) - live report: clicking Move closed Revit itself.
+# Project Base Point and Survey Point anchor the model's own coordinate
+# system; moving or unpinning either through the generic element-move
+# API (rather than Revit's own dedicated Relocate Project workflow) is
+# widely documented in the Revit API community as capable of corrupting
+# document state or crashing the whole process outright - categorically
+# different from moving ordinary geometry. _STARTS_UNCHECKED only keeps
+# them off by DEFAULT, which the "All" preset overrides; this list
+# cannot be overridden by any preset or manual tick - Move always
+# leaves them out, unconditionally.
+_NEVER_MOVE = set(n.lower() for n in [
+    u"Project Base Point",
+    u"Survey Point",
+])
+
+# Above this many elements, Select/Move ask for one extra confirmation
+# instead of running immediately. A live report ("when i Click Select
+# and Move the Revit Closed") described Revit itself disappearing, not
+# an error dialog - that shape (no exception, no message, just gone) is
+# what a native/out-of-memory failure looks like, and neither
+# Selection.SetElementIds nor ElementTransformUtils.MoveElements can be
+# wrapped safely against that in IronPython: a try/except only ever
+# catches a MANAGED exception, and a genuine process crash never raises
+# one. This cannot be fixed in script code - it is exactly the
+# "NEEDS LIVE-REVIT VERIFICATION" risk this module's own docstring
+# already named for very large (100,000+) element sets. The one thing
+# code CAN do is stop and let the user narrow the ticked categories
+# first, rather than silently building the full list and handing it to
+# the Revit API on a "Select All"/"Model + Annotation" click.
+_LARGE_SELECTION_WARN_THRESHOLD = 50000
 
 
 class _SafeProgress(object):
@@ -401,6 +442,23 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
                 ids.Add(eid)
         return ids
 
+    def _move_ids(self):
+        """Same as _checked_ids(), but ALWAYS excludes _NEVER_MOVE
+        categories (Project Base Point, Survey Point) regardless of
+        their checked state - see _NEVER_MOVE's own comment for why.
+        Returns (ids, excluded_count)."""
+        ids = List[ElementId]()
+        excluded = 0
+        for r in self._rows:
+            if not r.checked:
+                continue
+            if r.name.lower() in _NEVER_MOVE:
+                excluded += len(self._id_map.get(r.name, []))
+                continue
+            for eid in self._id_map.get(r.name, []):
+                ids.Add(eid)
+        return ids, excluded
+
     def select_click(self, sender, args):
         checked_rows = [r for r in self._rows if r.checked]
         if not checked_rows:
@@ -410,6 +468,18 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
         if ids.Count == 0:
             forms.alert("Nothing to select.", title="DeeASelect")
             return
+        if ids.Count >= _LARGE_SELECTION_WARN_THRESHOLD:
+            proceed = forms.alert(
+                u"This is a VERY large selection - {0:,} element(s) across "
+                u"{1} categor(y/ies).\n\nSelecting this many elements at "
+                u"once can make Revit unresponsive, and on some machines "
+                u"has been reported to close Revit entirely with no error "
+                u"message. Consider unticking a few categories first "
+                u"(e.g. use 'Model Only' or 'Annotation Only' instead of "
+                u"'All').\n\nSelect anyway?".format(ids.Count, len(checked_rows)),
+                title="DeeASelect - Large Selection", yes=True, no=True)
+            if not proceed:
+                return
         try:
             self.uidoc.Selection.SetElementIds(ids)
         except Exception as e:
@@ -503,10 +573,23 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
         if dx_disp == 0.0 and dy_disp == 0.0:
             forms.alert("Enter a non-zero X or Y value to move by.", title="DeeASelect")
             return
-        ids = self._checked_ids()
+        ids, excluded_never_move = self._move_ids()
         if ids.Count == 0:
             forms.alert("Nothing to move.", title="DeeASelect")
             return
+        if ids.Count >= _LARGE_SELECTION_WARN_THRESHOLD:
+            proceed = forms.alert(
+                u"This is a VERY large move - {0:,} element(s) across "
+                u"{1} categor(y/ies).\n\nMoving this many elements in one "
+                u"operation can make Revit unresponsive, and on some "
+                u"machines has been reported to close Revit entirely with "
+                u"no error message. Consider unticking a few categories "
+                u"first (e.g. use 'Model Only' or 'Annotation Only' "
+                u"instead of 'All').\n\nContinue anyway?"
+                .format(ids.Count, len(checked_rows)),
+                title="DeeASelect - Large Move", yes=True, no=True)
+            if not proceed:
+                return
 
         pinned_ids = _pinned_among(self.doc, ids)
         pin_note = (
@@ -514,12 +597,19 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
             u"unpin them, move everything, then pin those same elements "
             u"back automatically.".format(len(pinned_ids))
             if pinned_ids else u"")
+        never_move_note = (
+            u"\n\n{0:,} element(s) in Project Base Point / Survey Point were "
+            u"EXCLUDED from this move - those anchor the model's coordinate "
+            u"system and are never moved by DeeASelect, even when ticked."
+            .format(excluded_never_move)
+            if excluded_never_move else u"")
 
         proceed = forms.alert(
             u"Move {0:,} element(s) across {1} categor(y/ies) by:\n\n"
-            u"   X:  {2:+.2f} {4}\n   Y:  {3:+.2f} {4}{5}\n\n"
+            u"   X:  {2:+.2f} {4}\n   Y:  {3:+.2f} {4}{5}{6}\n\n"
             u"This changes the model. Continue?".format(
-                ids.Count, len(checked_rows), dx_disp, dy_disp, self._unit_abbr, pin_note),
+                ids.Count, len(checked_rows), dx_disp, dy_disp, self._unit_abbr,
+                pin_note, never_move_note),
             title="DeeASelect - Move", yes=True, no=True)
         if not proceed:
             return
@@ -549,9 +639,12 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
 
         pinned_note = (u" ({0:,} were temporarily unpinned and re-pinned)"
                        .format(len(pinned_ids)) if pinned_ids else u"")
+        excluded_note = (u" ({0:,} Project Base Point/Survey Point element(s) excluded)"
+                          .format(excluded_never_move) if excluded_never_move else u"")
         self.status_tb.Text = (
-            u"Moved {0:,} element(s) across {1} categor(y/ies) by X={2:+.2f}{4}, Y={3:+.2f}{4}{5}."
-            .format(ids.Count, len(checked_rows), dx_disp, dy_disp, self._unit_abbr, pinned_note))
+            u"Moved {0:,} element(s) across {1} categor(y/ies) by X={2:+.2f}{4}, Y={3:+.2f}{4}{5}{6}."
+            .format(ids.Count, len(checked_rows), dx_disp, dy_disp, self._unit_abbr,
+                    pinned_note, excluded_note))
         if self.close_after_cb.IsChecked is True:
             self.Close()
 
