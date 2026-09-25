@@ -19,7 +19,6 @@ from System.Windows.Controls import Border, DockPanel, Dock, TextBlock
 from System.Windows.Input import Cursors
 from System.Windows.Media import Brushes, SolidColorBrush, Color
 
-from pyrevit import forms
 import dee_branding
 
 from modules import REGISTERED_MODULES
@@ -37,6 +36,11 @@ class DeeLazyHomeWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, uiapp):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.uiapp = uiapp
+        # Set by a card's click handler, read by script.py AFTER
+        # ShowDialog() returns - the actual launch happens there, never
+        # from inside this still-open window. None means the user
+        # closed the launcher without picking anything.
+        self.picked_tool_info = None
         self._build_cards()
 
     def _build_cards(self):
@@ -120,11 +124,15 @@ class DeeLazyHomeWindow(dee_branding.DeeBrandedWindow):
         border.MouseLeftButtonUp += on_click
 
     def _make_launch_handler(self, tool_info):
+        """Records which tool was picked and closes the launcher
+        immediately - it does NOT call tool_info["launch"] itself. That
+        call happens in script.py, once this window's ShowDialog() has
+        actually returned, so the picked tool's own window is never
+        opened from inside this one (see this module's own docstring
+        note, and DeeMono/Dee3DView's hub for the same pattern)."""
         def handler(sender, args):
-            try:
-                tool_info["launch"](self.uiapp)
-            except Exception as e:
-                forms.alert("Could not open '{0}':\n{1}".format(tool_info.get("title", "Tool"), e))
+            self.picked_tool_info = tool_info
+            self.Close()
         return handler
 
     def close_click(self, sender, args):

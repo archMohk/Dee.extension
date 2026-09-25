@@ -67,6 +67,17 @@ dimensions and tags intact - the same thing Revit's own multi-select
 drag already does. move_elements() below is deliberately a single call
 over the whole id list for this reason.
 
+Pinned elements are handled the same way: MoveElements RAISES for the
+ENTIRE batch if even one element in it is pinned (Project Base Point
+and several of _STARTS_UNCHECKED's other categories are commonly
+pinned by default, so this hit real projects immediately). Rather than
+fail the whole move or silently drop pinned elements, move_elements()
+unpins whichever ids are pinned right before the move and pins those
+exact same ids back right after - all inside the SAME transaction as
+the move, so a failure anywhere rolls the pin state back too. The user
+sees the pinned count up front, in the confirmation dialog, before
+anything happens.
+
 X/Y are typed in the project's own display length units (utils.
 display_to_internal handles the conversion) and apply to whatever
 categories are currently ticked - Select and Move share the exact same
@@ -228,13 +239,57 @@ def scan_categories(doc):
     return rows, id_map
 
 
-def move_elements(doc, ids, dx_internal, dy_internal):
+def _pinned_among(doc, ids):
+    """The subset of `ids` that is currently Pinned. Checked up front
+    (before the confirm dialog even shows) so the user sees the count
+    before committing, and reused inside the transaction so pin state
+    is only read once."""
+    out = []
+    for eid in ids:
+        el = doc.GetElement(eid)
+        if el is None:
+            continue
+        try:
+            if el.Pinned:
+                out.append(eid)
+        except Exception:
+            continue
+    return out
+
+
+def _set_pinned(doc, ids, value):
+    for eid in ids:
+        el = doc.GetElement(eid)
+        if el is None:
+            continue
+        try:
+            el.Pinned = value
+        except Exception:
+            continue
+
+
+def move_elements(doc, ids, dx_internal, dy_internal, pinned_ids):
     """One ElementTransformUtils.MoveElements call for the WHOLE id
     list, not a per-element loop - see the module docstring for why
     moving model geometry and its annotation together, atomically, is
-    what keeps dimensions and tags intact instead of orphaned."""
+    what keeps dimensions and tags intact instead of orphaned.
+
+    `pinned_ids` (a subset of `ids`, from _pinned_among) is unpinned
+    immediately before the move and re-pinned immediately after -
+    MoveElements RAISES for the entire batch if even one element in it
+    is pinned (live-confirmed: this is exactly what silently blocked a
+    whole-project move the moment it reached a pinned element - Project
+    Base Point and several of _STARTS_UNCHECKED's other categories are
+    commonly pinned by default). Both pin-state changes happen inside
+    the SAME transaction as the move itself, so a failure anywhere in
+    this function rolls back the pin changes along with the move -
+    nothing is ever left unpinned by a failed attempt."""
+    if pinned_ids:
+        _set_pinned(doc, pinned_ids, False)
     translation = XYZ(dx_internal, dy_internal, 0.0)
     ElementTransformUtils.MoveElements(doc, ids, translation)
+    if pinned_ids:
+        _set_pinned(doc, pinned_ids, True)
 
 
 # ==========================================================================
@@ -453,11 +508,18 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Nothing to move.", title="DeeASelect")
             return
 
+        pinned_ids = _pinned_among(self.doc, ids)
+        pin_note = (
+            u"\n\n{0:,} of these are currently PINNED - DeeASelect will "
+            u"unpin them, move everything, then pin those same elements "
+            u"back automatically.".format(len(pinned_ids))
+            if pinned_ids else u"")
+
         proceed = forms.alert(
             u"Move {0:,} element(s) across {1} categor(y/ies) by:\n\n"
-            u"   X:  {2:+.2f} {4}\n   Y:  {3:+.2f} {4}\n\n"
+            u"   X:  {2:+.2f} {4}\n   Y:  {3:+.2f} {4}{5}\n\n"
             u"This changes the model. Continue?".format(
-                ids.Count, len(checked_rows), dx_disp, dy_disp, self._unit_abbr),
+                ids.Count, len(checked_rows), dx_disp, dy_disp, self._unit_abbr, pin_note),
             title="DeeASelect - Move", yes=True, no=True)
         if not proceed:
             return
@@ -468,14 +530,15 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
         t = Transaction(self.doc, "DeeASelect - move selection")
         try:
             t.Start()
-            move_elements(self.doc, ids, dx_internal, dy_internal)
+            move_elements(self.doc, ids, dx_internal, dy_internal, pinned_ids)
             t.Commit()
         except Exception as e:
             try:
                 t.RollBack()
             except Exception:
                 pass
-            forms.alert(u"Move failed and was rolled back:\n{0}".format(e),
+            forms.alert(u"Move failed and was rolled back (any unpinning was "
+                        u"rolled back too):\n{0}".format(e),
                         title="DeeASelect")
             return
 
@@ -484,9 +547,11 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
         except Exception:
             pass
 
+        pinned_note = (u" ({0:,} were temporarily unpinned and re-pinned)"
+                       .format(len(pinned_ids)) if pinned_ids else u"")
         self.status_tb.Text = (
-            u"Moved {0:,} element(s) across {1} categor(y/ies) by X={2:+.2f}{4}, Y={3:+.2f}{4}."
-            .format(ids.Count, len(checked_rows), dx_disp, dy_disp, self._unit_abbr))
+            u"Moved {0:,} element(s) across {1} categor(y/ies) by X={2:+.2f}{4}, Y={3:+.2f}{4}{5}."
+            .format(ids.Count, len(checked_rows), dx_disp, dy_disp, self._unit_abbr, pinned_note))
         if self.close_after_cb.IsChecked is True:
             self.Close()
 
