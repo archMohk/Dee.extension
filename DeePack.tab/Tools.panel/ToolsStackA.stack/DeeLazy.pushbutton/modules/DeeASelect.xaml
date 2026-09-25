@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeLazy — DeeASelect"
         ShowInTaskbar="False"
-        MinHeight="540" MinWidth="600" Height="660" Width="640"
+        MinHeight="640" MinWidth="600" Height="800" Width="640"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
@@ -53,6 +53,51 @@
                     Click="model_and_annotation_click"
                     ToolTip="Ticks every Model AND every Annotation category together, unticks everything else (levels, grids, links, and other non-Model/Annotation categories)."/>
         </Grid>
+
+        <GroupBox DockPanel.Dock="Top" Header="Move Selected Categories" Margin="0,0,0,8">
+            <StackPanel Margin="5">
+                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#555" Margin="0,0,0,6"
+                           Text="Moves every element in the TICKED categories by one offset, in a single Revit operation - moving model geometry and its annotation together this way is what keeps dimensions and tags intact instead of some being deleted."/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="90"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="X:" VerticalAlignment="Center" Margin="0,0,8,0" Width="16"/>
+                            <TextBox Grid.Column="1" x:Name="move_x_tb" Height="24" Text="0" TextChanged="move_xy_changed"/>
+                            <TextBlock Grid.Column="2" x:Name="move_x_unit_tb" VerticalAlignment="Center" Margin="6,0,0,0" Text="mm"/>
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Y:" VerticalAlignment="Center" Margin="0,0,8,0" Width="16"/>
+                            <TextBox Grid.Column="1" x:Name="move_y_tb" Height="24" Text="0" TextChanged="move_xy_changed"/>
+                            <TextBlock Grid.Column="2" x:Name="move_y_unit_tb" VerticalAlignment="Center" Margin="6,0,0,0" Text="mm"/>
+                        </Grid>
+                        <TextBlock x:Name="move_preview_tb" FontSize="11" Foreground="#555" Margin="0,8,0,0"
+                                   TextWrapping="Wrap" Text="No movement entered yet."/>
+                    </StackPanel>
+                    <Border Grid.Column="1" BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="4"
+                            Width="80" Height="80" Margin="10,0,0,0">
+                        <Canvas x:Name="move_preview_cv" Width="80" Height="80"/>
+                    </Border>
+                </Grid>
+                <Button x:Name="move_b" Content="MOVE SELECTED CATEGORIES" Click="move_click" Margin="0,10,0,0" Height="34"
+                        Background="#B26A00" Foreground="White" BorderBrush="#B26A00"
+                        FontSize="13" FontWeight="Bold" Cursor="Hand"
+                        ToolTip="Moves every element in the ticked categories by the X/Y offset above. Asks for confirmation first - this changes the model, unlike Select."/>
+            </StackPanel>
+        </GroupBox>
 
         <!-- Header row - same column widths AND same outer margins as the
              ListBox's own DataTemplate below, so labels sit directly above
