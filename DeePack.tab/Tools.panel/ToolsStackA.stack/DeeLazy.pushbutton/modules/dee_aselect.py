@@ -112,6 +112,21 @@ NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
    each entry in _STARTS_UNCHECKED - written from the standard English
    names; a localized Revit UI may use different strings, in which case
    that one category simply starts checked like any other (fails safe).
+4. A live 275-workset model report showed Move throw a mass workset-
+   checkout prompt ("You are trying to checkout a large number of
+   worksets...") followed by "Error 1 - Can't keep elements joined" -
+   the latter because ElementTransformUtils.MoveElements moved an
+   element still Join'd (JoinGeometryUtils) to another element outside
+   the moved batch. Mitigated with _try_checkout_for_move() (pre-
+   checkout before the transaction) and by attaching this codebase's
+   existing deew_failure_handler.DeeWFailuresPreprocessor to the move
+   Transaction (it silently deletes Warning-severity failures, which is
+   this failure's severity, instead of surfacing an interactive dialog).
+   _join_partners_outside() only COUNTS likely join breaks up front for
+   the confirm dialog - it does not itself unjoin anything, so it is
+   reporting-only; the failure preprocessor is the actual safety net.
+   Neither GetJoinedElements' cost at real scale nor DeleteWarning's
+   exact behavior for this specific failure ID has been exercised live.
 """
 import math
 import os
@@ -129,11 +144,12 @@ from System.Windows import Point
 
 from pyrevit import forms, script
 import dee_branding
+import deew_failure_handler as ffh
 import utils
 
 from Autodesk.Revit.DB import (
     FilteredElementCollector, ElementId, CategoryType, Transaction,
-    ElementTransformUtils, XYZ,
+    ElementTransformUtils, XYZ, JoinGeometryUtils, WorksharingUtils,
 )
 
 output = script.get_output()
@@ -187,6 +203,13 @@ _NEVER_MOVE = set(n.lower() for n in [
 # first, rather than silently building the full list and handing it to
 # the Revit API on a "Select All"/"Model + Annotation" click.
 _LARGE_SELECTION_WARN_THRESHOLD = 50000
+
+# _join_partners_outside() is O(ticked ids) with one Revit API call per
+# element - fine for a normal move, but a needless slowdown on a huge
+# "All"-ticked confirm dialog where the failure preprocessor below is
+# the real safety net anyway. Past this many ids the pre-count is
+# skipped entirely (returns None) rather than made to scale.
+_JOIN_SCAN_MAX_IDS = 20000
 
 
 class _SafeProgress(object):
@@ -253,16 +276,35 @@ class CategoryRow(object):
         return u"{0:,}".format(self.count)
 
 
-def scan_categories(doc):
+_SCAN_PROGRESS_STEP = 500
+
+
+def scan_categories(doc, progress_cb=None):
     """One pass over the whole document. Returns (rows, id_map) - rows
     for the checklist, id_map={category_name: [ElementId, ...]} so the
     final selection (or move) never has to re-scan the model; it only
-    has to concatenate whichever buckets are still ticked."""
+    has to concatenate whichever buckets are still ticked.
+
+    progress_cb(done, total), if given, is called every
+    _SCAN_PROGRESS_STEP elements (not every single one - that would
+    slow down a 400,000-element scan just from the callback overhead).
+    `total` comes from a second, separate GetElementCount() call on an
+    identically-filtered collector - cheap relative to the full element
+    loop below, and needed up front so the caller can show a real
+    percentage instead of an indeterminate spinner that never redraws
+    during this synchronous loop."""
     buckets = {}  # name -> {"ids": [ElementId,...], "type_label": str}
     try:
         collector = FilteredElementCollector(doc).WhereElementIsNotElementType()
     except Exception:
         return [], {}
+    total = 0
+    if progress_cb is not None:
+        try:
+            total = FilteredElementCollector(doc).WhereElementIsNotElementType().GetElementCount()
+        except Exception:
+            total = 0
+    done = 0
     for el in collector:
         name = _category_name(el)
         bucket = buckets.get(name)
@@ -273,6 +315,12 @@ def scan_categories(doc):
             bucket["ids"].append(el.Id)
         except Exception:
             continue
+        done += 1
+        if progress_cb is not None and total and done % _SCAN_PROGRESS_STEP == 0:
+            try:
+                progress_cb(done, total)
+            except Exception:
+                pass
     rows = [CategoryRow(name, len(b["ids"]), b["type_label"])
             for name, b in buckets.items()]
     rows.sort(key=lambda r: r.name.lower())
@@ -307,6 +355,74 @@ def _set_pinned(doc, ids, value):
             el.Pinned = value
         except Exception:
             continue
+
+
+def _join_partners_outside(doc, ids):
+    """Reporting-only count of elements in `ids` that are geometrically
+    Join'd (JoinGeometryUtils) to another element NOT in `ids` - moving
+    such a pair without its partner is exactly what a live 275-workset
+    model report showed raising "Error 1 - Can't keep elements joined".
+
+    This function does NOT unjoin anything - it only counts, so the
+    confirm dialog can warn the user up front. The actual safety net is
+    deew_failure_handler.DeeWFailuresPreprocessor attached to the move
+    Transaction (see move_click()), which silently resolves that exact
+    Warning-severity failure instead of leaving it to surface as an
+    interactive dialog.
+
+    Scoped to CategoryType.Model elements only - annotation/internal
+    categories (dimensions, tags, levels, grids, ...) don't participate
+    in geometry joins, so checking them would only cost time for no
+    signal. Returns None (skip / unknown) above _JOIN_SCAN_MAX_IDS,
+    since GetJoinedElements is one Revit API call per element and this
+    tool can be asked to move tens of thousands at once."""
+    if ids.Count > _JOIN_SCAN_MAX_IDS:
+        return None
+    id_set = set(eid.IntegerValue for eid in ids)
+    count = 0
+    for eid in ids:
+        el = doc.GetElement(eid)
+        if el is None:
+            continue
+        try:
+            if el.Category is None or el.Category.CategoryType != CategoryType.Model:
+                continue
+        except Exception:
+            continue
+        try:
+            partners = JoinGeometryUtils.GetJoinedElements(doc, el)
+        except Exception:
+            continue
+        for partner_id in partners:
+            if partner_id.IntegerValue not in id_set:
+                count += 1
+                break
+    return count
+
+
+def _try_checkout_for_move(doc, ids):
+    """Best-effort pre-checkout of every workset that owns an element in
+    `ids`, called BEFORE the move Transaction starts - a live 275-
+    workset model report showed Revit's own mid-transaction "you are
+    trying to checkout a large number of worksets" prompt firing during
+    Move. Doing the checkout explicitly, up front, in one call is the
+    Revit-API-recommended way to avoid ad-hoc checkout prompts appearing
+    from inside a later operation.
+
+    Fully wrapped in try/except and never raises: this is a mitigation
+    attempt, not a requirement, and a failure here must never block the
+    move itself - MoveElements will simply trigger Revit's own checkout
+    handling again if this didn't fully succeed. NEEDS LIVE-REVIT
+    VERIFICATION: whether CheckoutElements itself can still surface that
+    same interactive prompt for a very large workset count - not
+    exercised live at 275-workset scale."""
+    try:
+        if not doc.IsWorkshared:
+            return False
+        WorksharingUtils.CheckoutElements(doc, ids)
+        return True
+    except Exception:
+        return False
 
 
 def move_elements(doc, ids, dx_internal, dy_internal, pinned_ids):
@@ -347,8 +463,22 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
         self.uidoc = uiapp.ActiveUIDocument
         self.doc = self.uidoc.Document
 
-        with _SafeProgress(title="DeeASelect - scanning the project...", indeterminate=True):
-            self._rows, self._id_map = scan_categories(self.doc)
+        # Determinate, not the indeterminate spinner this used to be: an
+        # indeterminate forms.ProgressBar does not redraw during a tight
+        # synchronous loop with no update_progress() calls, so on a huge
+        # model it just sat still for the whole scan with zero feedback -
+        # exactly what a live report saw as Revit "(Not Responding)"
+        # before this window had even appeared. scan_categories() now
+        # drives real progress via progress_cb.
+        with _SafeProgress(title="DeeASelect - scanning the project...",
+                            indeterminate=False, cancellable=False) as pb:
+            def _scan_progress(done, total):
+                try:
+                    pb.title = u"DeeASelect - scanning... {0:,} of {1:,}".format(done, total)
+                    pb.update_progress(done, total)
+                except Exception:
+                    pass
+            self._rows, self._id_map = scan_categories(self.doc, progress_cb=_scan_progress)
 
         self._unit_abbr = utils.unit_abbreviation(self.doc)
         self.move_x_unit_tb.Text = self._unit_abbr
@@ -474,14 +604,23 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
                 u"{1} categor(y/ies).\n\nSelecting this many elements at "
                 u"once can make Revit unresponsive, and on some machines "
                 u"has been reported to close Revit entirely with no error "
-                u"message. Consider unticking a few categories first "
-                u"(e.g. use 'Model Only' or 'Annotation Only' instead of "
-                u"'All').\n\nSelect anyway?".format(ids.Count, len(checked_rows)),
+                u"message. Revit's title bar may show \"(Not Responding)\" "
+                u"while this runs - for a selection this size that is "
+                u"expected, not a crash; do not force-close Revit. Consider "
+                u"unticking a few categories first (e.g. use 'Model Only' "
+                u"or 'Annotation Only' instead of 'All').\n\n"
+                u"Select anyway?".format(ids.Count, len(checked_rows)),
                 title="DeeASelect - Large Selection", yes=True, no=True)
             if not proceed:
                 return
         try:
-            self.uidoc.Selection.SetElementIds(ids)
+            # An indeterminate spinner cannot animate during this single
+            # blocking API call (same limitation noted on the scan above),
+            # but it keeps a visible "still working" window up rather than
+            # nothing at all while Revit's own title bar looks frozen.
+            with _SafeProgress(title=u"DeeASelect - selecting {0:,} element(s)..."
+                                .format(ids.Count), indeterminate=True):
+                self.uidoc.Selection.SetElementIds(ids)
         except Exception as e:
             forms.alert(u"Revit refused the selection:\n{0}".format(e),
                         title="DeeASelect")
@@ -583,9 +722,12 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
                 u"{1} categor(y/ies).\n\nMoving this many elements in one "
                 u"operation can make Revit unresponsive, and on some "
                 u"machines has been reported to close Revit entirely with "
-                u"no error message. Consider unticking a few categories "
-                u"first (e.g. use 'Model Only' or 'Annotation Only' "
-                u"instead of 'All').\n\nContinue anyway?"
+                u"no error message. Revit's title bar may show "
+                u"\"(Not Responding)\" while this runs - for a move this "
+                u"size that is expected, not a crash; do not force-close "
+                u"Revit. Consider unticking a few categories first (e.g. "
+                u"use 'Model Only' or 'Annotation Only' instead of "
+                u"'All').\n\nContinue anyway?"
                 .format(ids.Count, len(checked_rows)),
                 title="DeeASelect - Large Move", yes=True, no=True)
             if not proceed:
@@ -603,13 +745,27 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
             u"system and are never moved by DeeASelect, even when ticked."
             .format(excluded_never_move)
             if excluded_never_move else u"")
+        join_count = _join_partners_outside(self.doc, ids)
+        if join_count:
+            join_note = (
+                u"\n\n{0:,} of these are geometrically JOINED to an element "
+                u"OUTSIDE this move - Revit may need to break those joins to "
+                u"complete the move; DeeASelect will let that happen "
+                u"automatically instead of stopping on it.".format(join_count))
+        elif join_count is None and ids.Count > _JOIN_SCAN_MAX_IDS:
+            join_note = (
+                u"\n\nThis move is too large to pre-check for broken "
+                u"geometry joins - any join warnings Revit raises will be "
+                u"resolved automatically instead of stopping the move.")
+        else:
+            join_note = u""
 
         proceed = forms.alert(
             u"Move {0:,} element(s) across {1} categor(y/ies) by:\n\n"
-            u"   X:  {2:+.2f} {4}\n   Y:  {3:+.2f} {4}{5}{6}\n\n"
+            u"   X:  {2:+.2f} {4}\n   Y:  {3:+.2f} {4}{5}{6}{7}\n\n"
             u"This changes the model. Continue?".format(
                 ids.Count, len(checked_rows), dx_disp, dy_disp, self._unit_abbr,
-                pin_note, never_move_note),
+                pin_note, never_move_note, join_note),
             title="DeeASelect - Move", yes=True, no=True)
         if not proceed:
             return
@@ -617,10 +773,22 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
         dx_internal = utils.display_to_internal(self.doc, dx_disp)
         dy_internal = utils.display_to_internal(self.doc, dy_disp)
 
+        # Best-effort, outside the transaction - see _try_checkout_for_move's
+        # own docstring for why this must never block the move on failure.
+        _try_checkout_for_move(self.doc, ids)
+
         t = Transaction(self.doc, "DeeASelect - move selection")
         try:
             t.Start()
-            move_elements(self.doc, ids, dx_internal, dy_internal, pinned_ids)
+            # Attached AFTER Start() - deew_failure_handler's own docstring
+            # says attaching before Start() silently fails. Turns the
+            # Warning-severity "Can't keep elements joined" failure (and
+            # any other warning) into a silent continue instead of an
+            # interactive dialog blocking this transaction.
+            ffh.apply_to_transaction(t)
+            with _SafeProgress(title=u"DeeASelect - moving {0:,} element(s)..."
+                                .format(ids.Count), indeterminate=True):
+                move_elements(self.doc, ids, dx_internal, dy_internal, pinned_ids)
             t.Commit()
         except Exception as e:
             try:
