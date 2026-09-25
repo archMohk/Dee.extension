@@ -1,0 +1,2 @@
+title: DeeCtotopo
+tooltip: Convert a Civil 3D surface (linked/imported DWG mesh, linked topography, or a legacy toposurface) into native Revit Toposolids. Three modes - respect the source boundaries (one Toposolid per surface piece, true outline with holes), one combined outline around everything, or SUB-DIVIDE an existing Toposolid along the source's edges (roads/pads drawn onto your terrain, each with its own material). The source is never modified. Requires Revit 2024 or newer (Toposolid API).

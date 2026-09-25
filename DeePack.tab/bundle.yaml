@@ -1,4 +1,6 @@
 title: "DeePack"
+# A panel MUST be listed here to appear on the ribbon at all (pyRevit
+# drops unlisted bundles when a layout is defined) - keep About LAST.
 layout:
   - Mode
   - Models
@@ -7,6 +9,8 @@ layout:
   - Coordination
   - SheetsExport
   - ViewsDatums
+  - Model
+  - Topography
   - Rooms
   - Quantities
   - Align

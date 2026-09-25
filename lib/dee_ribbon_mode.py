@@ -55,8 +55,8 @@ CATEGORY_PANELS = {
     "All": None,
     "Cloud & Sync": ["Models", "Cloud"],
     "Coordination": ["Coordination", "Masterplan"],
-    "Design": ["Align", "Rooms", "Tools"],
-    "Documentation": ["Views & Datums", "Sheets & Export", "Quantities"],
+    "Design": ["Align", "Rooms", "Tools", "Model", "Topography"],
+    "Documentation": ["Views & Datums", "Sheets & Export", "Quantities", "Model"],
     "Health": ["Health"],
 }
 
