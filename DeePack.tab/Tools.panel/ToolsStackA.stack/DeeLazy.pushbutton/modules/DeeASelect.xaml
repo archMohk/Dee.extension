@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeLazy — DeeASelect"
         ShowInTaskbar="False"
-        MinHeight="560" MinWidth="560" Height="680" Width="600"
+        MinHeight="540" MinWidth="600" Height="660" Width="640"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
@@ -16,11 +16,6 @@
 
         <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,8">
             <TextBlock x:Name="summary_tb" FontSize="11" Foreground="#555" Margin="0,0,0,8" Text=""/>
-            <CheckBox x:Name="movable_only_cb" Margin="0,0,0,8" Checked="movable_toggle_changed" Unchecked="movable_toggle_changed"
-                      ToolTip="An element counts as movable only if it is not pinned, has a Location Revit can translate, and is not a member of a Group (a single group member can't move on its own outside group-edit mode).">
-                <TextBlock Text="Only select MOVABLE elements (excludes pinned, grouped, and location-less elements)"
-                           TextWrapping="Wrap"/>
-            </CheckBox>
             <StackPanel Orientation="Horizontal">
                 <CheckBox x:Name="close_after_cb" Content="Close after selecting" IsChecked="True"
                           VerticalAlignment="Center"/>
@@ -43,15 +38,20 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
-            <Button Grid.Column="0" x:Name="all_b" Content="All" Height="26" Margin="0,0,3,0" Click="all_click"/>
+            <Button Grid.Column="0" x:Name="all_b" Content="All" Height="26" Margin="0,0,3,0" Click="all_click"
+                    ToolTip="Ticks every category - model, annotation, and everything else (levels, grids, links, ...)."/>
             <Button Grid.Column="1" x:Name="none_b" Content="None" Height="26" Margin="3,0,3,0" Click="none_click"/>
             <Button Grid.Column="2" x:Name="model_only_b" Content="Model Only" Height="26" Margin="3,0,3,0"
                     Click="model_only_click"
                     ToolTip="Ticks every category whose type is Model, unticks everything else."/>
-            <Button Grid.Column="3" x:Name="annotation_only_b" Content="Annotation Only" Height="26" Margin="3,0,0,0"
+            <Button Grid.Column="3" x:Name="annotation_only_b" Content="Annotation Only" Height="26" Margin="3,0,3,0"
                     Click="annotation_only_click"
                     ToolTip="Ticks every category whose type is Annotation, unticks everything else."/>
+            <Button Grid.Column="4" x:Name="model_and_annotation_b" Content="Model + Annotation" Height="26" Margin="3,0,0,0"
+                    Click="model_and_annotation_click"
+                    ToolTip="Ticks every Model AND every Annotation category together, unticks everything else (levels, grids, links, and other non-Model/Annotation categories)."/>
         </Grid>
 
         <!-- Header row - same column widths AND same outer margins as the
@@ -63,7 +63,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="90"/>
-                <ColumnDefinition Width="150"/>
+                <ColumnDefinition Width="80"/>
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" Text="Category" FontWeight="Bold" FontSize="11" Foreground="#666"
                        Margin="24,0,0,0"/>
@@ -81,7 +81,7 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="90"/>
-                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="80"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Orientation="Horizontal">
                             <CheckBox IsChecked="{Binding checked}"

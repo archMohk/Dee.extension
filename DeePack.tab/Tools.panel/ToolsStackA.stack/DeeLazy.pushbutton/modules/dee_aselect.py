@@ -22,32 +22,18 @@ No CategoryType filtering happens during the scan itself - Model,
 Annotation, Internal (levels, grids, reference planes, ...) and
 anything else all get their own row, grouped by Category.Name exactly
 like DeeCtotopo's own "(No category)" convention for the rare element
-that has none. "Model Only" / "Annotation Only" are quick PRESET
-buttons built from that CategoryType, on top of the always-available
-per-category checkboxes - not a filter applied at scan time, so
-switching presets never re-scans the model.
+that has none. All / None / Model Only / Annotation Only / Model +
+Annotation are quick PRESET buttons built from that CategoryType, on
+top of the always-available per-category checkboxes - not a filter
+applied at scan time, so switching presets never re-scans the model.
+Model Only and Annotation Only are each single-type; Model + Annotation
+ticks both together in one click (excluding only "Other": levels,
+grids, links, and anything else that is neither).
 
---------------------------------------------------------------------
-"Only select MOVABLE elements" (live feedback: selecting everything
-then trying to Move it hits pinned/grouped elements that just error)
---------------------------------------------------------------------
-Each element is also classified movable/not during the same scan pass
-(cheap property reads, no separate pass needed) via three real,
-documented blockers - not a guess:
-  - Pinned: ElementTransformUtils.MoveElement raises on a pinned
-    element; Revit's own UI refuses the same way.
-  - Location is None: an element with no Location object has nothing
-    an API move can translate - some system/internal elements have
-    none.
-  - GroupId set (a real group, not InvalidElementId): an individual
-    member of a Group cannot be moved on its own outside group-edit
-    mode; only the whole Group instance can move.
-Anything else - walls, floors, furniture, tags, dimensions, grids,
-levels, links, imports - counts as movable. Each row shows both counts
-("1,701" vs "1,680 movable") since one category can hold a mix (some
-pinned, some not); the checkbox filters the ACTUAL selection to the
-movable subset without needing a separate preset button, on top of
-whatever categories are already ticked.
+An earlier revision added a "movable elements only" filter (excluding
+pinned/grouped/location-less elements); live feedback asked for it
+back out - this tool's whole point is "everything", full stop - so it
+was removed rather than left toggled off by default.
 
 --------------------------------------------------------------------
 NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
@@ -131,80 +117,48 @@ def _category_type_label(element):
         return u"Other"
 
 
-def _is_movable(element):
-    """True only if ElementTransformUtils.MoveElement would actually be
-    allowed to move this element - see the module docstring for the
-    three real blockers this checks (pinned / no Location / grouped)."""
-    try:
-        if element.Pinned:
-            return False
-    except Exception:
-        pass
-    try:
-        if element.Location is None:
-            return False
-    except Exception:
-        return False
-    try:
-        gid = element.GroupId
-        if gid is not None and gid != ElementId.InvalidElementId:
-            return False
-    except Exception:
-        pass
-    return True
-
-
 class CategoryRow(object):
-    """One checkable row - a category name, its total and MOVABLE
-    element counts, its Model/Annotation/Other grouping (for the two
-    type presets), and whether it is currently ticked. Starts ticked:
-    the default action this whole module exists for IS "select
-    everything"."""
-    def __init__(self, name, count, movable_count, type_label):
+    """One checkable row - a category name, its element count, its
+    Model/Annotation/Other grouping (for the two preset buttons), and
+    whether it is currently ticked. Starts ticked: the default action
+    this whole module exists for IS "select everything"."""
+    def __init__(self, name, count, type_label):
         self.name = name
         self.count = count
-        self.movable_count = movable_count
         self.type_label = type_label
         self.checked = True
 
     @property
     def count_label(self):
-        if self.movable_count == self.count:
-            return u"{0:,}".format(self.count)
-        return u"{0:,} ({1:,} movable)".format(self.count, self.movable_count)
+        return u"{0:,}".format(self.count)
 
 
 def scan_categories(doc):
-    """One pass over the whole document. Returns (rows, id_map,
-    movable_id_map) - rows for the checklist, and TWO
-    {category_name: [ElementId, ...]} maps so the final selection never
-    has to re-scan the model or re-check Pinned/Location/GroupId; it
-    only has to concatenate whichever buckets (all, or movable-only)
-    are relevant for whichever categories are still ticked when Select
-    is clicked."""
-    buckets = {}  # name -> {"ids": [...], "movable_ids": [...], "type_label": str}
+    """One pass over the whole document. Returns (rows, id_map) - rows
+    for the checklist, id_map={category_name: [ElementId, ...]} so the
+    final selection never has to re-scan the model; it only has to
+    concatenate whichever buckets are still ticked when Select is
+    clicked."""
+    buckets = {}  # name -> {"ids": [ElementId,...], "type_label": str}
     try:
         collector = FilteredElementCollector(doc).WhereElementIsNotElementType()
     except Exception:
-        return [], {}, {}
+        return [], {}
     for el in collector:
         name = _category_name(el)
         bucket = buckets.get(name)
         if bucket is None:
-            bucket = {"ids": [], "movable_ids": [], "type_label": _category_type_label(el)}
+            bucket = {"ids": [], "type_label": _category_type_label(el)}
             buckets[name] = bucket
         try:
             bucket["ids"].append(el.Id)
         except Exception:
             continue
-        if _is_movable(el):
-            bucket["movable_ids"].append(el.Id)
-    rows = [CategoryRow(name, len(b["ids"]), len(b["movable_ids"]), b["type_label"])
+    rows = [CategoryRow(name, len(b["ids"]), b["type_label"])
             for name, b in buckets.items()]
     rows.sort(key=lambda r: r.name.lower())
     id_map = dict((name, b["ids"]) for name, b in buckets.items())
-    movable_id_map = dict((name, b["movable_ids"]) for name, b in buckets.items())
-    return rows, id_map, movable_id_map
+    return rows, id_map
 
 
 # ==========================================================================
@@ -222,7 +176,7 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
         self.doc = self.uidoc.Document
 
         with _SafeProgress(title="DeeASelect - scanning the project...", indeterminate=True):
-            self._rows, self._id_map, self._movable_id_map = scan_categories(self.doc)
+            self._rows, self._id_map = scan_categories(self.doc)
 
         self._ready = True
         self._refresh_list()
@@ -249,9 +203,13 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
             return
         self._refresh_list()
 
-    def _set_all(self, value, only_type=None):
+    def _set_all(self, value, only_types=None):
+        """only_types: None ticks/unticks every row regardless of type;
+        otherwise a set of type_label strings to restrict to (used by
+        both the two single-type presets and the combined Model +
+        Annotation one, rather than a separate code path per preset)."""
         for r in self._rows:
-            if only_type is not None and r.type_label != only_type:
+            if only_types is not None and r.type_label not in only_types:
                 continue
             r.checked = value
         self._refresh_list()
@@ -265,11 +223,19 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
 
     def model_only_click(self, sender, args):
         self._set_all(False)
-        self._set_all(True, only_type=u"Model")
+        self._set_all(True, only_types=(u"Model",))
 
     def annotation_only_click(self, sender, args):
         self._set_all(False)
-        self._set_all(True, only_type=u"Annotation")
+        self._set_all(True, only_types=(u"Annotation",))
+
+    def model_and_annotation_click(self, sender, args):
+        """Model Only / Annotation Only are each single-type and
+        mutually exclusive - this ticks BOTH together (excluding only
+        the 'Other' type: levels, grids, links, and anything else that
+        isn't Model or Annotation)."""
+        self._set_all(False)
+        self._set_all(True, only_types=(u"Model", u"Annotation"))
 
     def cat_toggled(self, sender, args):
         """The model is set from the CheckBox's own state, the same
@@ -283,40 +249,24 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
             pass
         self._update_summary()
 
-    def movable_toggle_changed(self, sender, args):
-        if not self._ready:
-            return
-        self._update_summary()
-
-    def _movable_only(self):
-        return self.movable_only_cb.IsChecked is True
-
     def _update_summary(self):
         checked_rows = [r for r in self._rows if r.checked]
-        movable_only = self._movable_only()
-        total_elems = sum(
-            (r.movable_count if movable_only else r.count) for r in checked_rows)
-        note = u" (movable only)" if movable_only else u""
+        total_elems = sum(r.count for r in checked_rows)
         self.summary_tb.Text = (
-            u"{0} of {1} categories checked - {2:,} element(s) will be selected{3}."
-            .format(len(checked_rows), len(self._rows), total_elems, note))
+            u"{0} of {1} categories checked - {2:,} element(s) will be selected."
+            .format(len(checked_rows), len(self._rows), total_elems))
 
     def select_click(self, sender, args):
         checked_rows = [r for r in self._rows if r.checked]
         if not checked_rows:
             forms.alert("Tick at least one category first.", title="DeeASelect")
             return
-        movable_only = self._movable_only()
-        source_map = self._movable_id_map if movable_only else self._id_map
         ids = List[ElementId]()
         for r in checked_rows:
-            for eid in source_map.get(r.name, []):
+            for eid in self._id_map.get(r.name, []):
                 ids.Add(eid)
         if ids.Count == 0:
-            msg = ("Nothing to select." if not movable_only else
-                  "None of the checked categories has a movable element - "
-                  "everything in them is pinned, grouped, or has no location.")
-            forms.alert(msg, title="DeeASelect")
+            forms.alert("Nothing to select.", title="DeeASelect")
             return
         try:
             self.uidoc.Selection.SetElementIds(ids)
@@ -325,9 +275,8 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
                         title="DeeASelect")
             return
         self.status_tb.Text = (
-            u"Selected {0:,} element(s) across {1} categor(y/ies){2}."
-            .format(ids.Count, len(checked_rows),
-                   u" (movable only)" if movable_only else u""))
+            u"Selected {0:,} element(s) across {1} categor(y/ies)."
+            .format(ids.Count, len(checked_rows)))
         if self.close_after_cb.IsChecked is True:
             self.Close()
 
@@ -349,6 +298,6 @@ def launch(uiapp):
 TOOL_INFO = {
     "id": "dee_aselect",
     "title": "DeeASelect",
-    "description": "Select EVERY element in the project - model, annotation, links, everything - with a category checklist to review or deselect some first, plus an option to select only elements that can actually be moved.",
+    "description": "Select EVERY element in the project - model, annotation, links, everything - with a category checklist to review or deselect some first, plus one-click presets for Model Only, Annotation Only, or both together.",
     "launch": launch,
 }
