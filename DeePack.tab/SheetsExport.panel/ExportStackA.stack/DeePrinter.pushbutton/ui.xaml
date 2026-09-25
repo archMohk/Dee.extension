@@ -2,185 +2,336 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeePrinter — Export Sheets"
         ShowInTaskbar="False"
-        MinHeight="1040" MinWidth="640" Height="1040" Width="640"
-        WindowStartupLocation="CenterScreen"
-        HorizontalContentAlignment="Center">
+        MinHeight="620" MinWidth="1180" Height="780" Width="1320"
+        WindowStartupLocation="CenterScreen">
     <Window.Resources>
         <Style x:Key="ClearButton" TargetType="{x:Type Button}">
             <Setter Property="Background" Value="White"/>
         </Style>
     </Window.Resources>
     <DockPanel Margin="10">
-        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-            <TextBlock FontSize="14" Margin="0,3,10,0" DockPanel.Dock="Left" Text="Filter:"/>
-            <StackPanel>
-                <TextBox x:Name="search_tb" Height="25" TextChanged="search_txt_changed"/>
-                <Button Style="{StaticResource ClearButton}" HorizontalAlignment="Right"
-                        x:Name="clrsearch_b" Content="x" Margin="0,-25,5,0" Padding="0,-4,0,0"
-                        Click="clear_search" Width="15" Height="15"/>
-            </StackPanel>
-        </DockPanel>
-        <StackPanel DockPanel.Dock="Bottom">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Button x:Name="checkall_b" Grid.Column="0" Content="Check"
-                        Click="check_all" Margin="0,10,3,0"/>
-                <Button x:Name="uncheckall_b" Grid.Column="1" Content="Uncheck"
-                        Click="uncheck_all" Margin="3,10,3,0"/>
-                <Button x:Name="toggleall_b" Grid.Column="2" Content="Toggle"
-                        Click="toggle_all" Margin="3,10,0,0"/>
-            </Grid>
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Button x:Name="check_highlighted_b" Grid.Column="0" Content="Check Highlighted"
-                        Click="check_highlighted_click" Margin="0,6,3,0"
-                        ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
-                <Button x:Name="uncheck_highlighted_b" Grid.Column="1" Content="Uncheck Highlighted"
-                        Click="uncheck_highlighted_click" Margin="3,6,0,0"/>
-            </Grid>
-            <Button x:Name="select_b" Content="Export Selected" Click="button_select"
-                    Margin="0,10,0,0" Height="28"/>
+        <Button DockPanel.Dock="Bottom" x:Name="select_b" Click="button_select" Margin="0,10,0,0" Height="42"
+                Background="#1F6FB2" Foreground="White" BorderBrush="#1F6FB2"
+                FontSize="16" FontWeight="Bold" Content="EXPORT SELECTED"
+                Cursor="Hand"/>
 
-            <GroupBox Margin="0,10,0,0" Header="File Naming and Output">
-                <StackPanel Margin="5">
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,6">
-                        <Run Text="Drag tokens from the left into the right to build the file name, in order. If dragging feels awkward, use the buttons instead - both do the same thing."/><LineBreak/>
-                        <Run Text="date -&gt; 25-08-19, time -&gt; 10.34. Chars not allowed in filenames are stripped automatically: \ / : &quot; ? * &lt; &gt; |"/>
-                    </TextBlock>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="90"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0">
-                            <TextBlock Text="Available Tokens" FontWeight="Bold" Margin="0,0,0,4"/>
-                            <ListBox x:Name="available_tokens_lb" Height="100"
-                                     PreviewMouseLeftButtonDown="avail_token_mouse_down"
-                                     PreviewMouseMove="avail_token_mouse_move">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding label}"/>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,20,6,0">
-                            <Button x:Name="add_token_b" Content="Add &gt;&gt;" Height="24" Margin="0,0,0,6" Click="add_token_click"/>
-                            <Button x:Name="remove_token_b" Content="&lt;&lt; Remove" Height="24" Margin="0,0,0,12" Click="remove_token_click"/>
-                            <Button x:Name="move_token_up_b" Content="Move Up" Height="24" Margin="0,0,0,6" Click="move_token_up_click"/>
-                            <Button x:Name="move_token_down_b" Content="Move Down" Height="24" Click="move_token_down_click"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="2">
-                            <TextBlock Text="File Name (in order)" FontWeight="Bold" Margin="0,0,0,4"/>
-                            <ListBox x:Name="naming_seq_lb" Height="100" AllowDrop="True"
-                                     PreviewMouseLeftButtonDown="naming_seq_mouse_down"
-                                     PreviewMouseMove="naming_seq_mouse_move"
-                                     Drop="naming_seq_drop"
-                                     DragOver="naming_seq_drag_over">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding label}"/>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                        </StackPanel>
-                    </Grid>
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <Button x:Name="preview_b" Content="Preview" Click="preview_click"
-                                Width="60" Height="22" HorizontalAlignment="Left"/>
-                        <TextBox x:Name="lb_txtbox_preview" Margin="10,0,0,0" Width="400"
-                                 IsReadOnly="True" BorderThickness="1"/>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="380"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="2*" MinWidth="400"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="1.1*" MinWidth="300"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- ================= LEFT: the sheets themselves ================= -->
+            <DockPanel Grid.Column="0">
+                <TextBlock DockPanel.Dock="Top" Text="Sheets" FontWeight="Bold" FontSize="14" Margin="0,0,0,6"/>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <TextBlock FontSize="14" Margin="0,3,10,0" DockPanel.Dock="Left" Text="Filter:"/>
+                    <StackPanel>
+                        <TextBox x:Name="search_tb" Height="25" TextChanged="search_txt_changed"/>
+                        <Button Style="{StaticResource ClearButton}" HorizontalAlignment="Right"
+                                x:Name="clrsearch_b" Content="x" Margin="0,-25,5,0" Padding="0,-4,0,0"
+                                Click="clear_search" Width="15" Height="15"/>
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <Label Content="Output Folder:" Padding="0,4,4,0"/>
-                        <Button x:Name="but_printfilepath" Content="Select" Width="60" Height="22"
-                                Click="selectprintfilepath_click"/>
-                        <Label x:Name="lb_printfilepath" Content="" Margin="8,0,0,0"/>
-                    </StackPanel>
+                </DockPanel>
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="checkall_b" Grid.Column="0" Content="Check"
+                            Click="check_all" Margin="0,0,3,0"/>
+                    <Button x:Name="uncheckall_b" Grid.Column="1" Content="Uncheck"
+                            Click="uncheck_all" Margin="3,0,3,0"/>
+                    <Button x:Name="toggleall_b" Grid.Column="2" Content="Toggle"
+                            Click="toggle_all" Margin="3,0,0,0"/>
+                </Grid>
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="check_highlighted_b" Grid.Column="0" Content="Check Highlighted"
+                            Click="check_highlighted_click" Margin="0,0,3,0"
+                            ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
+                    <Button x:Name="uncheck_highlighted_b" Grid.Column="1" Content="Uncheck Highlighted"
+                            Click="uncheck_highlighted_click" Margin="3,0,0,0"/>
+                </Grid>
+                <TextBlock DockPanel.Dock="Top" x:Name="sheetcount_tb" FontSize="11" Foreground="#666"
+                           Margin="0,6,0,4" Text="0 of 0 sheets checked"/>
+                <ListView x:Name="list_lb" SelectionMode="Extended">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal">
+                                <CheckBox IsChecked="{Binding state}"
+                                          Checked="check_selected" Unchecked="uncheck_selected"/>
+                                <TextBlock Text="{Binding name}" Margin="10,0,0,0"
+                                           TextWrapping="Wrap" MaxWidth="300"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </DockPanel>
+
+            <!-- ================= MIDDLE: sheet set, naming, folders ================= -->
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="0,0,4,0">
+
+                    <GroupBox Header="Sheet Set"
+                              ToolTip="Revit's own saved sheet sets - the named sets created via File &gt; Print &gt; Select Views/Sheets to Print &gt; Save As...">
+                        <StackPanel Margin="5">
+                            <Border BorderBrush="#AAAAAA" BorderThickness="1" CornerRadius="3" Height="86">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl x:Name="sheetset_list_ic" Margin="4">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <CheckBox Content="{Binding name}" IsChecked="{Binding state}" Margin="2"/>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </Border>
+                            <Grid Margin="0,6,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0" x:Name="checkset_b" Content="Check These" Height="24"
+                                        Margin="0,0,3,0" Click="check_set_click"
+                                        ToolTip="Adds every ticked set's sheets to whatever is already checked on the left - nothing else changes."/>
+                                <Button Grid.Column="1" x:Name="onlyset_b" Content="Only These" Height="24"
+                                        Margin="3,0,3,0" Click="only_set_click"
+                                        ToolTip="Checks exactly the ticked sets' sheets and unchecks every other sheet."/>
+                                <Button Grid.Column="2" x:Name="clearset_b" Content="Clear" Height="24"
+                                        Margin="3,0,0,0" Click="clear_set_click"
+                                        ToolTip="Unticks every set below - does not change which sheets are checked."/>
+                            </Grid>
+                            <TextBlock x:Name="sheetset_status_tb" TextWrapping="Wrap" FontSize="11"
+                                       Foreground="#888" Margin="0,4,0,0" Text=""/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Margin="0,10,0,0" Header="File Naming and Output">
+                        <StackPanel Margin="5">
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,6">
+                                <Run Text="Drag tokens from the left into the right to build the file name, in order. If dragging feels awkward, use the buttons instead - both do the same thing."/><LineBreak/>
+                                <Run Text="date -&gt; 25-08-19, time -&gt; 10.34. Chars not allowed in filenames are stripped automatically: \ / : &quot; ? * &lt; &gt; |"/>
+                            </TextBlock>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="90"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Available Tokens" FontWeight="Bold" Margin="0,0,0,4"/>
+                                    <ListBox x:Name="available_tokens_lb" Height="100"
+                                             PreviewMouseLeftButtonDown="avail_token_mouse_down"
+                                             PreviewMouseMove="avail_token_mouse_move">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding label}"/>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,20,6,0">
+                                    <Button x:Name="add_token_b" Content="Add &gt;&gt;" Height="24" Margin="0,0,0,6" Click="add_token_click"/>
+                                    <Button x:Name="remove_token_b" Content="&lt;&lt; Remove" Height="24" Margin="0,0,0,12" Click="remove_token_click"/>
+                                    <Button x:Name="move_token_up_b" Content="Move Up" Height="24" Margin="0,0,0,6" Click="move_token_up_click"/>
+                                    <Button x:Name="move_token_down_b" Content="Move Down" Height="24" Click="move_token_down_click"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="File Name (in order)" FontWeight="Bold" Margin="0,0,0,4"/>
+                                    <ListBox x:Name="naming_seq_lb" Height="100" AllowDrop="True"
+                                             PreviewMouseLeftButtonDown="naming_seq_mouse_down"
+                                             PreviewMouseMove="naming_seq_mouse_move"
+                                             Drop="naming_seq_drop"
+                                             DragOver="naming_seq_drag_over">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding label}"/>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </StackPanel>
+                            </Grid>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Label Content="Prefix:" Padding="0,3,4,0"/>
+                                <TextBox x:Name="tb_prefix" Width="150" Height="22" TextChanged="naming_text_changed"
+                                         ToolTip="Added in front of every exported file name (e.g. PRJ01-). Leave empty for none."/>
+                                <Label Content="Suffix:" Padding="14,3,4,0"/>
+                                <TextBox x:Name="tb_suffix" Width="150" Height="22" TextChanged="naming_text_changed"
+                                         ToolTip="Added at the end of every exported file name, before the extension (e.g. -IFC). Leave empty for none."/>
+                            </StackPanel>
+                            <TextBlock Text="Live preview of the first checked sheet's file name (updates automatically as you edit):"
+                                       FontSize="11" Foreground="#555" TextWrapping="Wrap" Margin="0,10,0,4"/>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBox x:Name="lb_txtbox_preview" Width="360" IsReadOnly="True"
+                                         BorderThickness="1" Background="#F3F3F3" FontWeight="Bold"/>
+                                <Button x:Name="preview_b" Content="Refresh" Click="preview_click"
+                                        Width="60" Height="22" Margin="10,0,0,0"
+                                        ToolTip="Force a re-check - useful right after checking a different sheet."/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                <Label Content="Output Folder:" Padding="0,4,4,0"/>
+                                <Button x:Name="but_printfilepath" Content="Select" Width="60" Height="22"
+                                        Click="selectprintfilepath_click"/>
+                                <Label x:Name="lb_printfilepath" Content="" Margin="8,0,0,0"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Margin="0,10,0,0" Header="Folder Structure">
+                        <StackPanel Margin="5">
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,6">
+                                <Run Text="Drag parameters from the left into the right to build the export folder hierarchy, in order (top = outermost folder). If dragging feels awkward, use the buttons instead - both do the same thing."/>
+                            </TextBlock>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="90"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Available Parameters" FontWeight="Bold" Margin="0,0,0,4"/>
+                                    <ListBox x:Name="available_params_lb" Height="100"
+                                             PreviewMouseLeftButtonDown="available_mouse_down"
+                                             PreviewMouseMove="available_mouse_move"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,20,6,0">
+                                    <Button x:Name="add_level_b" Content="Add &gt;&gt;" Height="24" Margin="0,0,0,6" Click="add_level_click"/>
+                                    <Button x:Name="remove_level_b" Content="&lt;&lt; Remove" Height="24" Margin="0,0,0,12" Click="remove_level_click"/>
+                                    <Button x:Name="move_up_b" Content="Move Up" Height="24" Margin="0,0,0,6" Click="move_up_click"/>
+                                    <Button x:Name="move_down_b" Content="Move Down" Height="24" Click="move_down_click"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Folder Hierarchy (top = outermost)" FontWeight="Bold" Margin="0,0,0,4"/>
+                                    <ListBox x:Name="hierarchy_lb" Height="100" AllowDrop="True"
+                                             PreviewMouseLeftButtonDown="hierarchy_mouse_down"
+                                             PreviewMouseMove="hierarchy_mouse_move"
+                                             Drop="hierarchy_drop"
+                                             DragOver="hierarchy_drag_over">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <CheckBox IsChecked="{Binding enabled}" Margin="0,0,6,0"
+                                                              Checked="hierarchy_level_toggled" Unchecked="hierarchy_level_toggled"/>
+                                                    <TextBlock Text="{Binding name}"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </StackPanel>
+                            </Grid>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button x:Name="preview_folders_b" Content="Preview Path" Click="preview_folders_click"
+                                        Width="90" Height="22" HorizontalAlignment="Left"/>
+                                <TextBox x:Name="lb_txtbox_folderpreview" Margin="10,0,0,0" Width="380"
+                                         IsReadOnly="True" BorderThickness="1"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+
                 </StackPanel>
-            </GroupBox>
+            </ScrollViewer>
 
-            <GroupBox Margin="0,10,0,0" Header="Folder Structure">
-                <StackPanel Margin="5">
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,6">
-                        <Run Text="Drag parameters from the left into the right to build the export folder hierarchy, in order (top = outermost folder). If dragging feels awkward, use the buttons instead - both do the same thing."/>
-                    </TextBlock>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="90"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0">
-                            <TextBlock Text="Available Parameters" FontWeight="Bold" Margin="0,0,0,4"/>
-                            <ListBox x:Name="available_params_lb" Height="100"
-                                     PreviewMouseLeftButtonDown="available_mouse_down"
-                                     PreviewMouseMove="available_mouse_move"/>
+            <!-- ================= RIGHT: what to export, and how ================= -->
+            <ScrollViewer Grid.Column="4" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="0,0,4,0">
+                    <TextBlock Text="Export Options" FontWeight="Bold" FontSize="14" Margin="0,0,0,8"/>
+
+                    <GroupBox Header="Formats">
+                        <StackPanel Margin="5">
+                            <WrapPanel>
+                                <CheckBox x:Name="chbox_pdfexport" Margin="0,5,12,5" IsChecked="True" VerticalContentAlignment="Center">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Background="#C62828" CornerRadius="3" Width="32" Height="16" Margin="0,0,5,0">
+                                            <TextBlock Text="PDF" Foreground="White" FontSize="9" FontWeight="Bold"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock Text="Export PDF" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </CheckBox>
+                                <CheckBox x:Name="chbox_combinedpdf" Margin="0,5,12,5" IsChecked="False" VerticalContentAlignment="Center"
+                                          ToolTip="Export all checked sheets into ONE multi-page PDF named &lt;Project&gt;_&lt;date&gt;_&lt;time&gt;.pdf. Works alone or together with Export PDF: when BOTH are ticked, the per-sheet files go to PDF\Separated\ and the combined file to PDF\Combined\ under the Output Folder. DWG/DXF still export per sheet.">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Grid Width="35" Height="19" Margin="0,0,5,0">
+                                            <Border Background="#EF9A9A" CornerRadius="3" Margin="3,3,0,0"/>
+                                            <Border Background="#C62828" CornerRadius="3" Margin="0,0,3,3">
+                                                <TextBlock Text="PDF" Foreground="White" FontSize="9" FontWeight="Bold"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                        </Grid>
+                                        <TextBlock Text="Combined PDF" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </CheckBox>
+                                <CheckBox x:Name="chbox_dwgexport" Margin="0,5,12,5" IsChecked="False" VerticalContentAlignment="Center">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Background="#1E64B4" CornerRadius="3" Width="32" Height="16" Margin="0,0,5,0">
+                                            <TextBlock Text="DWG" Foreground="White" FontSize="9" FontWeight="Bold"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock Text="Export DWG" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </CheckBox>
+                                <CheckBox x:Name="chbox_dxfexport" Margin="0,5,10,5" IsChecked="False" VerticalContentAlignment="Center">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Background="#2E7D32" CornerRadius="3" Width="32" Height="16" Margin="0,0,5,0">
+                                            <TextBlock Text="DXF" Foreground="White" FontSize="9" FontWeight="Bold"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock Text="Export DXF" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </CheckBox>
+                            </WrapPanel>
+                            <CheckBox x:Name="chbox_splitbyext" Margin="0,6,0,0" IsChecked="False"
+                                      ToolTip="Each format gets its own folder directly under the Output Folder (e.g. ...\PDF\... and ...\DWG\...). The Folder Structure hierarchy is repeated inside each format folder.">
+                                <TextBlock Text="Split by file type (PDF / DWG / DXF top-level folders)"
+                                           TextWrapping="Wrap" MaxWidth="260"/>
+                            </CheckBox>
                         </StackPanel>
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,20,6,0">
-                            <Button x:Name="add_level_b" Content="Add &gt;&gt;" Height="24" Margin="0,0,0,6" Click="add_level_click"/>
-                            <Button x:Name="remove_level_b" Content="&lt;&lt; Remove" Height="24" Margin="0,0,0,12" Click="remove_level_click"/>
-                            <Button x:Name="move_up_b" Content="Move Up" Height="24" Margin="0,0,0,6" Click="move_up_click"/>
-                            <Button x:Name="move_down_b" Content="Move Down" Height="24" Click="move_down_click"/>
+                    </GroupBox>
+
+                    <GroupBox Margin="0,10,0,0" Header="PDF Engine">
+                        <StackPanel Margin="5">
+                            <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#555" Margin="0,0,0,6"
+                                       Text="Which mechanism actually produces the PDF. DeePrinter does not include or install any PDF printer of its own - 'An installed printer on this PC' just means whichever printers/drivers Windows already has (Adobe PDF, Microsoft Print to PDF, a real plotter, PDFCreator if installed, ...)."/>
+                            <TextBlock Text="Engine:" Margin="0,0,0,4"/>
+                            <ComboBox x:Name="pdfengine_cb" Height="24"
+                                      SelectionChanged="pdfengine_changed"
+                                      ToolTip="Native calls Revit's own PDF export function directly - no printer involved, works unattended, the default and recommended choice. An installed printer instead sends each PDF through one of the printers/drivers already set up on this PC, via Revit's classic Print mechanism - useful only for a print setup or paper size Native can't reproduce, or to plot straight to a physical printer."/>
+                            <StackPanel x:Name="printer_row" Visibility="Collapsed" Margin="0,10,0,0">
+                                <TextBlock Text="Printer:" Margin="0,0,0,4"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox Grid.Column="0" x:Name="printer_cb" Height="24"/>
+                                    <Button Grid.Column="1" x:Name="refresh_printers_b" Content="Refresh" Width="70"
+                                            Height="24" Margin="6,0,0,0" Click="refresh_printers_click"/>
+                                </Grid>
+                                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#B26A00" Margin="0,6,0,0"
+                                           Text="Only pick a printer already set up for SILENT, automatic output (a real plotter, or PDFCreator/Bluebeam with an Auto-Save profile). Adobe PDF and Microsoft Print to PDF pop up their own Save dialog for every sheet, which this tool cannot answer - a batch run through one of those will look frozen on the first sheet."/>
+                            </StackPanel>
                         </StackPanel>
-                        <StackPanel Grid.Column="2">
-                            <TextBlock Text="Folder Hierarchy (top = outermost)" FontWeight="Bold" Margin="0,0,0,4"/>
-                            <ListBox x:Name="hierarchy_lb" Height="100" AllowDrop="True"
-                                     PreviewMouseLeftButtonDown="hierarchy_mouse_down"
-                                     PreviewMouseMove="hierarchy_mouse_move"
-                                     Drop="hierarchy_drop"
-                                     DragOver="hierarchy_drag_over">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Orientation="Horizontal">
-                                            <CheckBox IsChecked="{Binding enabled}" Margin="0,0,6,0"
-                                                      Checked="hierarchy_level_toggled" Unchecked="hierarchy_level_toggled"/>
-                                            <TextBlock Text="{Binding name}"/>
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
+                    </GroupBox>
+
+                    <GroupBox Margin="0,10,0,0" Header="Output">
+                        <StackPanel Margin="5">
+                            <CheckBox x:Name="chbox_output" Margin="0,5,0,5" Content="Show Output Window" IsChecked="True"/>
+                            <CheckBox x:Name="chbox_messageboxes" Margin="0,0,0,8" Content="Messageboxes" IsChecked="False"/>
+                            <Button x:Name="b_savesettings" Content="Save Settings" HorizontalAlignment="Left"
+                                    Width="110" Height="24" Click="savesettings_click"/>
                         </StackPanel>
-                    </Grid>
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <Button x:Name="preview_folders_b" Content="Preview Path" Click="preview_folders_click"
-                                Width="90" Height="22" HorizontalAlignment="Left"/>
-                        <TextBox x:Name="lb_txtbox_folderpreview" Margin="10,0,0,0" Width="380"
-                                 IsReadOnly="True" BorderThickness="1"/>
-                    </StackPanel>
+                    </GroupBox>
                 </StackPanel>
-            </GroupBox>
-
-            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                <CheckBox x:Name="chbox_pdfexport" Margin="0,5,10,5" Content="Export PDF" IsChecked="True"/>
-                <CheckBox x:Name="chbox_dwgexport" Margin="0,5,10,5" Content="Export DWG" IsChecked="False"/>
-                <CheckBox x:Name="chbox_dxfexport" Margin="0,5,10,5" Content="Export DXF" IsChecked="False"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
-                <CheckBox x:Name="chbox_output" Margin="0,5,10,5" Content="Show Output Window" IsChecked="True"/>
-                <CheckBox x:Name="chbox_messageboxes" Margin="0,5,10,5" Content="Messageboxes" IsChecked="False"/>
-                <Button HorizontalAlignment="Right" x:Name="b_savesettings" Content="Save Settings"
-                        Margin="20,0,0,0" Width="90" Height="22" Click="savesettings_click"/>
-            </StackPanel>
-        </StackPanel>
-        <ListView x:Name="list_lb" SelectionMode="Extended">
-            <ListView.ItemTemplate>
-                <DataTemplate>
-                    <StackPanel Orientation="Horizontal">
-                        <CheckBox IsChecked="{Binding state}"
-                                  Checked="check_selected" Unchecked="uncheck_selected"/>
-                        <TextBlock Text="{Binding name}" Margin="10,0,0,0"/>
-                    </StackPanel>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
+            </ScrollViewer>
+        </Grid>
     </DockPanel>
 </Window>

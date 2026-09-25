@@ -1,2 +1,2 @@
 title: DeePrinter
-tooltip: Batch-export selected sheets to PDF, DWG and/or DXF, with custom naming and a drag-and-drop parameter-based folder hierarchy
+tooltip: Batch-export selected sheets to PDF, DWG and/or DXF - sheet checklist on the left, all settings on a scrollable right pane. Custom naming with a LIVE preview (plus prefix/suffix), a drag-and-drop parameter-based folder hierarchy, an optional split into per-format folders (PDF/, DWG/, DXF/), an optional Combined PDF, a checklist for loading the document's own saved Sheet Sets, and a choice of PDF engine (Revit's native export, or any printer already installed on this PC for special print setups or plotting)
