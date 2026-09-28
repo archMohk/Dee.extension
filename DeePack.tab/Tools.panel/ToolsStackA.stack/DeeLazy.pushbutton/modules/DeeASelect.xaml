@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeLazy — DeeASelect"
         ShowInTaskbar="False"
-        MinHeight="640" MinWidth="600" Height="800" Width="640"
+        MinHeight="640" MinWidth="600" Height="900" Width="640"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
@@ -96,6 +96,29 @@
                         Background="#B26A00" Foreground="White" BorderBrush="#B26A00"
                         FontSize="13" FontWeight="Bold" Cursor="Hand"
                         ToolTip="Moves every element in the ticked categories by the X/Y offset above. Asks for confirmation first - this changes the model, unlike Select."/>
+            </StackPanel>
+        </GroupBox>
+
+        <GroupBox DockPanel.Dock="Top" Header="Mirror Selected Categories" Margin="0,0,0,8">
+            <StackPanel Margin="5">
+                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#555" Margin="0,0,0,6"
+                           Text="Mirrors every element in the TICKED categories across an axis, replacing the originals with their mirrored position (no copy is kept) - same one-operation guarantee as Move, so dimensions and tags stay attached instead of being orphaned."/>
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0" x:Name="flip_x_b" Content="Flip Around X" Height="30" Margin="0,0,3,0"
+                            Click="flip_x_click"
+                            ToolTip="Mirrors across a horizontal line through the middle of the ticked elements' combined extent - flips top/bottom, left-right position unchanged."/>
+                    <Button Grid.Column="1" x:Name="flip_y_b" Content="Flip Around Y" Height="30" Margin="3,0,0,0"
+                            Click="flip_y_click"
+                            ToolTip="Mirrors across a vertical line through the middle of the ticked elements' combined extent - flips left/right, top-bottom position unchanged."/>
+                </Grid>
+                <Button x:Name="mirror_pick_b" Content="MIRROR - PICK LINE AS AXIS..." Click="mirror_pick_click"
+                        Height="34" Background="#6A3FA0" Foreground="White" BorderBrush="#6A3FA0"
+                        FontSize="13" FontWeight="Bold" Cursor="Hand"
+                        ToolTip="Closes this window so you can pick an existing straight line/wall/beam in Revit as the mirror axis, then asks for confirmation before mirroring."/>
             </StackPanel>
         </GroupBox>
 

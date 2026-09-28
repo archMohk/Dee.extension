@@ -88,6 +88,38 @@ will go before it happens; the Move button itself still asks for
 confirmation, since unlike Select this genuinely changes the model.
 
 --------------------------------------------------------------------
+Mirror Selected Categories
+--------------------------------------------------------------------
+Same ticked-ids gathering and the exact same Pinned/_NEVER_MOVE/join/
+workset/failure-handling safety net as Move (see _run_mirror_transaction,
+which move_click's own logic was factored to mirror) - the only real
+difference is WHAT replaces MoveElements (ElementTransformUtils.
+MirrorElements with a Plane) and how that Plane's axis is chosen.
+Always REPLACES the originals with their mirrored position - no "keep a
+copy" option, by explicit request, so there is only ever one behaviour
+to reason about (matches Move's own "changes the model in place" shape).
+
+Two ways to choose the axis:
+- Flip Around X / Flip Around Y (_flip_click) run immediately, inside
+  the still-open window, exactly like Move - the axis is a horizontal
+  (X) or vertical (Y) line through the middle of the ticked elements'
+  own combined bounding box (_combined_bbox), so there is nothing to
+  pick and no window-closing involved.
+- Pick Line As Axis (mirror_pick_click) needs an actual Revit pick,
+  which this codebase's hard rule says can never happen from inside an
+  already-open WPF window. So this button stashes the ids/exclusions
+  gathered so far on self.mirror_pick_request and closes the window;
+  launch() (below) reads that request AFTER ShowDialog() returns - by
+  then no modal is open - does the real PickObject, builds the axis
+  Plane from the picked line's endpoints (_axis_plane_from_line_points,
+  flattened to the horizontal plane since this mirrors plan geometry),
+  and only then runs _run_mirror_transaction. This is the first place in
+  this module that needs a "gather state in the window -> close ->
+  pick -> resume with that state" flow; DeeLazy's own launcher and the
+  Dee3DView hub only ever do "close -> launch a fresh, self-contained
+  tool", so this is new, not a copy of an existing exact pattern.
+
+--------------------------------------------------------------------
 NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
 --------------------------------------------------------------------
 1. Whether elements hosted inside a Model/Detail Group are returned
@@ -127,6 +159,13 @@ NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
    reporting-only; the failure preprocessor is the actual safety net.
    Neither GetJoinedElements' cost at real scale nor DeleteWarning's
    exact behavior for this specific failure ID has been exercised live.
+5. Mirror (ElementTransformUtils.MirrorElements, all three entry points -
+   Flip Around X/Y and Pick Line As Axis) is new and has not been
+   exercised live at all yet - it reuses Move's pinned/join/checkout/
+   failure-handling safety net, but that reuse itself is unverified
+   in a real Revit session, and the pick-after-close flow in
+   mirror_pick_click/launch()/_run_mirror_pick_flow is the first of its
+   kind in this module (see the Mirror section above).
 """
 import math
 import os
@@ -147,9 +186,13 @@ import dee_branding
 import deew_failure_handler as ffh
 import utils
 
+from Autodesk.Revit.UI.Selection import ObjectType
+# Line is aliased - System.Windows.Shapes.Line (the WPF preview-arrow shape,
+# imported above) already owns the plain name "Line" in this module.
 from Autodesk.Revit.DB import (
     FilteredElementCollector, ElementId, CategoryType, Transaction,
     ElementTransformUtils, XYZ, JoinGeometryUtils, WorksharingUtils,
+    Plane, Line as RevitLine,
 )
 
 output = script.get_output()
@@ -450,6 +493,187 @@ def move_elements(doc, ids, dx_internal, dy_internal, pinned_ids):
 
 
 # ==========================================================================
+# mirror
+# ==========================================================================
+def mirror_elements(doc, ids, plane, pinned_ids):
+    """Same shape as move_elements() - unpin, transform, re-pin, inside the
+    caller's transaction - because MirrorElements has the exact same
+    all-or-nothing pinned-element restriction as MoveElements."""
+    if pinned_ids:
+        _set_pinned(doc, pinned_ids, False)
+    ElementTransformUtils.MirrorElements(doc, ids, plane, False)
+    if pinned_ids:
+        _set_pinned(doc, pinned_ids, True)
+
+
+def _combined_bbox(doc, ids):
+    """Unions get_BoundingBox(None) across `ids`. Returns (minx, miny, maxx,
+    maxy) in internal units, or None if none of them has a usable bounding
+    box (e.g. every ticked category is something view-specific with no
+    model geometry)."""
+    result = None
+    for eid in ids:
+        el = doc.GetElement(eid)
+        if el is None:
+            continue
+        try:
+            bbox = el.get_BoundingBox(None)
+        except Exception:
+            bbox = None
+        if bbox is None:
+            continue
+        if result is None:
+            result = [bbox.Min.X, bbox.Min.Y, bbox.Max.X, bbox.Max.Y]
+        else:
+            result[0] = min(result[0], bbox.Min.X)
+            result[1] = min(result[1], bbox.Min.Y)
+            result[2] = max(result[2], bbox.Max.X)
+            result[3] = max(result[3], bbox.Max.Y)
+    return tuple(result) if result else None
+
+
+def _flip_plane(axis, cx, cy):
+    """axis: 'x' - mirror across a HORIZONTAL line through the middle
+    (flips top/bottom, standard "mirror about the X axis" convention);
+    'y' - mirror across a VERTICAL line through the middle (flips
+    left/right). Both planes pass through the same (cx, cy) bbox-center
+    point - only the normal direction differs."""
+    normal = XYZ(0.0, 1.0, 0.0) if axis == "x" else XYZ(1.0, 0.0, 0.0)
+    origin = XYZ(cx, cy, 0.0)
+    return Plane.CreateByNormalAndOrigin(normal, origin)
+
+
+def _axis_plane_from_line_points(p1, p2):
+    """Builds the vertical mirror plane whose plan trace is the line
+    p1->p2 - the Z components of p1/p2 are deliberately ignored (flattened
+    to the horizontal plane) since DeeASelect mirrors plan-view geometry,
+    not the picked line's own elevation. Returns None if the line's
+    horizontal projection has ~zero length (a purely vertical pick, e.g. a
+    column edge) - that can't define a plan mirror axis."""
+    dx = p2.X - p1.X
+    dy = p2.Y - p1.Y
+    length = math.sqrt(dx * dx + dy * dy)
+    if length < 1e-9:
+        return None
+    hx, hy = dx / length, dy / length
+    normal = XYZ(-hy, hx, 0.0)
+    return Plane.CreateByNormalAndOrigin(normal, XYZ(p1.X, p1.Y, 0.0))
+
+
+def _line_from_element(el):
+    """The straight Line an element can be mirrored against, or None.
+    Covers detail lines, model lines, walls, beams and similar - anything
+    whose Location is a LocationCurve holding a straight Line (not an arc
+    or spline, which MirrorElements' plane-based API can't use directly
+    as an axis)."""
+    try:
+        loc = el.Location
+        curve = getattr(loc, "Curve", None)
+        if isinstance(curve, RevitLine):
+            return curve
+    except Exception:
+        pass
+    return None
+
+
+def _run_mirror_transaction(doc, uidoc, ids, checked_count, excluded_never_move,
+                             plane, axis_label, skip_size_warning=False):
+    """Shared by the in-window Flip buttons and the Pick-Line flow (which
+    runs from launch(), after the window has already closed - see that
+    function's own docstring for why). Mirrors move_click()'s confirm/
+    transaction/status shape exactly, with mirror-specific wording.
+
+    skip_size_warning=True lets the Pick-Line flow show its large-count
+    warning BEFORE the user spends effort picking a line (see
+    mirror_pick_click), instead of asking again here after the pick."""
+    if not skip_size_warning and ids.Count >= _LARGE_SELECTION_WARN_THRESHOLD:
+        proceed = forms.alert(
+            u"This is a VERY large mirror - {0:,} element(s) across "
+            u"{1} categor(y/ies).\n\nMirroring this many elements in one "
+            u"operation can make Revit unresponsive, and on some machines "
+            u"has been reported to close Revit entirely with no error "
+            u"message. Revit's title bar may show \"(Not Responding)\" "
+            u"while this runs - for an operation this size that is "
+            u"expected, not a crash; do not force-close Revit. Consider "
+            u"unticking a few categories first (e.g. use 'Model Only' or "
+            u"'Annotation Only' instead of 'All').\n\nContinue anyway?"
+            .format(ids.Count, checked_count),
+            title="DeeASelect - Large Mirror", yes=True, no=True)
+        if not proceed:
+            return
+
+    pinned_ids = _pinned_among(doc, ids)
+    pin_note = (
+        u"\n\n{0:,} of these are currently PINNED - DeeASelect will "
+        u"unpin them, mirror everything, then pin those same elements "
+        u"back automatically.".format(len(pinned_ids))
+        if pinned_ids else u"")
+    never_move_note = (
+        u"\n\n{0:,} element(s) in Project Base Point / Survey Point were "
+        u"EXCLUDED from this mirror - those anchor the model's coordinate "
+        u"system and are never moved by DeeASelect, even when ticked."
+        .format(excluded_never_move)
+        if excluded_never_move else u"")
+    join_count = _join_partners_outside(doc, ids)
+    if join_count:
+        join_note = (
+            u"\n\n{0:,} of these are geometrically JOINED to an element "
+            u"OUTSIDE this mirror - Revit may need to break those joins to "
+            u"complete it; DeeASelect will let that happen automatically "
+            u"instead of stopping on it.".format(join_count))
+    elif join_count is None and ids.Count > _JOIN_SCAN_MAX_IDS:
+        join_note = (
+            u"\n\nThis mirror is too large to pre-check for broken "
+            u"geometry joins - any join warnings Revit raises will be "
+            u"resolved automatically instead of stopping the mirror.")
+    else:
+        join_note = u""
+
+    proceed = forms.alert(
+        u"Mirror {0:,} element(s) across {1} categor(y/ies)\nAxis: {2}"
+        u"{3}{4}{5}\n\nOriginals are REPLACED by their mirrored position "
+        u"(no copy is kept). This changes the model. Continue?".format(
+            ids.Count, checked_count, axis_label, pin_note, never_move_note, join_note),
+        title="DeeASelect - Mirror", yes=True, no=True)
+    if not proceed:
+        return
+
+    _try_checkout_for_move(doc, ids)
+
+    t = Transaction(doc, "DeeASelect - mirror selection")
+    try:
+        t.Start()
+        ffh.apply_to_transaction(t)
+        with _SafeProgress(title=u"DeeASelect - mirroring {0:,} element(s)..."
+                            .format(ids.Count), indeterminate=True):
+            mirror_elements(doc, ids, plane, pinned_ids)
+        t.Commit()
+    except Exception as e:
+        try:
+            t.RollBack()
+        except Exception:
+            pass
+        forms.alert(u"Mirror failed and was rolled back (any unpinning was "
+                    u"rolled back too):\n{0}".format(e),
+                    title="DeeASelect")
+        return
+
+    try:
+        uidoc.Selection.SetElementIds(ids)
+    except Exception:
+        pass
+
+    pinned_note = (u" ({0:,} were temporarily unpinned and re-pinned)"
+                   .format(len(pinned_ids)) if pinned_ids else u"")
+    excluded_note = (u" ({0:,} Project Base Point/Survey Point element(s) excluded)"
+                      .format(excluded_never_move) if excluded_never_move else u"")
+    forms.alert(
+        u"Mirrored {0:,} element(s) across {1} categor(y/ies) - axis: {2}.{3}{4}"
+        .format(ids.Count, checked_count, axis_label, pinned_note, excluded_note),
+        title="DeeASelect - Mirror")
+
+
+# ==========================================================================
 # window
 # ==========================================================================
 class DeeASelectWindow(dee_branding.DeeBrandedWindow):
@@ -483,6 +707,14 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
         self._unit_abbr = utils.unit_abbreviation(self.doc)
         self.move_x_unit_tb.Text = self._unit_abbr
         self.move_y_unit_tb.Text = self._unit_abbr
+
+        # Set by mirror_pick_click(), read by launch() AFTER ShowDialog()
+        # returns - the actual PickObject call happens there, never from
+        # inside this still-open window (this codebase's hard rule against
+        # a second modal/PickObject from inside an open WPF window - see
+        # DeeLazy's own launcher for the same close-first-dispatch-after
+        # shape). None means no Pick-Line mirror was requested.
+        self.mirror_pick_request = None
 
         self._ready = True
         self._refresh_list()
@@ -576,7 +808,9 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
         """Same as _checked_ids(), but ALWAYS excludes _NEVER_MOVE
         categories (Project Base Point, Survey Point) regardless of
         their checked state - see _NEVER_MOVE's own comment for why.
-        Returns (ids, excluded_count)."""
+        Returns (ids, excluded_count). Shared by Move AND Mirror (via
+        _flip_ids_or_none/mirror_pick_click) - both transform element
+        positions, so the same exclusion applies to each."""
         ids = List[ElementId]()
         excluded = 0
         for r in self._rows:
@@ -816,6 +1050,83 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
         if self.close_after_cb.IsChecked is True:
             self.Close()
 
+    # ---------------- mirror ----------------
+    def _flip_ids_or_none(self):
+        """Shared validation for both Flip buttons - ticks a category,
+        gathers ids (excluding _NEVER_MOVE, same as Move), reports the
+        friendly alerts move_click already uses for the same cases.
+        Returns (ids, excluded_never_move, checked_count) or None."""
+        checked_rows = [r for r in self._rows if r.checked]
+        if not checked_rows:
+            forms.alert("Tick at least one category first.", title="DeeASelect")
+            return None
+        ids, excluded_never_move = self._move_ids()
+        if ids.Count == 0:
+            forms.alert("Nothing to mirror.", title="DeeASelect")
+            return None
+        return ids, excluded_never_move, len(checked_rows)
+
+    def _flip_click(self, axis):
+        gathered = self._flip_ids_or_none()
+        if gathered is None:
+            return
+        ids, excluded_never_move, checked_count = gathered
+        bbox = _combined_bbox(self.doc, ids)
+        if bbox is None:
+            forms.alert(u"None of the ticked elements has a usable bounding "
+                        u"box - nothing to mirror against.", title="DeeASelect")
+            return
+        minx, miny, maxx, maxy = bbox
+        cx, cy = (minx + maxx) / 2.0, (miny + maxy) / 2.0
+        plane = _flip_plane(axis, cx, cy)
+        if axis == "x":
+            cy_disp = utils.internal_to_display(self.doc, cy)
+            axis_label = (u"horizontal line at Y={0:.2f}{1} (flips top/bottom)"
+                          .format(cy_disp, self._unit_abbr))
+        else:
+            cx_disp = utils.internal_to_display(self.doc, cx)
+            axis_label = (u"vertical line at X={0:.2f}{1} (flips left/right)"
+                          .format(cx_disp, self._unit_abbr))
+        _run_mirror_transaction(self.doc, self.uidoc, ids, checked_count,
+                                 excluded_never_move, plane, axis_label)
+        if self.close_after_cb.IsChecked is True:
+            self.Close()
+
+    def flip_x_click(self, sender, args):
+        self._flip_click("x")
+
+    def flip_y_click(self, sender, args):
+        self._flip_click("y")
+
+    def mirror_pick_click(self, sender, args):
+        """Closes the window and stashes what to mirror - launch() picks
+        the axis line and finishes the job once ShowDialog() returns (see
+        mirror_pick_request's own comment in __init__ for why: PickObject
+        can never be called while this window is still open)."""
+        gathered = self._flip_ids_or_none()
+        if gathered is None:
+            return
+        ids, excluded_never_move, checked_count = gathered
+        if ids.Count >= _LARGE_SELECTION_WARN_THRESHOLD:
+            proceed = forms.alert(
+                u"This is a VERY large mirror - {0:,} element(s) across "
+                u"{1} categor(y/ies).\n\nMirroring this many elements in "
+                u"one operation can make Revit unresponsive, and on some "
+                u"machines has been reported to close Revit entirely with "
+                u"no error message. Consider unticking a few categories "
+                u"first (e.g. use 'Model Only' or 'Annotation Only' "
+                u"instead of 'All').\n\nPick a mirror axis anyway?"
+                .format(ids.Count, checked_count),
+                title="DeeASelect - Large Mirror", yes=True, no=True)
+            if not proceed:
+                return
+        self.mirror_pick_request = {
+            "ids": ids,
+            "excluded_never_move": excluded_never_move,
+            "checked_count": checked_count,
+        }
+        self.Close()
+
     def close_click(self, sender, args):
         self.Close()
 
@@ -823,6 +1134,39 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
 # ==========================================================================
 # Launch entry point (called by the DeeLazy home window)
 # ==========================================================================
+def _run_mirror_pick_flow(uiapp, request):
+    """Runs AFTER DeeASelectWindow has fully closed (called from launch(),
+    never from inside the window itself - see mirror_pick_request's own
+    comment). Does the actual PickObject, since this is the first and only
+    point in this module's flow where no WPF modal is open."""
+    uidoc = uiapp.ActiveUIDocument
+    doc = uidoc.Document
+    try:
+        ref = uidoc.Selection.PickObject(
+            ObjectType.Element,
+            u"Pick a straight line, wall, or beam to mirror across")
+    except Exception:
+        # Esc / right-click-cancel - same silent no-op as declining any
+        # other DeeASelect confirmation, not an error.
+        return
+    el = doc.GetElement(ref.ElementId)
+    line = _line_from_element(el) if el is not None else None
+    if line is None:
+        forms.alert(u"That element doesn't have a usable straight line - "
+                    u"pick a straight detail line, model line, wall, or "
+                    u"beam instead.", title="DeeASelect - Mirror")
+        return
+    plane = _axis_plane_from_line_points(line.GetEndPoint(0), line.GetEndPoint(1))
+    if plane is None:
+        forms.alert(u"That line runs straight up/down and can't define a "
+                    u"plan mirror axis - pick a line that runs across the "
+                    u"plan instead.", title="DeeASelect - Mirror")
+        return
+    _run_mirror_transaction(doc, uidoc, request["ids"], request["checked_count"],
+                             request["excluded_never_move"], plane,
+                             u"the picked line", skip_size_warning=True)
+
+
 def launch(uiapp):
     if uiapp.ActiveUIDocument is None:
         forms.alert("Open a Revit project first.")
@@ -830,10 +1174,14 @@ def launch(uiapp):
     window = DeeASelectWindow(_XAML_FILE, uiapp)
     window.ShowDialog()
 
+    request = window.mirror_pick_request
+    if request is not None:
+        _run_mirror_pick_flow(uiapp, request)
+
 
 TOOL_INFO = {
     "id": "dee_aselect",
     "title": "DeeASelect",
-    "description": "Select EVERY element in the project - model, annotation, links, everything - with a category checklist, one-click Model/Annotation presets, and an X/Y move that keeps dimensions and tags intact.",
+    "description": "Select EVERY element in the project - model, annotation, links, everything - with a category checklist, one-click Model/Annotation presets, and X/Y move plus mirror (flip or pick-a-line) that keep dimensions and tags intact.",
     "launch": launch,
 }
