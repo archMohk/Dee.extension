@@ -35,6 +35,13 @@ pinned/grouped/location-less elements); live feedback asked for it
 back out - this tool's whole point is "everything", full stop - so it
 was removed rather than left toggled off by default.
 
+The one exception to "everything": Internal Origin and Survey Point are
+dropped during the scan itself (see _ALWAYS_EXCLUDE) - live feedback
+asked for these two specifically to never be offered by this tool at
+all, not merely unticked by default. They never become a row, so
+Select/Move/Mirror can none of them ever touch either one, regardless
+of what's ticked.
+
 --------------------------------------------------------------------
 _STARTS_UNCHECKED - categories that are risky or pointless to move
 --------------------------------------------------------------------
@@ -120,9 +127,14 @@ to reason about (matches Move's own "changes the model in place" shape).
 Two ways to choose the axis:
 - Flip Around X / Flip Around Y (_flip_click) run immediately, inside
   the still-open window, exactly like Move - the axis is a horizontal
-  (X) or vertical (Y) line through the middle of the ticked elements'
-  own combined bounding box (_combined_bbox), so there is nothing to
-  pick and no window-closing involved.
+  (X) or vertical (Y) line through the middle of the OVERALL MODEL's own
+  combined bounding box (_all_model_ids + _combined_bbox), not whatever
+  happens to be ticked for the mirror itself - live feedback reported
+  the center skewing miles off whenever a Project Point/datum category
+  (type_label "Other" - Project Base Point, a Level, a Grid, ...) was
+  among the ticked ids, e.g. after "All". So there is nothing to pick
+  and no window-closing involved, and the axis stays anchored to the
+  building consistently no matter what's ticked.
 - Pick Line As Axis (mirror_pick_click) needs an actual Revit pick,
   which this codebase's hard rule says can never happen from inside an
   already-open WPF window. So this button stashes the ids/exclusions
@@ -269,6 +281,21 @@ _NEVER_MOVE = set(n.lower() for n in [
     u"Survey Point",
 ])
 
+# Live feedback: Internal Origin and Survey Point should not be offered
+# by this tool AT ALL - not just excluded from Move (_NEVER_MOVE above),
+# not just unticked by default (_STARTS_UNCHECKED) - they should never
+# appear as a row, never be selectable, never be counted. scan_categories()
+# drops any element whose category name matches this set BEFORE it ever
+# becomes a row, so Select/Move/Mirror can none of them touch it, no
+# matter what's ticked. Project Base Point is deliberately NOT in this
+# set - only Internal Origin and Survey Point were named - it keeps its
+# existing, lighter treatment (listed, starts unticked, hard-excluded
+# from Move/Mirror only via _NEVER_MOVE above).
+_ALWAYS_EXCLUDE = set(n.lower() for n in [
+    u"Internal Origin",
+    u"Survey Point",
+])
+
 # Above this many elements, Select/Move ask for one extra confirmation
 # instead of running immediately. A live report ("when i Click Select
 # and Move the Revit Closed") described Revit itself disappearing, not
@@ -394,6 +421,8 @@ def scan_categories(doc, progress_cb=None):
     done = 0
     for el in collector:
         name = _category_name(el)
+        if name.lower() in _ALWAYS_EXCLUDE:
+            continue
         bucket = buckets.get(name)
         if bucket is None:
             bucket = {"ids": [], "type_label": _category_type_label(el, name)}
@@ -1110,12 +1139,33 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
             return None
         return ids, excluded_never_move, len(checked_rows)
 
+    def _all_model_ids(self):
+        """Every id whose category type_label is "Model" - REGARDLESS of
+        that category's own checked state. Used only to compute the Flip
+        axis center (_flip_click), deliberately decoupled from whichever
+        ids are actually being mirrored: live feedback reported the flip
+        center getting skewed miles away from the real building whenever
+        a "Project Point" (Project Base Point, a Level, a Grid, a
+        Reference Plane - anything type_label "Other") was among the
+        ticked ids, e.g. after clicking "All". The flip axis should
+        always be anchored to the building's own Model geometry, the
+        same way, no matter what happens to be ticked for the mirror
+        itself."""
+        ids = List[ElementId]()
+        for r in self._rows:
+            if r.type_label != u"Model":
+                continue
+            for eid in self._id_map.get(r.name, []):
+                ids.Add(eid)
+        return ids
+
     def _flip_click(self, axis):
         gathered = self._flip_ids_or_none()
         if gathered is None:
             return
         ids, excluded_never_move, checked_count = gathered
-        bbox = _combined_bbox(self.doc, ids)
+        model_ids = self._all_model_ids()
+        bbox = _combined_bbox(self.doc, model_ids if model_ids.Count > 0 else ids)
         if bbox is None:
             forms.alert(u"None of the ticked elements has a usable bounding "
                         u"box - nothing to mirror against.", title="DeeMoveMirror")
