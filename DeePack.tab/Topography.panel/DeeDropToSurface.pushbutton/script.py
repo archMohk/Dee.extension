@@ -30,15 +30,63 @@ Any element type is accepted (best-effort, by explicit request) - the
 reference point used for "this element's XY and current base Z" is:
   - LocationPoint elements (most families: furniture, planting, generic
     models, columns, ...) - the location point itself.
-  - LocationCurve elements (walls, beams, ...) - the curve's midpoint;
-    a wall's own location curve already lies at its base elevation, so
-    this reads as "move the wall's base to the surface" for a straight
-    wall (a wall's rigid MoveElement can't tilt to match slope along its
-    own length, so a long wall crossing a slope will only match the
-    slope AT its midpoint - a plain limitation of a rigid translation).
+  - LocationCurve elements OTHER than a straight Wall (beams, curved
+    walls, ...) - the curve's midpoint; a plain rigid vertical move can
+    only match the slope AT that one point along the element's length.
   - anything else (DirectShapes, imports, ...) - its bounding box's
     horizontal center and Min.Z (bottom), the closest generic "base"
     available without knowing the element's own semantics.
+
+Straight walls (Wall with a LocationCurve whose Curve is a Line) get
+different, more invasive treatment - see "Wall handling" below - because
+a live report showed the plain vertical move leaving a straight wall's
+base floating above/buried below an undulating Toposolid, which is a
+geometry fact: a single translation can never make a straight, rigid
+wall's bottom edge follow a curved surface.
+
+--------------------------------------------------------------------
+Wall handling - delete + rebuild with a stepped, sloped bottom edge
+--------------------------------------------------------------------
+Revit's own "Attach Base" command (the one that reshapes a wall's
+bottom edge to hug a Floor/Toposolid/Roof underneath it) has NO public
+API equivalent - confirmed via the Revit API forum ("Wall: attach
+top/base, no API?") - so DeeDropToSurface cannot call it, at any Revit
+version. The only way to make a wall's base actually follow a slope is
+to give it a genuinely different SHAPE: delete the original wall and
+recreate it via the profile-based Wall.Create(doc, IList<Curve> profile,
+wallTypeId, levelId, structural, normal) overload, whose closed boundary
+is: a STEPPED bottom (one straight segment per sampled point along the
+wall's length - _sample_bottom_points, roughly one sample every 2 feet,
+capped 2-40 samples), vertical edges at both ends, and a FLAT top at the
+wall's original top elevation (only the base follows the terrain; the
+top stays level, matching a typical retaining/site wall on a slope).
+
+This is explicitly DESTRUCTIVE and asked for by name (the alternative -
+just fixing the wall's Base Level/Offset without reshaping it - was
+turned down as insufficient): the original wall is deleted, so anything
+hosted on it (doors, windows, wall-hosted annotation) is lost and would
+need re-placing on the new wall afterward. The confirmation dialog
+states the wall count AND the total dependent/hosted element count
+(Element.GetDependentElements) up front, and the whole run can be
+declined - a "No" skips EVERY straight wall entirely (never moved at
+all) rather than silently falling back to the flawed plain vertical
+move that prompted this feature.
+
+_rebuild_wall_with_profile() is verify-before-delete: it builds and
+validates the NEW wall completely before the ORIGINAL is ever deleted,
+so a failure partway through (a malformed profile, an API rejection)
+leaves the original wall untouched and reports that wall as failed,
+never as a silent data loss. Curved walls (LocationCurve whose Curve is
+an Arc/Spline, not a Line) are NOT supported by this path - the sampled-
+points profile assumes a single straight trace - and are always skipped
+and reported separately, regardless of the rebuild confirmation.
+
+Preserved from the original wall: WallType, base Level (LevelId), and
+orientation (Wall.Orientation, passed as Wall.Create's `normal` so the
+new wall keeps the same inside/outside side). NOT preserved: whether the
+wall was Structural (simplified to always non-structural - this tool
+targets site/landscape context, where a wall being dropped onto terrain
+is architectural in practice) and any wall-hosted elements (see above).
 
 Pinned elements are skipped and reported, not auto-unpinned - unlike
 DeeASelect's Move/Mirror (which unpins/re-pins around a single shared
@@ -63,6 +111,14 @@ NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
    Group, etc.) are caught per-item and reported as failed rather than
    aborting the whole run - not exhaustively tested against every
    element type Revit has.
+3. Wall.Create's profile overload is documented (pyRevit forum) to have
+   at least one known Revit-version-specific quirk: failing specifically
+   when the wall's level is the PROJECT'S LOWEST level, working fine on
+   Level 2 and above. _rebuild_wall_with_profile() is verify-before-
+   delete specifically because of this - a failure there (including that
+   exact case) leaves the original wall untouched and reports it as
+   failed, rather than losing it. Not exercised live against a real
+   Level-1 wall from this session.
 """
 from pyrevit import forms, script
 import dee_telemetry
@@ -74,7 +130,7 @@ from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
 from Autodesk.Revit.DB import (
     FilteredElementCollector, View3D, ReferenceIntersector, FindReferenceTarget,
     XYZ, Transaction, Floor, ElementTransformUtils, ElementId,
-    LocationPoint, LocationCurve,
+    LocationPoint, LocationCurve, Wall, Line, Curve,
 )
 
 try:
@@ -192,6 +248,93 @@ def _surface_z_at(intersector, x, y, search_top, target_id):
         return None
 
 
+# ==========================================================================
+# wall handling - delete + rebuild with a sloped/stepped bottom edge
+# ==========================================================================
+def _is_straight_wall(el):
+    if not isinstance(el, Wall):
+        return False
+    try:
+        loc = el.Location
+        return isinstance(loc, LocationCurve) and isinstance(loc.Curve, Line)
+    except Exception:
+        return False
+
+
+def _dependent_count(doc, el):
+    """How many OTHER elements would be deleted along with `el` (hosted
+    doors/windows, wall-hosted annotation, ...) - GetDependentElements
+    includes `el` itself in the returned set, hence the -1."""
+    try:
+        ids = list(el.GetDependentElements(None))
+        return max(0, len(ids) - 1)
+    except Exception:
+        return 0
+
+
+def _sample_bottom_points(intersector, p1, p2, search_top, target_id, fallback_z):
+    """One point every ~2 feet along the wall's own straight trace (p1 to
+    p2), each with the target surface's Z directly below/above it - a
+    hole in the surface at one sample (no_hit) falls back to `fallback_z`
+    (the wall's own original base) rather than leaving a gap in the
+    profile. Capped 2-40 points so a very long wall doesn't build an
+    unreasonably dense profile."""
+    length = p1.DistanceTo(p2)
+    n = max(2, min(40, int(length / 2.0) + 1))
+    points = []
+    for i in range(n):
+        t = float(i) / float(n - 1)
+        x = p1.X + (p2.X - p1.X) * t
+        y = p1.Y + (p2.Y - p1.Y) * t
+        z = _surface_z_at(intersector, x, y, search_top, target_id)
+        if z is None:
+            z = fallback_z
+        points.append(XYZ(x, y, z))
+    return points
+
+
+def _rebuild_wall_with_profile(doc, wall, intersector, search_top, target_id):
+    """Deletes nothing itself - builds and returns a NEW wall whose
+    bottom edge steps along the sampled surface points, a flat top at
+    the original top elevation, and the original's type/level/
+    orientation. Raises on any failure; the caller only deletes the
+    ORIGINAL wall after this returns successfully (verify-before-delete -
+    see the module docstring's Wall handling section for why)."""
+    curve = wall.Location.Curve
+    p1, p2 = curve.GetEndPoint(0), curve.GetEndPoint(1)
+    bbox = wall.get_BoundingBox(None)
+    top_z = bbox.Max.Z
+    fallback_z = bbox.Min.Z
+
+    bottom = _sample_bottom_points(intersector, p1, p2, search_top, target_id, fallback_z)
+
+    profile = List[Curve]()
+    for i in range(len(bottom) - 1):
+        profile.Add(Line.CreateBound(bottom[i], bottom[i + 1]))
+    last, first = bottom[-1], bottom[0]
+    top_last = XYZ(last.X, last.Y, top_z)
+    top_first = XYZ(first.X, first.Y, top_z)
+    profile.Add(Line.CreateBound(last, top_last))
+    profile.Add(Line.CreateBound(top_last, top_first))
+    profile.Add(Line.CreateBound(top_first, first))
+
+    wall_type_id = wall.GetTypeId()
+    try:
+        level_id = wall.LevelId
+    except Exception:
+        level_id = ElementId.InvalidElementId
+    try:
+        normal = wall.Orientation
+    except Exception:
+        normal = None
+
+    # structural is deliberately not preserved - see module docstring's
+    # Wall handling section.
+    if normal is not None:
+        return Wall.Create(doc, profile, wall_type_id, level_id, False, normal)
+    return Wall.Create(doc, profile, wall_type_id, level_id, False)
+
+
 def main():
     uidoc = __revit__.ActiveUIDocument
     if uidoc is None:
@@ -227,13 +370,51 @@ def main():
     intersector = ReferenceIntersector(target_ids, FindReferenceTarget.Face, view3d)
     intersector.FindReferencesInRevitLinks = False
 
-    moved, no_reference, no_hit, pinned_skipped, failed = [], [], [], [], []
-
-    t = Transaction(doc, "DeeDropToSurface - drop elements onto surface")
-    t.Start()
+    # Straight walls get the destructive rebuild path (see module
+    # docstring's Wall handling section); curved walls can't use it at
+    # all; everything else keeps the plain vertical move.
+    straight_walls, curved_wall_ids, others = [], [], []
     for el in elements:
         if el.Id == target.Id:
             continue
+        if isinstance(el, Wall):
+            if _is_straight_wall(el):
+                straight_walls.append(el)
+            else:
+                curved_wall_ids.append(el.Id)
+        else:
+            others.append(el)
+
+    if straight_walls:
+        dep_total = sum(_dependent_count(doc, w) for w in straight_walls)
+        dep_note = (
+            u"\n\n{0:,} hosted/dependent element(s) on those walls (doors, "
+            u"windows, wall-hosted annotation, ...) will be LOST and need "
+            u"re-placing afterward.".format(dep_total)
+            if dep_total else u"")
+        proceed = forms.alert(
+            u"{0:,} straight wall(s) will be DELETED and REBUILT with a "
+            u"stepped bottom edge that follows the picked surface's "
+            u"slope - Revit's own Attach Base has no public API, so this "
+            u"is the only way to actually make a wall's base hug a "
+            u"slope.{1}\n\nChoose No to skip these walls entirely instead "
+            u"(they will not be moved at all).\n\nRebuild these walls?"
+            .format(len(straight_walls), dep_note),
+            title=_TOOL + " - Wall Rebuild", yes=True, no=True)
+        if not proceed:
+            skipped_wall_ids = curved_wall_ids + [w.Id for w in straight_walls]
+            straight_walls = []
+        else:
+            skipped_wall_ids = curved_wall_ids
+    else:
+        skipped_wall_ids = curved_wall_ids
+
+    moved, no_reference, no_hit, pinned_skipped, failed = [], [], [], [], []
+    rebuilt, rebuild_failed = [], []
+
+    t = Transaction(doc, "DeeDropToSurface - drop elements onto surface")
+    t.Start()
+    for el in others:
         try:
             if el.Pinned:
                 pinned_skipped.append(el.Id)
@@ -257,7 +438,22 @@ def main():
             moved.append(el.Id)
         except Exception as e:
             failed.append((el.Id, str(e)))
-    if moved:
+
+    for wall in straight_walls:
+        try:
+            if wall.Pinned:
+                pinned_skipped.append(wall.Id)
+                continue
+        except Exception:
+            pass
+        try:
+            new_wall = _rebuild_wall_with_profile(doc, wall, intersector, search_top, target.Id)
+            doc.Delete(wall.Id)
+            rebuilt.append(new_wall.Id)
+        except Exception as e:
+            rebuild_failed.append((wall.Id, str(e)))
+
+    if moved or rebuilt:
         t.Commit()
     else:
         t.RollBack()
@@ -265,6 +461,14 @@ def main():
     lines = [u"**DeeDropToSurface — done**", u"",
              u"- Target surface: id {0}".format(target.Id),
              u"- Moved onto surface: {0:,}".format(len(moved))]
+    if rebuilt:
+        lines.append(u"- Walls rebuilt with a sloped bottom edge: {0:,}".format(len(rebuilt)))
+    if rebuild_failed:
+        lines.append(u"- Walls FAILED to rebuild (original kept, untouched): {0:,}, "
+                     u"first error: {1}".format(len(rebuild_failed), rebuild_failed[0][1]))
+    if skipped_wall_ids:
+        lines.append(u"- Walls skipped (curved, or rebuild declined - not moved at all): {0:,}"
+                     .format(len(skipped_wall_ids)))
     if pinned_skipped:
         lines.append(u"- Skipped (PINNED - untouched): {0:,}".format(len(pinned_skipped)))
     if no_reference:
@@ -277,12 +481,15 @@ def main():
                      .format(len(failed), failed[0][1]))
     output.print_md(u"\n".join(lines))
 
-    skipped_total = len(pinned_skipped) + len(no_reference) + len(no_hit) + len(failed)
+    skipped_total = (len(pinned_skipped) + len(no_reference) + len(no_hit)
+                     + len(failed) + len(skipped_wall_ids) + len(rebuild_failed))
     forms.alert(
-        u"Moved {0:,} element(s) onto the picked surface.{1}".format(
-            len(moved),
-            u"\n\n{0:,} element(s) were skipped - see the output window for "
-            u"why.".format(skipped_total) if skipped_total else u""),
+        u"Moved {0:,} element(s) and rebuilt {1:,} wall(s) onto the picked "
+        u"surface.{2}".format(
+            len(moved), len(rebuilt),
+            u"\n\n{0:,} element(s)/wall(s) were skipped or failed - see "
+            u"the output window for why.".format(skipped_total)
+            if skipped_total else u""),
         title=_TOOL)
 
 
