@@ -6,6 +6,9 @@ acc_config.json
 # automatically on first use of the relevant tool.
 .acc_token_cache.json
 .acc_file_cache.json
+# DeeNWCs' own remembered export settings (source/view-filter/NWC
+# options) - per-machine preference, not source.
+.dee_nwc_settings.json
 # Same thing without the leading dot - DeeRelinquish writes this one,
 # and it was being committed: it holds real project GUIDs, item URNs
 # and file names (including colleagues' names) from whatever project
