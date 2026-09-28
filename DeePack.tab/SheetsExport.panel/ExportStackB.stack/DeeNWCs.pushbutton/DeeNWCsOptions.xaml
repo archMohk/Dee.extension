@@ -96,6 +96,57 @@
                 </StackPanel>
             </GroupBox>
 
+            <GroupBox Header="Super Config" Margin="0,0,0,10">
+                <StackPanel Margin="5">
+                    <CheckBox x:Name="super_config_cb" Content="Enable Super Config"
+                              FontWeight="Bold" Margin="0,0,0,6"
+                              Checked="super_config_toggled" Unchecked="super_config_toggled"
+                              ToolTip="Instead of relying on pre-named views, scan the document and create (or reuse) a dedicated export view - hides Levels and Grids automatically."/>
+                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#555" Margin="0,0,0,8"
+                               Text="When enabled, the View Selection filter above is ignored - exactly ONE view per document is used: created fresh (or reused/updated, per the setting below) with Levels and Grids hidden."/>
+
+                    <StackPanel x:Name="super_config_panel" IsEnabled="False">
+                        <DockPanel Margin="0,0,0,6">
+                            <TextBlock Text="Created view name:" VerticalAlignment="Center" Margin="0,0,8,0" DockPanel.Dock="Left"/>
+                            <TextBox x:Name="sc_view_name_tb" Height="24" Text="NWC Export View"/>
+                        </DockPanel>
+
+                        <CheckBox x:Name="sc_with_links_cb" Content="Include linked models in the created view" Margin="0,0,0,6"/>
+
+                        <TextBlock Text="If a view with that name already exists:" Margin="0,0,0,2"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                            <RadioButton x:Name="sc_reuse_rb" Content="Reuse it (update settings)" GroupName="sc_view_mode" Margin="0,0,16,0"/>
+                            <RadioButton x:Name="sc_delete_rb" Content="Delete after each export (always start fresh)" GroupName="sc_view_mode"/>
+                        </StackPanel>
+
+                        <CheckBox x:Name="sc_hide_clutter_cb" Content="Also hide Scope Boxes, Reference Planes, and Sun Path" Margin="0,0,0,6"/>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Discipline:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <ComboBox x:Name="sc_discipline_cb" Grid.Column="1" Height="24" Margin="0,0,12,0" SelectedIndex="0">
+                                <ComboBoxItem Content="Coordination"/>
+                                <ComboBoxItem Content="Architectural"/>
+                                <ComboBoxItem Content="Structural"/>
+                                <ComboBoxItem Content="Mechanical"/>
+                                <ComboBoxItem Content="Electrical"/>
+                                <ComboBoxItem Content="Plumbing"/>
+                            </ComboBox>
+                            <TextBlock Grid.Column="2" Text="Phase:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <ComboBox x:Name="sc_phase_cb" Grid.Column="3" Height="24" SelectedIndex="0">
+                                <ComboBoxItem Content="Last phase in the project"/>
+                                <ComboBoxItem Content="Leave default"/>
+                            </ComboBox>
+                        </Grid>
+                    </StackPanel>
+                </StackPanel>
+            </GroupBox>
+
             <TextBlock x:Name="status_tb" FontSize="11" Foreground="#a00" Margin="0,0,0,8" TextWrapping="Wrap" Text=""/>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

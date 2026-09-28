@@ -52,6 +52,46 @@ recognise just skips that ONE setting (collected into
 whole export.
 
 --------------------------------------------------------------------
+Super Config - an auto-managed export view instead of pre-named ones
+--------------------------------------------------------------------
+Live report: a plain Floor stayed flat instead of following a sloped
+Toposolid in a DIFFERENT tool this session (DeeDropToSurface) - the
+same underlying idea shows up here as its own request: instead of
+relying on the modeler having pre-named a view "NAVIS" (or whatever the
+View Selection filter says), Super Config finds-or-creates ONE dedicated
+View3D per document (_get_or_create_export_view) and exports exactly
+that view, ignoring the View Selection filter entirely while enabled.
+
+Every Super Config run (re-)applies the FULL current config to the view,
+whether it was just created or already existed from a previous run -
+so editing settings and re-running with "reuse" always reflects the
+latest config rather than whatever the view happened to be set up with
+the first time:
+  - Levels and Grids are always hidden (the original request).
+  - "Also hide clutter" additionally hides Scope Boxes, Reference Planes
+    (OST_CLines) and Sun Path (OST_SunPath) - each tried individually via
+    getattr+try/except, so a BuiltInCategory name that doesn't exist on
+    a given Revit version (or a category CanCategoryBeHidden refuses)
+    just never gets hidden, rather than raising.
+  - "Include linked models" toggles the OST_RvtLinks category's
+    visibility in that one view - a stronger, simpler exclusion than the
+    separate NWC ExportLinks setting (nothing to convert if nothing is
+    visible), independent of whatever ExportLinks itself is set to in
+    the main NWC Export Options panel.
+  - Discipline is a genuine ComboBox (ViewDiscipline is a fixed enum,
+    not project-specific) - Phase is NOT (Phases differ project to
+    project, and the options window is shown before any document is
+    even opened for the ACC path), so instead of naming a specific
+    phase, the choice is a STRATEGY: "last phase in the project"
+    (highest PHASE_SEQUENCE_NUMBER, found per-document at export time -
+    the most inclusive choice for a federation export) or "leave
+    default" (don't touch it at all).
+  - view_mode "reuse" keeps the view around for next time (updating its
+    settings each run); "delete" removes it in its own Transaction
+    right after that document's export, so a delete failure (reported,
+    not fatal) can never roll back an export that already succeeded.
+
+--------------------------------------------------------------------
 NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
 --------------------------------------------------------------------
 1. NavisworksExportOptions / NavisworksExportScope / NavisworksCoordinates
@@ -67,6 +107,12 @@ NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
 3. The Local source mode (_pick_local_documents) and wrapping its export
    loop in the same afb.make_dialog_handler used by the ACC path are new
    in this revision - not exercised live yet.
+4. Super Config in its entirety (view creation/reuse/deletion, category
+   hiding, discipline/phase assignment) is brand new and untested live -
+   in particular, whether OST_CLines and OST_SunPath are the correct
+   BuiltInCategory names for "Reference Planes" and "Sun Path" on every
+   Revit version, and whether CreateIsometric + immediate category/
+   discipline/phase edits inside one Transaction behaves as expected.
 """
 import os
 import re
@@ -74,8 +120,10 @@ import json
 
 from pyrevit import forms, script
 from Autodesk.Revit.DB import (
-    FilteredElementCollector, View, ViewType, NavisworksExportOptions,
-    NavisworksExportScope, NavisworksCoordinates, NavisworksParameters,
+    FilteredElementCollector, View, View3D, ViewType, ViewFamilyType, ViewFamily,
+    ViewDiscipline, Category, BuiltInCategory, BuiltInParameter, Phase,
+    Transaction, NavisworksExportOptions, NavisworksExportScope,
+    NavisworksCoordinates, NavisworksParameters,
 )
 
 import acc_auth
@@ -145,6 +193,15 @@ _DEFAULT_SETTINGS = {
         "parameters": "All",
         "faceting_factor": 1.0,
     },
+    "super_config": {
+        "enabled": False,
+        "view_name": "NWC Export View",
+        "with_links": False,
+        "view_mode": "reuse",       # "reuse" or "delete"
+        "hide_clutter": False,
+        "discipline": "Coordination",
+        "phase": "last",           # "last" or "default"
+    },
 }
 
 
@@ -160,10 +217,12 @@ def _load_settings():
         data = {}
     merged = dict(_DEFAULT_SETTINGS)
     merged["opts"] = dict(_DEFAULT_SETTINGS["opts"])
+    merged["super_config"] = dict(_DEFAULT_SETTINGS["super_config"])
     for key, value in data.items():
-        if key != "opts":
+        if key not in ("opts", "super_config"):
             merged[key] = value
     merged["opts"].update(data.get("opts", {}) or {})
+    merged["super_config"].update(data.get("super_config", {}) or {})
     return merged
 
 
@@ -216,6 +275,136 @@ def _find_matching_views(doc, contains_text):
         except Exception:
             continue
     return views
+
+
+# ==========================================================================
+# Super Config - dedicated, auto-managed export view
+# ==========================================================================
+# Category BuiltInCategory names to hide unconditionally (Levels, Grids)
+# and, if "hide_clutter" is on, the extra clutter categories too. Tried
+# individually via getattr + try/except - a name that doesn't exist on a
+# given Revit version (or a category the view can't hide) just never
+# gets added/hidden rather than raising, matching this codebase's
+# established fail-safe convention for this kind of per-item lookup
+# (see e.g. DeeNWCs' own _non_graphical_view_types or DeeDropToSurface's
+# category-hiding loop in an earlier, unrelated tool).
+_ALWAYS_HIDE_CATEGORIES = ("OST_Levels", "OST_Grids")
+_CLUTTER_CATEGORIES = ("OST_ScopeBoxes", "OST_CLines", "OST_SunPath")
+_LINKS_CATEGORY = "OST_RvtLinks"
+
+_DISCIPLINE_ENUM = {
+    "Coordination": ViewDiscipline.Coordination,
+    "Architectural": ViewDiscipline.Architectural,
+    "Structural": ViewDiscipline.Structural,
+    "Mechanical": ViewDiscipline.Mechanical,
+    "Electrical": ViewDiscipline.Electrical,
+    "Plumbing": ViewDiscipline.Plumbing,
+}
+
+
+def _hide_category_if_possible(doc, view, bic_name):
+    try:
+        bic = getattr(BuiltInCategory, bic_name)
+        cat = Category.GetCategory(doc, bic)
+        if cat is not None and view.CanCategoryBeHidden(cat.Id):
+            view.SetCategoryHidden(cat.Id, True)
+    except Exception:
+        pass
+
+
+def _set_category_visibility_if_possible(doc, view, bic_name, hidden):
+    try:
+        bic = getattr(BuiltInCategory, bic_name)
+        cat = Category.GetCategory(doc, bic)
+        if cat is not None and view.CanCategoryBeHidden(cat.Id):
+            view.SetCategoryHidden(cat.Id, hidden)
+    except Exception:
+        pass
+
+
+def _find_view_by_name(doc, name):
+    try:
+        for v in FilteredElementCollector(doc).OfClass(View3D):
+            if not v.IsTemplate and v.Name == name:
+                return v
+    except Exception:
+        pass
+    return None
+
+
+def _create_export_view3d(doc):
+    vft_id = None
+    for vft in FilteredElementCollector(doc).OfClass(ViewFamilyType):
+        if vft.ViewFamily == ViewFamily.ThreeDimensional:
+            vft_id = vft.Id
+            break
+    if vft_id is None:
+        return None
+    return View3D.CreateIsometric(doc, vft_id)
+
+
+def _last_phase(doc):
+    last = None
+    try:
+        for p in FilteredElementCollector(doc).OfClass(Phase):
+            if last is None or p.get_Parameter(BuiltInParameter.PHASE_SEQUENCE_NUMBER).AsInteger() \
+                    > last.get_Parameter(BuiltInParameter.PHASE_SEQUENCE_NUMBER).AsInteger():
+                last = p
+    except Exception:
+        pass
+    return last
+
+
+def _apply_super_config_settings(doc, view, sc):
+    """Applies every Super Config setting to `view` - called for BOTH a
+    freshly-created view and a reused one, so a reused view always
+    reflects the CURRENT config rather than whatever it was set up with
+    the first time it was created."""
+    for bic_name in _ALWAYS_HIDE_CATEGORIES:
+        _hide_category_if_possible(doc, view, bic_name)
+    if sc.get("hide_clutter"):
+        for bic_name in _CLUTTER_CATEGORIES:
+            _hide_category_if_possible(doc, view, bic_name)
+    _set_category_visibility_if_possible(
+        doc, view, _LINKS_CATEGORY, hidden=not sc.get("with_links"))
+    try:
+        view.Discipline = _DISCIPLINE_ENUM.get(sc.get("discipline"), ViewDiscipline.Coordination)
+    except Exception:
+        pass
+    if sc.get("phase") == "last":
+        phase = _last_phase(doc)
+        if phase is not None:
+            try:
+                phase_param = view.get_Parameter(BuiltInParameter.VIEW_PHASE)
+                if phase_param is not None and not phase_param.IsReadOnly:
+                    phase_param.Set(phase.Id)
+            except Exception:
+                pass
+
+
+def _get_or_create_export_view(doc, sc):
+    """Returns (view, created_new) per Super Config's view_name/view_mode -
+    finds an existing view by that exact name first (reused regardless of
+    view_mode, since "delete" mode simply means none should normally be
+    left over from a PRIOR run - if one somehow still exists, reusing it
+    is still safer than silently creating a second, confusingly-similar
+    view), creating a fresh View3D only if none exists. Settings are
+    (re-)applied either way. Returns (None, False) if no 3D ViewFamilyType
+    exists in this document's templates at all."""
+    name = (sc.get("view_name") or "NWC Export View").strip() or "NWC Export View"
+    view = _find_view_by_name(doc, name)
+    created_new = False
+    if view is None:
+        view = _create_export_view3d(doc)
+        if view is None:
+            return None, False
+        try:
+            view.Name = name
+        except Exception:
+            pass
+        created_new = True
+    _apply_super_config_settings(doc, view, sc)
+    return view, created_new
 
 
 def _build_nwc_options(config, view_id, best_effort_skipped):
@@ -357,6 +546,28 @@ class DeeNWCsOptionsWindow(dee_branding.DeeBrandedWindow):
         except Exception:
             pass
 
+        sc = s.get("super_config", {})
+        self.super_config_cb.IsChecked = bool(sc.get("enabled", False))
+        self.super_config_panel.IsEnabled = bool(sc.get("enabled", False))
+        self.sc_view_name_tb.Text = sc.get("view_name", "NWC Export View")
+        self.sc_with_links_cb.IsChecked = bool(sc.get("with_links", False))
+        if sc.get("view_mode") == "delete":
+            self.sc_delete_rb.IsChecked = True
+        else:
+            self.sc_reuse_rb.IsChecked = True
+        self.sc_hide_clutter_cb.IsChecked = bool(sc.get("hide_clutter", False))
+        disciplines = ["Coordination", "Architectural", "Structural", "Mechanical", "Electrical", "Plumbing"]
+        try:
+            self.sc_discipline_cb.SelectedIndex = disciplines.index(sc.get("discipline", "Coordination"))
+        except ValueError:
+            self.sc_discipline_cb.SelectedIndex = 0
+        self.sc_phase_cb.SelectedIndex = 1 if sc.get("phase") == "default" else 0
+
+    def super_config_toggled(self, sender, args):
+        if not self._ready:
+            return
+        self.super_config_panel.IsEnabled = self.super_config_cb.IsChecked is True
+
     def _gather_config(self):
         """Returns the config dict, or None if the Faceting Factor field
         isn't a valid number - the one field here that can't just be
@@ -389,14 +600,29 @@ class DeeNWCsOptionsWindow(dee_branding.DeeBrandedWindow):
         }
         source = "acc" if self.source_acc_rb.IsChecked is True else "local"
         view_contains = (self.view_contains_tb.Text or "").strip()
-        return {"source": source, "view_contains": view_contains, "opts": opts}
+        disciplines = ["Coordination", "Architectural", "Structural", "Mechanical", "Electrical", "Plumbing"]
+        super_config = {
+            "enabled": self.super_config_cb.IsChecked is True,
+            "view_name": (self.sc_view_name_tb.Text or "").strip(),
+            "with_links": self.sc_with_links_cb.IsChecked is True,
+            "view_mode": "delete" if self.sc_delete_rb.IsChecked is True else "reuse",
+            "hide_clutter": self.sc_hide_clutter_cb.IsChecked is True,
+            "discipline": disciplines[self.sc_discipline_cb.SelectedIndex],
+            "phase": "default" if self.sc_phase_cb.SelectedIndex == 1 else "last",
+        }
+        return {"source": source, "view_contains": view_contains, "opts": opts,
+                "super_config": super_config}
 
     def continue_click(self, sender, args):
         config = self._gather_config()
         if config is None:
             self.status_tb.Text = "Faceting Factor must be a number (e.g. 1 or 0.5)."
             return
-        if not config["view_contains"]:
+        if config["super_config"]["enabled"]:
+            if not config["super_config"]["view_name"]:
+                self.status_tb.Text = "Enter a name for the Super Config created view."
+                return
+        elif not config["view_contains"]:
             self.status_tb.Text = "Enter text the view name should contain."
             return
         _save_settings(config)
@@ -445,6 +671,60 @@ def _pick_local_documents(uiapp):
     return [by_title[name] for name in selected]
 
 
+def _export_for_document(doc, doc_label, config, export_folder, best_effort_skipped):
+    """One document's worth of export results (list of (ok, doc_label,
+    view_name, detail) tuples) - shared by both _run_local and _run_acc
+    so the Super Config vs plain-filter branch only needs writing once.
+
+    Super Config: get-or-create the dedicated view (inside its own
+    Transaction - creating/renaming/hiding categories all modify the
+    document), export exactly that one view, then delete it afterward
+    if view_mode is "delete" (its own separate Transaction, so a delete
+    failure can never roll back a successful export that already
+    happened). Otherwise: unchanged plain "every view whose name
+    contains X" behaviour."""
+    sc = config.get("super_config", {})
+    if sc.get("enabled"):
+        t = Transaction(doc, "DeeNWCs - prepare export view")
+        t.Start()
+        try:
+            view, _created = _get_or_create_export_view(doc, sc)
+            t.Commit()
+        except Exception as e:
+            t.RollBack()
+            return [(False, doc_label, "-", "Could not prepare export view: {0}".format(e))]
+        if view is None:
+            return [(False, doc_label, "-",
+                    "This document has no 3D view type available - can't create the export view.")]
+
+        base_name = _sanitize_filename(doc_label)
+        ok, msg = _export_view_to_nwc(doc, view, export_folder, base_name, config, best_effort_skipped)
+        results = [(ok, doc_label, view.Name, msg)]
+
+        if sc.get("view_mode") == "delete":
+            t2 = Transaction(doc, "DeeNWCs - remove export view")
+            t2.Start()
+            try:
+                doc.Delete(view.Id)
+                t2.Commit()
+            except Exception as e:
+                t2.RollBack()
+                results.append((None, doc_label, view.Name,
+                                u"Export view could not be deleted afterward: {0}".format(e)))
+        return results
+
+    matching_views = _find_matching_views(doc, config["view_contains"])
+    if not matching_views:
+        return [(None, doc_label, "-",
+                u"No view containing '{0}' - skipped".format(config["view_contains"]))]
+    base_name = _sanitize_filename(doc_label)
+    results = []
+    for view in matching_views:
+        ok, msg = _export_view_to_nwc(doc, view, export_folder, base_name, config, best_effort_skipped)
+        results.append((ok, doc_label, view.Name, msg))
+    return results
+
+
 def _run_local(uiapp, config, export_folder, best_effort_skipped):
     docs = _pick_local_documents(uiapp)
     if not docs:
@@ -462,18 +742,11 @@ def _run_local(uiapp, config, export_folder, best_effort_skipped):
                     break
                 pb.update_progress(i, total)
                 before_count = len(dismissed_log)
-                matching_views = _find_matching_views(doc, config["view_contains"])
+                doc_results = _export_for_document(
+                    doc, doc.Title, config, export_folder, best_effort_skipped)
                 for msg, _sev in dismissed_log[before_count:]:
                     results.append((True, doc.Title, "-", msg))
-                if not matching_views:
-                    results.append((None, doc.Title, "-",
-                        u"No view containing '{0}' - skipped".format(config["view_contains"])))
-                    continue
-                base_name = _sanitize_filename(doc.Title)
-                for view in matching_views:
-                    ok, msg = _export_view_to_nwc(
-                        doc, view, export_folder, base_name, config, best_effort_skipped)
-                    results.append((ok, doc.Title, view.Name, msg))
+                results.extend(doc_results)
     finally:
         uiapp.DialogBoxShowing -= dialog_handler
     return results
@@ -535,16 +808,8 @@ def _run_acc(uiapp, config, export_folder, best_effort_skipped):
                     continue
 
                 doc = ui_doc.Document
-                matching_views = _find_matching_views(doc, config["view_contains"])
-                if not matching_views:
-                    results.append((None, name, "-",
-                        u"No view containing '{0}' - skipped".format(config["view_contains"])))
-                else:
-                    base_name = _sanitize_filename(name)
-                    for view in matching_views:
-                        ok, msg = _export_view_to_nwc(
-                            doc, view, export_folder, base_name, config, best_effort_skipped)
-                        results.append((ok, name, view.Name, msg))
+                results.extend(_export_for_document(
+                    doc, name, config, export_folder, best_effort_skipped))
 
                 if close_after:
                     try:
