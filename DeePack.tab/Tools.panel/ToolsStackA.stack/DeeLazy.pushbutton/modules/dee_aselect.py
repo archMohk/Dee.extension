@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-DeeLazy - DeeASelect module
+DeeLazy - DeeMoveMirror module
 Selects EVERY element in the whole project - model, annotation, links,
 everything - in one click, with a category checklist shown FIRST so the
 user can review the breakdown and untick whole categories before the
@@ -546,7 +546,7 @@ def _flip_plane(axis, cx, cy):
 def _axis_plane_from_line_points(p1, p2):
     """Builds the vertical mirror plane whose plan trace is the line
     p1->p2 - the Z components of p1/p2 are deliberately ignored (flattened
-    to the horizontal plane) since DeeASelect mirrors plan-view geometry,
+    to the horizontal plane) since DeeMoveMirror mirrors plan-view geometry,
     not the picked line's own elevation. Returns None if the line's
     horizontal projection has ~zero length (a purely vertical pick, e.g. a
     column edge) - that can't define a plan mirror axis."""
@@ -598,20 +598,20 @@ def _run_mirror_transaction(doc, uidoc, ids, checked_count, excluded_never_move,
             u"unticking a few categories first (e.g. use 'Model Only' or "
             u"'Annotation Only' instead of 'All').\n\nContinue anyway?"
             .format(ids.Count, checked_count),
-            title="DeeASelect - Large Mirror", yes=True, no=True)
+            title="DeeMoveMirror - Large Mirror", yes=True, no=True)
         if not proceed:
             return
 
     pinned_ids = _pinned_among(doc, ids)
     pin_note = (
-        u"\n\n{0:,} of these are currently PINNED - DeeASelect will "
+        u"\n\n{0:,} of these are currently PINNED - DeeMoveMirror will "
         u"unpin them, mirror everything, then pin those same elements "
         u"back automatically.".format(len(pinned_ids))
         if pinned_ids else u"")
     never_move_note = (
         u"\n\n{0:,} element(s) in Project Base Point / Survey Point were "
         u"EXCLUDED from this mirror - those anchor the model's coordinate "
-        u"system and are never moved by DeeASelect, even when ticked."
+        u"system and are never moved by DeeMoveMirror, even when ticked."
         .format(excluded_never_move)
         if excluded_never_move else u"")
     join_count = _join_partners_outside(doc, ids)
@@ -619,7 +619,7 @@ def _run_mirror_transaction(doc, uidoc, ids, checked_count, excluded_never_move,
         join_note = (
             u"\n\n{0:,} of these are geometrically JOINED to an element "
             u"OUTSIDE this mirror - Revit may need to break those joins to "
-            u"complete it; DeeASelect will let that happen automatically "
+            u"complete it; DeeMoveMirror will let that happen automatically "
             u"instead of stopping on it.".format(join_count))
     elif join_count is None and ids.Count > _JOIN_SCAN_MAX_IDS:
         join_note = (
@@ -634,17 +634,17 @@ def _run_mirror_transaction(doc, uidoc, ids, checked_count, excluded_never_move,
         u"{3}{4}{5}\n\nOriginals are REPLACED by their mirrored position "
         u"(no copy is kept). This changes the model. Continue?".format(
             ids.Count, checked_count, axis_label, pin_note, never_move_note, join_note),
-        title="DeeASelect - Mirror", yes=True, no=True)
+        title="DeeMoveMirror - Mirror", yes=True, no=True)
     if not proceed:
         return
 
     _try_checkout_for_move(doc, ids)
 
-    t = Transaction(doc, "DeeASelect - mirror selection")
+    t = Transaction(doc, "DeeMoveMirror - mirror selection")
     try:
         t.Start()
         ffh.apply_to_transaction(t)
-        with _SafeProgress(title=u"DeeASelect - mirroring {0:,} element(s)..."
+        with _SafeProgress(title=u"DeeMoveMirror - mirroring {0:,} element(s)..."
                             .format(ids.Count), indeterminate=True):
             mirror_elements(doc, ids, plane, pinned_ids)
         t.Commit()
@@ -655,7 +655,7 @@ def _run_mirror_transaction(doc, uidoc, ids, checked_count, excluded_never_move,
             pass
         forms.alert(u"Mirror failed and was rolled back (any unpinning was "
                     u"rolled back too):\n{0}".format(e),
-                    title="DeeASelect")
+                    title="DeeMoveMirror")
         return
 
     try:
@@ -670,7 +670,7 @@ def _run_mirror_transaction(doc, uidoc, ids, checked_count, excluded_never_move,
     forms.alert(
         u"Mirrored {0:,} element(s) across {1} categor(y/ies) - axis: {2}.{3}{4}"
         .format(ids.Count, checked_count, axis_label, pinned_note, excluded_note),
-        title="DeeASelect - Mirror")
+        title="DeeMoveMirror - Mirror")
 
 
 # ==========================================================================
@@ -694,11 +694,11 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
         # exactly what a live report saw as Revit "(Not Responding)"
         # before this window had even appeared. scan_categories() now
         # drives real progress via progress_cb.
-        with _SafeProgress(title="DeeASelect - scanning the project...",
+        with _SafeProgress(title="DeeMoveMirror - scanning the project...",
                             indeterminate=False, cancellable=False) as pb:
             def _scan_progress(done, total):
                 try:
-                    pb.title = u"DeeASelect - scanning... {0:,} of {1:,}".format(done, total)
+                    pb.title = u"DeeMoveMirror - scanning... {0:,} of {1:,}".format(done, total)
                     pb.update_progress(done, total)
                 except Exception:
                     pass
@@ -826,11 +826,11 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
     def select_click(self, sender, args):
         checked_rows = [r for r in self._rows if r.checked]
         if not checked_rows:
-            forms.alert("Tick at least one category first.", title="DeeASelect")
+            forms.alert("Tick at least one category first.", title="DeeMoveMirror")
             return
         ids = self._checked_ids()
         if ids.Count == 0:
-            forms.alert("Nothing to select.", title="DeeASelect")
+            forms.alert("Nothing to select.", title="DeeMoveMirror")
             return
         if ids.Count >= _LARGE_SELECTION_WARN_THRESHOLD:
             proceed = forms.alert(
@@ -844,7 +844,7 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
                 u"unticking a few categories first (e.g. use 'Model Only' "
                 u"or 'Annotation Only' instead of 'All').\n\n"
                 u"Select anyway?".format(ids.Count, len(checked_rows)),
-                title="DeeASelect - Large Selection", yes=True, no=True)
+                title="DeeMoveMirror - Large Selection", yes=True, no=True)
             if not proceed:
                 return
         try:
@@ -852,12 +852,12 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
             # blocking API call (same limitation noted on the scan above),
             # but it keeps a visible "still working" window up rather than
             # nothing at all while Revit's own title bar looks frozen.
-            with _SafeProgress(title=u"DeeASelect - selecting {0:,} element(s)..."
+            with _SafeProgress(title=u"DeeMoveMirror - selecting {0:,} element(s)..."
                                 .format(ids.Count), indeterminate=True):
                 self.uidoc.Selection.SetElementIds(ids)
         except Exception as e:
             forms.alert(u"Revit refused the selection:\n{0}".format(e),
-                        title="DeeASelect")
+                        title="DeeMoveMirror")
             return
         self.status_tb.Text = (
             u"Selected {0:,} element(s) across {1} categor(y/ies)."
@@ -940,15 +940,15 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
     def move_click(self, sender, args):
         checked_rows = [r for r in self._rows if r.checked]
         if not checked_rows:
-            forms.alert("Tick at least one category first.", title="DeeASelect")
+            forms.alert("Tick at least one category first.", title="DeeMoveMirror")
             return
         dx_disp, dy_disp = self._move_xy_display()
         if dx_disp == 0.0 and dy_disp == 0.0:
-            forms.alert("Enter a non-zero X or Y value to move by.", title="DeeASelect")
+            forms.alert("Enter a non-zero X or Y value to move by.", title="DeeMoveMirror")
             return
         ids, excluded_never_move = self._move_ids()
         if ids.Count == 0:
-            forms.alert("Nothing to move.", title="DeeASelect")
+            forms.alert("Nothing to move.", title="DeeMoveMirror")
             return
         if ids.Count >= _LARGE_SELECTION_WARN_THRESHOLD:
             proceed = forms.alert(
@@ -963,20 +963,20 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
                 u"use 'Model Only' or 'Annotation Only' instead of "
                 u"'All').\n\nContinue anyway?"
                 .format(ids.Count, len(checked_rows)),
-                title="DeeASelect - Large Move", yes=True, no=True)
+                title="DeeMoveMirror - Large Move", yes=True, no=True)
             if not proceed:
                 return
 
         pinned_ids = _pinned_among(self.doc, ids)
         pin_note = (
-            u"\n\n{0:,} of these are currently PINNED - DeeASelect will "
+            u"\n\n{0:,} of these are currently PINNED - DeeMoveMirror will "
             u"unpin them, move everything, then pin those same elements "
             u"back automatically.".format(len(pinned_ids))
             if pinned_ids else u"")
         never_move_note = (
             u"\n\n{0:,} element(s) in Project Base Point / Survey Point were "
             u"EXCLUDED from this move - those anchor the model's coordinate "
-            u"system and are never moved by DeeASelect, even when ticked."
+            u"system and are never moved by DeeMoveMirror, even when ticked."
             .format(excluded_never_move)
             if excluded_never_move else u"")
         join_count = _join_partners_outside(self.doc, ids)
@@ -984,7 +984,7 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
             join_note = (
                 u"\n\n{0:,} of these are geometrically JOINED to an element "
                 u"OUTSIDE this move - Revit may need to break those joins to "
-                u"complete the move; DeeASelect will let that happen "
+                u"complete the move; DeeMoveMirror will let that happen "
                 u"automatically instead of stopping on it.".format(join_count))
         elif join_count is None and ids.Count > _JOIN_SCAN_MAX_IDS:
             join_note = (
@@ -1000,7 +1000,7 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
             u"This changes the model. Continue?".format(
                 ids.Count, len(checked_rows), dx_disp, dy_disp, self._unit_abbr,
                 pin_note, never_move_note, join_note),
-            title="DeeASelect - Move", yes=True, no=True)
+            title="DeeMoveMirror - Move", yes=True, no=True)
         if not proceed:
             return
 
@@ -1011,7 +1011,7 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
         # own docstring for why this must never block the move on failure.
         _try_checkout_for_move(self.doc, ids)
 
-        t = Transaction(self.doc, "DeeASelect - move selection")
+        t = Transaction(self.doc, "DeeMoveMirror - move selection")
         try:
             t.Start()
             # Attached AFTER Start() - deew_failure_handler's own docstring
@@ -1020,7 +1020,7 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
             # any other warning) into a silent continue instead of an
             # interactive dialog blocking this transaction.
             ffh.apply_to_transaction(t)
-            with _SafeProgress(title=u"DeeASelect - moving {0:,} element(s)..."
+            with _SafeProgress(title=u"DeeMoveMirror - moving {0:,} element(s)..."
                                 .format(ids.Count), indeterminate=True):
                 move_elements(self.doc, ids, dx_internal, dy_internal, pinned_ids)
             t.Commit()
@@ -1031,7 +1031,7 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
                 pass
             forms.alert(u"Move failed and was rolled back (any unpinning was "
                         u"rolled back too):\n{0}".format(e),
-                        title="DeeASelect")
+                        title="DeeMoveMirror")
             return
 
         try:
@@ -1058,11 +1058,11 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
         Returns (ids, excluded_never_move, checked_count) or None."""
         checked_rows = [r for r in self._rows if r.checked]
         if not checked_rows:
-            forms.alert("Tick at least one category first.", title="DeeASelect")
+            forms.alert("Tick at least one category first.", title="DeeMoveMirror")
             return None
         ids, excluded_never_move = self._move_ids()
         if ids.Count == 0:
-            forms.alert("Nothing to mirror.", title="DeeASelect")
+            forms.alert("Nothing to mirror.", title="DeeMoveMirror")
             return None
         return ids, excluded_never_move, len(checked_rows)
 
@@ -1074,7 +1074,7 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
         bbox = _combined_bbox(self.doc, ids)
         if bbox is None:
             forms.alert(u"None of the ticked elements has a usable bounding "
-                        u"box - nothing to mirror against.", title="DeeASelect")
+                        u"box - nothing to mirror against.", title="DeeMoveMirror")
             return
         minx, miny, maxx, maxy = bbox
         cx, cy = (minx + maxx) / 2.0, (miny + maxy) / 2.0
@@ -1117,7 +1117,7 @@ class DeeASelectWindow(dee_branding.DeeBrandedWindow):
                 u"first (e.g. use 'Model Only' or 'Annotation Only' "
                 u"instead of 'All').\n\nPick a mirror axis anyway?"
                 .format(ids.Count, checked_count),
-                title="DeeASelect - Large Mirror", yes=True, no=True)
+                title="DeeMoveMirror - Large Mirror", yes=True, no=True)
             if not proceed:
                 return
         self.mirror_pick_request = {
@@ -1147,20 +1147,20 @@ def _run_mirror_pick_flow(uiapp, request):
             u"Pick a straight line, wall, or beam to mirror across")
     except Exception:
         # Esc / right-click-cancel - same silent no-op as declining any
-        # other DeeASelect confirmation, not an error.
+        # other DeeMoveMirror confirmation, not an error.
         return
     el = doc.GetElement(ref.ElementId)
     line = _line_from_element(el) if el is not None else None
     if line is None:
         forms.alert(u"That element doesn't have a usable straight line - "
                     u"pick a straight detail line, model line, wall, or "
-                    u"beam instead.", title="DeeASelect - Mirror")
+                    u"beam instead.", title="DeeMoveMirror - Mirror")
         return
     plane = _axis_plane_from_line_points(line.GetEndPoint(0), line.GetEndPoint(1))
     if plane is None:
         forms.alert(u"That line runs straight up/down and can't define a "
                     u"plan mirror axis - pick a line that runs across the "
-                    u"plan instead.", title="DeeASelect - Mirror")
+                    u"plan instead.", title="DeeMoveMirror - Mirror")
         return
     _run_mirror_transaction(doc, uidoc, request["ids"], request["checked_count"],
                              request["excluded_never_move"], plane,
@@ -1181,7 +1181,7 @@ def launch(uiapp):
 
 TOOL_INFO = {
     "id": "dee_aselect",
-    "title": "DeeASelect",
+    "title": "DeeMoveMirror",
     "description": "Select EVERY element in the project - model, annotation, links, everything - with a category checklist, one-click Model/Annotation presets, and X/Y move plus mirror (flip or pick-a-line) that keep dimensions and tags intact.",
     "launch": launch,
 }
