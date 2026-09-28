@@ -1,0 +1,2 @@
+title: DeeDropToSurface
+tooltip: Pick any elements, then pick a Floor or Toposolid - each picked element is moved straight up/down (its own X/Y position is never changed) to rest exactly on that surface. Every element gets its own vertical offset based on the surface's elevation directly below it, so a sloped Floor or Toposolid is respected instead of applying one flat move to everything. Pinned elements are skipped and reported, not force-moved.
