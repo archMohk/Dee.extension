@@ -147,6 +147,30 @@
                 </StackPanel>
             </GroupBox>
 
+            <GroupBox Header="Folder &amp; File Naming" Margin="0,0,0,10">
+                <StackPanel Margin="5">
+                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#555" Margin="0,0,0,8"
+                               Text="If your Revit file names are built from delimited parts (e.g. PROJ-AR-L02-DR001), label each part once below - the SAME labels can then be used to build a subfolder path and/or the exported file's own name. Leave the template blank to skip this and just export flat with the default naming."/>
+
+                    <DockPanel Margin="0,0,0,6">
+                        <TextBlock Text="Delimiter:" VerticalAlignment="Center" Margin="0,0,8,0" DockPanel.Dock="Left"/>
+                        <TextBox x:Name="name_delimiter_tb" Height="24" Width="60" HorizontalAlignment="Left" Text="-"/>
+                    </DockPanel>
+
+                    <TextBlock Text="Naming template (label each part, using the delimiter above):" Margin="0,0,0,2"/>
+                    <TextBox x:Name="name_template_tb" Height="24" Margin="0,0,0,2" Text=""/>
+                    <TextBlock FontSize="11" Foreground="#888" Margin="0,0,0,8" TextWrapping="Wrap"
+                               Text="Example: Project-Discipline-Level-Type - a file named ABC-AR-L02-DR001 then has Discipline=AR, Level=L02, Type=DR001."/>
+
+                    <TextBlock Text="Folder structure (label names separated by /, blank = flat):" Margin="0,0,0,2"/>
+                    <TextBox x:Name="name_folder_structure_tb" Height="24" Margin="0,0,0,8" Text=""
+                             ToolTip="Example: Discipline/Level puts an AR/L02 file into &lt;export folder&gt;\AR\L02\"/>
+
+                    <TextBlock Text="Exported file name (use {RevitFileName}, {ViewName}, or any label above):" Margin="0,0,0,2"/>
+                    <TextBox x:Name="name_output_template_tb" Height="24" Text="{RevitFileName}_{ViewName}"/>
+                </StackPanel>
+            </GroupBox>
+
             <TextBlock x:Name="status_tb" FontSize="11" Foreground="#a00" Margin="0,0,0,8" TextWrapping="Wrap" Text=""/>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

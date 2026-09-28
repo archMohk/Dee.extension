@@ -92,6 +92,44 @@ the first time:
     not fatal) can never roll back an export that already succeeded.
 
 --------------------------------------------------------------------
+Folder & File Naming - parsing the Revit file name into labeled parts
+--------------------------------------------------------------------
+Live request: fold the export destination and file name around the
+project's own file-naming convention (e.g. "type of building and
+discipline" encoded as delimited parts of the file name), generically -
+this tool has no way to know any specific company's convention, so
+instead of guessing at one, the user labels their OWN convention once:
+a delimiter (default "-") and a naming TEMPLATE using that same
+delimiter, e.g. "Project-Discipline-Level-Type" - each word becomes a
+label. _parse_segments() then zips any real file name split on the same
+delimiter against those labels, so "ABC-AR-L02-DR001" resolves to
+{Project: ABC, Discipline: AR, Level: L02, Type: DR001}.
+
+Two more templates consume those labels via {Label} tokens
+(_resolve_tokens, a plain regex substitution - an unrecognised {Key} is
+left LITERALLY in the output rather than silently dropped, so a typo is
+visible instead of invisible):
+  - Folder structure: label names separated by "/", e.g.
+    "Discipline/Level" nests output into <export folder>/AR/L02/.
+  - Exported file name: defaults to "{RevitFileName}_{ViewName}" -
+    exactly reproducing this tool's ORIGINAL, pre-this-revision naming
+    (base_name + "_" + view.Name) - plus {RevitFileName}/{ViewName} are
+    always available even with no naming template set, so nothing
+    changes for a user who never touches this section.
+
+A missing/blank naming template disables all of this - every file
+exports flat, named the original way, exactly as before this feature
+existed. _show_preview_and_confirm() prints every selected file's
+resolved folder + naming pattern to the output window and asks to
+proceed BEFORE any file is opened or any export runs, so a wrong
+delimiter/template mapping is caught before wasting a whole batch on it
+- the real per-view file name (using the view's actual Name, not the
+preview's "<view>" placeholder) can only be confirmed once each
+document is actually open, so the preview covers the FOLDER mapping
+precisely (already fully knowable from the file name alone) and shows
+the naming PATTERN rather than every exact final name.
+
+--------------------------------------------------------------------
 NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
 --------------------------------------------------------------------
 1. NavisworksExportOptions / NavisworksExportScope / NavisworksCoordinates
@@ -113,6 +151,13 @@ NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
    BuiltInCategory names for "Reference Planes" and "Sun Path" on every
    Revit version, and whether CreateIsometric + immediate category/
    discipline/phase edits inside one Transaction behaves as expected.
+5. Folder/naming template parsing (_parse_segments/_resolve_tokens/
+   _build_export_folder) and the preview step are new and untested
+   live - in particular, os.makedirs() being called for every export
+   (needed since a folder-structure rule can name a subfolder that
+   doesn't exist yet) assumes Document.Export itself does NOT need the
+   folder to pre-exist beyond that; not verified against a real Export
+   call from this session.
 """
 import os
 import re
@@ -202,6 +247,12 @@ _DEFAULT_SETTINGS = {
         "discipline": "Coordination",
         "phase": "last",           # "last" or "default"
     },
+    "naming": {
+        "delimiter": "-",
+        "template": "",                            # e.g. "Project-Discipline-Level-Type"
+        "folder_structure": "",                     # e.g. "Discipline/Level" - blank = flat
+        "output_template": "{RevitFileName}_{ViewName}",
+    },
 }
 
 
@@ -218,11 +269,13 @@ def _load_settings():
     merged = dict(_DEFAULT_SETTINGS)
     merged["opts"] = dict(_DEFAULT_SETTINGS["opts"])
     merged["super_config"] = dict(_DEFAULT_SETTINGS["super_config"])
+    merged["naming"] = dict(_DEFAULT_SETTINGS["naming"])
     for key, value in data.items():
-        if key not in ("opts", "super_config"):
+        if key not in ("opts", "super_config", "naming"):
             merged[key] = value
     merged["opts"].update(data.get("opts", {}) or {})
     merged["super_config"].update(data.get("super_config", {}) or {})
+    merged["naming"].update(data.get("naming", {}) or {})
     return merged
 
 
@@ -451,12 +504,84 @@ def _build_nwc_options(config, view_id, best_effort_skipped):
     return opts
 
 
-def _export_view_to_nwc(doc, view, folder, base_name, config, best_effort_skipped):
-    file_name = _sanitize_filename("{0}_{1}".format(base_name, view.Name))
+def _split_template(template, delimiter):
+    """The naming template's own labels, in order - e.g. "Project-
+    Discipline-Level" with delimiter "-" gives ["Project", "Discipline",
+    "Level"]. Empty parts (a doubled delimiter) are dropped rather than
+    producing a blank label name."""
+    if not template or not delimiter:
+        return []
+    return [seg.strip() for seg in template.split(delimiter) if seg.strip()]
+
+
+def _parse_segments(file_label, delimiter, labels):
+    """{label: value}, zipping file_label.split(delimiter) against
+    `labels` (the naming template's own labels, same delimiter). A file
+    with FEWER parts than the template has maps the missing labels to
+    '' rather than raising; extra parts beyond the template's own labels
+    are ignored (there's nothing to name them)."""
+    if not delimiter or not labels:
+        return {}
+    parts = file_label.split(delimiter)
+    return dict((label, parts[i].strip() if i < len(parts) else "")
+                for i, label in enumerate(labels))
+
+
+def _resolve_tokens(template, tokens):
+    """Replaces every {Key} in `template` with tokens.get(Key). A {Key}
+    with no matching token is left LITERALLY in the output rather than
+    silently dropped or raising - a typo'd label name shows up plainly
+    in the exported file name / preview instead of vanishing."""
+    def repl(match):
+        key = match.group(1)
+        return tokens[key] if key in tokens else match.group(0)
+    return re.sub(r"\{(\w+)\}", repl, template or "")
+
+
+def _build_export_folder(base_folder, folder_structure, segments):
+    """base_folder, with one subfolder per label named in
+    `folder_structure` (label names separated by "/") - e.g.
+    "Discipline/Level" with segments {"Discipline": "AR", "Level": "L02"}
+    gives base_folder/AR/L02. A label with no resolved value (missing
+    from the template, or the file had fewer parts than expected) uses
+    "Unspecified" as its folder name rather than collapsing the path or
+    raising, so a mapping mistake is visible as a folder name instead of
+    silently merging unrelated files together."""
+    if not folder_structure:
+        return base_folder
+    sub = base_folder
+    for label in (p.strip() for p in folder_structure.split("/") if p.strip()):
+        value = _sanitize_filename(segments.get(label) or "Unspecified")
+        sub = os.path.join(sub, value)
+    return sub
+
+
+def _resolve_output(doc_label, view_name, config, export_folder):
+    """(output_folder, output_file_name) for one view of one document -
+    shared by the preview (view_name="<view>" as a placeholder, since
+    the real view names aren't known until the document is open - see
+    module docstring) and the real export (the view's actual Name)."""
+    nm = config.get("naming", {})
+    labels = _split_template(nm.get("template", ""), nm.get("delimiter", "-"))
+    segments = _parse_segments(doc_label, nm.get("delimiter", "-"), labels)
+    tokens = dict(segments)
+    tokens["RevitFileName"] = _sanitize_filename(doc_label)
+    tokens["ViewName"] = view_name
+    out_folder = _build_export_folder(
+        export_folder, nm.get("folder_structure", ""), segments)
+    out_name = _resolve_tokens(
+        nm.get("output_template") or "{RevitFileName}_{ViewName}", tokens)
+    return out_folder, _sanitize_filename(out_name)
+
+
+def _export_view_to_nwc(doc, view, output_folder, output_name, config, best_effort_skipped):
+    file_name = _sanitize_filename(output_name)
     try:
+        if not os.path.isdir(output_folder):
+            os.makedirs(output_folder)
         opts = _build_nwc_options(config, view.Id, best_effort_skipped)
-        doc.Export(folder, file_name, opts)
-        return True, "Exported '{0}.nwc'".format(file_name)
+        doc.Export(output_folder, file_name, opts)
+        return True, u"Exported '{0}.nwc' to {1}".format(file_name, output_folder)
     except Exception as e:
         return False, "FAILED: {0}".format(e)
 
@@ -563,6 +688,12 @@ class DeeNWCsOptionsWindow(dee_branding.DeeBrandedWindow):
             self.sc_discipline_cb.SelectedIndex = 0
         self.sc_phase_cb.SelectedIndex = 1 if sc.get("phase") == "default" else 0
 
+        nm = s.get("naming", {})
+        self.name_delimiter_tb.Text = nm.get("delimiter", "-")
+        self.name_template_tb.Text = nm.get("template", "")
+        self.name_folder_structure_tb.Text = nm.get("folder_structure", "")
+        self.name_output_template_tb.Text = nm.get("output_template", "{RevitFileName}_{ViewName}")
+
     def super_config_toggled(self, sender, args):
         if not self._ready:
             return
@@ -610,8 +741,15 @@ class DeeNWCsOptionsWindow(dee_branding.DeeBrandedWindow):
             "discipline": disciplines[self.sc_discipline_cb.SelectedIndex],
             "phase": "default" if self.sc_phase_cb.SelectedIndex == 1 else "last",
         }
+        naming = {
+            "delimiter": (self.name_delimiter_tb.Text or "-"),
+            "template": (self.name_template_tb.Text or "").strip(),
+            "folder_structure": (self.name_folder_structure_tb.Text or "").strip(),
+            "output_template": (self.name_output_template_tb.Text or "").strip()
+                                or "{RevitFileName}_{ViewName}",
+        }
         return {"source": source, "view_contains": view_contains, "opts": opts,
-                "super_config": super_config}
+                "super_config": super_config, "naming": naming}
 
     def continue_click(self, sender, args):
         config = self._gather_config()
@@ -697,8 +835,8 @@ def _export_for_document(doc, doc_label, config, export_folder, best_effort_skip
             return [(False, doc_label, "-",
                     "This document has no 3D view type available - can't create the export view.")]
 
-        base_name = _sanitize_filename(doc_label)
-        ok, msg = _export_view_to_nwc(doc, view, export_folder, base_name, config, best_effort_skipped)
+        out_folder, out_name = _resolve_output(doc_label, view.Name, config, export_folder)
+        ok, msg = _export_view_to_nwc(doc, view, out_folder, out_name, config, best_effort_skipped)
         results = [(ok, doc_label, view.Name, msg)]
 
         if sc.get("view_mode") == "delete":
@@ -717,18 +855,15 @@ def _export_for_document(doc, doc_label, config, export_folder, best_effort_skip
     if not matching_views:
         return [(None, doc_label, "-",
                 u"No view containing '{0}' - skipped".format(config["view_contains"]))]
-    base_name = _sanitize_filename(doc_label)
     results = []
     for view in matching_views:
-        ok, msg = _export_view_to_nwc(doc, view, export_folder, base_name, config, best_effort_skipped)
+        out_folder, out_name = _resolve_output(doc_label, view.Name, config, export_folder)
+        ok, msg = _export_view_to_nwc(doc, view, out_folder, out_name, config, best_effort_skipped)
         results.append((ok, doc_label, view.Name, msg))
     return results
 
 
-def _run_local(uiapp, config, export_folder, best_effort_skipped):
-    docs = _pick_local_documents(uiapp)
-    if not docs:
-        return []
+def _run_local(uiapp, docs, config, export_folder, best_effort_skipped):
     results = []
     dismissed_log = []
     dialog_handler = afb.make_dialog_handler(dismissed_log)
@@ -752,36 +887,55 @@ def _run_local(uiapp, config, export_folder, best_effort_skipped):
     return results
 
 
-def _run_acc(uiapp, config, export_folder, best_effort_skipped):
+def _pick_acc_files(uiapp):
+    """Everything ACC-side that must happen BEFORE the preview step -
+    auth, hub/project/file pick, and the close-after-export prompt.
+    Returns a dict for _run_acc, or None if the user backed out anywhere
+    along the chain."""
     try:
         token = acc_auth.get_access_token()
     except Exception as e:
         forms.alert("Authentication failed:\n{0}".format(e))
-        return []
+        return None
 
     hub_result = afb.pick_hub(token)
     if hub_result is None:
-        return []
+        return None
     hub_id, region, _hub_name = hub_result
 
     project_result = afb.pick_project(hub_id, token)
     if project_result is None:
-        return []
+        return None
     project_id, _project_name = project_result
 
     all_items = afb.list_project_files(hub_id, project_id, token, _CACHE_FILE)
     if not all_items:
-        return []
+        return None
 
     selected_names = afb.pick_files_to_open(
         all_items, title="Select Files to Batch-Export NWC", button_name="Export Selected")
     if not selected_names:
-        return []
+        return None
 
     close_after = forms.alert(
         "Close each document after exporting its matching view(s)? Recommended for "
         "large batches, to avoid running out of memory with many documents left open.",
         title="DeeNWCs", yes=True, no=True)
+
+    return {
+        "token": token, "region": region, "project_id": project_id,
+        "all_items": all_items, "selected_names": selected_names,
+        "close_after": close_after,
+    }
+
+
+def _run_acc(uiapp, acc_ctx, config, export_folder, best_effort_skipped):
+    region = acc_ctx["region"]
+    project_id = acc_ctx["project_id"]
+    all_items = acc_ctx["all_items"]
+    selected_names = acc_ctx["selected_names"]
+    token = acc_ctx["token"]
+    close_after = acc_ctx["close_after"]
 
     results = []
     dismissed_log = []
@@ -821,6 +975,40 @@ def _run_acc(uiapp, config, export_folder, best_effort_skipped):
     return results
 
 
+def _show_preview_and_confirm(file_labels, config, export_folder):
+    """Prints a per-file preview (destination folder + parsed naming
+    segments) to the output window, then asks to proceed. The exported
+    file's VIEW NAME isn't known yet for ACC sources (the file isn't
+    open until the real export loop runs) - shown as the literal
+    placeholder "<view>" here, since only the FOLDER/segment mapping
+    (the thing a naming-convention mistake would get wrong) needs to be
+    accurate before committing to a whole batch; the exact per-view file
+    name is confirmed in the results afterward instead."""
+    nm = config.get("naming", {})
+    labels = _split_template(nm.get("template", ""), nm.get("delimiter", "-"))
+    lines = [u"**DeeNWCs — Preview**", u"",
+             u"- Destination base folder: `{0}`".format(export_folder)]
+    if labels:
+        lines.append(u"- Naming template labels: {0}".format(", ".join(labels)))
+    else:
+        lines.append(u"- No naming template set - every file exports flat into the "
+                     u"base folder with the default `{RevitFileName}_{ViewName}` naming.")
+    lines.append(u"")
+    for name in file_labels:
+        segments = _parse_segments(name, nm.get("delimiter", "-"), labels)
+        out_folder, out_name = _resolve_output(name, u"<view>", config, export_folder)
+        seg_note = (u", ".join(u"{0}={1}".format(k, v or "(missing)") for k, v in segments.items())
+                    if segments else u"(none)")
+        lines.append(u"- **{0}**".format(name))
+        lines.append(u"  - folder: `{0}`".format(out_folder))
+        lines.append(u"  - file name pattern: `{0}`".format(out_name))
+        lines.append(u"  - segments: {0}".format(seg_note))
+    output.print_md(u"\n".join(lines))
+    return forms.alert(
+        u"Preview printed to the output window above ({0:,} file(s)). Proceed with export?"
+        .format(len(file_labels)), title="DeeNWCs - Preview", yes=True, no=True)
+
+
 def main():
     uiapp = __revit__
 
@@ -836,11 +1024,27 @@ def main():
         return
     export_folder = folder_dlg.SelectedPath
 
+    docs = None
+    acc_ctx = None
+    if config["source"] == "local":
+        docs = _pick_local_documents(uiapp)
+        if not docs:
+            return
+        file_labels = [d.Title for d in docs]
+    else:
+        acc_ctx = _pick_acc_files(uiapp)
+        if acc_ctx is None:
+            return
+        file_labels = acc_ctx["selected_names"]
+
+    if not _show_preview_and_confirm(file_labels, config, export_folder):
+        return
+
     best_effort_skipped = set()
     if config["source"] == "local":
-        results = _run_local(uiapp, config, export_folder, best_effort_skipped)
+        results = _run_local(uiapp, docs, config, export_folder, best_effort_skipped)
     else:
-        results = _run_acc(uiapp, config, export_folder, best_effort_skipped)
+        results = _run_acc(uiapp, acc_ctx, config, export_folder, best_effort_skipped)
 
     if not results:
         return
