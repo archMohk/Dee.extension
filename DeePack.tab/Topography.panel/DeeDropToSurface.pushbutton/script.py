@@ -88,6 +88,42 @@ wall was Structural (simplified to always non-structural - this tool
 targets site/landscape context, where a wall being dropped onto terrain
 is architectural in practice) and any wall-hosted elements (see above).
 
+--------------------------------------------------------------------
+Floor handling - shape-edit (Add Point) instead of moving
+--------------------------------------------------------------------
+A picked Floor is never rigidly moved - a live report showed a flat
+Floor staying perfectly flat and cutting through a sloped Toposolid,
+and asked for the Floor itself to be reshaped so its top surface follows
+the terrain, "by adding Point" (Revit's own Shape Editing "Add Point"
+tool, not Attach Base - a Floor's PLAN OUTLINE stays exactly where it
+is; only its top surface warps).
+
+_shape_edit_floor_to_surface() enables SlabShapeEditor on the picked
+Floor (Revit only allows shape editing on a flat, HORIZONTAL floor with
+no shape edits yet - SlabShapeEditor is None otherwise, reported as a
+failure for that floor) and calls AddPoint(XYZ(x, y, z)) - z from the
+same _surface_z_at() raycast every other element uses - across a grid
+spanning the floor's own bounding box (spacing starts at 3 feet, widened
+so a very large floor never adds more than ~300 points). AddPoint's XYZ
+is in the same absolute, Project-Base-Point-relative coordinate space as
+every other XYZ this tool already works in - confirmed via the Revit API
+forum discussion of how SlabShapeVertices/AddPoint coordinates compare
+to the UI's own "offset from Top Plane" display, which is a presentation
+convenience layered over the same absolute coordinates.
+
+This ONLY adds interior points - it deliberately does NOT touch the
+Floor's existing boundary/corner vertices (Revit's own ModifySubElement,
+which WOULD move them, takes an offset-from-original-face value with
+more ambiguous semantics than AddPoint's plain absolute Z - not used
+here to keep this one behaviour unambiguous). A grid point that lands
+exactly on the boundary or just outside the Floor's actual (possibly
+non-rectangular) footprint is expected to fail - AddPoint requires a
+point strictly inside - and is silently skipped per-point rather than
+aborting the whole floor; only a floor where EVERY grid point failed is
+reported as a failure. Non-destructive and fully within the one shared
+Transaction, so declining is as simple as Undo - no separate "are you
+sure" confirmation is asked for this, unlike the Wall rebuild above.
+
 Pinned elements are skipped and reported, not auto-unpinned - unlike
 DeeASelect's Move/Mirror (which unpins/re-pins around a single shared
 transform), this tool moves each element by a DIFFERENT amount, so
@@ -119,10 +155,18 @@ NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
    exact case) leaves the original wall untouched and reports it as
    failed, rather than losing it. Not exercised live against a real
    Level-1 wall from this session.
+4. SlabShapeEditor.AddPoint's exact behaviour at a grid's worth of points
+   in one go (as opposed to the one-or-few-points-by-hand the Revit UI's
+   own tool is normally used for) is new territory - the per-point
+   try/except means a batch of individual point failures degrades to a
+   sparser shape rather than crashing, but this has not been exercised
+   live against a real, non-trivial Floor shape yet.
 """
 from pyrevit import forms, script
 import dee_telemetry
 dee_telemetry.check_access("DeeDropToSurface")
+
+import math
 
 from System.Collections.Generic import List
 
@@ -146,6 +190,11 @@ output = script.get_output()
 # intersector is filtered to the target's own id alone (see module
 # docstring) and so cannot be blocked by any element in between.
 _SEARCH_MARGIN = 500.0  # feet
+
+# Floor shape-edit grid: starts at one point every 3 feet, widened so a
+# very large floor never asks for more than ~300 AddPoint calls.
+_FLOOR_GRID_BASE_SPACING = 3.0  # feet
+_FLOOR_GRID_MAX_POINTS = 300
 
 
 class _TargetFilter(ISelectionFilter):
@@ -335,6 +384,51 @@ def _rebuild_wall_with_profile(doc, wall, intersector, search_top, target_id):
     return Wall.Create(doc, profile, wall_type_id, level_id, False)
 
 
+# ==========================================================================
+# floor handling - shape-edit (Add Point) instead of moving
+# ==========================================================================
+def _shape_edit_floor_to_surface(doc, floor, intersector, search_top, target_id):
+    """Adds interior AddPoint shape points across `floor`'s own bounding
+    box, each snapped to the target surface's elevation directly below
+    it - see the module docstring's Floor handling section for the full
+    rationale (absolute-Z confirmation, boundary vertices untouched,
+    why failures are per-point). Returns the number of points actually
+    added; raises only if the floor cannot be shape-edited AT ALL
+    (SlabShapeEditor is None - not flat/horizontal, or already has shape
+    edits)."""
+    editor = floor.SlabShapeEditor
+    if editor is None:
+        raise Exception(
+            "This floor can't be shape-edited - Revit only allows it on a "
+            "flat, horizontal floor with no existing shape edits.")
+    if not editor.IsEnabled:
+        editor.Enable()
+
+    bbox = floor.get_BoundingBox(None)
+    width = max(bbox.Max.X - bbox.Min.X, 0.001)
+    depth = max(bbox.Max.Y - bbox.Min.Y, 0.001)
+    spacing = max(_FLOOR_GRID_BASE_SPACING,
+                  math.sqrt((width * depth) / float(_FLOOR_GRID_MAX_POINTS)))
+
+    added = 0
+    y = bbox.Min.Y + spacing
+    while y < bbox.Max.Y:
+        x = bbox.Min.X + spacing
+        while x < bbox.Max.X:
+            z = _surface_z_at(intersector, x, y, search_top, target_id)
+            if z is not None:
+                try:
+                    editor.AddPoint(XYZ(x, y, z))
+                    added += 1
+                except Exception:
+                    # Off the floor's actual (possibly non-rectangular)
+                    # footprint, or on its boundary - expected, per-point.
+                    pass
+            x += spacing
+        y += spacing
+    return added
+
+
 def main():
     uidoc = __revit__.ActiveUIDocument
     if uidoc is None:
@@ -372,8 +466,10 @@ def main():
 
     # Straight walls get the destructive rebuild path (see module
     # docstring's Wall handling section); curved walls can't use it at
-    # all; everything else keeps the plain vertical move.
-    straight_walls, curved_wall_ids, others = [], [], []
+    # all. Floors get shape-edited (Add Point) instead of moved (see the
+    # Floor handling section). Everything else keeps the plain vertical
+    # move.
+    straight_walls, curved_wall_ids, floors_to_shape, others = [], [], [], []
     for el in elements:
         if el.Id == target.Id:
             continue
@@ -382,6 +478,8 @@ def main():
                 straight_walls.append(el)
             else:
                 curved_wall_ids.append(el.Id)
+        elif isinstance(el, Floor):
+            floors_to_shape.append(el)
         else:
             others.append(el)
 
@@ -411,6 +509,7 @@ def main():
 
     moved, no_reference, no_hit, pinned_skipped, failed = [], [], [], [], []
     rebuilt, rebuild_failed = [], []
+    shaped, shape_failed = [], []
 
     t = Transaction(doc, "DeeDropToSurface - drop elements onto surface")
     t.Start()
@@ -453,7 +552,24 @@ def main():
         except Exception as e:
             rebuild_failed.append((wall.Id, str(e)))
 
-    if moved or rebuilt:
+    for floor in floors_to_shape:
+        try:
+            if floor.Pinned:
+                pinned_skipped.append(floor.Id)
+                continue
+        except Exception:
+            pass
+        try:
+            n = _shape_edit_floor_to_surface(doc, floor, intersector, search_top, target.Id)
+            if n > 0:
+                shaped.append((floor.Id, n))
+            else:
+                shape_failed.append((floor.Id,
+                    "No interior points landed on the surface's extent."))
+        except Exception as e:
+            shape_failed.append((floor.Id, str(e)))
+
+    if moved or rebuilt or shaped:
         t.Commit()
     else:
         t.RollBack()
@@ -469,6 +585,13 @@ def main():
     if skipped_wall_ids:
         lines.append(u"- Walls skipped (curved, or rebuild declined - not moved at all): {0:,}"
                      .format(len(skipped_wall_ids)))
+    if shaped:
+        total_pts = sum(n for _id, n in shaped)
+        lines.append(u"- Floors shape-edited to follow the surface: {0:,} "
+                     u"({1:,} point(s) added total)".format(len(shaped), total_pts))
+    if shape_failed:
+        lines.append(u"- Floors FAILED to shape-edit (untouched): {0:,}, "
+                     u"first reason: {1}".format(len(shape_failed), shape_failed[0][1]))
     if pinned_skipped:
         lines.append(u"- Skipped (PINNED - untouched): {0:,}".format(len(pinned_skipped)))
     if no_reference:
@@ -482,13 +605,14 @@ def main():
     output.print_md(u"\n".join(lines))
 
     skipped_total = (len(pinned_skipped) + len(no_reference) + len(no_hit)
-                     + len(failed) + len(skipped_wall_ids) + len(rebuild_failed))
+                     + len(failed) + len(skipped_wall_ids) + len(rebuild_failed)
+                     + len(shape_failed))
     forms.alert(
-        u"Moved {0:,} element(s) and rebuilt {1:,} wall(s) onto the picked "
-        u"surface.{2}".format(
-            len(moved), len(rebuilt),
-            u"\n\n{0:,} element(s)/wall(s) were skipped or failed - see "
-            u"the output window for why.".format(skipped_total)
+        u"Moved {0:,} element(s), rebuilt {1:,} wall(s), and shape-edited "
+        u"{2:,} floor(s) onto the picked surface.{3}".format(
+            len(moved), len(rebuilt), len(shaped),
+            u"\n\n{0:,} element(s)/wall(s)/floor(s) were skipped or failed - "
+            u"see the output window for why.".format(skipped_total)
             if skipped_total else u""),
         title=_TOOL)
 
