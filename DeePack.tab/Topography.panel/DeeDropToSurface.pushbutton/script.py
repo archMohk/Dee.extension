@@ -26,6 +26,31 @@ surface elevation - correct for a flat OR sloped Floor/Toposolid, and
 immune to any other geometry in the model since the intersector only ever
 tests against the target.
 
+Why a throwaway View3D, not one of the project's own views
+------------------------------------------------------------
+ReferenceIntersector needs a View3D, and that view's own visibility
+settings govern what the raycast can even see - a live report showed
+EVERY single raycast failing against a perfectly ordinary, continuous
+Toposolid (confirmed by section view - no actual gap in the terrain),
+because the first pre-existing 3D view this tool used to just grab
+(the document's own, whichever came first) happened to have the target
+hidden from it one way or another: a hidden category, an active section
+box, a view template, or a phase filter can each silently make
+ReferenceIntersector find nothing, with no exception raised - it just
+looks like the surface has a hole everywhere. Depending on "whatever 3D
+view happens to already exist, configured however the user left it" is
+exactly the kind of project-specific fragility that made this fail.
+
+_create_working_view3d() fixes this generically: it creates a fresh,
+throwaway isometric 3D view for THIS run only, forces every category
+visible (loops doc.Settings.Categories), clears any view template,
+turns off any section box, sets Detail Level to Fine, and sets the
+view's phase to the TARGET's own creation phase (so the target is
+visible regardless of the project's phase setup). The view is deleted
+again before the transaction commits, so nothing is left behind in the
+user's Project Browser - the fix is entirely self-contained and never
+touches or depends on any view the user already has.
+
 Any element type is accepted (best-effort, by explicit request) - the
 reference point used for "this element's XY and current base Z" is:
   - LocationPoint elements (most families: furniture, planting, generic
@@ -161,6 +186,17 @@ NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
    try/except means a batch of individual point failures degrades to a
    sparser shape rather than crashing, but this has not been exercised
    live against a real, non-trivial Floor shape yet.
+5. FIXED, live-caught: this tool originally used _first_3d_view() - the
+   document's own first non-template 3D view - for ReferenceIntersector.
+   A live report showed every raycast failing (reported as "no interior
+   points landed") against a perfectly continuous Toposolid (confirmed
+   by section view). Root cause: that view's own visibility settings
+   (hidden category / section box / template / phase filter - any one
+   is enough) silently hid the target from the intersector, with no
+   exception. Replaced with _create_working_view3d() - see "Why a
+   throwaway View3D" above. The phase-matching step in particular is a
+   best-effort single-phase fix, not exhaustively tested against a
+   project with a complex multi-phase setup.
 """
 from pyrevit import forms, script
 import dee_telemetry
@@ -175,6 +211,7 @@ from Autodesk.Revit.DB import (
     FilteredElementCollector, View3D, ReferenceIntersector, FindReferenceTarget,
     XYZ, Transaction, Floor, ElementTransformUtils, ElementId,
     LocationPoint, LocationCurve, Wall, Line, Curve,
+    ViewFamilyType, ViewFamily, ViewDetailLevel, BuiltInParameter,
 )
 
 try:
@@ -244,11 +281,57 @@ def _pick_target(uidoc):
     return uidoc.Document.GetElement(ref.ElementId)
 
 
-def _first_3d_view(doc):
-    for v in FilteredElementCollector(doc).OfClass(View3D):
-        if not v.IsTemplate:
-            return v
-    return None
+def _create_working_view3d(doc, target):
+    """A throwaway isometric 3D view, created fresh for THIS run and
+    deleted before the transaction commits - see the module docstring's
+    "Why a throwaway view" section for why this replaces picking any of
+    the document's OWN existing 3D views: a live report showed every
+    single raycast failing against a perfectly ordinary, continuous
+    Toposolid, because the first existing 3D view this tool happened to
+    grab had the target hidden from it one way or another (a hidden
+    category, a section box, a view template, a phase filter - any of
+    these silently makes ReferenceIntersector find nothing, with no
+    error). Every category is force-shown, no template/section box can
+    interfere, and the phase is set to the target's own creation phase,
+    so the raycast sees the full model regardless of how the user's own
+    views happen to be configured - generic by construction, not
+    dependent on project-specific view setup. Returns None if the
+    document has no 3D ViewFamilyType at all (essentially never, but
+    checked rather than assumed)."""
+    vft_id = None
+    for vft in FilteredElementCollector(doc).OfClass(ViewFamilyType):
+        if vft.ViewFamily == ViewFamily.ThreeDimensional:
+            vft_id = vft.Id
+            break
+    if vft_id is None:
+        return None
+
+    view = View3D.CreateIsometric(doc, vft_id)
+    try:
+        view.IsSectionBoxActive = False
+    except Exception:
+        pass
+    try:
+        view.ViewTemplateId = ElementId.InvalidElementId
+    except Exception:
+        pass
+    try:
+        view.DetailLevel = ViewDetailLevel.Fine
+    except Exception:
+        pass
+    try:
+        phase_param = view.get_Parameter(BuiltInParameter.VIEW_PHASE)
+        if phase_param is not None and not phase_param.IsReadOnly:
+            phase_param.Set(target.CreatedPhaseId)
+    except Exception:
+        pass
+    for cat in doc.Settings.Categories:
+        try:
+            if view.CanCategoryBeHidden(cat.Id):
+                view.SetCategoryHidden(cat.Id, False)
+        except Exception:
+            continue
+    return view
 
 
 def _reference_point(el):
@@ -444,25 +527,11 @@ def main():
     if target is None:
         return
 
-    view3d = _first_3d_view(doc)
-    if view3d is None:
-        forms.alert(
-            "This project has no 3D view - DeeDropToSurface needs one "
-            "(even closed/not-current) to find the surface's elevation "
-            "under each element. Create any 3D view and try again.",
-            title=_TOOL)
-        return
-
     target_bbox = target.get_BoundingBox(None)
     if target_bbox is None:
         forms.alert("Could not read the picked surface's geometry.", title=_TOOL)
         return
     search_top = target_bbox.Max.Z + _SEARCH_MARGIN
-
-    target_ids = List[ElementId]()
-    target_ids.Add(target.Id)
-    intersector = ReferenceIntersector(target_ids, FindReferenceTarget.Face, view3d)
-    intersector.FindReferencesInRevitLinks = False
 
     # Straight walls get the destructive rebuild path (see module
     # docstring's Wall handling section); curved walls can't use it at
@@ -513,6 +582,28 @@ def main():
 
     t = Transaction(doc, "DeeDropToSurface - drop elements onto surface")
     t.Start()
+
+    try:
+        view3d = _create_working_view3d(doc, target)
+    except Exception as e:
+        view3d = None
+        view3d_error = str(e)
+    else:
+        view3d_error = None
+    if view3d is None:
+        t.RollBack()
+        forms.alert(
+            u"Could not create a working 3D view - DeeDropToSurface needs "
+            u"one to find the surface's elevation under each element.{0}"
+            .format(u"\n\n{0}".format(view3d_error) if view3d_error else u""),
+            title=_TOOL)
+        return
+
+    target_ids = List[ElementId]()
+    target_ids.Add(target.Id)
+    intersector = ReferenceIntersector(target_ids, FindReferenceTarget.Face, view3d)
+    intersector.FindReferencesInRevitLinks = False
+
     for el in others:
         try:
             if el.Pinned:
@@ -568,6 +659,11 @@ def main():
                     "No interior points landed on the surface's extent."))
         except Exception as e:
             shape_failed.append((floor.Id, str(e)))
+
+    try:
+        doc.Delete(view3d.Id)
+    except Exception:
+        pass
 
     if moved or rebuilt or shaped:
         t.Commit()
