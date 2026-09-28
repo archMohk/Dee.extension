@@ -108,12 +108,37 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <Button Grid.Column="0" x:Name="flip_x_b" Content="Flip Around X" Height="30" Margin="0,0,3,0"
+                    <Button Grid.Column="0" x:Name="flip_x_b" Height="30" Margin="0,0,3,0"
                             Click="flip_x_click"
-                            ToolTip="Mirrors across a horizontal line through the middle of the ticked elements' combined extent - flips top/bottom, left-right position unchanged."/>
-                    <Button Grid.Column="1" x:Name="flip_y_b" Content="Flip Around Y" Height="30" Margin="3,0,0,0"
+                            ToolTip="Mirrors across a horizontal line through the middle of the ticked elements' combined extent - flips top/bottom, left-right position unchanged.">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                            <!-- Two arrowheads pointing at a horizontal mirror
+                                 line from opposite sides - a plain "flips
+                                 top/bottom across this line" glyph. -->
+                            <Canvas Width="20" Height="20" Margin="0,0,6,0">
+                                <Line X1="2" Y1="10" X2="18" Y2="10" Stroke="#444444"
+                                      StrokeThickness="1.5" StrokeDashArray="2,2"/>
+                                <Polygon Points="7,3 13,3 10,8" Fill="#444444"/>
+                                <Polygon Points="7,17 13,17 10,12" Fill="#444444"/>
+                            </Canvas>
+                            <TextBlock Text="Flip Around X" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Grid.Column="1" x:Name="flip_y_b" Height="30" Margin="3,0,0,0"
                             Click="flip_y_click"
-                            ToolTip="Mirrors across a vertical line through the middle of the ticked elements' combined extent - flips left/right, top-bottom position unchanged."/>
+                            ToolTip="Mirrors across a vertical line through the middle of the ticked elements' combined extent - flips left/right, top-bottom position unchanged.">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                            <!-- Same idea, rotated 90 - two arrowheads pointing
+                                 at a vertical mirror line from left and right. -->
+                            <Canvas Width="20" Height="20" Margin="0,0,6,0">
+                                <Line X1="10" Y1="2" X2="10" Y2="18" Stroke="#444444"
+                                      StrokeThickness="1.5" StrokeDashArray="2,2"/>
+                                <Polygon Points="3,7 3,13 8,10" Fill="#444444"/>
+                                <Polygon Points="17,7 17,13 12,10" Fill="#444444"/>
+                            </Canvas>
+                            <TextBlock Text="Flip Around Y" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                 </Grid>
                 <Button x:Name="mirror_pick_b" Content="MIRROR - PICK LINE AS AXIS..." Click="mirror_pick_click"
                         Height="34" Background="#6A3FA0" Foreground="White" BorderBrush="#6A3FA0"

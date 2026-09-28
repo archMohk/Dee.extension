@@ -55,6 +55,24 @@ setting" and is harmless if no such category exists in a given Revit
 version.
 
 --------------------------------------------------------------------
+_FORCE_ANNOTATION - view-reference symbols counted as Annotation
+--------------------------------------------------------------------
+Live feedback asked for Section Lines, Elevation Marks and Callouts to
+be treated as "Annotation" for the Model Only / Annotation Only /
+Model + Annotation preset buttons - rather than whatever Category.
+CategoryType those categories happen to report, which this module
+doesn't rely on being Annotation on every Revit version. Matched by
+category NAME (case-insensitive), same fail-safe convention as
+_STARTS_UNCHECKED - a name that doesn't exist in a given project simply
+never matches, so a broader net of plausible names (Section Marks vs
+Section Line, Elevation Marks, Callout Boundary, ...) costs nothing.
+This only changes which PRESET BUTTON ticks these categories; it does
+not change _STARTS_UNCHECKED's own list (Callout Heads still starts
+unticked by default - ticking "Annotation Only" or "Model + Annotation"
+still turns it on, exactly like every other preset/category interaction
+in this file).
+
+--------------------------------------------------------------------
 Move Selected Categories By X / Y
 --------------------------------------------------------------------
 Why this exists: opening a 3D view, selecting only MODEL elements and
@@ -215,6 +233,26 @@ _STARTS_UNCHECKED = set(n.lower() for n in [
     u"Building Type Settings",
 ])
 
+# View-reference symbols (section lines, elevation marks/circles, callout
+# boundaries) that live-feedback asked to be counted as "Annotation" for
+# the Model Only / Annotation Only / Model + Annotation preset buttons,
+# rather than falling into the catch-all "Other" bucket. Matched by
+# category NAME (case-insensitive, same fail-safe convention as
+# _STARTS_UNCHECKED) rather than trusted to already report
+# CategoryType.Annotation - a broader net of plausible Revit category
+# names than strictly needed costs nothing, since a name that doesn't
+# exist in a given project simply never matches.
+_FORCE_ANNOTATION = set(n.lower() for n in [
+    u"Sections",
+    u"Section Marks",
+    u"Section Line",
+    u"Elevations",
+    u"Elevation Marks",
+    u"Callouts",
+    u"Callout Heads",
+    u"Callout Boundary",
+])
+
 # HARD exclusion from Move specifically (not from Select - highlighting
 # these is harmless) - live report: clicking Move closed Revit itself.
 # Project Base Point and Survey Point anchor the model's own coordinate
@@ -290,7 +328,13 @@ def _category_name(element):
     return _NO_CATEGORY
 
 
-def _category_type_label(element):
+def _category_type_label(element, name):
+    """`name` (from _category_name(element), passed in rather than
+    re-read here since the caller already has it) can force a result of
+    "Annotation" via _FORCE_ANNOTATION regardless of what
+    Category.CategoryType itself reports - see that set's own comment."""
+    if name.lower() in _FORCE_ANNOTATION:
+        return u"Annotation"
     try:
         ct = element.Category.CategoryType
         if ct == CategoryType.Model:
@@ -352,7 +396,7 @@ def scan_categories(doc, progress_cb=None):
         name = _category_name(el)
         bucket = buckets.get(name)
         if bucket is None:
-            bucket = {"ids": [], "type_label": _category_type_label(el)}
+            bucket = {"ids": [], "type_label": _category_type_label(el, name)}
             buckets[name] = bucket
         try:
             bucket["ids"].append(el.Id)
