@@ -2,95 +2,388 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeLazy — DeeBulkRename"
         ShowInTaskbar="False"
-        MinHeight="560" MinWidth="620" Height="700" Width="660"
+        MinHeight="620" MinWidth="900" Height="760" Width="980"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
-        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Every View, Sheet, Schedule, and Legend in the project (view/schedule TEMPLATES and Revit's own internal/titleblock-revision schedules are left out) - tick what you want renamed, set a Prefix and/or Suffix, and see the New Name update live before you run it."/>
-
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem>
                 <TextBlock x:Name="status_tb" Text="Ready."/>
             </StatusBarItem>
         </StatusBar>
 
-        <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,8">
-            <TextBlock x:Name="summary_tb" FontSize="11" Foreground="#555" Margin="0,0,0,8" Text=""/>
-            <Grid Margin="0,0,0,8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Prefix:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <TextBox Grid.Column="1" x:Name="prefix_tb" Height="24" Margin="0,0,16,0" TextChanged="prefix_suffix_changed"/>
-                <TextBlock Grid.Column="2" Text="Suffix:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <TextBox Grid.Column="3" x:Name="suffix_tb" Height="24" TextChanged="prefix_suffix_changed"/>
-            </Grid>
-            <StackPanel Orientation="Horizontal">
-                <Button x:Name="close_b" Content="Close" Width="90" Height="28" Click="close_click"/>
-            </StackPanel>
-            <Button x:Name="rename_b" Content="RENAME CHECKED ITEMS" Click="rename_click" Margin="0,10,0,0" Height="42"
-                    Background="#1F6FB2" Foreground="White" BorderBrush="#1F6FB2"
-                    FontSize="16" FontWeight="Bold" Cursor="Hand"/>
-        </StackPanel>
+        <TabControl x:Name="main_tabs">
+            <!-- ============================== Pick Items ============================== -->
+            <TabItem Header="1. Pick Items">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Every View, Sheet, Schedule, and Legend in the project (templates and Revit's own internal/titleblock-revision schedules are left out) - tick what you want renamed, then go to the Rename Methods tab."/>
 
-        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-            <TextBlock FontSize="14" Margin="0,3,10,0" DockPanel.Dock="Left" Text="Filter:"/>
-            <TextBox x:Name="search_tb" Height="25" TextChanged="search_changed"/>
-        </DockPanel>
+                    <TextBlock x:Name="pick_summary_tb" DockPanel.Dock="Bottom" FontSize="11" Foreground="#555" Margin="0,8,0,0" Text=""/>
 
-        <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <Button Grid.Column="0" x:Name="all_b" Content="All" Height="26" Margin="0,0,3,0" Click="all_click"/>
-            <Button Grid.Column="1" x:Name="none_b" Content="None" Height="26" Margin="3,0,3,0" Click="none_click"/>
-            <Button Grid.Column="2" x:Name="sheets_only_b" Content="Sheets Only" Height="26" Margin="3,0,3,0" Click="sheets_only_click"/>
-            <Button Grid.Column="3" x:Name="views_only_b" Content="Views Only" Height="26" Margin="3,0,3,0" Click="views_only_click"/>
-            <Button Grid.Column="4" x:Name="schedules_legends_b" Content="Schedules + Legends" Height="26" Margin="3,0,0,0" Click="schedules_legends_click"/>
-        </Grid>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <TextBlock FontSize="14" Margin="0,3,10,0" DockPanel.Dock="Left" Text="Filter:"/>
+                        <TextBox x:Name="search_tb" Height="25" TextChanged="search_changed"/>
+                    </DockPanel>
 
-        <!-- Header row - same column widths AND same outer margins as the
-             ListBox's own DataTemplate below, so labels sit directly above
-             their column's values. -->
-        <Grid DockPanel.Dock="Top" Margin="4,0,4,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="90"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="Kind" FontWeight="Bold" FontSize="11" Foreground="#666"
-                       Margin="24,0,0,0"/>
-            <TextBlock Grid.Column="1" Text="Old Name" FontWeight="Bold" FontSize="11" Foreground="#666"/>
-            <TextBlock Grid.Column="2" Text="New Name" FontWeight="Bold" FontSize="11" Foreground="#666"/>
-        </Grid>
-        <Border DockPanel.Dock="Top" BorderBrush="#BBBBBB" BorderThickness="0,0,0,1" Margin="4,4,4,6"/>
-
-        <ListBox x:Name="rows_lb" HorizontalContentAlignment="Stretch">
-            <ListBox.ItemTemplate>
-                <DataTemplate>
-                    <Grid Margin="0,2,4,2">
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Orientation="Horizontal">
-                            <CheckBox IsChecked="{Binding checked}"
-                                      Checked="row_toggled" Unchecked="row_toggled"/>
-                            <TextBlock Text="{Binding kind}" Margin="8,0,0,0" Foreground="#888"/>
-                        </StackPanel>
-                        <TextBlock Grid.Column="1" Text="{Binding old_name}" Margin="0,0,4,0" TextWrapping="Wrap"/>
-                        <TextBlock Grid.Column="2" Text="{Binding new_name}" Foreground="#1F6FB2" TextWrapping="Wrap"/>
+                        <Button Grid.Column="0" x:Name="all_b" Content="All" Height="26" Margin="0,0,3,0" Click="all_click"/>
+                        <Button Grid.Column="1" x:Name="none_b" Content="None" Height="26" Margin="3,0,3,0" Click="none_click"/>
+                        <Button Grid.Column="2" x:Name="sheets_only_b" Content="Sheets Only" Height="26" Margin="3,0,3,0" Click="sheets_only_click"/>
+                        <Button Grid.Column="3" x:Name="views_only_b" Content="Views Only" Height="26" Margin="3,0,3,0" Click="views_only_click"/>
+                        <Button Grid.Column="4" x:Name="schedules_legends_b" Content="Schedules + Legends" Height="26" Margin="3,0,0,0" Click="schedules_legends_click"/>
                     </Grid>
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
+
+                    <Grid DockPanel.Dock="Top" Margin="4,0,4,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Kind" FontWeight="Bold" FontSize="11" Foreground="#666" Margin="24,0,0,0"/>
+                        <TextBlock Grid.Column="1" Text="Current Name" FontWeight="Bold" FontSize="11" Foreground="#666"/>
+                    </Grid>
+                    <Border DockPanel.Dock="Top" BorderBrush="#BBBBBB" BorderThickness="0,0,0,1" Margin="4,4,4,6"/>
+
+                    <ListBox x:Name="rows_lb" HorizontalContentAlignment="Stretch">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,2,4,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="90"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                        <CheckBox IsChecked="{Binding checked}" Checked="row_toggled" Unchecked="row_toggled"/>
+                                        <TextBlock Text="{Binding kind}" Margin="8,0,0,0" Foreground="#888"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" Text="{Binding old_name}" TextWrapping="Wrap"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </TabItem>
+
+            <!-- ============================== Rename Methods ============================== -->
+            <TabItem Header="2. Rename Methods">
+                <Grid Margin="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="400"/>
+                        <ColumnDefinition Width="8"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Left: method pipeline, applied top to bottom -->
+                    <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#555" Margin="0,0,0,8"
+                                       Text="Each ticked method runs in order, top to bottom, on the result of the one before it - same idea as Advanced Renamer's method list. Untick a method to skip it entirely."/>
+
+                            <GroupBox Header="1. RegEx" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <CheckBox x:Name="m_regex_en_cb" Content="Enabled" Margin="0,0,0,6" Checked="method_changed" Unchecked="method_changed"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Match:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" x:Name="m_regex_match_tb" Height="22" TextChanged="method_changed"/>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Replace:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" x:Name="m_regex_replace_tb" Height="22" TextChanged="method_changed"/>
+                                    </Grid>
+                                    <CheckBox x:Name="m_regex_case_cb" Content="Case sensitive" Checked="method_changed" Unchecked="method_changed"/>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="2. Name" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <CheckBox x:Name="m_name_en_cb" Content="Enabled" Margin="0,0,0,6" IsChecked="True" Checked="method_changed" Unchecked="method_changed"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Mode:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1" x:Name="m_name_mode_cb" Height="22" SelectedIndex="0" SelectionChanged="method_changed">
+                                            <ComboBoxItem Content="Keep (leave current name as-is)"/>
+                                            <ComboBoxItem Content="Remove (blank it out)"/>
+                                            <ComboBoxItem Content="Fixed (replace with typed text)"/>
+                                        </ComboBox>
+                                    </Grid>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Fixed:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" x:Name="m_name_fixed_tb" Height="22" TextChanged="method_changed"/>
+                                    </Grid>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="3. Replace" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <CheckBox x:Name="m_replace_en_cb" Content="Enabled" Margin="0,0,0,6" Checked="method_changed" Unchecked="method_changed"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Replace:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" x:Name="m_replace_find_tb" Height="22" TextChanged="method_changed"/>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="With:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" x:Name="m_replace_with_tb" Height="22" TextChanged="method_changed"/>
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal">
+                                        <CheckBox x:Name="m_replace_matchcase_cb" Content="Match Case" Margin="0,0,16,0" Checked="method_changed" Unchecked="method_changed"/>
+                                        <CheckBox x:Name="m_replace_first_cb" Content="First occurrence only" Checked="method_changed" Unchecked="method_changed"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="4. Case" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <CheckBox x:Name="m_case_en_cb" Content="Enabled" Margin="0,0,0,6" Checked="method_changed" Unchecked="method_changed"/>
+                                    <ComboBox x:Name="m_case_mode_cb" Height="22" SelectedIndex="0" Margin="0,0,0,4" SelectionChanged="method_changed">
+                                        <ComboBoxItem Content="Same (no change)"/>
+                                        <ComboBoxItem Content="UPPERCASE"/>
+                                        <ComboBoxItem Content="lowercase"/>
+                                        <ComboBoxItem Content="Title Case"/>
+                                        <ComboBoxItem Content="Sentence case"/>
+                                    </ComboBox>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="80"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Exceptions:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" x:Name="m_case_exceptions_tb" Height="22" TextChanged="method_changed"
+                                                 ToolTip="Comma-separated words that keep their own casing regardless of the mode above, e.g. AutoCAD, HVAC"/>
+                                    </Grid>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="5. Remove" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <CheckBox x:Name="m_remove_en_cb" Content="Enabled" Margin="0,0,0,6" Checked="method_changed" Unchecked="method_changed"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                            <TextBlock Text="First n:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                            <TextBox x:Name="m_remove_firstn_tb" Text="0" Width="40" Height="22" TextChanged="method_changed"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <TextBlock Text="Last n:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                            <TextBox x:Name="m_remove_lastn_tb" Text="0" Width="40" Height="22" TextChanged="method_changed"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                            <TextBlock Text="From:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                            <TextBox x:Name="m_remove_from_tb" Text="0" Width="40" Height="22" TextChanged="method_changed"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <TextBlock Text="To:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                            <TextBox x:Name="m_remove_to_tb" Text="0" Width="40" Height="22" TextChanged="method_changed"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Crop before:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                        <TextBox Grid.Column="1" x:Name="m_remove_cropbefore_tb" Height="22" TextChanged="method_changed"/>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Crop after:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                        <TextBox Grid.Column="1" x:Name="m_remove_cropafter_tb" Height="22" TextChanged="method_changed"/>
+                                    </Grid>
+                                    <WrapPanel>
+                                        <CheckBox x:Name="m_remove_digits_cb" Content="Digits" Margin="0,0,12,4" Checked="method_changed" Unchecked="method_changed"/>
+                                        <CheckBox x:Name="m_remove_symbols_cb" Content="Symbols" Margin="0,0,12,4" Checked="method_changed" Unchecked="method_changed"/>
+                                        <CheckBox x:Name="m_remove_trim_cb" Content="Trim spaces" Margin="0,0,12,4" Checked="method_changed" Unchecked="method_changed"/>
+                                    </WrapPanel>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="6. Add" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <CheckBox x:Name="m_add_en_cb" Content="Enabled" Margin="0,0,0,6" IsChecked="True" Checked="method_changed" Unchecked="method_changed"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Prefix:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" x:Name="m_add_prefix_tb" Height="22" TextChanged="method_changed"/>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="45"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Insert:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" x:Name="m_add_insert_tb" Height="22" Margin="0,0,4,0" TextChanged="method_changed"/>
+                                        <TextBlock Grid.Column="2" Text="at pos." VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                        <TextBox Grid.Column="3" x:Name="m_add_insertpos_tb" Text="0" Height="22" TextChanged="method_changed"/>
+                                    </Grid>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Suffix:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" x:Name="m_add_suffix_tb" Height="22" TextChanged="method_changed"/>
+                                    </Grid>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="7. Auto Date" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <CheckBox x:Name="m_date_en_cb" Content="Enabled" Margin="0,0,0,6" Checked="method_changed" Unchecked="method_changed"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="70"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="70"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Position:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1" x:Name="m_date_pos_cb" Height="22" SelectedIndex="1" Margin="0,0,8,0" SelectionChanged="method_changed">
+                                            <ComboBoxItem Content="Prefix"/>
+                                            <ComboBoxItem Content="Suffix"/>
+                                        </ComboBox>
+                                        <TextBlock Grid.Column="2" Text="Format:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="3" x:Name="m_date_fmt_cb" Height="22" SelectedIndex="0" SelectionChanged="method_changed">
+                                            <ComboBoxItem Content="DMY"/>
+                                            <ComboBoxItem Content="MDY"/>
+                                            <ComboBoxItem Content="YMD"/>
+                                        </ComboBox>
+                                    </Grid>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="70"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Separator:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" x:Name="m_date_sep_tb" Text="-" Width="50" HorizontalAlignment="Left" Height="22" TextChanged="method_changed"/>
+                                    </Grid>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,4,0,0"
+                                               Text="Uses today's date (Revit elements have no file-style creation/modified date exposed the same way a file does)."/>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <GroupBox Header="8. Numbering" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <CheckBox x:Name="m_numbering_en_cb" Content="Enabled" Margin="0,0,0,6" Checked="method_changed" Unchecked="method_changed"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="70"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Position:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1" x:Name="m_numbering_pos_cb" Height="22" SelectedIndex="1" SelectionChanged="method_changed">
+                                            <ComboBoxItem Content="Prefix"/>
+                                            <ComboBoxItem Content="Suffix"/>
+                                        </ComboBox>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                            <TextBlock Text="Start:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                            <TextBox x:Name="m_numbering_start_tb" Text="1" Width="40" Height="22" TextChanged="method_changed"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <TextBlock Text="Incr.:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                            <TextBox x:Name="m_numbering_incr_tb" Text="1" Width="40" Height="22" TextChanged="method_changed"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                            <TextBlock Text="Pad:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                            <TextBox x:Name="m_numbering_pad_tb" Text="0" Width="40" Height="22" TextChanged="method_changed"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="70"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Separator:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" x:Name="m_numbering_sep_tb" Text="-" Width="50" HorizontalAlignment="Left" Height="22" TextChanged="method_changed"/>
+                                    </Grid>
+                                </StackPanel>
+                            </GroupBox>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Right: preview + run -->
+                    <DockPanel Grid.Column="2">
+                        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,6" FontSize="12"
+                                   Text="Click Generate Preview to see the exact result of every enabled method, in order, before anything is renamed."/>
+
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                            <Button x:Name="generate_preview_b" Content="Generate Preview" Width="150" Height="30" FontWeight="Bold" Click="generate_preview_click"/>
+                        </StackPanel>
+
+                        <Border DockPanel.Dock="Top" Background="#F5F5F5" BorderBrush="#CCCCCC" BorderThickness="0,1,0,1"
+                                Padding="8,6,8,6" Margin="0,0,0,6">
+                            <TextBlock x:Name="preview_counts_tb" HorizontalAlignment="Center" FontWeight="Bold" FontSize="12"
+                                       Text="Check items on Pick Items, then click Generate Preview."/>
+                        </Border>
+
+                        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+                            <Button x:Name="rename_b" Content="RENAME CHECKED ITEMS" Width="180" Height="34" FontWeight="Bold"
+                                    Background="#1F6FB2" Foreground="White" BorderBrush="#1F6FB2" Cursor="Hand" Click="rename_click"/>
+                        </StackPanel>
+
+                        <DataGrid x:Name="preview_grid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserSortColumns="True"
+                                  SelectionMode="Extended" SelectionUnit="FullRow" IsReadOnly="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Kind" Binding="{Binding kind}" Width="80"/>
+                                <DataGridTextColumn Header="Old Name" Binding="{Binding old_name}" Width="2*"/>
+                                <DataGridTextColumn Header="New Name" Binding="{Binding new_name}" Width="2*"/>
+                                <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="90"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </Grid>
+            </TabItem>
+        </TabControl>
     </DockPanel>
 </Window>

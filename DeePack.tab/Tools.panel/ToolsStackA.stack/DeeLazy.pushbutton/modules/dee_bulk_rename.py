@@ -1,11 +1,20 @@
 # -*- coding: utf-8 -*-
 """
 DeeLazy - DeeBulkRename module
-Adds a Prefix and/or Suffix to the Name of every View, Sheet, Schedule,
-and Legend in the project in one batch - a checklist shown first (with
-Kind/Old Name/New Name columns and quick presets) so the user can review
-exactly what will be renamed, with the New Name updating LIVE as the
-Prefix/Suffix fields change, before anything actually runs.
+Adds a whole METHOD PIPELINE to the name of every View, Sheet, Schedule,
+and Legend in the project - modeled directly on Advanced Renamer's own
+numbered method list (RegEx, Name, Replace, Case, Remove, Add, Auto
+Date, Numbering), per live request/screenshot. Each method has its own
+Enabled checkbox and runs in FIXED order, top to bottom, on the result
+of the one before it - untick a method to skip it entirely. A live
+Preview (Old Name / New Name / Status) shows the exact result of the
+whole pipeline before Rename actually runs.
+
+Two tabs: Pick Items (the checklist - unchanged in spirit from the first
+version of this tool) and Rename Methods (the new pipeline + preview +
+Run). Decoupled on purpose: Pick Items answers "what", Rename Methods
+answers "how" - the same split DeeV.S.Dupl. already uses successfully
+for its own Pick Items / Naming tabs.
 
 Scope - what "every View/Sheet/Schedule/Legend" means here
 ------------------------------------------------------------
@@ -13,33 +22,51 @@ FilteredElementCollector(doc).OfClass(View) returns Views, Sheets
 (ViewSheet) and Schedules (ViewSchedule) alike - they all derive from
 View in the Revit API - so one collector pass covers all four kinds;
 _kind_of() tells them apart afterward by isinstance/ViewType rather than
-needing four separate collectors.
+needing four separate collectors. View/schedule TEMPLATES and Revit's
+own internal/titleblock-revision schedules are excluded from the scan -
+see scan_items()'s own docstring.
 
-Two things are deliberately EXCLUDED from the scan, neither of which the
-live request mentioned wanting:
-  - View/schedule TEMPLATES (IsTemplate) - a template is not something a
-    user typically means by "my views", and renaming one has a much
-    bigger blast radius (every view using it is affected in browser
-    organization, not the template's own name only).
-  - Revit's own internal/special-purpose schedules - Titleblock revision
-    schedules (IsTitleblockRevisionSchedule) and the internal keynote
-    schedule (IsInternalKeynoteSchedule) - renaming either is far more
-    likely to be an accident than something wanted by a plain "add a
-    prefix to my schedules" pass. Checked defensively (try/except per
-    property) since both are ViewSchedule-specific and may not exist on
-    every Revit version.
+--------------------------------------------------------------------
+The eight methods, in the FIXED order they always run
+--------------------------------------------------------------------
+1. RegEx - re.sub(match, replace, name) - an invalid pattern leaves the
+   name unchanged for this step rather than raising (reported as a
+   still-visible, uncorrupted preview rather than a crash).
+2. Name - Keep (no change) / Remove (blank the name out entirely,
+   useful when the whole new name will come from Add/Numbering instead)
+   / Fixed (replace with a typed constant).
+3. Replace - plain substring find/replace (not regex), with Match Case
+   and "first occurrence only" options.
+4. Case - Same/UPPERCASE/lowercase/Title Case/Sentence case, with a
+   comma-separated Exceptions list whose words keep their own casing
+   regardless of the mode (case-insensitive match, restores the
+   EXACT casing typed in the Exceptions box).
+5. Remove - First N / Last N characters, a From-To character range,
+   Crop Before/After a given substring (drops everything before/after
+   the FIRST match of that substring), and Digits/Symbols/Trim-spaces
+   toggles.
+6. Add - Prefix, Insert-text-at-position, and Suffix, combined in that
+   order (insert happens on the pre-prefix/suffix name, then prefix and
+   suffix wrap the result - matches Advanced Renamer's own behavior).
+7. Auto Date - inserts TODAY's date (Revit elements have no exposed
+   file-style creation/modified timestamp the way a file does, so this
+   is deliberately simpler than the reference tool: current date only),
+   in DMY/MDY/YMD order, at a chosen position.
+8. Numbering - a per-CHECKED-ROW sequential counter (0-based index
+   across the checked rows, in the order they appear in the checklist),
+   with Start/Increment/Pad/Separator/Position, inserted independently
+   of Add's own Prefix/Suffix (applied last, after everything else).
+
+Per-item try/except throughout _apply_methods(): a single row's own bad
+input (e.g. an invalid regex, a from/to range outside the name's length)
+degrades that ONE row's preview gracefully rather than aborting the
+whole batch - matching this codebase's established fail-safe convention.
 
 Renaming itself is exactly Element.Name = new_name (View's own public
-setter, valid for View/ViewSheet/ViewSchedule alike) - no attempt is
-made to also touch Sheet Number; unlike DeeV.S.Dupl. (which duplicates
-AND renumbers), this tool only ever renames an EXISTING item in place,
-where Number is left exactly as it was.
-
-Per-item try/except: Revit enforces name-uniqueness within each kind's
-own scope (e.g. two Floor Plans can't share a name; Sheets have their
-own separate namespace from Schedules), so any single collision is
-caught and reported as failed rather than aborting the whole batch -
-the same fail-safe convention used throughout this codebase.
+setter, valid for View/ViewSheet/ViewSchedule alike) - inside one
+Transaction, per-item try/except so a single name collision within its
+own kind's namespace is reported and skipped rather than aborting the
+whole batch.
 
 --------------------------------------------------------------------
 NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
@@ -49,12 +76,17 @@ NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
    this session - if either doesn't exist on a given Revit version, the
    try/except simply means that exclusion never fires (fails safe: the
    schedule stays IN the scan rather than crashing it).
-2. View.Name's setter behavior for every one of the four kinds together
-   in one batch/Transaction is standard, well-established Revit API
-   usage individually, but not exercised live as one combined run from
-   this session.
+2. The whole 8-method pipeline is brand new and has not been exercised
+   live at all yet - each method's own transform logic is plain Python
+   string manipulation (no Revit API involved until the final rename),
+   so the main live-verification risk is Element.Name's setter behavior
+   across all four kinds together in one batch/Transaction, same as the
+   first version of this tool.
 """
 import os
+import re
+import string
+import datetime
 
 from pyrevit import forms, script
 import dee_branding
@@ -67,6 +99,8 @@ output = script.get_output()
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "DeeBulkRename.xaml")
+
+_SYMBOL_CHARS = set(c for c in string.punctuation)
 
 
 def _kind_of(view):
@@ -102,13 +136,15 @@ class RenameRow(object):
         self.kind = kind
         self.old_name = old_name
         self.new_name = old_name
+        self.status = u""
         self.checked = True
 
 
 def scan_items(doc):
-    """One pass over every View/Sheet/Schedule/Legend - see module
-    docstring for what's excluded and why. Sorted by kind then name so
-    the checklist reads as four visually-grouped blocks."""
+    """One pass over every View/Sheet/Schedule/Legend - templates and
+    Revit's own internal/titleblock-revision schedules excluded. Sorted
+    by kind then name so the checklist reads as four visually-grouped
+    blocks."""
     rows = []
     try:
         collector = FilteredElementCollector(doc).OfClass(View)
@@ -133,6 +169,175 @@ def scan_items(doc):
 
 
 # ==========================================================================
+# the method pipeline - plain string transforms, no Revit API involved
+# ==========================================================================
+def _regex_method(name, cfg):
+    if not cfg["match"]:
+        return name
+    try:
+        flags = 0 if cfg["case_sensitive"] else re.IGNORECASE
+        return re.sub(cfg["match"], cfg["replace"], name, flags=flags)
+    except Exception:
+        return name
+
+
+def _name_method(name, cfg):
+    mode = cfg["mode"]
+    if mode == "remove":
+        return u""
+    if mode == "fixed":
+        return cfg["fixed_text"]
+    return name
+
+
+def _replace_method(name, cfg):
+    find = cfg["find"]
+    if not find:
+        return name
+    withtext = cfg["with"]
+    if cfg["match_case"]:
+        if cfg["first_only"]:
+            return name.replace(find, withtext, 1)
+        return name.replace(find, withtext)
+    # Case-insensitive replace, preserving the rest of the string exactly.
+    pattern = re.escape(find)
+    count = 1 if cfg["first_only"] else 0
+    try:
+        return re.sub(pattern, lambda m: withtext, name, count=count, flags=re.IGNORECASE)
+    except Exception:
+        return name
+
+
+def _apply_case(name, mode):
+    if mode == "upper":
+        return name.upper()
+    if mode == "lower":
+        return name.lower()
+    if mode == "title":
+        return name.title()
+    if mode == "sentence":
+        stripped = name.strip()
+        if not stripped:
+            return name
+        lowered = name.lower()
+        idx = len(name) - len(name.lstrip())
+        return name[:idx] + lowered[idx:idx + 1].upper() + lowered[idx + 1:]
+    return name
+
+
+def _case_method(name, cfg):
+    result = _apply_case(name, cfg["mode"])
+    exceptions = [e.strip() for e in (cfg["exceptions"] or u"").split(",") if e.strip()]
+    for word in exceptions:
+        try:
+            result = re.sub(re.escape(word), word, result, flags=re.IGNORECASE)
+        except Exception:
+            continue
+    return result
+
+
+def _remove_method(name, cfg):
+    result = name
+    first_n = cfg["first_n"]
+    if first_n > 0:
+        result = result[first_n:]
+    last_n = cfg["last_n"]
+    if last_n > 0:
+        result = result[:-last_n] if last_n < len(result) else u""
+    frm, to = cfg["from_pos"], cfg["to_pos"]
+    if frm > 0 and to >= frm:
+        result = result[:frm - 1] + result[to:]
+    crop_before = cfg["crop_before"]
+    if crop_before:
+        idx = result.find(crop_before)
+        if idx != -1:
+            result = result[idx + len(crop_before):]
+    crop_after = cfg["crop_after"]
+    if crop_after:
+        idx = result.find(crop_after)
+        if idx != -1:
+            result = result[:idx]
+    if cfg["remove_digits"]:
+        result = u"".join(c for c in result if not c.isdigit())
+    if cfg["remove_symbols"]:
+        result = u"".join(c for c in result if c not in _SYMBOL_CHARS)
+    if cfg["trim"]:
+        result = result.strip()
+    return result
+
+
+def _add_method(name, cfg):
+    result = name
+    insert_text = cfg["insert_text"]
+    if insert_text:
+        pos = max(0, min(cfg["insert_pos"], len(result)))
+        result = result[:pos] + insert_text + result[pos:]
+    return u"{0}{1}{2}".format(cfg["prefix"], result, cfg["suffix"])
+
+
+def _format_date(fmt):
+    today = datetime.date.today()
+    d, m, y = u"{0:02d}".format(today.day), u"{0:02d}".format(today.month), u"{0:04d}".format(today.year)
+    if fmt == "mdy":
+        return u"{0}{1}{2}".format(m, d, y)
+    if fmt == "ymd":
+        return u"{0}{1}{2}".format(y, m, d)
+    return u"{0}{1}{2}".format(d, m, y)
+
+
+def _date_method(name, cfg):
+    date_str = _format_date(cfg["format"])
+    sep = cfg["separator"] or u""
+    if cfg["position"] == "prefix":
+        return u"{0}{1}{2}".format(date_str, sep, name)
+    return u"{0}{1}{2}".format(name, sep, date_str)
+
+
+def _numbering_method(name, idx, cfg):
+    value = cfg["start"] + idx * cfg["increment"]
+    pad = cfg["pad"]
+    num_str = unicode(value).zfill(pad) if pad > 0 else unicode(value)
+    sep = cfg["separator"] or u""
+    if cfg["position"] == "prefix":
+        return u"{0}{1}{2}".format(num_str, sep, name)
+    return u"{0}{1}{2}".format(name, sep, num_str)
+
+
+def apply_methods(old_name, idx, methods):
+    """Runs every ENABLED method in fixed order (1-8) on `old_name`,
+    returning the final new name. `idx` is this row's own 0-based
+    position among the CHECKED rows, used only by Numbering. Wrapped
+    per-method in try/except so one bad method's config (e.g. Remove's
+    From/To outside the name's length) degrades that one step rather
+    than aborting the whole row's preview."""
+    name = old_name
+    steps = (
+        ("regex", _regex_method),
+        ("name", _name_method),
+        ("replace", _replace_method),
+        ("case", _case_method),
+        ("remove", _remove_method),
+        ("add", _add_method),
+        ("auto_date", _date_method),
+    )
+    for key, fn in steps:
+        cfg = methods.get(key)
+        if not cfg or not cfg.get("enabled"):
+            continue
+        try:
+            name = fn(name, cfg)
+        except Exception:
+            continue
+    numbering = methods.get("numbering")
+    if numbering and numbering.get("enabled"):
+        try:
+            name = _numbering_method(name, idx, numbering)
+        except Exception:
+            pass
+    return name
+
+
+# ==========================================================================
 # window
 # ==========================================================================
 class DeeBulkRenameWindow(dee_branding.DeeBrandedWindow):
@@ -147,13 +352,15 @@ class DeeBulkRenameWindow(dee_branding.DeeBrandedWindow):
         self.doc = self.uidoc.Document
 
         self._rows = scan_items(self.doc)
+        self._preview_rows = []
 
         self._ready = True
         self._refresh_list()
-        self._update_summary()
+        self._update_pick_summary()
         if not self._rows:
             self.status_tb.Text = "No renamable Views/Sheets/Schedules/Legends found."
 
+    # ---------------- Pick Items ----------------
     def _shown_rows(self):
         query = ""
         try:
@@ -179,7 +386,7 @@ class DeeBulkRenameWindow(dee_branding.DeeBrandedWindow):
             if kind is None or r.kind == kind:
                 r.checked = value
         self._refresh_list()
-        self._update_summary()
+        self._update_pick_summary()
 
     def all_click(self, sender, args):
         self._set_all(True)
@@ -201,79 +408,165 @@ class DeeBulkRenameWindow(dee_branding.DeeBrandedWindow):
             if r.kind in (u"Schedule", u"Legend"):
                 r.checked = True
         self._refresh_list()
-        self._update_summary()
+        self._update_pick_summary()
 
     def row_toggled(self, sender, args):
-        self._update_summary()
+        self._update_pick_summary()
 
-    def _update_summary(self):
+    def _update_pick_summary(self):
         checked = [r for r in self._rows if r.checked]
-        self.summary_tb.Text = u"{0:,} of {1:,} item(s) checked.".format(
+        self.pick_summary_tb.Text = u"{0:,} of {1:,} item(s) checked.".format(
             len(checked), len(self._rows))
 
-    def _refresh_new_names(self):
-        prefix = self.prefix_tb.Text or u""
-        suffix = self.suffix_tb.Text or u""
-        for r in self._rows:
-            r.new_name = u"{0}{1}{2}".format(prefix, r.old_name, suffix)
+    # ---------------- Rename Methods ----------------
+    def method_changed(self, sender, args):
+        pass  # methods are only ever read on Generate Preview / Rename - no live recompute needed
 
-    def prefix_suffix_changed(self, sender, args):
-        if not self._ready:
-            return
-        self._refresh_new_names()
-        self._refresh_list()
+    def _read_int(self, textbox, default=0):
+        try:
+            return int((textbox.Text or "").strip())
+        except Exception:
+            return default
 
-    def rename_click(self, sender, args):
+    def _read_methods(self):
+        return {
+            "regex": {
+                "enabled": self.m_regex_en_cb.IsChecked is True,
+                "match": self.m_regex_match_tb.Text or u"",
+                "replace": self.m_regex_replace_tb.Text or u"",
+                "case_sensitive": self.m_regex_case_cb.IsChecked is True,
+            },
+            "name": {
+                "enabled": self.m_name_en_cb.IsChecked is True,
+                "mode": ("remove" if self.m_name_mode_cb.SelectedIndex == 1
+                         else "fixed" if self.m_name_mode_cb.SelectedIndex == 2 else "keep"),
+                "fixed_text": self.m_name_fixed_tb.Text or u"",
+            },
+            "replace": {
+                "enabled": self.m_replace_en_cb.IsChecked is True,
+                "find": self.m_replace_find_tb.Text or u"",
+                "with": self.m_replace_with_tb.Text or u"",
+                "match_case": self.m_replace_matchcase_cb.IsChecked is True,
+                "first_only": self.m_replace_first_cb.IsChecked is True,
+            },
+            "case": {
+                "enabled": self.m_case_en_cb.IsChecked is True,
+                "mode": ["same", "upper", "lower", "title", "sentence"][self.m_case_mode_cb.SelectedIndex],
+                "exceptions": self.m_case_exceptions_tb.Text or u"",
+            },
+            "remove": {
+                "enabled": self.m_remove_en_cb.IsChecked is True,
+                "first_n": self._read_int(self.m_remove_firstn_tb, 0),
+                "last_n": self._read_int(self.m_remove_lastn_tb, 0),
+                "from_pos": self._read_int(self.m_remove_from_tb, 0),
+                "to_pos": self._read_int(self.m_remove_to_tb, 0),
+                "crop_before": self.m_remove_cropbefore_tb.Text or u"",
+                "crop_after": self.m_remove_cropafter_tb.Text or u"",
+                "remove_digits": self.m_remove_digits_cb.IsChecked is True,
+                "remove_symbols": self.m_remove_symbols_cb.IsChecked is True,
+                "trim": self.m_remove_trim_cb.IsChecked is True,
+            },
+            "add": {
+                "enabled": self.m_add_en_cb.IsChecked is True,
+                "prefix": self.m_add_prefix_tb.Text or u"",
+                "suffix": self.m_add_suffix_tb.Text or u"",
+                "insert_text": self.m_add_insert_tb.Text or u"",
+                "insert_pos": self._read_int(self.m_add_insertpos_tb, 0),
+            },
+            "auto_date": {
+                "enabled": self.m_date_en_cb.IsChecked is True,
+                "position": "prefix" if self.m_date_pos_cb.SelectedIndex == 0 else "suffix",
+                "format": ["dmy", "mdy", "ymd"][self.m_date_fmt_cb.SelectedIndex],
+                "separator": self.m_date_sep_tb.Text or u"",
+            },
+            "numbering": {
+                "enabled": self.m_numbering_en_cb.IsChecked is True,
+                "position": "prefix" if self.m_numbering_pos_cb.SelectedIndex == 0 else "suffix",
+                "start": self._read_int(self.m_numbering_start_tb, 1),
+                "increment": self._read_int(self.m_numbering_incr_tb, 1) or 1,
+                "pad": self._read_int(self.m_numbering_pad_tb, 0),
+                "separator": self.m_numbering_sep_tb.Text or u"",
+            },
+        }
+
+    def generate_preview_click(self, sender, args):
         checked_rows = [r for r in self._rows if r.checked]
         if not checked_rows:
-            forms.alert("Tick at least one item first.", title="DeeBulkRename")
+            forms.alert("Tick at least one item on the Pick Items tab first.", title="DeeBulkRename")
             return
-        prefix = self.prefix_tb.Text or u""
-        suffix = self.suffix_tb.Text or u""
-        if not prefix and not suffix:
-            forms.alert("Enter a Prefix and/or Suffix first.", title="DeeBulkRename")
-            return
+        methods = self._read_methods()
 
-        proceed = forms.alert(
-            u"Rename {0:,} item(s)?\n\nPrefix: '{1}'\nSuffix: '{2}'".format(
-                len(checked_rows), prefix, suffix),
-            title="DeeBulkRename", yes=True, no=True)
-        if not proceed:
+        preview_rows = []
+        for idx, r in enumerate(checked_rows):
+            new_name = apply_methods(r.old_name, idx, methods)
+            row = RenameRow(r.element, r.kind, r.old_name)
+            row.new_name = new_name
+            preview_rows.append(row)
+
+        seen = {}
+        for row in preview_rows:
+            seen.setdefault(row.new_name, []).append(row)
+        for row in preview_rows:
+            if not row.new_name.strip():
+                row.status = u"Empty"
+            elif len(seen[row.new_name]) > 1:
+                row.status = u"Duplicate"
+            else:
+                row.status = u"Ready"
+
+        self._preview_rows = preview_rows
+        self.preview_grid.ItemsSource = None
+        self.preview_grid.ItemsSource = self._preview_rows
+
+        ready = sum(1 for r in preview_rows if r.status == u"Ready")
+        dup = sum(1 for r in preview_rows if r.status == u"Duplicate")
+        empty = sum(1 for r in preview_rows if r.status == u"Empty")
+        self.preview_counts_tb.Text = u"{0} Ready, {1} Duplicate, {2} Empty (of {3})".format(
+            ready, dup, empty, len(preview_rows))
+
+    def rename_click(self, sender, args):
+        if not self._preview_rows:
+            forms.alert("Click Generate Preview first.", title="DeeBulkRename")
+            return
+        ready_rows = [r for r in self._preview_rows if r.status == u"Ready"]
+        if not ready_rows:
+            forms.alert("No rows are Ready to rename - check the preview for "
+                        "Duplicate/Empty rows.", title="DeeBulkRename")
+            return
+        if not forms.alert(u"Rename {0:,} item(s)?".format(len(ready_rows)),
+                            title="DeeBulkRename", yes=True, no=True):
             return
 
         renamed, failed = [], []
         t = Transaction(self.doc, "DeeBulkRename - rename views/sheets/schedules/legends")
         t.Start()
-        for r in checked_rows:
-            new_name = u"{0}{1}{2}".format(prefix, r.old_name, suffix)
+        for row in ready_rows:
             try:
-                r.element.Name = new_name
-                renamed.append((r.old_name, new_name))
+                row.element.Name = row.new_name
+                renamed.append((row.old_name, row.new_name))
             except Exception as e:
-                failed.append((r, str(e)))
+                failed.append((row, str(e)))
         if renamed:
             t.Commit()
         else:
             t.RollBack()
 
-        # Re-scan so the checklist's Old Name column reflects what the
-        # project actually looks like now, not stale pre-rename names.
+        # Re-scan so both tabs reflect the project's actual current names.
         self._rows = scan_items(self.doc)
-        self._refresh_new_names()
+        self._preview_rows = []
         self._refresh_list()
-        self._update_summary()
+        self._update_pick_summary()
+        self.preview_grid.ItemsSource = None
+        self.preview_counts_tb.Text = "Check items on Pick Items, then click Generate Preview."
 
         note = (u" ({0:,} failed - a name collision within that kind is the usual cause, "
                 u"see the output window)".format(len(failed)) if failed else u"")
         self.status_tb.Text = u"Renamed {0:,} item(s).{1}".format(len(renamed), note)
         if failed:
             lines = [u"**DeeBulkRename — failures**", u""]
-            for r, err in failed:
-                lines.append(u"- {0} [{1}]: {2}".format(r.old_name, r.kind, err))
+            for row, err in failed:
+                lines.append(u"- {0} [{1}]: {2}".format(row.old_name, row.kind, err))
             output.print_md(u"\n".join(lines))
-
-    def close_click(self, sender, args):
-        self.Close()
 
 
 # ==========================================================================
@@ -290,6 +583,6 @@ def launch(uiapp):
 TOOL_INFO = {
     "id": "dee_bulk_rename",
     "title": "DeeBulkRename",
-    "description": "Add a Prefix and/or Suffix to the name of every View, Sheet, Schedule, and Legend in the project - tick a checklist, watch the New Name update live, then rename.",
+    "description": "Rename every View, Sheet, Schedule, and Legend with a full method pipeline (RegEx, Replace, Case, Remove, Add, Auto Date, Numbering) - tick a checklist, preview the result, then rename.",
     "launch": launch,
 }
