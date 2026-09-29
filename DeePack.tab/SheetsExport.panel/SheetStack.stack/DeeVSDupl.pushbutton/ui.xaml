@@ -163,17 +163,17 @@
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                         <TextBlock Text="Start at:" VerticalAlignment="Center" Width="70"
                                                    ToolTip="First counter value used (e.g. start at 3 -&gt; 3, 4, 5... or C, D, E... for the alphabetic style)."/>
-                                        <TextBox x:Name="start_tb" Text="1" Width="50" Height="22"/>
+                                        <TextBox x:Name="start_tb" Text="1" Width="50" Height="22" TextChanged="counter_style_changed"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                         <TextBlock Text="Step by:" VerticalAlignment="Center" Width="70"
                                                    ToolTip="How much the counter increases each time (e.g. step 2 -&gt; 1, 3, 5...)."/>
-                                        <TextBox x:Name="step_tb" Text="1" Width="50" Height="22"/>
+                                        <TextBox x:Name="step_tb" Text="1" Width="50" Height="22" TextChanged="counter_style_changed"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                         <TextBlock Text="Pad width:" VerticalAlignment="Center" Width="70"
                                                    ToolTip="Zero-padding for the numeric counter (e.g. 3 -&gt; 001, 002...). Ignored for the alphabetic counter."/>
-                                        <TextBox x:Name="pad_width_tb" Text="0" Width="50" Height="22"/>
+                                        <TextBox x:Name="pad_width_tb" Text="0" Width="50" Height="22" TextChanged="counter_style_changed"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                         <TextBlock Text="Separator before:" VerticalAlignment="Center" Width="105"
@@ -191,13 +191,41 @@
                             <GroupBox Header="Sheet Number" Padding="6" Margin="0,0,0,8">
                                 <StackPanel>
                                     <RadioButton x:Name="sheet_number_same_rb" GroupName="sheet_number_mode" Margin="0,0,0,6"
-                                                 IsChecked="True"
+                                                 IsChecked="True" Checked="sheet_number_mode_changed"
                                                  Content="Same as Name (default - Old Number + &quot;-&quot; + New Name)"/>
                                     <RadioButton x:Name="sheet_number_custom_rb" GroupName="sheet_number_mode" Margin="0,0,0,6"
-                                                 Content="Custom template:"/>
-                                    <TextBox x:Name="sheet_number_template_tb" Text="{}{OldNumber}-{NewName}" Height="22" Margin="0,0,0,6"/>
-                                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888"
-                                               Text="Available tokens: {OldNumber}, {OldName}, {NewName}, {Counter} (the Prefix+counter piece alone, e.g. 'N4', without your current name attached - e.g. a template of {OldNumber}-{Counter} gives A101-N4 instead of A101-N4-SITE PLAN). Only applies to Sheets. A number that's already taken still gets a -2, -3... suffix either way."/>
+                                                 Checked="sheet_number_mode_changed"
+                                                 Content="Build from parts:"/>
+
+                                    <StackPanel x:Name="number_parts_panel" Margin="20,0,0,6" IsEnabled="False">
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                            <RadioButton x:Name="number_base_old_rb" GroupName="number_base" Content="Old Number"
+                                                         IsChecked="True" Checked="number_base_changed" Margin="0,0,16,0"/>
+                                            <RadioButton x:Name="number_base_name_rb" GroupName="number_base" Content="New Name"
+                                                         Checked="number_base_changed" Margin="0,0,16,0"/>
+                                            <RadioButton x:Name="number_base_counter_rb" GroupName="number_base" Checked="number_base_changed"
+                                                         Content="Counter (uses the Counter Style settings below)"/>
+                                        </StackPanel>
+                                        <Grid Margin="0,0,0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Prefix:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <TextBox Grid.Column="1" x:Name="number_prefix_tb" Height="22" Margin="0,0,16,0"
+                                                     TextChanged="number_prefix_suffix_changed"/>
+                                            <TextBlock Grid.Column="2" Text="Suffix:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <TextBox Grid.Column="3" x:Name="number_suffix_tb" Height="22"
+                                                     TextChanged="number_prefix_suffix_changed"/>
+                                        </Grid>
+                                    </StackPanel>
+
+                                    <TextBlock x:Name="sheet_number_example_tb" TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,0,0,0"
+                                               Text="Example: (scanning...)"/>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,4,0,0"
+                                               Text="Only applies to Sheets. A number that's already taken still gets a -2, -3... suffix either way."/>
                                 </StackPanel>
                             </GroupBox>
 

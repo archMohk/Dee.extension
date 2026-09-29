@@ -34,18 +34,22 @@ Sheet Number: by default the naming result is appended to the original
 Sheet Number (e.g. A-101 -> A-101-REV1), not just applied to the Name,
 so duplicates sort recognisably by number like everything else in the
 Project Browser - confirmed with the user rather than assumed. Live
-feedback asked for this to be adjustable rather than fixed: the Naming
-tab's "Sheet Number" section offers that original behavior ("Same as
-Name") or a "Custom template" using {OldNumber}/{OldName}/{NewName}/
-{Counter} tokens (_resolve_number_tokens, a plain regex substitution -
-an unrecognised {Key} is left literally in the output instead of
-silently dropped). {Counter} is the same tag_value already computed for
-the Name by Mode A/B/Copy (the Prefix+counter piece alone, e.g. "N4",
-without the item's own name attached) - lets a number read "A101-N4"
-instead of repeating the whole new name into the number. Either mode
-still runs through the same collision-retry loop (_assign_sheet_numbers)
-as before - a numeric -2, -3... suffix only if the built number is
-already taken.
+feedback asked for this to be adjustable rather than fixed, and for a
+more structured UI than typing a raw template: the Naming tab's "Sheet
+Number" section offers that original behavior ("Same as Name") or
+"Build from parts" - a Base choice (Old Number / New Name / Counter),
+plus its own Prefix and Suffix fields. "Counter" reuses the SAME Counter
+Style settings (numeric/alphabetic, start, step, pad) already configured
+for the Name, but as its own clean, independent per-Sheet sequence
+(_sheet_number_counter_value) rather than reusing the Name's own
+tag_value (which can be a Mode B emergency tie-breaker, not a clean
+count, and would be a confusing thing to reuse for a deliberately-
+numbered Sheet Number). A live example line, using an ACTUAL current
+Sheet Number from the project (not a generic placeholder), updates as
+Base/Prefix/Suffix/Counter Style change, before Generate Preview is ever
+clicked. Either mode still runs through the same collision-retry loop
+(_assign_sheet_numbers) as before - a numeric -2, -3... suffix only if
+the built number is already taken.
 
 NEEDS LIVE-REVIT VERIFICATION (novel ground, no precedent elsewhere in
 this codebase):
@@ -60,7 +64,6 @@ this codebase):
   (Sheets/Views still get tagged, Schedules just don't, clearly reported).
 """
 import os
-import re
 
 from pyrevit import forms, script
 import dee_branding
@@ -464,19 +467,21 @@ def _generate_by_copy(preview_rows_by_copy, prefix, sep_before, sep_after, pad, 
             row.new_name = candidate
 
 
-def _resolve_number_tokens(template, tokens):
-    """Plain {Key} substitution for the Sheet Number custom template - an
-    unrecognised {Key} is left LITERALLY in the output rather than
-    silently dropped, so a typo'd token name is visible in the preview
-    grid instead of quietly producing a truncated number."""
-    def repl(match):
-        key = match.group(1)
-        return tokens[key] if key in tokens else match.group(0)
-    return re.sub(r"\{(\w+)\}", repl, template or "")
+def _sheet_number_counter_value(idx, pad, is_alpha, start, step):
+    """The Nth (0-based) counter value for the Sheet Number's own
+    "Counter" base - reuses the exact same rendering engine as the Name's
+    Mode A counter (renamer.sequence_token + render_template), but as an
+    INDEPENDENT per-Sheet index (0, 1, 2... among Sheets only), not
+    row.tag_value - the Name's own counter can be a Mode B emergency tie-
+    breaker rather than a clean sequence, which would be a confusing
+    thing to reuse for a deliberately-numbered Sheet Number."""
+    seq_tok = renamer.sequence_token(pad=pad, letters=is_alpha)
+    return renamer.render_template(seq_tok, {"serial_value": start + idx * step}) or u""
 
 
 def _assign_sheet_numbers(preview_rows, taken_numbers, number_mode="same_as_name",
-                           number_template=u"{OldNumber}-{NewName}"):
+                           number_base="old_number", number_prefix=u"", number_suffix=u"",
+                           pad=0, is_alpha=False, start=1, step=1):
     """Applies a Sheet Number to every Sheet row, not just the Name.
 
     number_mode "same_as_name" reproduces this tool's ORIGINAL, always-on
@@ -484,28 +489,34 @@ def _assign_sheet_numbers(preview_rows, taken_numbers, number_mode="same_as_name
     project that never touches the new Sheet Number option keeps getting
     identical numbers to before this was added.
 
-    number_mode "custom" instead builds the number from `number_template`
-    via _resolve_number_tokens, with four tokens available: OldNumber,
-    OldName, NewName, and Counter (row.tag_value - the SAME counter/tie-
-    breaker piece Mode A/B/Copy already computed for the Name, e.g. "N4",
-    WITHOUT the item's own name attached - lets a number look like
-    "A101-N4" instead of repeating the whole new name into the number).
+    number_mode "custom" ("Build from parts" in the UI) instead builds
+    the number as number_prefix + BASE + number_suffix, where BASE is
+    one of:
+      - "old_number": the sheet's own current number, unchanged.
+      - "new_name": the generated New Name.
+      - "counter": a fresh, independent sequence (_sheet_number_counter_value)
+        using the SAME Counter Style settings (numeric/alphabetic, start,
+        step, pad) already configured for the Name, applied here as its
+        own clean per-Sheet index - "Apply the Counter Style" per the
+        live request, rather than typing a raw template.
 
     Either mode still runs through the SAME collision-retry loop as
     before - a numeric -2, -3... suffix is appended only if the built
     number is already taken, exactly like the original behavior."""
     taken = set(taken_numbers)
+    counter_idx = 0
     for row in preview_rows:
         if row.kind != "Sheet":
             continue
         if number_mode == "custom":
-            tokens = {
-                "OldNumber": row.old_number,
-                "OldName": row.old_name,
-                "NewName": row.new_name,
-                "Counter": row.tag_value or "",
-            }
-            base = _resolve_number_tokens(number_template, tokens)
+            if number_base == "new_name":
+                core = row.new_name
+            elif number_base == "counter":
+                core = _sheet_number_counter_value(counter_idx, pad, is_alpha, start, step)
+                counter_idx += 1
+            else:
+                core = row.old_number
+            base = u"{0}{1}{2}".format(number_prefix, core, number_suffix)
         else:
             base = u"{0}-{1}".format(row.old_number, row.new_name)
         candidate = base
@@ -865,6 +876,7 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
 
         self._refresh_preset_list()
         self._scan()
+        self._update_sheet_number_example()
 
     # -- Pick Items -------------------------------------------------------
     def _scan(self):
@@ -998,6 +1010,7 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
             self.pad_width_tb.IsEnabled = bool(self.counter_numeric_rb.IsChecked)
         except Exception:
             pass
+        self._update_sheet_number_example()
 
     def _read_naming_inputs(self):
         prefix = (self.prefix_tb.Text or "").strip()
@@ -1037,10 +1050,88 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
             n = 1
         return n if n > 0 else 1
 
+    def _read_counter_style(self):
+        is_alpha = bool(self.counter_alpha_rb.IsChecked)
+        try:
+            pad = int(self.pad_width_tb.Text) if (self.pad_width_tb.Text or "").strip() else 0
+        except Exception:
+            pad = 0
+        try:
+            start = int(self.start_tb.Text) if (self.start_tb.Text or "").strip() else 1
+        except Exception:
+            start = 1
+        try:
+            step = int(self.step_tb.Text) if (self.step_tb.Text or "").strip() else 1
+        except Exception:
+            step = 1
+        if step == 0:
+            step = 1
+        return pad, is_alpha, start, step
+
     def _read_sheet_number_inputs(self):
         mode = "custom" if bool(self.sheet_number_custom_rb.IsChecked) else "same_as_name"
-        template = (self.sheet_number_template_tb.Text or "").strip() or u"{OldNumber}-{NewName}"
-        return mode, template
+        if bool(self.number_base_name_rb.IsChecked):
+            base = "new_name"
+        elif bool(self.number_base_counter_rb.IsChecked):
+            base = "counter"
+        else:
+            base = "old_number"
+        prefix = self.number_prefix_tb.Text or u""
+        suffix = self.number_suffix_tb.Text or u""
+        pad, is_alpha, start, step = self._read_counter_style()
+        return mode, base, prefix, suffix, pad, is_alpha, start, step
+
+    def sheet_number_mode_changed(self, sender, args):
+        try:
+            self.number_parts_panel.IsEnabled = bool(self.sheet_number_custom_rb.IsChecked)
+        except Exception:
+            pass
+        self._update_sheet_number_example()
+
+    def number_base_changed(self, sender, args):
+        self._update_sheet_number_example()
+
+    def number_prefix_suffix_changed(self, sender, args):
+        self._update_sheet_number_example()
+
+    def _update_sheet_number_example(self):
+        """A live, REAL example (an actual current Sheet Number from this
+        project, not a generic placeholder) shown right under the Sheet
+        Number controls - live feedback asked for this specifically, so
+        the effect of Base/Prefix/Suffix/Counter Style is obvious before
+        Generate Preview is ever clicked."""
+        try:
+            row = next((r for r in self._picker_all_rows if r.kind == "Sheet"), None)
+        except Exception:
+            row = None
+        if row is None:
+            try:
+                self.sheet_number_example_tb.Text = "Example: no Sheets found in this project."
+            except Exception:
+                pass
+            return
+
+        try:
+            if not bool(self.sheet_number_custom_rb.IsChecked):
+                self.sheet_number_example_tb.Text = (
+                    u"Example: current sheet '{0}' stays '{0}-<New Name>' "
+                    u"(Old Number + \"-\" + New Name).".format(row.number))
+                return
+
+            prefix = self.number_prefix_tb.Text or u""
+            suffix = self.number_suffix_tb.Text or u""
+            if bool(self.number_base_name_rb.IsChecked):
+                core = u"<New Name>"
+            elif bool(self.number_base_counter_rb.IsChecked):
+                pad, is_alpha, start, _step = self._read_counter_style()
+                core = _sheet_number_counter_value(0, pad, is_alpha, start, 1) or u"1"
+            else:
+                core = row.number
+            example = u"{0}{1}{2}".format(prefix, core, suffix)
+            self.sheet_number_example_tb.Text = (
+                u"Example: current sheet '{0}' becomes '{1}'.".format(row.number, example))
+        except Exception:
+            pass
 
     def generate_preview_click(self, sender, args):
         checked_once = [r for r in self._picker_all_rows if r.selected]
@@ -1075,8 +1166,10 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
                 _generate_mode_b(preview_rows, prefix, sep_before, sep_after, is_alpha, taken_names, placement)
 
         taken_numbers = _all_taken_numbers(self.doc)
-        number_mode, number_template = self._read_sheet_number_inputs()
-        _assign_sheet_numbers(preview_rows, taken_numbers, number_mode, number_template)
+        number_mode, number_base, number_prefix, number_suffix, pad, is_alpha, start, step = \
+            self._read_sheet_number_inputs()
+        _assign_sheet_numbers(preview_rows, taken_numbers, number_mode, number_base,
+                              number_prefix, number_suffix, pad, is_alpha, start, step)
         _compute_statuses(preview_rows)
 
         self._preview_rows = preview_rows
