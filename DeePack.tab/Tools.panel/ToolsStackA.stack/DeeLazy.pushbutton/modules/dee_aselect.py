@@ -149,6 +149,27 @@ Two ways to choose the axis:
   Dee3DView hub only ever do "close -> launch a fresh, self-contained
   tool", so this is new, not a copy of an existing exact pattern.
 
+Live report: mirroring a "Model + Annotation"/"All" selection failed
+outright with Revit's own "Mirror failed and was rolled back... Some of
+the elements cannot be copied, because they belong to different views.
+Parameter name: elementsToMirror". Root cause: MirrorElements refuses
+the instant a single call mixes view-specific elements (dimensions,
+tags, detail lines, filled regions, ...) from MORE than one view -
+entirely likely here since this tool scans the WHOLE PROJECT, so a
+"Model + Annotation"/"All" tick can gather annotation living in many
+different views at once. Fixed by _group_ids_by_owner_view(), which
+splits the ids into one group per distinct OwnerViewId (every ordinary
+model element shares ONE group, since OwnerViewId is InvalidElementId
+for all of them) and runs one MirrorElements call per group instead of
+one call over everything - still inside the SAME Transaction, so a
+failure on any one group still rolls every group back together. Move
+does not need this (MoveElements has no such restriction - no internal
+copy step). Sun Path was also added to _ALWAYS_EXCLUDE as a related,
+belt-and-braces fix: it isn't a real transformable element at all (a
+view's own sun-direction graphic, not model/annotation content), so it
+never had a legitimate reason to be offered as a category in the first
+place.
+
 --------------------------------------------------------------------
 NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
 --------------------------------------------------------------------
@@ -196,6 +217,14 @@ NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
    in a real Revit session, and the pick-after-close flow in
    mirror_pick_click/launch()/_run_mirror_pick_flow is the first of its
    kind in this module (see the Mirror section above).
+6. _group_ids_by_owner_view()'s fix for the live "elements belong to
+   different views" crash is based on standard, documented Revit API
+   behavior (Element.OwnerViewId, MirrorElements' own restriction), but
+   has not been re-tested live against the exact project/selection that
+   originally triggered the crash - in particular, whether every
+   view-specific element type involved reports OwnerViewId correctly,
+   and whether grouping is sufficient or some other element combination
+   can still trigger the same Revit-side restriction.
 """
 import math
 import os
@@ -291,9 +320,18 @@ _NEVER_MOVE = set(n.lower() for n in [
 # set - only Internal Origin and Survey Point were named - it keeps its
 # existing, lighter treatment (listed, starts unticked, hard-excluded
 # from Move/Mirror only via _NEVER_MOVE above).
+#
+# Sun Path was added after a live report: it isn't a real, independently
+# transformable element (it's a view's own sun-direction graphic, not
+# model/annotation content), and including it in a Mirror batch was part
+# of what triggered Revit's "elements belong to different views" failure
+# (see _group_ids_by_owner_view's own docstring for the actual root
+# cause and fix) - excluded here too as an extra, belt-and-braces measure
+# since it never had a legitimate reason to be offered in the first place.
 _ALWAYS_EXCLUDE = set(n.lower() for n in [
     u"Internal Origin",
     u"Survey Point",
+    u"Sun Path",
 ])
 
 # Above this many elements, Select/Move ask for one extra confirmation
@@ -568,13 +606,52 @@ def move_elements(doc, ids, dx_internal, dy_internal, pinned_ids):
 # ==========================================================================
 # mirror
 # ==========================================================================
+def _group_ids_by_owner_view(doc, ids):
+    """Splits `ids` into one List[ElementId] per distinct OwnerViewId -
+    every ordinary model/non-view-specific element (OwnerViewId ==
+    InvalidElementId) goes into ONE shared group together, while each
+    real view's own view-specific elements (dimensions, tags, detail
+    lines, filled regions, ...) get their own separate group per view.
+
+    Live-caught: ElementTransformUtils.MirrorElements raises "Some of
+    the elements cannot be copied, because they belong to different
+    views" the moment a single call mixes view-specific elements from
+    MORE THAN ONE view - entirely possible here since this tool scans
+    the WHOLE PROJECT, so ticking "Annotation Only" or "All" can easily
+    gather annotation that lives in many different views at once. Move
+    does not hit this (ElementTransformUtils.MoveElements just
+    repositions elements in place, no internal copy step), so this
+    grouping is Mirror-specific."""
+    groups = {}
+    for eid in ids:
+        el = doc.GetElement(eid)
+        if el is None:
+            continue
+        try:
+            owner = el.OwnerViewId
+            key = owner.IntegerValue if owner is not None else -1
+        except Exception:
+            key = -1
+        bucket = groups.get(key)
+        if bucket is None:
+            bucket = List[ElementId]()
+            groups[key] = bucket
+        bucket.Add(eid)
+    return list(groups.values())
+
+
 def mirror_elements(doc, ids, plane, pinned_ids):
     """Same shape as move_elements() - unpin, transform, re-pin, inside the
     caller's transaction - because MirrorElements has the exact same
-    all-or-nothing pinned-element restriction as MoveElements."""
+    all-or-nothing pinned-element restriction as MoveElements. Runs ONE
+    MirrorElements call PER owning view (see _group_ids_by_owner_view) -
+    a single call over the whole `ids` list would raise "elements belong
+    to different views" the moment two different views' worth of
+    view-specific elements ended up in it together."""
     if pinned_ids:
         _set_pinned(doc, pinned_ids, False)
-    ElementTransformUtils.MirrorElements(doc, ids, plane, False)
+    for group_ids in _group_ids_by_owner_view(doc, ids):
+        ElementTransformUtils.MirrorElements(doc, group_ids, plane, False)
     if pinned_ids:
         _set_pinned(doc, pinned_ids, True)
 
