@@ -170,6 +170,21 @@ view's own sun-direction graphic, not model/annotation content), so it
 never had a legitimate reason to be offered as a category in the first
 place.
 
+A SECOND live crash surfaced once the above was fixed: Revit's own "The
+input set of elements contains Sketch members along with other elements
+or there is no active Sketch edit mode." A Sketch member (a sketch-based
+host element's own internal profile lines, category "Sketch") only
+exists meaningfully inside that host's own sketch editor, never as a
+real standalone transformable element - same reasoning as Sun Path, so
+"Sketch" was added to _ALWAYS_EXCLUDE too. mirror_elements() also
+defends against this at the API-call level
+(_mirror_group_with_sketch_retry): if Revit still raises this exact
+error for a group, any id categorized as "Sketch" is dropped from JUST
+that group and the call is retried once - a belt-and-braces safety net
+for ids gathered before this fix, or a category-name mismatch on some
+Revit version/language, reported to the user rather than silently
+dropped.
+
 --------------------------------------------------------------------
 NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
 --------------------------------------------------------------------
@@ -328,10 +343,26 @@ _NEVER_MOVE = set(n.lower() for n in [
 # (see _group_ids_by_owner_view's own docstring for the actual root
 # cause and fix) - excluded here too as an extra, belt-and-braces measure
 # since it never had a legitimate reason to be offered in the first place.
+#
+# "Sketch" was added after a SECOND, separate live crash on Mirror, once
+# the different-views one was fixed: Revit's own "The input set of
+# elements contains Sketch members along with other elements or there is
+# no active Sketch edit mode." A Sketch member (the internal profile
+# lines of a Floor/Roof/sketch-based family, category OST_SketchLines,
+# displayed as "Sketch") only exists meaningfully INSIDE that host
+# element's own sketch editor - it isn't a real, independently
+# selectable/transformable element the same way a normal Line or Wall
+# is, so - same reasoning as Sun Path - it never had a legitimate reason
+# to be offered as a tickable category here either. mirror_elements()
+# below ALSO defends against this at the API-call level (retries a
+# group with any "Sketch"-categorized ids removed if Revit still raises
+# this exact error), in case this category name guess doesn't match
+# every Revit version/language exactly.
 _ALWAYS_EXCLUDE = set(n.lower() for n in [
     u"Internal Origin",
     u"Survey Point",
     u"Sun Path",
+    u"Sketch",
 ])
 
 # Above this many elements, Select/Move ask for one extra confirmation
@@ -640,6 +671,40 @@ def _group_ids_by_owner_view(doc, ids):
     return list(groups.values())
 
 
+def _mirror_group_with_sketch_retry(doc, group_ids, plane):
+    """One MirrorElements call, with ONE automatic retry if Revit raises
+    its own "contains Sketch members" failure (see _ALWAYS_EXCLUDE's own
+    "Sketch" comment for the full story) - removes any id whose category
+    name is "Sketch" from the group and tries again once. This is a
+    belt-and-braces safety net for _ALWAYS_EXCLUDE's category-name guess:
+    _ALWAYS_EXCLUDE stops "Sketch" from ever being ticked in a FUTURE
+    run, but can't help ids already gathered before this fix existed, or
+    if the actual category name differs on some Revit version/language.
+    Re-raises unchanged if no Sketch-categorized id is found in the
+    group (a different cause) or the retry still fails. Returns the
+    number of ids dropped (0 on the ordinary, no-retry-needed path), so
+    the caller can report this instead of it being a silent skip."""
+    try:
+        ElementTransformUtils.MirrorElements(doc, group_ids, plane, False)
+        return 0
+    except Exception as e:
+        if u"sketch" not in str(e).lower():
+            raise
+        kept = List[ElementId]()
+        removed = 0
+        for eid in group_ids:
+            el = doc.GetElement(eid)
+            name = _category_name(el) if el is not None else u""
+            if name.lower() == u"sketch":
+                removed += 1
+                continue
+            kept.Add(eid)
+        if not removed or kept.Count == 0:
+            raise
+        ElementTransformUtils.MirrorElements(doc, kept, plane, False)
+        return removed
+
+
 def mirror_elements(doc, ids, plane, pinned_ids):
     """Same shape as move_elements() - unpin, transform, re-pin, inside the
     caller's transaction - because MirrorElements has the exact same
@@ -647,13 +712,17 @@ def mirror_elements(doc, ids, plane, pinned_ids):
     MirrorElements call PER owning view (see _group_ids_by_owner_view) -
     a single call over the whole `ids` list would raise "elements belong
     to different views" the moment two different views' worth of
-    view-specific elements ended up in it together."""
+    view-specific elements ended up in it together. Returns the total
+    count of Sketch-member ids dropped by the retry safety net (0
+    ordinarily)."""
     if pinned_ids:
         _set_pinned(doc, pinned_ids, False)
+    sketch_dropped = 0
     for group_ids in _group_ids_by_owner_view(doc, ids):
-        ElementTransformUtils.MirrorElements(doc, group_ids, plane, False)
+        sketch_dropped += _mirror_group_with_sketch_retry(doc, group_ids, plane)
     if pinned_ids:
         _set_pinned(doc, pinned_ids, True)
+    return sketch_dropped
 
 
 def _combined_bbox(doc, ids):
@@ -790,13 +859,14 @@ def _run_mirror_transaction(doc, uidoc, ids, checked_count, excluded_never_move,
 
     _try_checkout_for_move(doc, ids)
 
+    sketch_dropped = 0
     t = Transaction(doc, "DeeMoveMirror - mirror selection")
     try:
         t.Start()
         ffh.apply_to_transaction(t)
         with _SafeProgress(title=u"DeeMoveMirror - mirroring {0:,} element(s)..."
                             .format(ids.Count), indeterminate=True):
-            mirror_elements(doc, ids, plane, pinned_ids)
+            sketch_dropped = mirror_elements(doc, ids, plane, pinned_ids)
         t.Commit()
     except Exception as e:
         try:
@@ -817,9 +887,11 @@ def _run_mirror_transaction(doc, uidoc, ids, checked_count, excluded_never_move,
                    .format(len(pinned_ids)) if pinned_ids else u"")
     excluded_note = (u" ({0:,} Project Base Point/Survey Point element(s) excluded)"
                       .format(excluded_never_move) if excluded_never_move else u"")
+    sketch_note = (u" ({0:,} Sketch member(s) could not be mirrored and were skipped)"
+                   .format(sketch_dropped) if sketch_dropped else u"")
     forms.alert(
-        u"Mirrored {0:,} element(s) across {1} categor(y/ies) - axis: {2}.{3}{4}"
-        .format(ids.Count, checked_count, axis_label, pinned_note, excluded_note),
+        u"Mirrored {0:,} element(s) across {1} categor(y/ies) - axis: {2}.{3}{4}{5}"
+        .format(ids.Count, checked_count, axis_label, pinned_note, excluded_note, sketch_note),
         title="DeeMoveMirror - Mirror")
 
 
