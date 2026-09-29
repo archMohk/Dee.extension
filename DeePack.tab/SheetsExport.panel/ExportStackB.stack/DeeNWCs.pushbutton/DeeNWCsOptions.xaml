@@ -167,7 +167,7 @@
                              ToolTip="Example: Discipline/Level puts an AR/L02 file into &lt;export folder&gt;\AR\L02\"/>
 
                     <TextBlock Text="Exported file name (use {RevitFileName}, {ViewName}, or any label above):" Margin="0,0,0,2"/>
-                    <TextBox x:Name="name_output_template_tb" Height="24" Text="{RevitFileName}_{ViewName}"/>
+                    <TextBox x:Name="name_output_template_tb" Height="24" Text="{}{RevitFileName}_{ViewName}"/>
                 </StackPanel>
             </GroupBox>
 

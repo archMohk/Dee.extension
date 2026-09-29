@@ -195,7 +195,7 @@
                                                  Content="Same as Name (default - Old Number + &quot;-&quot; + New Name)"/>
                                     <RadioButton x:Name="sheet_number_custom_rb" GroupName="sheet_number_mode" Margin="0,0,0,6"
                                                  Content="Custom template:"/>
-                                    <TextBox x:Name="sheet_number_template_tb" Text="{OldNumber}-{NewName}" Height="22" Margin="0,0,0,6"/>
+                                    <TextBox x:Name="sheet_number_template_tb" Text="{}{OldNumber}-{NewName}" Height="22" Margin="0,0,0,6"/>
                                     <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888"
                                                Text="Available tokens: {OldNumber}, {OldName}, {NewName}, {Counter} (the Prefix+counter piece alone, e.g. 'N4', without your current name attached - e.g. a template of {OldNumber}-{Counter} gives A101-N4 instead of A101-N4-SITE PLAN). Only applies to Sheets. A number that's already taken still gets a -2, -3... suffix either way."/>
                                 </StackPanel>
