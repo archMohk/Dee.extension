@@ -70,6 +70,8 @@ import json
 import datetime
 from pyrevit import forms, script, framework
 import dee_branding
+import dee_rename_pipeline_dialog as rp_dialog
+from dee_rename_pipeline import apply_methods, DEFAULT_METHODS
 from pyrevit.framework import Controls
 from Autodesk.Revit.DB import (
     FilteredElementCollector, ViewSheet, ExportDWGSettings, PDFExportOptions,
@@ -521,6 +523,7 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
         self._refresh_naming_list()
         self.tb_prefix.Text = self.dicprj.get("prefix", "")
         self.tb_suffix.Text = self.dicprj.get("suffix", "")
+        self._naming_methods = self.dicprj.get("naming_methods") or DEFAULT_METHODS()
 
         self.lb_printfilepath.Content = self.dicdlg.get("printfilepath", "")
         self.chbox_pdfexport.IsChecked = self.dicdlg.get("pdfexport", True)
@@ -557,6 +560,7 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
         self.dicprj["paranames"] = [t.value for t in self._naming_tokens]
         self.dicprj["prefix"] = self.tb_prefix.Text or ""
         self.dicprj["suffix"] = self.tb_suffix.Text or ""
+        self.dicprj["naming_methods"] = self._naming_methods
         self.dicprj["folder_hierarchy"] = [
             {"name": h.name, "enabled": bool(h.enabled)}
             for h in self._hierarchy_items]
@@ -779,9 +783,23 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
     # -- naming preview -------------------------------------------------------
     def _preview_name(self, sheetobj):
         str2list = [t.value for t in self._naming_tokens]
-        return u"{0}{1}{2}".format(self.tb_prefix.Text or "",
+        name = u"{0}{1}{2}".format(self.tb_prefix.Text or "",
                                    name_from_paralist(sheetobj, str2list),
                                    self.tb_suffix.Text or "")
+        return apply_methods(name, 0, self._naming_methods)
+
+    def advanced_rename_click(self, sender, args):
+        checked = [c.item for c in self._context if c.state]
+        sheetobj = checked[0] if checked else \
+            FilteredElementCollector(self.doc).OfClass(ViewSheet).FirstElement()
+        str2list = [t.value for t in self._naming_tokens]
+        sample = u"{0}{1}{2}".format(self.tb_prefix.Text or "",
+                                     name_from_paralist(sheetobj, str2list) if sheetobj else u"Sheet-A101",
+                                     self.tb_suffix.Text or "")
+        methods = rp_dialog.show(sample_name=sample, initial_methods=self._naming_methods)
+        if methods is not None:
+            self._naming_methods = methods
+            self._refresh_naming_preview()
 
     def _refresh_naming_preview(self):
         """Recomputes the live preview against the first CHECKED sheet
@@ -1211,9 +1229,11 @@ def main():
     paranames = raw_paranames if isinstance(raw_paranames, list) else raw_paranames.split(",")
     name_prefix = dicprj.get("prefix", "") or ""
     name_suffix = dicprj.get("suffix", "") or ""
+    naming_methods = dicprj.get("naming_methods") or DEFAULT_METHODS()
 
-    def _final_name(core_name):
-        return _sanitize_filename(u"{0}{1}{2}".format(name_prefix, core_name, name_suffix))
+    def _final_name(core_name, idx=0):
+        name = u"{0}{1}{2}".format(name_prefix, core_name, name_suffix)
+        return _sanitize_filename(apply_methods(name, idx, naming_methods))
 
     if not do_pdf and not combined_pdf and not do_dwg and not do_dxf:
         forms.alert("Nothing to export - check Export PDF, Combined PDF, DWG, and/or DXF.")
@@ -1294,7 +1314,7 @@ def main():
 
             steps = []
             all_results.append((label, steps))
-            filename = _final_name(name_from_paralist(sheet, paranames))
+            filename = _final_name(name_from_paralist(sheet, paranames), i)
 
             folder_part = folder_path_from_hierarchy(sheet, hierarchy_items)
 

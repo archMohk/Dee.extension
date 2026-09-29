@@ -42,6 +42,8 @@ import csv
 import System
 from pyrevit import forms, script
 import dee_branding
+import dee_rename_pipeline_dialog as rp_dialog
+from dee_rename_pipeline import apply_methods, DEFAULT_METHODS
 from Autodesk.Revit.DB import (
     FilteredElementCollector, Grid, Line, Transaction, BuiltInParameter,
     ElementTransformUtils, UnitUtils, SpecTypeId, UnitTypeId, XYZ
@@ -297,6 +299,7 @@ class DeeGridWindow(dee_branding.DeeBrandedWindow):
         self._preview_origin_py = 0.0
         self._preview_width = 400.0
         self._preview_height = 400.0
+        self._naming_methods = DEFAULT_METHODS()
 
         unit_abbr = _unit_abbreviation(doc)
         self.v_grid.Columns[2].Header = "Position ({0})".format(unit_abbr)
@@ -704,7 +707,7 @@ class DeeGridWindow(dee_branding.DeeBrandedWindow):
         ordered = sorted(rows, key=lambda r: r.position_internal)
         total = len(ordered)
         for i, row in enumerate(ordered):
-            row.name = _naming_pattern_label(i, pattern, total)
+            row.name = apply_methods(_naming_pattern_label(i, pattern, total), i, self._naming_methods)
         self._recompute_refresh_and_redraw()
 
     def rename_vertical_click(self, sender, args):
@@ -712,6 +715,13 @@ class DeeGridWindow(dee_branding.DeeBrandedWindow):
 
     def rename_horizontal_click(self, sender, args):
         self._rename_direction(self._h_rows)
+
+    def advanced_rename_click(self, sender, args):
+        pattern = self.rename_pattern_cb.SelectedItem or _NAMING_PATTERNS[0]
+        sample = _naming_pattern_label(0, pattern, 1)
+        methods = rp_dialog.show(sample_name=sample, initial_methods=self._naming_methods)
+        if methods is not None:
+            self._naming_methods = methods
 
     def v_row_edit_ending(self, sender, args):
         try:

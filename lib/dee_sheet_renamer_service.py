@@ -537,6 +537,22 @@ def _case_one(value, mode):
     return value
 
 
+def apply_rename_pipeline(rows, methods, target):
+    """One more staging tool alongside find_replace/add_text/extract_segment/
+    convert_case above - runs the shared 8-method Advanced Rename pipeline
+    (dee_rename_pipeline.apply_methods) on the selected rows' staged
+    new_number/new_name, composing with whatever came before it exactly
+    like every other tool in this file. `idx` is each row's 0-based
+    position among the SELECTED rows, for Numbering."""
+    from dee_rename_pipeline import apply_methods
+    selected_rows = [r for r in rows if r.selected]
+    for idx, r in enumerate(selected_rows):
+        if target in ("number", "both"):
+            r.new_number = apply_methods(r.new_number, idx, methods)
+        if target in ("name", "both"):
+            r.new_name = apply_methods(r.new_name, idx, methods)
+
+
 # --------------------------------------------------------------------------
 # Status / duplicate detection
 # --------------------------------------------------------------------------

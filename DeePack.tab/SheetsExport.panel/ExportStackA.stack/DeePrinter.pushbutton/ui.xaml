@@ -167,6 +167,9 @@
                                 <Label Content="Suffix:" Padding="14,3,4,0"/>
                                 <TextBox x:Name="tb_suffix" Width="150" Height="22" TextChanged="naming_text_changed"
                                          ToolTip="Added at the end of every exported file name, before the extension (e.g. -IFC). Leave empty for none."/>
+                                <Button x:Name="advanced_rename_b" Content="Advanced Rename..." Click="advanced_rename_click"
+                                        Width="140" Height="22" Margin="14,0,0,0"
+                                        ToolTip="Optional extra RegEx/Replace/Case/Remove/Add/Auto Date/Numbering pass, run after Prefix + Token Sequence + Suffix above."/>
                             </StackPanel>
                             <TextBlock Text="Live preview of the first checked sheet's file name (updates automatically as you edit):"
                                        FontSize="11" Foreground="#555" TextWrapping="Wrap" Margin="0,10,0,4"/>

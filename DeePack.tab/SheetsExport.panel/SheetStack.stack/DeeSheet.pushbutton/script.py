@@ -41,6 +41,8 @@ from Autodesk.Revit.DB import (
 )
 import xlsx_writer
 import dee_sheet_renamer_service as renamer
+import dee_rename_pipeline_dialog as rp_dialog
+from dee_rename_pipeline import DEFAULT_METHODS
 
 import clr
 clr.AddReference("System.Windows.Forms")
@@ -245,6 +247,7 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         self._last_rows = []
         self._rename_rows = []
         self._rename_view_rows = []
+        self._naming_methods = DEFAULT_METHODS()
 
         tb_names = [_NONE_TITLEBLOCK_LABEL] + sorted(self._titleblock_types.keys())
         self.titleblock_cb.ItemsSource = tb_names
@@ -555,6 +558,8 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         self.seg_target_cb.SelectedIndex = 2
         self.case_target_cb.ItemsSource = _RN_TARGET_CHOICES
         self.case_target_cb.SelectedIndex = 2
+        self.advanced_rename_target_cb.ItemsSource = _RN_TARGET_CHOICES
+        self.advanced_rename_target_cb.SelectedIndex = 2
         self._refresh_preset_list()
 
     def _scan_renamer(self):
@@ -871,6 +876,20 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
 
     def case_upper_click(self, sender, args):
         self._apply_case("upper")
+
+    def advanced_rename_click(self, sender, args):
+        selected = [r for r in self._rename_rows if r.selected]
+        if not selected:
+            forms.alert("Check at least one sheet first.")
+            return
+        sample = selected[0].new_number or selected[0].new_name or "Sample"
+        methods = rp_dialog.show(sample_name=sample, initial_methods=self._naming_methods)
+        if methods is None:
+            return
+        self._naming_methods = methods
+        renamer.apply_rename_pipeline(self._rename_rows, methods, self._rn_target_value(self.advanced_rename_target_cb))
+        renamer.compute_statuses(self._rename_rows)
+        self._refresh_rename_grid()
 
     def case_lower_click(self, sender, args):
         self._apply_case("lower")

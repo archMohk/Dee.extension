@@ -276,6 +276,15 @@
                                 </StackPanel>
                             </GroupBox>
 
+                            <GroupBox Header="Advanced Rename" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888" Margin="0,0,0,4"
+                                               Text="One more staging step, same idea as Find &amp; Replace/Case above: runs the full RegEx/Name/Replace/Case/Remove/Add/Auto Date/Numbering pipeline on top of whatever the rule and the tools above already produced."/>
+                                    <ComboBox x:Name="advanced_rename_target_cb" Height="24" Margin="0,0,0,4"/>
+                                    <Button x:Name="advanced_rename_b" Content="Advanced Rename..." Width="150" Height="24" Click="advanced_rename_click"/>
+                                </StackPanel>
+                            </GroupBox>
+
                             <GroupBox Header="Presets" Padding="6" Margin="0,0,0,8">
                                 <StackPanel>
                                     <ComboBox x:Name="preset_cb" Height="24" Margin="0,0,0,4"/>
