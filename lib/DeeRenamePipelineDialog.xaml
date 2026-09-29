@@ -1,0 +1,294 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Advanced Rename"
+        ShowInTaskbar="False"
+        MinHeight="640" MinWidth="460" Height="720" Width="480"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8" FontSize="11" Foreground="#555"
+                   Text="Each ticked method runs in order, top to bottom, on the result of the one before it - same idea as Advanced Renamer's method list. Untick a method to skip it entirely."/>
+
+        <Border DockPanel.Dock="Top" Background="#F5F5F5" BorderBrush="#CCCCCC" BorderThickness="0,1,0,1"
+                Padding="8,6,8,6" Margin="0,0,0,8">
+            <StackPanel>
+                <TextBlock FontSize="11" Foreground="#666" Text="Preview (using a real current name):"/>
+                <TextBlock x:Name="preview_tb" FontWeight="Bold" TextWrapping="Wrap" Text=""/>
+            </StackPanel>
+        </Border>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button x:Name="cancel_b" Content="Cancel" Width="90" Height="28" Margin="0,0,8,0" Click="cancel_click"/>
+            <Button x:Name="ok_b" Content="OK" Width="90" Height="28" FontWeight="Bold"
+                    Background="#1F6FB2" Foreground="White" BorderBrush="#1F6FB2" Cursor="Hand" Click="ok_click"/>
+        </StackPanel>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <GroupBox Header="1. RegEx" Padding="6" Margin="0,0,0,8">
+                    <StackPanel>
+                        <CheckBox x:Name="m_regex_en_cb" Content="Enabled" Margin="0,0,0,6" Checked="method_changed" Unchecked="method_changed"/>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Match:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" x:Name="m_regex_match_tb" Height="22" TextChanged="method_changed"/>
+                        </Grid>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Replace:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" x:Name="m_regex_replace_tb" Height="22" TextChanged="method_changed"/>
+                        </Grid>
+                        <CheckBox x:Name="m_regex_case_cb" Content="Case sensitive" Checked="method_changed" Unchecked="method_changed"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="2. Name" Padding="6" Margin="0,0,0,8">
+                    <StackPanel>
+                        <CheckBox x:Name="m_name_en_cb" Content="Enabled" Margin="0,0,0,6" IsChecked="True" Checked="method_changed" Unchecked="method_changed"/>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Mode:" VerticalAlignment="Center"/>
+                            <ComboBox Grid.Column="1" x:Name="m_name_mode_cb" Height="22" SelectedIndex="0" SelectionChanged="method_changed">
+                                <ComboBoxItem Content="Keep (leave current name as-is)"/>
+                                <ComboBoxItem Content="Remove (blank it out)"/>
+                                <ComboBoxItem Content="Fixed (replace with typed text)"/>
+                            </ComboBox>
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Fixed:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" x:Name="m_name_fixed_tb" Height="22" TextChanged="method_changed"/>
+                        </Grid>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="3. Replace" Padding="6" Margin="0,0,0,8">
+                    <StackPanel>
+                        <CheckBox x:Name="m_replace_en_cb" Content="Enabled" Margin="0,0,0,6" Checked="method_changed" Unchecked="method_changed"/>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Replace:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" x:Name="m_replace_find_tb" Height="22" TextChanged="method_changed"/>
+                        </Grid>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="With:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" x:Name="m_replace_with_tb" Height="22" TextChanged="method_changed"/>
+                        </Grid>
+                        <StackPanel Orientation="Horizontal">
+                            <CheckBox x:Name="m_replace_matchcase_cb" Content="Match Case" Margin="0,0,16,0" Checked="method_changed" Unchecked="method_changed"/>
+                            <CheckBox x:Name="m_replace_first_cb" Content="First occurrence only" Checked="method_changed" Unchecked="method_changed"/>
+                        </StackPanel>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="4. Case" Padding="6" Margin="0,0,0,8">
+                    <StackPanel>
+                        <CheckBox x:Name="m_case_en_cb" Content="Enabled" Margin="0,0,0,6" Checked="method_changed" Unchecked="method_changed"/>
+                        <ComboBox x:Name="m_case_mode_cb" Height="22" SelectedIndex="0" Margin="0,0,0,4" SelectionChanged="method_changed">
+                            <ComboBoxItem Content="Same (no change)"/>
+                            <ComboBoxItem Content="UPPERCASE"/>
+                            <ComboBoxItem Content="lowercase"/>
+                            <ComboBoxItem Content="Title Case"/>
+                            <ComboBoxItem Content="Sentence case"/>
+                        </ComboBox>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Exceptions:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" x:Name="m_case_exceptions_tb" Height="22" TextChanged="method_changed"
+                                     ToolTip="Comma-separated words that keep their own casing regardless of the mode above, e.g. AutoCAD, HVAC"/>
+                        </Grid>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="5. Remove" Padding="6" Margin="0,0,0,8">
+                    <StackPanel>
+                        <CheckBox x:Name="m_remove_en_cb" Content="Enabled" Margin="0,0,0,6" Checked="method_changed" Unchecked="method_changed"/>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                <TextBlock Text="First n:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <TextBox x:Name="m_remove_firstn_tb" Text="0" Width="40" Height="22" TextChanged="method_changed"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <TextBlock Text="Last n:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <TextBox x:Name="m_remove_lastn_tb" Text="0" Width="40" Height="22" TextChanged="method_changed"/>
+                            </StackPanel>
+                        </Grid>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                <TextBlock Text="From:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <TextBox x:Name="m_remove_from_tb" Text="0" Width="40" Height="22" TextChanged="method_changed"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <TextBlock Text="To:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <TextBox x:Name="m_remove_to_tb" Text="0" Width="40" Height="22" TextChanged="method_changed"/>
+                            </StackPanel>
+                        </Grid>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Crop before:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                            <TextBox Grid.Column="1" x:Name="m_remove_cropbefore_tb" Height="22" TextChanged="method_changed"/>
+                        </Grid>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Crop after:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                            <TextBox Grid.Column="1" x:Name="m_remove_cropafter_tb" Height="22" TextChanged="method_changed"/>
+                        </Grid>
+                        <WrapPanel>
+                            <CheckBox x:Name="m_remove_digits_cb" Content="Digits" Margin="0,0,12,4" Checked="method_changed" Unchecked="method_changed"/>
+                            <CheckBox x:Name="m_remove_symbols_cb" Content="Symbols" Margin="0,0,12,4" Checked="method_changed" Unchecked="method_changed"/>
+                            <CheckBox x:Name="m_remove_trim_cb" Content="Trim spaces" Margin="0,0,12,4" Checked="method_changed" Unchecked="method_changed"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="6. Add" Padding="6" Margin="0,0,0,8">
+                    <StackPanel>
+                        <CheckBox x:Name="m_add_en_cb" Content="Enabled" Margin="0,0,0,6" IsChecked="True" Checked="method_changed" Unchecked="method_changed"/>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Prefix:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" x:Name="m_add_prefix_tb" Height="22" TextChanged="method_changed"/>
+                        </Grid>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="45"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Insert:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" x:Name="m_add_insert_tb" Height="22" Margin="0,0,4,0" TextChanged="method_changed"/>
+                            <TextBlock Grid.Column="2" Text="at pos." VerticalAlignment="Center" Margin="0,0,4,0"/>
+                            <TextBox Grid.Column="3" x:Name="m_add_insertpos_tb" Text="0" Height="22" TextChanged="method_changed"/>
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="60"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Suffix:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" x:Name="m_add_suffix_tb" Height="22" TextChanged="method_changed"/>
+                        </Grid>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="7. Auto Date" Padding="6" Margin="0,0,0,8">
+                    <StackPanel>
+                        <CheckBox x:Name="m_date_en_cb" Content="Enabled" Margin="0,0,0,6" Checked="method_changed" Unchecked="method_changed"/>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="70"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="70"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Position:" VerticalAlignment="Center"/>
+                            <ComboBox Grid.Column="1" x:Name="m_date_pos_cb" Height="22" SelectedIndex="1" Margin="0,0,8,0" SelectionChanged="method_changed">
+                                <ComboBoxItem Content="Prefix"/>
+                                <ComboBoxItem Content="Suffix"/>
+                            </ComboBox>
+                            <TextBlock Grid.Column="2" Text="Format:" VerticalAlignment="Center"/>
+                            <ComboBox Grid.Column="3" x:Name="m_date_fmt_cb" Height="22" SelectedIndex="0" SelectionChanged="method_changed">
+                                <ComboBoxItem Content="DMY"/>
+                                <ComboBoxItem Content="MDY"/>
+                                <ComboBoxItem Content="YMD"/>
+                            </ComboBox>
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="70"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Separator:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" x:Name="m_date_sep_tb" Text="-" Width="50" HorizontalAlignment="Left" Height="22" TextChanged="method_changed"/>
+                        </Grid>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,4,0,0"
+                                   Text="Uses today's date."/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="8. Numbering" Padding="6" Margin="0,0,0,8">
+                    <StackPanel>
+                        <CheckBox x:Name="m_numbering_en_cb" Content="Enabled" Margin="0,0,0,6" Checked="method_changed" Unchecked="method_changed"/>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="70"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Position:" VerticalAlignment="Center"/>
+                            <ComboBox Grid.Column="1" x:Name="m_numbering_pos_cb" Height="22" SelectedIndex="1" SelectionChanged="method_changed">
+                                <ComboBoxItem Content="Prefix"/>
+                                <ComboBoxItem Content="Suffix"/>
+                            </ComboBox>
+                        </Grid>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                <TextBlock Text="Start:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <TextBox x:Name="m_numbering_start_tb" Text="1" Width="40" Height="22" TextChanged="method_changed"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <TextBlock Text="Incr.:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <TextBox x:Name="m_numbering_incr_tb" Text="1" Width="40" Height="22" TextChanged="method_changed"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                <TextBlock Text="Pad:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <TextBox x:Name="m_numbering_pad_tb" Text="0" Width="40" Height="22" TextChanged="method_changed"/>
+                            </StackPanel>
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="70"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Separator:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" x:Name="m_numbering_sep_tb" Text="-" Width="50" HorizontalAlignment="Left" Height="22" TextChanged="method_changed"/>
+                        </Grid>
+                    </StackPanel>
+                </GroupBox>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

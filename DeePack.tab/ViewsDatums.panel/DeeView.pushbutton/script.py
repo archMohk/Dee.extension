@@ -56,6 +56,8 @@ import csv
 import System
 from pyrevit import forms, script
 import dee_branding
+import dee_rename_pipeline_dialog as rp_dialog
+from dee_rename_pipeline import apply_methods, DEFAULT_METHODS
 from Autodesk.Revit.DB import (
     FilteredElementCollector, Level, Transaction, BuiltInParameter, BuiltInCategory,
     View, ViewFamily, ViewFamilyType, ViewPlan, ViewType, AreaScheme,
@@ -198,11 +200,13 @@ def _sheet_label(sheet):
 
 # ── naming / duplicate resolution ───────────────────────────────────────────
 
-def _compose_view_name(prefix, level_name, vft_name, suffix):
+def _compose_view_name(prefix, level_name, vft_name, suffix, methods=None, idx=0):
     parts = [p for p in [prefix, level_name, vft_name] if p]
     name = " - ".join(parts)
     if suffix:
         name = "{0} {1}".format(name, suffix)
+    if methods:
+        name = apply_methods(name, idx, methods)
     return name
 
 
@@ -477,6 +481,7 @@ class DeeViewWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
+        self._naming_methods = DEFAULT_METHODS()
 
         self._levels = _collect_levels(doc)
         self._level_options = [LevelOption(l) for l in self._levels]
@@ -651,13 +656,27 @@ class DeeViewWindow(dee_branding.DeeBrandedWindow):
         except Exception:
             self._refresh_views_grid()
 
+    def advanced_rename_click(self, sender, args):
+        sample = u"L1 - Floor Plan"
+        for row in self._rows:
+            if row.enabled and row.levels:
+                level_name = _read_name(row.levels[0]) or "(unnamed)"
+                sample = _compose_view_name(row.prefix, level_name, row.vft_name, row.suffix)
+                break
+        methods = rp_dialog.show(sample_name=sample, initial_methods=self._naming_methods)
+        if methods is not None:
+            self._naming_methods = methods
+
     def preview_naming_click(self, sender, args):
         enabled_rows = [r for r in self._rows if r.enabled]
         lines = []
+        idx = 0
         for row in enabled_rows:
             for level in row.levels:
                 level_name = _read_name(level) or "(unnamed)"
-                lines.append(_compose_view_name(row.prefix, level_name, row.vft_name, row.suffix))
+                lines.append(_compose_view_name(row.prefix, level_name, row.vft_name, row.suffix,
+                                                 self._naming_methods, idx))
+                idx += 1
         if not lines:
             self.naming_preview_lb.ItemsSource = [
                 "Enable at least one row and assign it levels (Pick Levels for Selected Row(s))."]
@@ -794,10 +813,13 @@ class DeeViewWindow(dee_branding.DeeBrandedWindow):
             for mr in self._manual_map_rows:
                 manual_map[str(mr.level.Id)] = mr.sheet_label
 
+        plan_idx = 0
         for row in enabled_rows:
             for level in row.levels:
                 level_name = _read_name(level) or "(unnamed)"
-                base_name = _compose_view_name(row.prefix, level_name, row.vft_name, row.suffix)
+                base_name = _compose_view_name(row.prefix, level_name, row.vft_name, row.suffix,
+                                                self._naming_methods, plan_idx)
+                plan_idx += 1
                 display_name, conflict_label = _resolve_duplicate_name(base_name, taken_names, dup_mode)
                 taken_names.add(display_name)
 
@@ -931,7 +953,8 @@ class DeeViewWindow(dee_branding.DeeBrandedWindow):
 
                 level = planned.level
                 row = planned.row
-                base_name = _compose_view_name(row.prefix, planned.level_name, row.vft_name, row.suffix)
+                base_name = _compose_view_name(row.prefix, planned.level_name, row.vft_name, row.suffix,
+                                                self._naming_methods, i)
 
                 vft = self._vft_by_name.get(row.vft_name)
                 if vft is None:

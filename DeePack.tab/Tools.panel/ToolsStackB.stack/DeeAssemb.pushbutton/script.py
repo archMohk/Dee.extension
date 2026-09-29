@@ -43,6 +43,8 @@ from System.Windows.Media import SolidColorBrush, Color, Brushes
 from System.Windows.Threading import Dispatcher, DispatcherFrame, DispatcherPriority
 
 import dee_assembly_service as core
+import dee_rename_pipeline_dialog as rp_dialog
+from dee_rename_pipeline import apply_methods, DEFAULT_METHODS
 import dee_telemetry
 dee_telemetry.check_access("DeeAssemb")
 
@@ -122,6 +124,23 @@ class _SafeProgress(object):
         pass
 
 
+class _PipedNamingRule(object):
+    """Wraps a core.NamingRule so its rendered output is additionally run
+    through the shared Advanced Rename pipeline (dee_rename_pipeline) -
+    keeps dee_assembly_service.py, and its own unit tests, completely
+    untouched. build_for_assembly only ever calls .render(...) on
+    whatever it's given, so this duck-types as a NamingRule."""
+    def __init__(self, inner_rule, methods):
+        self._inner = inner_rule
+        self._methods = methods
+
+    def render(self, position, assembly_name, type_name):
+        base = self._inner.render(position, assembly_name, type_name)
+        if base is None:
+            return None
+        return apply_methods(base, position, self._methods)
+
+
 class DeeAssembWindow(dee_branding.DeeBrandedWindow):
     # See the module docstring - must exist BEFORE the base class loads the
     # XAML, because loading it fires the handlers below.
@@ -141,6 +160,7 @@ class DeeAssembWindow(dee_branding.DeeBrandedWindow):
         self._prog_total = 1
         self._prog_done = 0
         self._prog_start = time.time()
+        self._naming_methods = DEFAULT_METHODS()
 
         self._titleblocks = []
         self._model_templates = []
@@ -215,8 +235,12 @@ class DeeAssembWindow(dee_branding.DeeBrandedWindow):
         if not samples:
             self.naming_preview_tb.Text = "No assemblies to preview."
             return
-        numbers = self._naming_rule("num").preview(samples)
-        names = self._naming_rule("name").preview(samples)
+        num_rule = _PipedNamingRule(self._naming_rule("num"), self._naming_methods)
+        name_rule = _PipedNamingRule(self._naming_rule("name"), self._naming_methods)
+        numbers = [num_rule.render(i, name, type_name) or "(unchanged)"
+                   for i, (name, type_name) in enumerate(samples)]
+        names = [name_rule.render(i, name, type_name) or "(unchanged)"
+                 for i, (name, type_name) in enumerate(samples)]
         lines = ["First {0} sheet(s) would be:".format(len(samples))]
         for i in range(len(samples)):
             lines.append("   {0}   |   {1}".format(numbers[i], names[i]))
@@ -231,6 +255,14 @@ class DeeAssembWindow(dee_branding.DeeBrandedWindow):
         if not self._ready:
             return
         self._refresh_naming_preview()
+
+    def advanced_rename_click(self, sender, args):
+        samples = self._preview_samples()
+        sample = "{0}-001".format(samples[0][0]) if samples else u"Sheet-001"
+        methods = rp_dialog.show(sample_name=sample, initial_methods=self._naming_methods)
+        if methods is not None:
+            self._naming_methods = methods
+            self._refresh_naming_preview()
 
     # ---------------- scanning helpers ----------------
     def _progress_cb(self, pb):
@@ -774,8 +806,8 @@ class DeeAssembWindow(dee_branding.DeeBrandedWindow):
         opts.schedule_category_id = (self._categories[idx][0]
                                      if 0 <= idx < len(self._categories) else None)
 
-        opts.sheet_number_rule = self._naming_rule("num")
-        opts.sheet_name_rule = self._naming_rule("name")
+        opts.sheet_number_rule = _PipedNamingRule(self._naming_rule("num"), self._naming_methods)
+        opts.sheet_name_rule = _PipedNamingRule(self._naming_rule("name"), self._naming_methods)
         opts.scales = dict((key, self._scale_for(key)) for key in opts.view_keys)
         return opts
 

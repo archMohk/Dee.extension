@@ -91,6 +91,7 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
@@ -130,7 +131,13 @@
                             <TextBox   Grid.Row="2" Grid.Column="5" x:Name="name_pad_tb"    Width="46"  Height="24" Margin="4,2" Text="0" TextChanged="naming_changed"/>
                             <TextBox   Grid.Row="2" Grid.Column="6" x:Name="name_suffix_tb" Width="150" Height="24" Margin="4,2" TextChanged="naming_changed"/>
 
-                            <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="8" Margin="0,8,0,0">
+                            <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="8" Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button x:Name="advanced_rename_b" Content="Advanced Rename..." Width="150" Height="24" Click="advanced_rename_click"/>
+                                <TextBlock Text="Runs an extra RegEx/Replace/Case/Remove/Add/Auto Date/Numbering pass on both Number and Name, after the Prefix+Sequence+Suffix above."
+                                           TextWrapping="Wrap" FontSize="11" Foreground="#888" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="8" Margin="0,8,0,0">
                                 <TextBlock TextWrapping="Wrap" FontStyle="Italic" FontSize="11"
                                            Text="Prefix and suffix accept tokens: {assembly} = assembly name, {type} = assembly type name, {index} = 1-based position in the batch, {seq} = the sequence value. Put any separator in the prefix itself (e.g. &quot;A-&quot;). If Revit rejects a sheet number — almost always a duplicate — that assembly keeps Revit's own number, a warning is reported, and the sheet is still built."/>
                                 <Border BorderBrush="#555" BorderThickness="1" Margin="0,6,0,0" Padding="6" Background="#141414">

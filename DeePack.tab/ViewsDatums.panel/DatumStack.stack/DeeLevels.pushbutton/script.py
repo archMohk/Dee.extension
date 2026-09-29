@@ -50,6 +50,8 @@ import csv
 import System
 from pyrevit import forms, script
 import dee_branding
+import dee_rename_pipeline_dialog as rp_dialog
+from dee_rename_pipeline import apply_methods, DEFAULT_METHODS
 from Autodesk.Revit.DB import (
     FilteredElementCollector, Level, Transaction, BuiltInParameter,
     UnitUtils, SpecTypeId, UnitTypeId, BuiltInCategory, ElementId, BasePoint
@@ -168,23 +170,19 @@ def _compose_structural_name(template, main_name):
         return "{0} - STR".format(main_name)
 
 
-def _compose_decorated_name(row, prefix, suffix, include_datum, include_dimension):
-    """Rebuilds a row's displayed name from its base_name plus whichever
-    of Prefix / Suffix / Datum / Dimension-to-zero are turned on. Applies
+def _compose_decorated_name(row, methods, idx, include_datum, include_dimension):
+    """Rebuilds a row's displayed name from its base_name run through the
+    Advanced Rename pipeline (dee_rename_pipeline.apply_methods), plus
+    whichever of Datum / Dimension-to-zero are turned on. Applies
     identically to main levels and structural levels - `base_name` for a
     structural row is whatever the structural naming template produced,
     so this just decorates on top of that."""
-    parts = [row.base_name]
+    parts = [apply_methods(row.base_name, idx, methods)]
     if include_datum:
         parts.append("Datum {0}".format(row.datum_text))
     if include_dimension:
         parts.append(row.elevation_text)
-    core = " - ".join(parts)
-    if prefix:
-        core = "{0} {1}".format(prefix, core)
-    if suffix:
-        core = "{0} {1}".format(core, suffix)
-    return core
+    return " - ".join(parts)
 
 
 def _get_base_point(doc):
@@ -419,6 +417,7 @@ class DeeLevelsWindow(dee_branding.DeeBrandedWindow):
         self._preview_min_e = 0.0
         self._preview_max_e = 0.0
         self._preview_height = 500.0
+        self._naming_methods = DEFAULT_METHODS()
 
         unit_abbr = _unit_abbreviation(doc)
         for g in (self.above_grid, self.zero_grid, self.below_grid):
@@ -759,18 +758,22 @@ class DeeLevelsWindow(dee_branding.DeeBrandedWindow):
             return
         self._apply_scope_box_to_rows(list(self._rows))
 
-    # -- level naming (Prefix/Suffix/Datum/Dimension - main + structural alike) --
+    # -- level naming (Advanced Rename pipeline + Datum/Dimension - main + structural alike) --
+    def advanced_rename_naming_click(self, sender, args):
+        sample = self._rows[0].base_name if self._rows else u"Level 01"
+        methods = rp_dialog.show(sample_name=sample, initial_methods=self._naming_methods)
+        if methods is not None:
+            self._naming_methods = methods
+
     def _apply_naming_to_rows(self, rows):
         if not rows:
             forms.alert("Select one or more level rows first.")
             return
-        prefix = self.naming_prefix_tb.Text.strip()
-        suffix = self.naming_suffix_tb.Text.strip()
         include_datum = bool(self.naming_datum_cb.IsChecked)
         include_dimension = bool(self.naming_dimension_cb.IsChecked)
-        for row in rows:
+        for idx, row in enumerate(rows):
             row._set_decorated_name(_compose_decorated_name(
-                row, prefix, suffix, include_datum, include_dimension))
+                row, self._naming_methods, idx, include_datum, include_dimension))
         self._recompute_refresh_and_redraw()
 
     def apply_naming_selected_click(self, sender, args):

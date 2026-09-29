@@ -42,14 +42,10 @@
             <GroupBox Header="Level Naming (Main + Structural)" Margin="0,10,0,0">
                 <StackPanel Margin="6">
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" FontStyle="Italic"
-                               Text="Rebuilds the name from Prefix + [base name] + Datum/Dimension + Suffix. Re-applying is safe - it always rebuilds from the name last typed directly into a Level Name cell, never stacks onto an already-decorated name. Works on any selected row, main or structural."/>
+                               Text="Rebuilds the name from the base name run through the Advanced Rename pipeline (RegEx/Name/Replace/Case/Remove/Add/Auto Date/Numbering), then Datum/Dimension. Re-applying is safe - it always rebuilds from the name last typed directly into a Level Name cell, never stacks onto an already-decorated name. Works on any selected row, main or structural."/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                        <TextBlock Text="Prefix:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBox x:Name="naming_prefix_tb" Width="90" Height="22" Margin="0,0,20,0"/>
-                        <TextBlock Text="Suffix:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBox x:Name="naming_suffix_tb" Width="90" Height="22"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <Button x:Name="advanced_rename_naming_b" Content="Advanced Rename..."
+                                Click="advanced_rename_naming_click" Width="150" Height="24" Margin="0,0,20,0"/>
                         <CheckBox x:Name="naming_datum_cb" Content="Include Datum in Name" Margin="0,0,20,0"/>
                         <CheckBox x:Name="naming_dimension_cb" Content="Include Dimension to Zero in Name"/>
                     </StackPanel>
