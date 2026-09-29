@@ -30,10 +30,22 @@ Date/Approved-Checked-Drawn By/revision-on-sheet assignments - only
 Number/Name/the tag parameter, the title block, placed content, and
 sheet-owned annotation.
 
-Sheet Number: the naming result is also appended to the original Sheet
-Number (e.g. A-101 -> A-101-REV1), not just applied to the Name, so
-duplicates sort recognisably by number like everything else in the
-Project Browser - confirmed with the user rather than assumed.
+Sheet Number: by default the naming result is appended to the original
+Sheet Number (e.g. A-101 -> A-101-REV1), not just applied to the Name,
+so duplicates sort recognisably by number like everything else in the
+Project Browser - confirmed with the user rather than assumed. Live
+feedback asked for this to be adjustable rather than fixed: the Naming
+tab's "Sheet Number" section offers that original behavior ("Same as
+Name") or a "Custom template" using {OldNumber}/{OldName}/{NewName}/
+{Counter} tokens (_resolve_number_tokens, a plain regex substitution -
+an unrecognised {Key} is left literally in the output instead of
+silently dropped). {Counter} is the same tag_value already computed for
+the Name by Mode A/B/Copy (the Prefix+counter piece alone, e.g. "N4",
+without the item's own name attached) - lets a number read "A101-N4"
+instead of repeating the whole new name into the number. Either mode
+still runs through the same collision-retry loop (_assign_sheet_numbers)
+as before - a numeric -2, -3... suffix only if the built number is
+already taken.
 
 NEEDS LIVE-REVIT VERIFICATION (novel ground, no precedent elsewhere in
 this codebase):
@@ -48,6 +60,7 @@ this codebase):
   (Sheets/Views still get tagged, Schedules just don't, clearly reported).
 """
 import os
+import re
 
 from pyrevit import forms, script
 import dee_branding
@@ -451,16 +464,50 @@ def _generate_by_copy(preview_rows_by_copy, prefix, sep_before, sep_after, pad, 
             row.new_name = candidate
 
 
-def _assign_sheet_numbers(preview_rows, taken_numbers):
-    """Applies the naming result to the Sheet Number too (confirmed with
-    the user), not just the Name - original_number + "-" + new_name, with
-    the same collision-retry as Mode B whenever that exact number is
-    already taken."""
+def _resolve_number_tokens(template, tokens):
+    """Plain {Key} substitution for the Sheet Number custom template - an
+    unrecognised {Key} is left LITERALLY in the output rather than
+    silently dropped, so a typo'd token name is visible in the preview
+    grid instead of quietly producing a truncated number."""
+    def repl(match):
+        key = match.group(1)
+        return tokens[key] if key in tokens else match.group(0)
+    return re.sub(r"\{(\w+)\}", repl, template or "")
+
+
+def _assign_sheet_numbers(preview_rows, taken_numbers, number_mode="same_as_name",
+                           number_template=u"{OldNumber}-{NewName}"):
+    """Applies a Sheet Number to every Sheet row, not just the Name.
+
+    number_mode "same_as_name" reproduces this tool's ORIGINAL, always-on
+    behavior exactly (OldNumber + "-" + NewName) - the default, so every
+    project that never touches the new Sheet Number option keeps getting
+    identical numbers to before this was added.
+
+    number_mode "custom" instead builds the number from `number_template`
+    via _resolve_number_tokens, with four tokens available: OldNumber,
+    OldName, NewName, and Counter (row.tag_value - the SAME counter/tie-
+    breaker piece Mode A/B/Copy already computed for the Name, e.g. "N4",
+    WITHOUT the item's own name attached - lets a number look like
+    "A101-N4" instead of repeating the whole new name into the number).
+
+    Either mode still runs through the SAME collision-retry loop as
+    before - a numeric -2, -3... suffix is appended only if the built
+    number is already taken, exactly like the original behavior."""
     taken = set(taken_numbers)
     for row in preview_rows:
         if row.kind != "Sheet":
             continue
-        base = u"{0}-{1}".format(row.old_number, row.new_name)
+        if number_mode == "custom":
+            tokens = {
+                "OldNumber": row.old_number,
+                "OldName": row.old_name,
+                "NewName": row.new_name,
+                "Counter": row.tag_value or "",
+            }
+            base = _resolve_number_tokens(number_template, tokens)
+        else:
+            base = u"{0}-{1}".format(row.old_number, row.new_name)
         candidate = base
         n = 1
         while candidate in taken:
@@ -990,6 +1037,11 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
             n = 1
         return n if n > 0 else 1
 
+    def _read_sheet_number_inputs(self):
+        mode = "custom" if bool(self.sheet_number_custom_rb.IsChecked) else "same_as_name"
+        template = (self.sheet_number_template_tb.Text or "").strip() or u"{OldNumber}-{NewName}"
+        return mode, template
+
     def generate_preview_click(self, sender, args):
         checked_once = [r for r in self._picker_all_rows if r.selected]
         if not checked_once:
@@ -1023,7 +1075,8 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
                 _generate_mode_b(preview_rows, prefix, sep_before, sep_after, is_alpha, taken_names, placement)
 
         taken_numbers = _all_taken_numbers(self.doc)
-        _assign_sheet_numbers(preview_rows, taken_numbers)
+        number_mode, number_template = self._read_sheet_number_inputs()
+        _assign_sheet_numbers(preview_rows, taken_numbers, number_mode, number_template)
         _compute_statuses(preview_rows)
 
         self._preview_rows = preview_rows
