@@ -103,6 +103,7 @@ _DIALOG_ANSWERS = [
     ("will be upgraded", int(TaskDialogResult.Ok)),
     ("missing", int(TaskDialogResult.Close)),
     ("save", int(TaskDialogResult.Ok)),
+    ("analytical", int(TaskDialogResult.Close)),  # Structural Analytical Model Upgrade notice
 ]
 
 

@@ -426,6 +426,16 @@ def _make_dialog_handler(log_list):
                     args.OverrideResult(int(TaskDialogResult.Close))
                     log_list.append((
                         "Auto-dismissed 'numerical data truncated' CAD warning (Close)", True))
+                return
+
+            if "analytical" in text and ("upgrade" in text or "modified or lost" in text):
+                # "Structural Analytical Model Upgrade" notice, shown while
+                # OPENING a model with structural analytical elements.
+                # Single-button ("Close") dialog.
+                if hasattr(args, "OverrideResult"):
+                    args.OverrideResult(int(TaskDialogResult.Close))
+                    log_list.append((
+                        "Auto-dismissed 'Structural Analytical Model Upgrade' notice (Close)", True))
         except Exception:
             pass
     return handler

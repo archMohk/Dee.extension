@@ -290,6 +290,20 @@ def _make_dialog_handler(log_list):
                     args.OverrideResult(int(TaskDialogResult.Close))
                     log_list.append((
                         "Auto-dismissed 'numerical data truncated' CAD warning (Close)", True))
+                return
+
+            if "analytical" in text and ("upgrade" in text or "modified or lost" in text):
+                # "Structural Analytical Model Upgrade" notice, shown while
+                # OPENING a model with structural analytical elements
+                # ("...might be modified or lost during the upgrade
+                # process."). Single-button ("Close") dialog - found live
+                # via DeeW.Cloud's shared deew_failure_handler.py, which
+                # hangs the same way if left unmatched since its default
+                # answer (Cancel) does not match this dialog's one button.
+                if hasattr(args, "OverrideResult"):
+                    args.OverrideResult(int(TaskDialogResult.Close))
+                    log_list.append((
+                        "Auto-dismissed 'Structural Analytical Model Upgrade' notice (Close)", True))
         except Exception:
             pass
     return handler
