@@ -81,6 +81,17 @@ _AUTO_RESOLVE_IDS = {
     # This affects EVERY batch tool sharing this handler, not just the
     # one it was found in.
     "docwarn":            IDOK,
+    # "taskdialog_views_related_to_analytical_changed" - "Structural
+    # Analytical Model Upgrade" notice shown while OPENING a model with
+    # structural analytical elements ("Some annotations, schedules, view
+    # templates, filters, and views related to analytical elements might
+    # be modified or lost during the upgrade process."). Found live
+    # (DeeWBatchSaveToCloud's log, 2026-09-30): it fell through to the
+    # unrecognized-dialog default of IDCANCEL, which does not match this
+    # dialog's only button (Close) - Revit left it sitting open instead
+    # of dismissing it, blocking the batch on every file with structural
+    # analytical elements. IDCLOSE is this dialog's one and only button.
+    "analytical":         IDCLOSE,
 }
 
 
