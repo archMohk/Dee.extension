@@ -213,6 +213,15 @@ class BatchPipeline(object):
             return "preserve" if self.options.get("detach") else "none"
         return "none"
 
+    def _is_still_open(self, document):
+        try:
+            for d in self.application.Documents:
+                if d.Equals(document):
+                    return True
+        except Exception:
+            pass
+        return False
+
     def process_one(self, scanned_model, token):
         row = reportgen.ReportRow(
             scanned_model.file_name, scanned_model.file_path,
@@ -220,6 +229,7 @@ class BatchPipeline(object):
         row.warnings = scanned_model.version_warning
         start = time.time()
         document = None
+        opened_by_us = True
         try:
             if scanned_model.model_type == scanner.MODEL_TYPE_CLOUD:
                 row.upload_status = "Skipped - already a cloud model"
@@ -235,16 +245,37 @@ class BatchPipeline(object):
                 return row
             row.cloud_model_name = model_name + ".rvt"
 
-            detach_option = self._detach_option(scanned_model)
-            document, err = docmgr.open_document(
-                self.application, scanned_model.file_path,
-                detach_option=detach_option, audit=self.options.get("audit", False),
-                open_all_worksets=self.options.get("open_all_worksets", False),
-                logger=self.logger)
-            if document is None:
-                row.upload_status = "Failed - could not open"
-                row.errors = err
-                return row
+            if scanned_model.live_document is not None:
+                # "Add Open Files" entry - already open in this same
+                # Revit session. Detach is an OpenOptions setting that
+                # only applies at open time, and this tool will never
+                # close a document the user already had open just to
+                # reopen it detached - so only a model that needs NO
+                # detach (Standalone, or already Detached earlier in
+                # this session) can be processed this way.
+                if not self._is_still_open(scanned_model.live_document):
+                    row.upload_status = "Failed - document was closed before it could be processed"
+                    return row
+                if scanned_model.model_type not in (scanner.MODEL_TYPE_STANDALONE, scanner.MODEL_TYPE_DETACHED):
+                    row.upload_status = (
+                        "Skipped - open in this session and still attached to its central "
+                        "model; Save-to-Cloud requires detaching first, which this tool will "
+                        "not do to a document you already had open. Close it and re-add it, "
+                        "or reopen it Detached first.")
+                    return row
+                document = scanned_model.live_document
+                opened_by_us = False
+            else:
+                detach_option = self._detach_option(scanned_model)
+                document, err = docmgr.open_document(
+                    self.application, scanned_model.file_path,
+                    detach_option=detach_option, audit=self.options.get("audit", False),
+                    open_all_worksets=self.options.get("open_all_worksets", False),
+                    logger=self.logger)
+                if document is None:
+                    row.upload_status = "Failed - could not open"
+                    row.errors = err
+                    return row
 
             if docmgr.is_cloud_model(document):
                 row.upload_status = "Skipped - already a cloud model"
@@ -283,7 +314,7 @@ class BatchPipeline(object):
             self.logger.exception("Unexpected error processing file", e, file=scanned_model.file_name)
             return row
         finally:
-            if document is not None and self.options.get("close_after", True):
+            if document is not None and opened_by_us and self.options.get("close_after", True):
                 docmgr.close_document(document, save_modified=False, logger=self.logger)
             row.processing_time_seconds = time.time() - start
 
@@ -409,6 +440,51 @@ class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
         self._refresh_models_grid()
         self.scan_status_tb.Text = "{0} RVT file(s) in list.".format(len(self._models))
         self._log("Added {0} file(s) individually ({1} already in list).".format(added, len(dlg.FileNames) - added))
+
+    def add_open_click(self, sender, args):
+        """Adds every currently open, non-linked document in this same
+        Revit session to the Source Models list, using each Document's
+        own authoritative IsWorkshared/IsDetached/IsModelInCloud state
+        (scanner.scan_open_document) rather than a closed-file guess.
+        A document that has never been saved (no PathName) has no file
+        to point at and is skipped with a note - save it first."""
+        try:
+            open_docs = [d for d in self.uiapp.Application.Documents if not d.IsLinked]
+        except Exception as e:
+            forms.alert("Could not read open documents: {0}".format(e))
+            return
+        if not open_docs:
+            forms.alert("No open documents found in this session.")
+            return
+
+        existing_paths = set(m.file_path for m in self._models if not m.live_document)
+        added = 0
+        skipped_unsaved = 0
+        skipped_duplicate = 0
+        for doc in open_docs:
+            try:
+                path = doc.PathName or ""
+            except Exception:
+                path = ""
+            if not path:
+                skipped_unsaved += 1
+                continue
+            if path in existing_paths or any(
+                    m.live_document is doc for m in self._models):
+                skipped_duplicate += 1
+                continue
+            self._models.append(scanner.scan_open_document(doc))
+            existing_paths.add(path)
+            added += 1
+
+        self._refresh_models_grid()
+        self.scan_status_tb.Text = "{0} RVT file(s) in list.".format(len(self._models))
+        note = "Added {0} open document(s)".format(added)
+        if skipped_unsaved:
+            note += "; {0} skipped (never saved - save first)".format(skipped_unsaved)
+        if skipped_duplicate:
+            note += "; {0} already in list".format(skipped_duplicate)
+        self._log(note + ".")
 
     def select_all_click(self, sender, args):
         for m in self._models:

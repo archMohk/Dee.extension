@@ -65,6 +65,13 @@ class ScannedModel(object):
         self.status = "Scanned"
         self.error = ""
         self.version_warning = ""
+        # Set only by scan_open_document() below - the live Document
+        # object, already open in the running Revit session, this row
+        # was built from. None for every ordinary scan_file()/
+        # scan_folder() result. A caller that sees this set must never
+        # close this Document unless it opened it itself - the user had
+        # it open before the batch started.
+        self.live_document = None
 
     @property
     def size_mb_text(self):
@@ -90,6 +97,8 @@ class ScannedModel(object):
             return "Mode 3: Local Copy -> Detach -> Cloud"
         if self.model_type == MODEL_TYPE_CLOUD:
             return "Already Cloud - skip"
+        if self.model_type == MODEL_TYPE_DETACHED:
+            return "Mode 1: Already Detached -> Cloud"
         return "N/A"
 
 
@@ -206,6 +215,70 @@ def scan_file(file_path):
         model.model_type = MODEL_TYPE_CENTRAL
 
     model.status = "Scanned"
+    return model
+
+
+def scan_open_document(document):
+    """Builds a ScannedModel from a Document ALREADY OPEN in the running
+    Revit session, for the "Add Open Files" flow - the model_type comes
+    straight from the open Document's own authoritative IsModelInCloud/
+    IsWorkshared/IsDetached properties, not the closed-file BasicFileInfo
+    heuristic scan_file() has to use (see this module's docstring: those
+    are only fully reliable once a document is actually open). Never
+    raises. `.live_document` is set so the caller can process this exact
+    Document object in place instead of reopening it from disk - and,
+    just as importantly, so it's never closed unless the caller itself
+    is the one that later opens a fresh copy."""
+    try:
+        path = document.PathName or ""
+    except Exception:
+        path = ""
+    try:
+        title = document.Title or "Untitled"
+    except Exception:
+        title = "Untitled"
+
+    model = ScannedModel(path if path else title)
+    if not path:
+        model.file_name = title if title.lower().endswith(".rvt") else title + ".rvt"
+    model.live_document = document
+
+    if path:
+        try:
+            model.size_bytes = os.path.getsize(path)
+            model.size_text = model.size_mb_text
+        except Exception:
+            model.size_text = "?"
+    else:
+        model.size_text = "n/a (never saved)"
+
+    try:
+        is_workshared = bool(document.IsWorkshared)
+    except Exception:
+        is_workshared = False
+    model.worksharing_status = "Enabled" if is_workshared else "Disabled"
+
+    try:
+        if bool(document.IsModelInCloud):
+            model.model_type = MODEL_TYPE_CLOUD
+        elif not is_workshared:
+            model.model_type = MODEL_TYPE_STANDALONE
+        elif bool(getattr(document, "IsDetached", False)):
+            model.model_type = MODEL_TYPE_DETACHED
+        else:
+            # Workshared, attached, open right now. Save-to-Cloud's
+            # Central/Local-Copy modes require detaching first, and
+            # Detach is an OPEN-time-only OpenOptions setting - it
+            # cannot be applied to a Document already open in memory
+            # without closing it, which this tool will never do to a
+            # document the user already had open. Left as CENTRAL here
+            # purely as an honest label; the caller decides what to do
+            # about the detach requirement.
+            model.model_type = MODEL_TYPE_CENTRAL
+    except Exception:
+        model.model_type = MODEL_TYPE_UNKNOWN
+
+    model.status = "Open in this session"
     return model
 
 
