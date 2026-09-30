@@ -104,6 +104,7 @@ _DIALOG_ANSWERS = [
     ("missing", int(TaskDialogResult.Close)),
     ("save", int(TaskDialogResult.Ok)),
     ("analytical", int(TaskDialogResult.Close)),  # Structural Analytical Model Upgrade notice
+    ("docwarn", int(TaskDialogResult.Ok)),  # open-time warnings review dialog
 ]
 
 

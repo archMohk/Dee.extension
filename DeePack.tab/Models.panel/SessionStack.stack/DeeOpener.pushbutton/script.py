@@ -256,6 +256,20 @@ def _make_dialog_handler(log_list):
                 pass
             text = (dialog_id + " " + message).lower()
 
+            if "docwarn" in text:
+                # The warnings-review list Revit shows while OPENING a
+                # model that already has warnings in it (e.g. "The Tap
+                # must be attached to duct.", "Line in Sketch is
+                # slightly off axis..."). Message text varies per model,
+                # but the dialog id (dialog_revit_docwarndialog) does
+                # not - matches lib/deew_failure_handler.py's "docwarn"
+                # mapping, found live via DeeW.Cloud's batch tools.
+                if hasattr(args, "OverrideResult"):
+                    args.OverrideResult(int(TaskDialogResult.Ok))
+                    log_list.append((
+                        "Auto-dismissed open-time warnings review dialog (OK)", True))
+                return
+
             if "unresolved" in text or "could not find or read" in text:
                 if hasattr(args, "OverrideResult"):
                     args.OverrideResult(int(TaskDialogResult.CommandLink2))
