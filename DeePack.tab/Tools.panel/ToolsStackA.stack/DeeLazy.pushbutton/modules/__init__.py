@@ -31,6 +31,7 @@ from modules import dee_fupdate
 from modules import dee_line_tag
 from modules import dee_aselect
 from modules import dee_bulk_rename
+from modules import dee_vtemp
 
 REGISTERED_MODULES = [
     view_cropping.TOOL_INFO,
@@ -43,4 +44,5 @@ REGISTERED_MODULES = [
     dee_line_tag.TOOL_INFO,
     dee_aselect.TOOL_INFO,
     dee_bulk_rename.TOOL_INFO,
+    dee_vtemp.TOOL_INFO,
 ]
