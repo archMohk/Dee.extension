@@ -6,10 +6,12 @@
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Scans a batch of Revit files (local and/or ACC cloud) for ONE shared parameter's current value, shows it per file, and lets you type corrected values before writing them all back in one run. A blank New Value always means 'leave this file alone' - only files you actually type into get changed."/>
+                   Text="Scans a batch of Revit files (local and/or ACC cloud) for ONE shared parameter's current value, shows it per file, and lets you type corrected values before writing them all back in one run. A blank New Value always means 'leave this file alone' - only files you actually type into get changed. Optional review step: Export for Review -&gt; someone fills in Approved -&gt; Import Reviewed Values -&gt; Save only applies the approved ones."/>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Button x:Name="load_values_b" Content="Load Values" Click="load_values_click" Width="100" Height="28"/>
+            <Button x:Name="export_review_b" Content="Export for Review" Click="export_review_click" Width="130" Height="28" Margin="8,0,0,0"/>
+            <Button x:Name="import_review_b" Content="Import Reviewed Values" Click="import_review_click" Width="160" Height="28" Margin="8,0,0,0"/>
             <Button x:Name="save_b" Content="Save" Click="save_click" Width="90" Height="28" Margin="8,0,0,0"/>
             <Button x:Name="export_report_b" Content="Export Report" Click="export_report_click" Width="120" Height="28" Margin="8,0,0,0"/>
             <Button x:Name="close_b" Content="Close" Click="close_click" Width="90" Height="28" Margin="8,0,0,0"/>

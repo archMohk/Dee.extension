@@ -27,6 +27,44 @@ EVERY bound element/type in that file to that one value - a deliberate
 "consolidate to one value" operation.
 
 --------------------------------------------------------------------
+Optional review/approve step, by explicit user request
+--------------------------------------------------------------------
+The real need behind this request turned out to be narrower than it
+first sounded ("read/edit/write ACC parameters via a web app") - the
+user's actual reason was "I want edits reviewed/approved before they
+touch the live model", and their preferred editing surface is Excel.
+That does NOT require a separate APS-based system (new app
+registration, AEC Data Model/Model Derivative API, its own hosting) -
+it only requires a pause between Load Values and Save, which this tool
+already has every piece needed for:
+  - Export for Review: dumps the CURRENT Values grid (including
+    whatever New Value has already been typed, if any) to a CSV, with
+    a blank "Approved" column for a reviewer to fill in. CSV, not
+    .xlsx, specifically so re-reading it back needs nothing beyond
+    Python's standard csv module - this codebase already writes CSVs
+    elsewhere (e.g. DeeDistributor) but had no precedent for reading
+    one back in, and inventing an .xlsx PARSER (as opposed to
+    xlsx_writer.py's existing one-way writer) is a materially bigger,
+    riskier piece of new ground than this feature warrants. Excel
+    opens, edits, and re-saves CSV natively, so "edit in Excel" still
+    holds even though the file extension is .csv.
+  - Import Reviewed Values: reads that CSV back, matched to the
+    in-memory Values grid by (File, Source) - the one thing this
+    first-pass matching key assumes is that file names are unique
+    within a single Load Values batch, which holds for the normal
+    "pick N distinct target files" usage this tool is built around.
+    A row is applied (New Value set from the CSV's possibly-edited
+    "Proposed New Value") ONLY if its Approved column is a recognized
+    truthy spelling (yes/true/1/y, case-insensitive) AND the proposed
+    value is non-blank; every other row's New Value is explicitly
+    CLEARED, not left alone - a proposal the reviewer rejected (or
+    never answered) must never silently survive into Save just because
+    the editor forgot to blank it out themselves.
+Save's own logic is completely unchanged by any of this - it already
+only acts on whatever is in each row's New Value at the time Save is
+clicked, which is exactly the lever this workflow pulls.
+
+--------------------------------------------------------------------
 Revit API facts relied on here - VERIFIED, not guessed
 --------------------------------------------------------------------
 Nothing in this codebase read or wrote shared-parameter values before
@@ -93,6 +131,7 @@ Scope limits for this first pass (not silently incomplete)
   the exact parameter name instead of picking it from the list.
 """
 import os
+import csv
 import datetime
 
 import clr
@@ -405,6 +444,30 @@ class ReportRow(object):
 def export_report(path, title, rows):
     xlsx_rows = [(r.to_list(), r.status_tag()) for r in rows]
     xlsx_writer.write_themed_xlsx(path, title, _REPORT_HEADERS, _REPORT_COL_WIDTHS, xlsx_rows)
+
+
+def _csv_safe(value):
+    """Python 2's csv module writes byte strings - plain str(value) on
+    text containing non-ASCII characters (an accented file/parameter
+    name, entirely plausible here) can raise UnicodeEncodeError under
+    the implicit ascii codec. Tries UTF-8 encoding first (works whether
+    IronPython 2.7 hands back something str-like or unicode-like - its
+    str/unicode unification behavior is documented elsewhere in this
+    codebase as not matching CPython 2 exactly, so this avoids
+    isinstance(value, unicode) entirely rather than guess which side of
+    that unification a given value falls on); falls back to plain
+    str(value) for anything without an .encode() method (ints, etc.) or
+    where encoding itself fails - never raises, so one bad value can
+    never abort the whole export."""
+    if value is None:
+        return ""
+    try:
+        return value.encode("utf-8")
+    except Exception:
+        try:
+            return str(value)
+        except Exception:
+            return "?"
 
 
 # ==========================================================================
@@ -827,6 +890,95 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
                 count += 1
         self._refresh_values_grid()
         self._log("Filled New Value for {0} checked row(s).".format(count))
+
+    # ---------------- Review (optional Export/Import round trip) ----------------
+    def export_review_click(self, sender, args):
+        if not self._value_rows:
+            forms.alert("Run Load Values first - nothing to export yet.")
+            return
+        dlg = SaveFileDialog()
+        dlg.Filter = "CSV (*.csv)|*.csv"
+        dlg.FileName = "DeeParaValue_Review.csv"
+        if dlg.ShowDialog() != DialogResult.OK:
+            return
+        try:
+            with open(dlg.FileName, "wb") as f:
+                writer = csv.writer(f)
+                writer.writerow(["File", "Source", "Status", "Categories", "Scope", "Count",
+                                  "Storage", "Current Value", "Proposed New Value", "Approved"])
+                for r in self._value_rows:
+                    writer.writerow([_csv_safe(v) for v in (
+                        r.file_name, r.source, r.status, r.categories_text,
+                        r.scope_text, r.element_count, r.storage_type_text,
+                        r.current_value_display, r.new_value, "")])
+        except Exception as e:
+            forms.alert("Could not export for review: {0}".format(e))
+            return
+        MessageBox.Show(
+            "Exported {0} row(s) to:\n{1}\n\nHave a reviewer fill in the 'Approved' column "
+            "(yes/no) - edit 'Proposed New Value' too if they disagree - then use "
+            "'Import Reviewed Values' to bring it back in.".format(len(self._value_rows), dlg.FileName),
+            _TOOL_TITLE)
+        self._log("Exported {0} row(s) for review to {1}".format(len(self._value_rows), dlg.FileName))
+
+    def import_review_click(self, sender, args):
+        if not self._value_rows:
+            forms.alert("Run Load Values first - there's nothing to match reviewed rows against yet.")
+            return
+        dlg = OpenFileDialog()
+        dlg.Filter = "CSV (*.csv)|*.csv"
+        dlg.Title = "Import Reviewed Values"
+        if dlg.ShowDialog() != DialogResult.OK:
+            return
+
+        # Matched by (File, Source) text, which assumes unique file names
+        # within one Load Values batch (holds for this tool's normal
+        # "pick N distinct target files" usage) - and, for a file name
+        # with non-ASCII characters specifically, that it round-trips
+        # identically through the CSV's UTF-8 bytes and back; an exotic
+        # non-ASCII file name could fail to match here and land in
+        # not_found below instead of silently misapplying to the wrong
+        # row, which is the safe direction for this edge case to fail in.
+        by_key = {}
+        for r in self._value_rows:
+            by_key[(r.file_name, r.source)] = r
+
+        approved_words = ("yes", "true", "1", "y")
+        applied = 0
+        cleared = 0
+        not_found = []
+        try:
+            with open(dlg.FileName, "rb") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    key = (row.get("File", ""), row.get("Source", ""))
+                    target = by_key.get(key)
+                    if target is None:
+                        not_found.append("{0} ({1})".format(key[0], key[1]))
+                        continue
+                    approved = (row.get("Approved") or "").strip().lower() in approved_words
+                    proposed = (row.get("Proposed New Value") or "").strip()
+                    if approved and proposed:
+                        target.new_value = proposed
+                        applied += 1
+                    else:
+                        # Explicitly cleared, not just left alone - a rejected
+                        # or never-answered proposal must never silently
+                        # survive into Save because it was typed in before
+                        # export and the reviewer's file just didn't touch it.
+                        target.new_value = ""
+                        cleared += 1
+        except Exception as e:
+            forms.alert("Could not import reviewed values: {0}".format(e))
+            return
+
+        self._refresh_values_grid()
+        summary = "{0} row(s) approved and applied to New Value, {1} row(s) cleared (not approved).".format(
+            applied, cleared)
+        if not_found:
+            summary += " {0} row(s) in the file did not match any loaded file (skipped).".format(len(not_found))
+        self._log(summary)
+        forms.alert(summary, title=_TOOL_TITLE)
 
     # ---------------- Save ----------------
     def save_click(self, sender, args):
