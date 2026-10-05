@@ -86,6 +86,11 @@ Scope limits for this first pass (not silently incomplete)
   user correction during planning) - reuses acc_file_browser.py/
   deew_cloud_service.py exactly as dee_fupdate.py already does, no new
   cloud-access code.
+- Works with NO active document open - this tool manages its own batch
+  of target files independently; an active document is only ever an
+  optional convenience source for the Parameter dropdown
+  (discover_shared_parameters), never required. With nothing open, type
+  the exact parameter name instead of picking it from the list.
 """
 import os
 import datetime
@@ -167,7 +172,12 @@ class _SafeProgress(object):
 def discover_shared_parameters(doc):
     """Sorted list of distinct names of every shared parameter bound
     (doc.ParameterBindings) in this document - see module docstring for
-    the isinstance(definition, ExternalDefinition) test this relies on."""
+    the isinstance(definition, ExternalDefinition) test this relies on.
+    doc=None (no active document) is a real, expected case - returns an
+    empty list rather than raising, not just an accidental side effect
+    of the try/except below."""
+    if doc is None:
+        return []
     names = []
     try:
         it = doc.ParameterBindings.ForwardIterator()
@@ -583,7 +593,12 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.uiapp = uiapp
         self.application = uiapp.Application
-        self.doc = uiapp.ActiveUIDocument.Document
+        # No active document is a real, supported case here - this tool
+        # manages its OWN batch of target files independently; the
+        # active document is only ever used as a convenience source for
+        # the Parameter dropdown (see discover_shared_parameters/
+        # refresh_params_click, both already None-safe), never required.
+        self.doc = uiapp.ActiveUIDocument.Document if uiapp.ActiveUIDocument is not None else None
         self.logger = deew_logger.DeeWLogger(_TOOL_NAME)
         self._models = []
         self._cloud_items = []
@@ -592,7 +607,12 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
         self._dialog_handler = None
 
         self.parameter_cb.ItemsSource = discover_shared_parameters(self.doc)
-        self._log("Ready. Add target files, pick a shared parameter, then Load Values.")
+        if self.doc is None:
+            self._log("Ready - no document open. Type the exact shared parameter name on the "
+                      "Parameter tab (the dropdown only lists an active document's parameters), "
+                      "add target files, then Load Values.")
+        else:
+            self._log("Ready. Add target files, pick a shared parameter, then Load Values.")
 
     # ---------------- logging ----------------
     def _log(self, message):
@@ -724,6 +744,9 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
     # ---------------- Parameter ----------------
     def refresh_params_click(self, sender, args):
         self.parameter_cb.ItemsSource = discover_shared_parameters(self.doc)
+        if self.doc is None:
+            self.parameter_info_tb.Text = "No document is open - type the exact shared parameter name; it'll be checked against each target file instead."
+            return
         name = (self.parameter_cb.Text or "").strip()
         if not name:
             self.parameter_info_tb.Text = "No parameter checked against the active document yet."
@@ -897,9 +920,10 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
 # Launch entry point (called by the DeeLazy home window)
 # ==========================================================================
 def launch(uiapp):
-    if uiapp.ActiveUIDocument is None:
-        forms.alert("Open a Revit project first.")
-        return
+    """No active-document gate, deliberately - this tool manages its own
+    batch of target files independently of whatever (if anything) is
+    currently open; see DeeParaValueWindow.__init__ for how the active
+    document is used only as an optional convenience, never required."""
     window = DeeParaValueWindow(_XAML_FILE, uiapp)
     window.ShowDialog()
 
