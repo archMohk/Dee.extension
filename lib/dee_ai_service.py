@@ -98,21 +98,38 @@ def build_system_prompt(doc, uiapp):
         revit_version = "{0} {1}".format(app.VersionName, app.VersionNumber)
     except Exception:
         revit_version = "an unknown Revit version"
-    try:
-        doc_title = doc.Title
-    except Exception:
-        doc_title = "an unnamed document"
-    try:
-        workshared = "workshared" if bool(doc.IsWorkshared) else "not workshared"
-    except Exception:
-        workshared = "unknown worksharing state"
+
+    if doc is None:
+        # Genuinely no document open - distinct from "doc exists but
+        # doc.Title/doc.IsWorkshared happened to fail", which the
+        # except branches below still cover separately. DeeAI's
+        # bundle.yaml declares context: zero-doc specifically so this
+        # case is reachable, e.g. to ask the AI to open or create a
+        # project via uiapp before anything document-scoped applies.
+        doc_state = (
+            "No document is currently open. You can open an existing "
+            "one or create a new one via `uiapp` (e.g. "
+            "`uiapp.OpenAndActivateDocument(...)` or "
+            "`uiapp.Application.NewProjectDocument(...)`) - `doc`/"
+            "`uidoc` will be None until you do."
+        )
+    else:
+        try:
+            doc_title = doc.Title
+        except Exception:
+            doc_title = "an unnamed document"
+        try:
+            workshared = "workshared" if bool(doc.IsWorkshared) else "not workshared"
+        except Exception:
+            workshared = "unknown worksharing state"
+        doc_state = "The active document is '{0}' ({1}).".format(doc_title, workshared)
 
     return (
         "You are DeeAI, an assistant embedded in Autodesk Revit via "
-        "pyRevit, running inside {revit_version}. The active document "
-        "is '{doc_title}' ({workshared}). You act by writing IronPython "
-        "2.7 code and calling the execute_revit_python tool - there is "
-        "no other way for you to affect the model. Python 2.7 syntax "
+        "pyRevit, running inside {revit_version}. {doc_state} You act "
+        "by writing IronPython 2.7 code and calling the "
+        "execute_revit_python tool - there is no other way for you to "
+        "affect the model. Python 2.7 syntax "
         "only (no f-strings, no Python-3-only syntax). Import whatever "
         "Autodesk.Revit.DB / Autodesk.Revit.UI names you need at the "
         "top of your code (e.g. 'from Autodesk.Revit.DB import "
@@ -178,6 +195,31 @@ class AIConversation(object):
             if on_event is not None:
                 on_event(kind, text)
 
+        # Refreshed every message, not just once at conversation start:
+        # DeeAI can open with NO document (bundle.yaml: context:
+        # zero-doc) and the AI's own code may open/create one via
+        # uiapp mid-conversation - without this, self.doc/exec_globals
+        # would keep reporting None for the rest of the chat even after
+        # a real document exists, silently losing the Transaction
+        # safety net. Preserves every OTHER variable already in
+        # exec_globals (the REPL-persistence this class is built
+        # around) - only the doc/uidoc/uiapp/__revit__ entries change.
+        self.uidoc = self.uiapp.ActiveUIDocument
+        self.doc = self.uidoc.Document if self.uidoc is not None else None
+        self.exec_globals.update({
+            "doc": self.doc, "uidoc": self.uidoc, "uiapp": self.uiapp, "__revit__": self.uiapp,
+        })
+        self.system_prompt = build_system_prompt(self.doc, self.uiapp)
+
+        # NOTE (documented limitation, not silently glossed over): if
+        # THIS SAME message is the one whose code opens/creates the
+        # document (e.g. "open project X and count its walls" in one
+        # go), the TurnTransaction below is still built from the doc
+        # captured just above - None - for this entire turn, so that
+        # one turn runs un-transacted even after the document exists.
+        # The NEXT separate message picks up the real doc correctly via
+        # the refresh above. Splitting "open" and "edit" into two
+        # messages gets the normal Transaction safety net on the edit.
         provider = providers.get_provider(self.provider_id)
         self.messages.append({"role": "user", "content": user_text})
 

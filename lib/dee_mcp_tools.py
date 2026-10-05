@@ -82,7 +82,6 @@ dee_vtemp.py's own explicitly scoped first pass) - "Custom" link
 display is out of scope here too.
 """
 import os
-import sys
 import traceback
 
 from Autodesk.Revit.DB import (
@@ -93,11 +92,6 @@ from Autodesk.Revit.DB import (
 
 import dee_ai_sandbox as sandbox
 import dee_ai_service
-
-try:
-    from StringIO import StringIO
-except ImportError:
-    from io import StringIO
 
 
 # ==========================================================================
@@ -156,40 +150,18 @@ def _run_python(doc, uidoc, uiapp, arguments):
             "doc": doc, "uidoc": uidoc, "uiapp": uiapp, "__revit__": uiapp,
         })
 
-    if doc is None:
-        # No document open (DeeMCP's bundle.yaml declares context:
-        # zero-doc specifically to allow this) - Transaction(None, ...)
-        # raises, and there is nothing to make undoable yet anyway, so
-        # run directly instead of going through TurnTransaction. This is
-        # how an AI client opens/creates a document in the first place
-        # (e.g. uiapp.OpenAndActivateDocument(...)) before anything
-        # document-scoped becomes possible.
-        return _run_bare(code, _exec_globals)
-
     # One Transaction per tools/call, not one per "conversation" like
     # DeeAI (there is no equivalent grouping concept in a stateless
     # JSON-RPC request) - still gets DeeAI's exact SubTransaction safety
-    # net per individual call via TurnTransaction.run().
+    # net per individual call via TurnTransaction.run(). TurnTransaction
+    # itself tolerates doc=None (no document open yet - DeeMCP's
+    # bundle.yaml declares context: zero-doc specifically to allow this,
+    # e.g. so an AI client can open/create a document via uiapp first),
+    # see lib/dee_ai_sandbox.py's own docstring for why that lives there
+    # now instead of as a private copy in this file.
     with sandbox.TurnTransaction(doc, "DeeMCP - execute_revit_python") as turn:
         ok, output = turn.run(code, _exec_globals)
     return output if ok else "Error:\n{0}".format(output)
-
-
-def _run_bare(code, exec_globals):
-    """Same stdout-capture/traceback contract as
-    dee_ai_sandbox.TurnTransaction.run(), minus the Transaction/
-    SubTransaction wrapping that requires a real Document to exist."""
-    old_stdout = sys.stdout
-    buf = StringIO()
-    sys.stdout = buf
-    try:
-        exec(code, exec_globals)
-        sys.stdout = old_stdout
-        output = buf.getvalue()
-        return output if output.strip() else "(no output - code ran without printing anything)"
-    except Exception:
-        sys.stdout = old_stdout
-        return "Error:\n" + traceback.format_exc()
 
 
 # ==========================================================================

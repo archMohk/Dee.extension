@@ -11,7 +11,17 @@ lib/deew_settings.py - the same gitignored, per-machine JSON settings
 service every DeeW.Cloud tool already uses, reused here rather than
 inventing a new one. Saved right before each use (send_click) and when
 the window closes, not on every keystroke - no reason to hit disk for
-every character typed into a password field."""
+every character typed into a password field.
+
+bundle.yaml declares `context: zero-doc` (same reasoning as
+DeeOpener.pushbutton/DeeMCP.pushbutton) so this opens with no Revit
+project open too - the chat can then ask the AI to open or create one
+via `uiapp`. `self.doc`/`self.uidoc` are None in that case; see
+lib/dee_ai_service.py's AIConversation.send() for how doc/uidoc get
+refreshed on every message (not just once at window-open) so a
+document opened mid-conversation is picked up without restarting
+DeeAI, and lib/dee_ai_sandbox.py for how the Transaction wrapper
+tolerates doc=None."""
 import os
 
 import clr
@@ -85,7 +95,7 @@ class DeeAIWindow(dee_branding.DeeBrandedWindow):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.uiapp = uiapp
         self.uidoc = uiapp.ActiveUIDocument
-        self.doc = self.uidoc.Document
+        self.doc = self.uidoc.Document if self.uidoc is not None else None
         self._loading = True
 
         self._settings = deew_settings.load(_TOOL_NAME, _DEFAULT_SETTINGS)
@@ -101,7 +111,12 @@ class DeeAIWindow(dee_branding.DeeBrandedWindow):
 
         self.Closing += self._on_closing
         self._loading = False
-        self._log_line("DeeAI is ready. Pick a provider, enter its API key (remembered after this), type a message below, and click Send.")
+        if self.doc is None:
+            self._log_line("DeeAI is ready - no document is open yet. Ask it to open or create one "
+                            "(e.g. 'open the most recent project' or 'create a new project'), or open "
+                            "one yourself and it'll pick that up on your next message.")
+        else:
+            self._log_line("DeeAI is ready. Pick a provider, enter its API key (remembered after this), type a message below, and click Send.")
 
     # ---------------- provider switching ----------------
     def _provider_settings(self, provider_id):
@@ -230,8 +245,5 @@ class DeeAIWindow(dee_branding.DeeBrandedWindow):
 
 
 uiapp = __revit__
-if uiapp.ActiveUIDocument is None:
-    forms.alert("Open a Revit project first.")
-else:
-    window = DeeAIWindow(_XAML_FILE, uiapp)
-    window.ShowDialog()
+window = DeeAIWindow(_XAML_FILE, uiapp)
+window.ShowDialog()

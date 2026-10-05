@@ -1,2 +1,3 @@
 title: DeeAI
-tooltip: Chat with an AI assistant (Claude, ChatGPT, or a custom OpenAI-compatible endpoint - pick from the list) that can read and directly modify the active Revit document - it writes and immediately runs IronPython code, with no per-action confirmation. Requires your own API key for whichever provider you pick, remembered locally after the first time.
+tooltip: Chat with an AI assistant (Claude, ChatGPT, or a custom OpenAI-compatible endpoint - pick from the list) that can read and directly modify the active Revit document - it writes and immediately runs IronPython code, with no per-action confirmation. Works with no project open too - it can open or create one via uiapp. Requires your own API key for whichever provider you pick, remembered locally after the first time.
+context: zero-doc
