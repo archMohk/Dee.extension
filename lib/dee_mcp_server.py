@@ -75,6 +75,8 @@ turns out to require SSE specifically, the fix is a hand-rolled server
 thread instead of `pyrevit.routes` for this one route - not something
 this session can verify without a live client to test against.
 """
+import os
+import json
 import uuid
 
 from pyrevit import routes
@@ -95,8 +97,81 @@ _ENV_TOKEN = "DEEMCP_TOKEN"
 _ENV_PORT = "DEEMCP_PORT"
 _ENV_COUNT = "DEEMCP_REQUEST_COUNT"
 
+# This file lives at <extension root>/lib/dee_mcp_server.py, so one
+# dirname up from lib/ is the extension root - the same folder this
+# developer's own Claude Code session already uses as its project
+# directory, which is exactly why writing .mcp.json here is useful:
+# a Claude Code session opened on this same folder picks it up with no
+# manual copy/paste. For a DIFFERENT Claude Code project folder, this
+# file would need to be copied there instead - not something DeeMCP can
+# know about or reach on its own.
+_EXTENSION_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_MCP_JSON_PATH = os.path.join(_EXTENSION_ROOT, ".mcp.json")
+_GITIGNORE_PATH = os.path.join(_EXTENSION_ROOT, ".gitignore")
+
 _api = routes.API(API_NAME)
 _api.route(ROUTE_PATTERN, methods=["POST"])(dee_mcp_service.mcp_endpoint)
+
+
+def _ensure_gitignored():
+    """Best-effort, idempotent: adds a .mcp.json entry to .gitignore if
+    one isn't already there, so a fresh git checkout of this extension
+    never accidentally commits a live bearer token. Never raises - a
+    missing/unwritable .gitignore (e.g. a plain end-user install that
+    isn't a git checkout at all) just means there is nothing to
+    protect, not a reason to fail the server start."""
+    try:
+        existing = ""
+        if os.path.isfile(_GITIGNORE_PATH):
+            with open(_GITIGNORE_PATH, "r") as f:
+                existing = f.read()
+        if any(line.strip() == ".mcp.json" for line in existing.splitlines()):
+            return
+        with open(_GITIGNORE_PATH, "a") as f:
+            if existing and not existing.endswith("\n"):
+                f.write("\n")
+            f.write(
+                "\n# Claude Code's own MCP server config for this project - holds\n"
+                "# DeeMCP's live bearer token in plain text once added. Per-machine,\n"
+                "# per-session, rotates every time the DeeMCP server is restarted -\n"
+                "# never belongs in the public repo.\n"
+                ".mcp.json\n"
+            )
+    except Exception:
+        pass
+
+
+def _write_mcp_json(url, token):
+    """Writes/updates ONLY the "dee-mcp" entry inside .mcp.json, merging
+    with whatever else is already there (other MCP servers the user
+    configured) rather than overwriting the whole file. Never raises -
+    returns True/False so start() can report whether it actually
+    happened."""
+    try:
+        data = {}
+        if os.path.isfile(_MCP_JSON_PATH):
+            try:
+                with open(_MCP_JSON_PATH, "r") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
+        if not isinstance(data, dict):
+            data = {}
+        servers = data.setdefault("mcpServers", {})
+        if not isinstance(servers, dict):
+            servers = {}
+            data["mcpServers"] = servers
+        servers[API_NAME] = {
+            "type": "http",
+            "url": url,
+            "headers": {"Authorization": "Bearer {0}".format(token)},
+        }
+        with open(_MCP_JSON_PATH, "w") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
+        return True
+    except Exception:
+        return False
 
 
 def is_running():
@@ -134,6 +209,7 @@ def get_status():
         "url": mcp_url(),
         "token": current_token(),
         "request_count": request_count(),
+        "mcp_json_path": _MCP_JSON_PATH,
     }
 
 
@@ -166,7 +242,16 @@ def start():
     envvars.set_pyrevit_env_var(_ENV_TOKEN, token)
     envvars.set_pyrevit_env_var(_ENV_PORT, chosen_port)
     envvars.set_pyrevit_env_var(_ENV_COUNT, 0)
-    return True, "Started on {0}:{1}".format(HOST, chosen_port)
+
+    _ensure_gitignored()
+    url = mcp_url()
+    wrote_config = _write_mcp_json(url, token)
+    detail = "Started on {0}:{1}".format(HOST, chosen_port)
+    if wrote_config:
+        detail += " - .mcp.json updated ({0}); start a NEW Claude Code session on this folder to pick it up".format(_MCP_JSON_PATH)
+    else:
+        detail += " - could not write .mcp.json automatically; paste the URL/token into your MCP client by hand"
+    return True, detail
 
 
 def stop():

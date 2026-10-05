@@ -2,6 +2,12 @@
 # users through a separate, non-public channel instead.
 acc_config.json
 
+# Claude Code's own MCP server config for this project - holds
+# DeeMCP's live bearer token in plain text once added. Per-machine,
+# per-session, rotates every time the DeeMCP server is restarted -
+# never belongs in the public repo.
+.mcp.json
+
 # Per-machine caches / runtime state - not source, and re-generated
 # automatically on first use of the relevant tool.
 .acc_token_cache.json
