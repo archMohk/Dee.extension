@@ -1,0 +1,49 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeMCP — MCP Server"
+        ShowInTaskbar="True"
+        MinHeight="420" MinWidth="560" Height="460" Width="640"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10"
+                   Text="Exposes this running Revit session to an external MCP (Model Context Protocol) client - Claude Code/Desktop, or any other MCP-compatible AI tool. While running, a connected client can run arbitrary Revit API code against this document AND trigger a small set of curated Dee.extension tools. Loopback-only, token-protected, never starts on its own - see the warning below."/>
+
+        <Border DockPanel.Dock="Top" Background="#3A2A00" BorderBrush="#C98A00" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,0,0,10">
+            <TextBlock TextWrapping="Wrap" Foreground="#FFD680"
+                       Text="Warning: while running, anyone who has the token below (pasted into their own MCP client) can read AND modify this open Revit model, including running arbitrary code against it. Keep the token private. Click Stop Server when you are done, or simply close this window."/>
+        </Border>
+
+        <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click" Width="90" Height="28" HorizontalAlignment="Right" Margin="0,10,0,0"/>
+
+        <GroupBox DockPanel.Dock="Top" Header="Server" Margin="0,0,0,10">
+            <StackPanel Margin="8">
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock x:Name="status_tb" Text="Stopped." FontWeight="Bold" VerticalAlignment="Center"/>
+                    <Button x:Name="start_b" Content="Start Server" Click="start_click" Width="110" Height="26" Margin="16,0,0,0"/>
+                    <Button x:Name="stop_b" Content="Stop Server" Click="stop_click" Width="110" Height="26" Margin="8,0,0,0" IsEnabled="False"/>
+                </StackPanel>
+
+                <TextBlock Text="MCP Endpoint URL (paste into your AI client's MCP server config):" Margin="0,0,0,2"/>
+                <TextBox x:Name="url_tb" Height="24" IsReadOnly="True" Margin="0,0,0,8" FontFamily="Consolas"/>
+
+                <TextBlock Text="Bearer Token (paste into the same MCP server config's Authorization header):" Margin="0,0,0,2"/>
+                <TextBox x:Name="token_tb" Height="24" IsReadOnly="True" Margin="0,0,0,8" FontFamily="Consolas"/>
+
+                <TextBlock x:Name="count_tb" Text="0 request(s) served." FontStyle="Italic"/>
+            </StackPanel>
+        </GroupBox>
+
+        <GroupBox DockPanel.Dock="Top" Header="Tools exposed to a connected AI client" Margin="0,0,0,10">
+            <StackPanel Margin="8">
+                <TextBlock TextWrapping="Wrap" FontWeight="Bold" Text="execute_revit_python"/>
+                <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                           Text="Arbitrary read/write - runs AI-written IronPython directly against the active document, same transactional safety net as DeeAI.pushbutton (one rollback-able Transaction, SubTransaction per call)."/>
+                <TextBlock TextWrapping="Wrap" FontWeight="Bold" Text="set_view_template_link_display"/>
+                <TextBlock TextWrapping="Wrap"
+                           Text="Bulk-sets the Revit Links Display Setting (By Host View / By Linked View) across View Templates - the same action DeeLazy's DeeVTEMP module performs interactively."/>
+            </StackPanel>
+        </GroupBox>
+
+        <TextBlock DockPanel.Dock="Top" x:Name="log_tb" TextWrapping="Wrap" FontStyle="Italic" Foreground="#888888" Text=""/>
+    </DockPanel>
+</Window>
