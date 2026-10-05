@@ -15,6 +15,58 @@ request and two explicit scope choices made when asked:
     bulk overwrite.
 
 --------------------------------------------------------------------
+Common Parameters discovery - the tool's default starting point
+--------------------------------------------------------------------
+By explicit user request ("get all the common shared parameter and
+its values, and if not matched get it as a list and highlighted" -
+then, when asked where this should fit, "replace the whole flow -
+always scan all parameters at once"), the Parameter tab's PRIMARY
+action is no longer "type one parameter name, then Load Values" - it
+is "Scan Common Parameters", which:
+  1. Opens EVERY selected target file (local, ACC cloud, and/or
+     already-open documents, any mix) exactly once each, and for each
+     one discovers EVERY shared parameter it has bound (not just one
+     named one) via discover_all_shared_parameter_values - the same
+     find_shared_definition/collect_bound_elements/read_value_summary
+     building blocks as the single-parameter path, just applied to
+     every ExternalDefinition found in that file instead of one.
+  2. Keeps only the parameters present in EVERY successfully-scanned
+     file - "common" means present in ALL selected files, the
+     stricter of the two definitions offered, by explicit user choice
+     (not "present in 2 or more, any overlap"). A file that fails to
+     open/scan is excluded from the comparison entirely rather than
+     silently counted as "has nothing", which would make every
+     parameter look non-common the moment any one file fails.
+  3. Lists each common parameter with its value if every file agrees,
+     or "(N distinct values)" if they don't - mismatched rows are
+     highlighted (DataGrid row background, bound to is_mismatched -
+     see CommonParamRow and DeeParaValue.xaml's common_grid.RowStyle)
+     so a drifted parameter is visible at a glance across the whole
+     batch, without opening every file by hand.
+Selecting one common parameter and clicking "Use Selected Parameter"
+(or double-clicking its row) feeds its name into the UNCHANGED
+existing per-file Load Values -> edit New Value -> Export/Import for
+Review -> Save pipeline below - this discovery step changes how you
+ARRIVE at a parameter to work on, not how editing/writing happens
+once you're there, so none of that already-proven machinery needed to
+change. The old manual "type/pick one parameter name" entry is kept
+alongside it (Parameter tab, second group box) for a user who already
+knows exactly which parameter they want and would rather skip
+scanning every file's full parameter list first - not removed, since
+doing so would be a pure regression for that case with no benefit to
+the new workflow.
+
+Performance note, not glossed over: scanning EVERY shared parameter
+in a file (rather than one named one) multiplies the per-parameter
+element-collection/value-read cost by however many shared parameters
+that file actually has bound - a file with many bound parameters
+across large categories will take noticeably longer to scan this way
+than the single-parameter path. There is no way around this given the
+feature's nature (discovering everything a file has requires looking
+at everything it has), so it is stated plainly as the real cost of
+discovery rather than hidden.
+
+--------------------------------------------------------------------
 Resolving "any category" vs. "one editable cell per file"
 --------------------------------------------------------------------
 Two columns per file, not one dual-purpose cell: Current Value
@@ -341,6 +393,44 @@ def storage_type_text(storage_type):
     return str(storage_type)
 
 
+def discover_all_shared_parameter_values(doc):
+    """Returns {name: {"categories_text", "scope_text", "storage_type_text",
+    "element_count", "value_display"}} for EVERY shared parameter bound in
+    this document - not just one named one. Built from exactly the same
+    building blocks as the single-parameter path (collect_bound_elements/
+    read_value_summary), just applied to every ExternalDefinition found via
+    ParameterBindings instead of one looked up by name. Used by the "Scan
+    Common Parameters" discovery step (see module docstring) - never
+    raises; one definition that fails to resolve is skipped, not fatal to
+    the rest. doc=None returns {} rather than raising, same as
+    discover_shared_parameters."""
+    results = {}
+    if doc is None:
+        return results
+    try:
+        it = doc.ParameterBindings.ForwardIterator()
+        while it.MoveNext():
+            definition = it.Key
+            if not isinstance(definition, ExternalDefinition):
+                continue
+            binding = it.Current
+            try:
+                elements, is_type_scope = collect_bound_elements(doc, binding)
+                storage, display = read_value_summary(definition.GUID, elements)
+                results[definition.Name] = {
+                    "categories_text": category_names_text(binding),
+                    "scope_text": "Type" if is_type_scope else "Instance",
+                    "element_count": len(elements),
+                    "storage_type_text": storage_type_text(storage),
+                    "value_display": display,
+                }
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return results
+
+
 _YES_WORDS = ("yes", "true", "1")
 _NO_WORDS = ("no", "false", "0")
 
@@ -428,6 +518,25 @@ class ValueRow(object):
         self.storage_type_text = ""
         self.current_value_display = ""
         self.new_value = ""
+
+
+class CommonParamRow(object):
+    """One row per shared parameter found common to EVERY successfully-
+    scanned target file (present in ALL of them - the strict definition
+    the user chose, not "any overlap"). is_mismatched drives the
+    highlight in DeeParaValue.xaml's common_grid.RowStyle whenever the
+    files don't all agree on the parameter's value."""
+
+    def __init__(self, name, file_count, categories_text, scope_text,
+                 storage_type_text, is_mismatched, sample_value):
+        self.name = name
+        self.file_count = file_count
+        self.categories_text = categories_text
+        self.scope_text = scope_text
+        self.storage_type_text = storage_type_text
+        self.is_mismatched = is_mismatched
+        self.match_text = "Differs across files" if is_mismatched else "All files match"
+        self.sample_value = sample_value
 
 
 class ReportRow(object):
@@ -560,6 +669,61 @@ class DeeParaValuePipeline(object):
                 except Exception:
                     pass
         return row
+
+    def scan_all_local(self, scanned_model):
+        """Like scan_local, but discovers EVERY shared parameter bound in
+        the file instead of checking one named one (self.param_name is
+        irrelevant here) - backs the "Scan Common Parameters" discovery
+        step. Returns (file_name, source_label, values_or_None, status) -
+        values is None only when the file could not be scanned AT ALL
+        (corrupted/failed to open/unexpected error); a file that opened
+        fine but has no shared parameters bound still returns {}, which
+        is a legitimate result, not a failure, and still counts toward
+        what's "common" (nothing from it, correctly)."""
+        source_label = "Open" if scanned_model.live_document is not None else "Local"
+        if scanned_model.model_type in (scanner.MODEL_TYPE_CORRUPTED, scanner.MODEL_TYPE_READ_ONLY):
+            return scanned_model.file_name, source_label, None, "Skipped - {0}".format(scanned_model.status)
+        document = None
+        opened_by_us = True
+        try:
+            if scanned_model.live_document is not None:
+                document = scanned_model.live_document
+                opened_by_us = False
+            else:
+                document, err = docmgr.open_document_no_detach(
+                    self.application, scanned_model.file_path, open_all_worksets=True, logger=self.logger)
+                if document is None:
+                    return scanned_model.file_name, source_label, None, "Failed - could not open ({0})".format(err)
+            values = discover_all_shared_parameter_values(document)
+            return scanned_model.file_name, source_label, values, "OK"
+        except Exception as e:
+            self.logger.exception("Unexpected error scanning all parameters", e, file=scanned_model.file_name)
+            return scanned_model.file_name, source_label, None, "Failed - unexpected error"
+        finally:
+            # Never close a document this pipeline didn't open itself.
+            if document is not None and opened_by_us:
+                docmgr.close_document(document, save_modified=False, logger=self.logger)
+
+    def scan_all_cloud(self, item, uiapp):
+        """Cloud counterpart of scan_all_local - same discovery, same
+        None-means-failed-to-scan contract."""
+        ui_doc = None
+        try:
+            ui_doc, detail = afb.open_cloud_file(
+                uiapp, item.region, item.project_id, item.item_id, item.token, close_worksets=False)
+            if ui_doc is None:
+                return item.display_name, "Cloud", None, "Failed - could not open ({0})".format(detail)
+            values = discover_all_shared_parameter_values(ui_doc.Document)
+            return item.display_name, "Cloud", values, "OK"
+        except Exception as e:
+            self.logger.exception("Unexpected error scanning all parameters", e, file=item.display_name)
+            return item.display_name, "Cloud", None, "Failed - unexpected error"
+        finally:
+            if ui_doc is not None:
+                try:
+                    docmgr.close_document(ui_doc.Document, save_modified=False, logger=self.logger)
+                except Exception:
+                    pass
 
     def _apply_to_document(self, doc, raw_text, report):
         definition, binding = find_shared_definition(doc, self.param_name)
@@ -704,17 +868,20 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
         self._models = []
         self._cloud_items = []
         self._open_models = []
+        self._common_rows = []
         self._value_rows = []
         self._report_rows = []
         self._dialog_handler = None
 
         self.parameter_cb.ItemsSource = discover_shared_parameters(self.doc)
         if self.doc is None:
-            self._log("Ready - no document open. Type the exact shared parameter name on the "
-                      "Parameter tab (the dropdown only lists an active document's parameters), "
-                      "add target files, then Load Values.")
+            self._log("Ready - no document open. Add target files (Target Files tab), then use "
+                      "'Scan Common Parameters' (Parameter tab) to see every shared parameter common "
+                      "to all of them - or type an exact parameter name to audit just one.")
         else:
-            self._log("Ready. Add target files, pick a shared parameter, then Load Values.")
+            self._log("Ready. Add target files, then use 'Scan Common Parameters' (Parameter tab) to "
+                      "see every shared parameter common to all of them - or pick/type one parameter "
+                      "directly if you already know which one you want.")
 
     # ---------------- logging ----------------
     def _log(self, message):
@@ -909,6 +1076,106 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
     def _refresh_cloud_grid(self):
         self.cloud_grid.ItemsSource = None
         self.cloud_grid.ItemsSource = self._cloud_items
+
+    # ---------------- Common Parameters (discovery across ALL selected files) ----------------
+    def scan_common_click(self, sender, args):
+        """The tool's new default starting point (see module docstring):
+        scans every selected target file (local + open + cloud, any mix)
+        for EVERY shared parameter it has bound, then keeps only the ones
+        present in ALL of them. Mismatched rows (the common parameter's
+        value isn't the same across every file) are flagged via
+        is_mismatched, which DeeParaValue.xaml's common_grid.RowStyle
+        highlights."""
+        selected_local = [m for m in self._models if m.selected]
+        selected_open = [m for m in self._open_models if m.selected]
+        selected_cloud = [i for i in self._cloud_items if i.selected]
+        local_and_open = selected_local + selected_open
+        total = len(local_and_open) + len(selected_cloud)
+        if total < 1:
+            forms.alert("Select at least one local file, open document, or cloud model first (Target Files tab).")
+            return
+
+        pipeline = DeeParaValuePipeline(self.application, "", self.logger)
+        per_file = []
+        with progsvc.DeeWProgressService(_TOOL_TITLE, total) as prog:
+            for model in local_and_open:
+                if prog.cancelled:
+                    self._log("Cancelled by user.")
+                    break
+                prog.step(model.file_name, "Scanning all shared parameters")
+                file_name, source, values, status = pipeline.scan_all_local(model)
+                per_file.append((file_name, values))
+                prog.finish_file("success" if values is not None else "failed")
+                self._log("'{0}': {1} ({2} shared parameter(s) found)".format(
+                    file_name, status, len(values) if values is not None else 0))
+            if not prog.cancelled:
+                for item in selected_cloud:
+                    if prog.cancelled:
+                        self._log("Cancelled by user.")
+                        break
+                    prog.step(item.display_name, "Scanning all shared parameters")
+                    file_name, source, values, status = pipeline.scan_all_cloud(item, self.uiapp)
+                    per_file.append((file_name, values))
+                    prog.finish_file("success" if values is not None else "failed")
+                    self._log("'{0}': {1} ({2} shared parameter(s) found)".format(
+                        file_name, status, len(values) if values is not None else 0))
+
+        # Only files that scanned successfully count toward what's
+        # "common" - a file that failed to open is excluded from the
+        # comparison entirely rather than treated as "has nothing", which
+        # would make every parameter look non-common the moment any one
+        # file fails.
+        successful = [(name, values) for name, values in per_file if values is not None]
+        self._common_rows = []
+        if not successful:
+            self.common_grid.ItemsSource = None
+            self.common_status_tb.Text = "No file could be scanned successfully - nothing to compare."
+            self._log(self.common_status_tb.Text)
+            return
+
+        name_sets = [set(values.keys()) for _, values in successful]
+        common_names = set.intersection(*name_sets) if name_sets else set()
+
+        rows = []
+        for name in sorted(common_names):
+            display_values = [values[name]["value_display"] for _, values in successful]
+            distinct = sorted(set(display_values))
+            is_mismatched = len(distinct) > 1
+            first_info = successful[0][1][name]
+            rows.append(CommonParamRow(
+                name=name,
+                file_count=len(successful),
+                categories_text=first_info["categories_text"],
+                scope_text=first_info["scope_text"],
+                storage_type_text=first_info["storage_type_text"],
+                is_mismatched=is_mismatched,
+                sample_value=distinct[0] if len(distinct) == 1 else "({0} distinct values)".format(len(distinct)),
+            ))
+
+        self._common_rows = rows
+        self.common_grid.ItemsSource = None
+        self.common_grid.ItemsSource = rows
+        mismatched = sum(1 for r in rows if r.is_mismatched)
+        skipped = len(per_file) - len(successful)
+        self.common_status_tb.Text = "{0} parameter(s) common to all {1} successfully-scanned file(s) ({2} mismatched).{3}".format(
+            len(rows), len(successful), mismatched,
+            " {0} file(s) failed to scan and were excluded.".format(skipped) if skipped else "")
+        self._log(self.common_status_tb.Text)
+
+    def use_common_parameter_click(self, sender, args):
+        """Takes the selected row from the common-parameters grid and
+        hands off to the EXISTING per-file Load Values / edit / Save /
+        Export-Review pipeline for just that one parameter - this
+        discovery step changes how you ARRIVE at a parameter to work on,
+        not how editing/writing happens once you're there."""
+        selected = list(self.common_grid.SelectedItems)
+        if not selected:
+            forms.alert("Select a parameter from the list first.")
+            return
+        name = selected[0].name
+        self.parameter_cb.Text = name
+        self._log("Using '{0}' - loading its per-file values for editing.".format(name))
+        self.load_values_click(sender, args)
 
     # ---------------- Parameter ----------------
     def refresh_params_click(self, sender, args):
@@ -1207,6 +1474,6 @@ def launch(uiapp):
 TOOL_INFO = {
     "id": "dee_para_value",
     "title": "DeeParaValue",
-    "description": "Batch-audit and edit a shared parameter's value across many Revit files (local and/or ACC cloud) - see each file's current value, type corrections, save them all in one run.",
+    "description": "Scan many Revit files (local, ACC cloud, and/or open documents) for every shared parameter common to all of them, see mismatches highlighted, then batch-edit and save corrections.",
     "launch": launch,
 }

@@ -6,7 +6,7 @@
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Scans a batch of Revit files (local, ACC cloud, and/or already-open documents) for ONE shared parameter's current value, shows it per file, and lets you type corrected values before writing them all back in one run. A blank New Value always means 'leave this file alone' - only files you actually type into get changed. Optional review step: Export for Review -&gt; someone fills in Approved -&gt; Import Reviewed Values -&gt; Save only applies the approved ones."/>
+                   Text="Pick target files (Target Files tab), then Scan Common Parameters (Parameter tab) to see every shared parameter common to ALL of them, with mismatches highlighted. Pick one to load its per-file values, type corrected values, and write them all back in one run. A blank New Value always means 'leave this file alone' - only files you actually type into get changed. Optional review step: Export for Review -&gt; someone fills in Approved -&gt; Import Reviewed Values -&gt; Save only applies the approved ones."/>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Button x:Name="load_values_b" Content="Load Values" Click="load_values_click" Width="100" Height="28"/>
@@ -98,7 +98,40 @@
 
             <TabItem Header="Parameter">
                 <StackPanel Margin="8">
-                    <GroupBox Header="Shared Parameter to Audit/Edit" Margin="0,0,0,10">
+                    <GroupBox Header="Common Shared Parameters (present in ALL selected target files)" Margin="0,0,0,10">
+                        <StackPanel Margin="6">
+                            <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,0,0,8"
+                                       Text="Scans every selected target file (Target Files tab) for every shared parameter it has bound, then lists only the ones present in ALL of them. Rows highlighted in red don't agree on the value across every file - select one and click 'Use Selected Parameter' (or double-click its row) to load its per-file values for editing."/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <Button x:Name="scan_common_b" Content="Scan Common Parameters" Click="scan_common_click" Width="170" Height="26"/>
+                                <Button x:Name="use_common_b" Content="Use Selected Parameter" Click="use_common_parameter_click" Width="160" Height="26" Margin="8,0,0,0"/>
+                            </StackPanel>
+                            <TextBlock x:Name="common_status_tb" Text="Not scanned yet." FontStyle="Italic" Margin="0,0,0,8"/>
+                            <DataGrid x:Name="common_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                                      CanUserSortColumns="True" SelectionMode="Single" SelectionUnit="FullRow"
+                                      RowHeaderWidth="0" Height="220" MouseDoubleClick="use_common_parameter_click">
+                                <DataGrid.RowStyle>
+                                    <Style TargetType="DataGridRow">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding is_mismatched}" Value="True">
+                                                <Setter Property="Background" Value="#FFCDD2"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGrid.RowStyle>
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Parameter Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
+                                    <DataGridTextColumn Header="Match Status" Binding="{Binding match_text}" Width="140" IsReadOnly="True"/>
+                                    <DataGridTextColumn Header="Value" Binding="{Binding sample_value}" Width="180" IsReadOnly="True"/>
+                                    <DataGridTextColumn Header="Categories" Binding="{Binding categories_text}" Width="180" IsReadOnly="True"/>
+                                    <DataGridTextColumn Header="Scope" Binding="{Binding scope_text}" Width="60" IsReadOnly="True"/>
+                                    <DataGridTextColumn Header="Storage" Binding="{Binding storage_type_text}" Width="70" IsReadOnly="True"/>
+                                    <DataGridTextColumn Header="Files" Binding="{Binding file_count}" Width="50" IsReadOnly="True"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </StackPanel>
+                    </GroupBox>
+                    <GroupBox Header="Or Type/Pick One Parameter Directly" Margin="0,0,0,10">
                         <StackPanel Margin="6">
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                 <TextBlock Text="Parameter Name:" VerticalAlignment="Center" Width="120"/>
@@ -106,7 +139,7 @@
                                 <Button x:Name="refresh_params_b" Content="Refresh from Current Document" Click="refresh_params_click" Width="190" Height="24" Margin="14,0,0,0"/>
                             </StackPanel>
                             <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888"
-                                       Text="The list is seeded only from shared parameters bound in the CURRENTLY ACTIVE document - a parameter that only exists in your target files can still be used, just type its exact name here."/>
+                                       Text="The list is seeded only from shared parameters bound in the CURRENTLY ACTIVE document - a parameter that only exists in your target files can still be used, just type its exact name here. Skips the common-parameter scan above entirely, for when you already know which parameter you want."/>
                         </StackPanel>
                     </GroupBox>
                     <TextBlock x:Name="parameter_info_tb" TextWrapping="Wrap" FontStyle="Italic" Text="No parameter checked against the active document yet."/>
