@@ -145,7 +145,7 @@ def build_system_prompt(doc, uiapp):
         "acting, summarize in plain language what changed or was found "
         "- the user cannot see your code or its raw output, only your "
         "final text and whatever you chose to print."
-    ).format(revit_version=revit_version, doc_title=doc_title, workshared=workshared)
+    ).format(revit_version=revit_version, doc_state=doc_state)
 
 
 class RefusedError(Exception):
