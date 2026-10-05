@@ -87,7 +87,7 @@ import traceback
 
 from Autodesk.Revit.DB import (
     FilteredElementCollector, View, RevitLinkInstance,
-    RevitLinkGraphicsSettings, RevitLinkGraphicsDisplayOptions,
+    RevitLinkGraphicsSettings, LinkVisibility,
     Transaction, ModelPathUtils,
 )
 
@@ -248,15 +248,17 @@ def _link_display_name(link_type):
 
 
 def _build_link_settings(display_option):
-    """Local copy of dee_vtemp.py's own _build_link_settings - see that
-    module's docstring for the NEEDS LIVE-REVIT VERIFICATION note on
-    RevitLinkGraphicsSettings' constructor shape."""
-    try:
-        return RevitLinkGraphicsSettings(display_option)
-    except Exception:
-        settings = RevitLinkGraphicsSettings()
-        settings.LinkVisibilityType = display_option
-        return settings
+    """RevitLinkGraphicsSettings has ONLY a no-arg constructor - verified
+    directly against the installed RevitAPI.dll via .NET reflection
+    (System.Reflection.MetadataLoadContext against Revit 2026's actual
+    assembly) after the original guess (a one-arg constructor taking a
+    'RevitLinkGraphicsDisplayOptions' enum - no such type exists at all)
+    crashed this tool's very first live run with an ImportError. The
+    real enum is Autodesk.Revit.DB.LinkVisibility (ByHostView/ByLinkView/
+    Custom), set via the settable .LinkVisibilityType property."""
+    settings = RevitLinkGraphicsSettings()
+    settings.LinkVisibilityType = display_option
+    return settings
 
 
 def _set_view_template_link_display(doc, uidoc, uiapp, arguments):
@@ -264,9 +266,9 @@ def _set_view_template_link_display(doc, uidoc, uiapp, arguments):
         return "Error: no Revit document is open - open or create one first (e.g. via execute_revit_python)."
     args = arguments or {}
     option_text = args.get("display_option", "ByHostView")
-    display_option = (RevitLinkGraphicsDisplayOptions.ByLinkView
+    display_option = (LinkVisibility.ByLinkView
                        if option_text == "ByLinkView"
-                       else RevitLinkGraphicsDisplayOptions.ByHostView)
+                       else LinkVisibility.ByHostView)
     name_filter = (args.get("template_name_contains") or "").strip().lower()
 
     templates = []

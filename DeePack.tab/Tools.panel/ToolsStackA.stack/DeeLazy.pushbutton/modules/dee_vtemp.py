@@ -27,24 +27,23 @@ Revit API facts relied on here
 - View.SetLinkOverrides(ElementId linkInstanceId, RevitLinkGraphicsSettings
   overrides) / View.GetLinkOverrides(ElementId linkInstanceId) - the
   documented API for a view's per-link Display Settings override.
-- RevitLinkGraphicsDisplayOptions enum: ByHostView / ByLinkView / Custom
-  (only the first two are exposed here - see scope note below).
-
-NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct -
-this module is the FIRST place in this codebase to touch
-RevitLinkGraphicsSettings/SetLinkOverrides; a repo-wide search before
-writing this confirmed no prior art to copy):
-- The exact RevitLinkGraphicsSettings constructor shape. Revit API
-  versions have been seen to expose this two different ways - a
-  one-arg constructor taking the RevitLinkGraphicsDisplayOptions
-  directly, or a no-arg constructor plus a settable .LinkVisibilityType
-  property. _build_link_settings() below tries the constructor first
-  and falls back to the property, so either shape works without
-  guessing which one this project's Revit version uses.
+- Autodesk.Revit.DB.LinkVisibility enum: ByHostView / ByLinkView / Custom
+  (only the first two are exposed here - see scope note below). NOT
+  "RevitLinkGraphicsDisplayOptions" - an earlier version of this module
+  guessed that name and it does not exist at all in the API, caught the
+  hard way (ImportError on this tool's very first live run via DeeMCP,
+  which duplicates this same logic - see lib/dee_mcp_tools.py). Verified
+  afterward directly against the installed RevitAPI.dll via .NET
+  reflection (System.Reflection.MetadataLoadContext), not re-guessed.
+- RevitLinkGraphicsSettings has ONLY a no-arg constructor, plus a
+  settable .LinkVisibilityType property of type LinkVisibility - also
+  confirmed by the same reflection pass (the module previously hedged
+  with a two-constructor-shapes guess; there is only one, and this is
+  it). _build_link_settings() below reflects this directly now.
 - Whether SetLinkOverrides on a View Template specifically (as opposed
   to a regular view) needs anything extra - no Revit API documentation
-  reviewed suggested a difference, but this is the first live exercise
-  of that assumption.
+  reviewed suggested a difference; still unexercised live beyond the
+  reflection-level signature check above.
 
 --------------------------------------------------------------------
 Scope for this first pass (explicit, not silently incomplete)
@@ -65,7 +64,7 @@ from pyrevit import forms, script
 import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, View, RevitLinkInstance,
-    RevitLinkGraphicsSettings, RevitLinkGraphicsDisplayOptions,
+    RevitLinkGraphicsSettings, LinkVisibility,
     Transaction, ModelPathUtils,
 )
 from System.Windows.Forms import SaveFileDialog, DialogResult, MessageBox
@@ -159,24 +158,21 @@ def scan_link_instances(doc):
 # Action
 # ==========================================================================
 def _option_label(display_option):
-    if display_option == RevitLinkGraphicsDisplayOptions.ByHostView:
+    if display_option == LinkVisibility.ByHostView:
         return "By Host View"
-    if display_option == RevitLinkGraphicsDisplayOptions.ByLinkView:
+    if display_option == LinkVisibility.ByLinkView:
         return "By Linked View"
     return str(display_option)
 
 
 def _build_link_settings(display_option):
-    """See module docstring's NEEDS LIVE-REVIT VERIFICATION note - tries
-    the one-arg constructor first, falls back to the no-arg constructor
-    plus the .LinkVisibilityType property, so either Revit API shape
-    for this class works without guessing which one applies here."""
-    try:
-        return RevitLinkGraphicsSettings(display_option)
-    except Exception:
-        settings = RevitLinkGraphicsSettings()
-        settings.LinkVisibilityType = display_option
-        return settings
+    """RevitLinkGraphicsSettings has ONLY a no-arg constructor - see
+    module docstring for how this was verified (reflection against the
+    installed RevitAPI.dll, after the original two-shapes guess turned
+    out to include a constructor that does not exist at all)."""
+    settings = RevitLinkGraphicsSettings()
+    settings.LinkVisibilityType = display_option
+    return settings
 
 
 def apply_link_display_option(view_template, link_instance_id, display_option):
@@ -300,9 +296,9 @@ class DeeVTempWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Check at least one Revit Link first.")
             return
 
-        display_option = (RevitLinkGraphicsDisplayOptions.ByLinkView
+        display_option = (LinkVisibility.ByLinkView
                            if bool(self.option_linked_rb.IsChecked)
-                           else RevitLinkGraphicsDisplayOptions.ByHostView)
+                           else LinkVisibility.ByHostView)
         option_label = _option_label(display_option)
 
         total = len(templates) * len(links)
