@@ -25,11 +25,12 @@ action is no longer "type one parameter name, then Load Values" - it
 is "Scan Common Parameters", which:
   1. Opens EVERY selected target file (local, ACC cloud, and/or
      already-open documents, any mix) exactly once each, and for each
-     one discovers EVERY shared parameter it has bound (not just one
-     named one) via discover_all_shared_parameter_values - the same
-     find_shared_definition/collect_bound_elements/read_value_summary
-     building blocks as the single-parameter path, just applied to
-     every ExternalDefinition found in that file instead of one.
+     one discovers EVERY parameter it has bound - shared AND project
+     alike (not just one named one) via discover_all_parameter_values -
+     the same find_bound_definition/collect_bound_elements/
+     read_value_summary building blocks as the single-parameter path,
+     just applied to every bound Definition found in that file instead
+     of one.
   2. Keeps only the parameters present in EVERY successfully-scanned
      file - "common" means present in ALL selected files, the
      stricter of the two definitions offered, by explicit user choice
@@ -56,15 +57,51 @@ scanning every file's full parameter list first - not removed, since
 doing so would be a pure regression for that case with no benefit to
 the new workflow.
 
-Performance note, not glossed over: scanning EVERY shared parameter
-in a file (rather than one named one) multiplies the per-parameter
-element-collection/value-read cost by however many shared parameters
-that file actually has bound - a file with many bound parameters
-across large categories will take noticeably longer to scan this way
-than the single-parameter path. There is no way around this given the
+Performance note, not glossed over: scanning EVERY parameter in a file
+(rather than one named one) multiplies the per-parameter element-
+collection/value-read cost by however many parameters that file
+actually has bound - a file with many bound parameters across large
+categories will take noticeably longer to scan this way than the
+single-parameter path. There is no way around this given the
 feature's nature (discovering everything a file has requires looking
 at everything it has), so it is stated plainly as the real cost of
 discovery rather than hidden.
+
+--------------------------------------------------------------------
+"All the parameter", not just shared - and filter/grouping on top
+--------------------------------------------------------------------
+By explicit follow-up request ("get all the shared parameter and all
+the parameter and add filter and grouping for that"), discovery was
+broadened beyond shared parameters to ALSO cover ordinary PROJECT
+parameters (InternalDefinition) bound via the same doc.ParameterBindings
+- i.e. everything Revit's own "Project Parameters" dialog would list,
+shared or not. The one real code difference this requires:
+InternalDefinition has no GUID to key off (GUID-based
+Element.get_Parameter(Guid) only works for a SHARED parameter's stable
+identity) - a project parameter's value is instead read/written via
+Element.LookupParameter(name), a standard, well-documented Revit API
+method (not something that needed reflection verification, unlike the
+earlier genuinely obscure API surfaces this module relies on) - see
+is_shared_definition/_get_element_parameter. Each discovered/common
+parameter now carries a Type column ("Shared"/"Project") so the two
+kinds stay visually distinguishable even though they're scanned
+together.
+
+The Common Parameters grid also gained a live text Filter (matches
+against the parameter name OR its categories text, case-insensitive)
+and a Group By combo (No Grouping / Parameter Type / Match Status /
+Scope / Storage Type), both implemented as a WPF ICollectionView
+(System.Windows.Data.CollectionViewSource.GetDefaultView +
+PropertyGroupDescription) laid on top of the SAME self._common_rows
+list - filtering/grouping are purely presentational and never trigger
+a re-scan or mutate the underlying data, so switching Group By or
+typing in the filter box is instant. This is standard WPF/.NET
+plumbing, not Revit API, so it carries none of the "needs live
+verification" risk the Revit-facing parts of this module do - but it
+is still new ground for THIS codebase's DataGrids (none of them have
+used CollectionView filter/group before), so the very first live run
+should confirm the group headers render as expected before relying on
+it for a real audit.
 
 --------------------------------------------------------------------
 Resolving "any category" vs. "one editable cell per file"
@@ -132,15 +169,18 @@ enum was "LinkVisibility", only caught by a live crash):
     real runtime type of a Definition bound via doc.ParameterBindings
     when that definition is a SHARED parameter - an ordinary project
     parameter's Definition is an InternalDefinition instead. This is
-    the exact, confirmed test used by discover_shared_parameters/
-    _find_shared_definition below: isinstance(definition, ExternalDefinition).
+    the exact, confirmed test used by is_shared_definition below:
+    isinstance(definition, ExternalDefinition).
   - InstanceBinding and TypeBinding both subclass ElementBinding and
     both expose .Categories (a CategorySet) - confirmed.
   - Parameter.IsShared, Parameter.StorageType, Parameter.SetValueString(str)
     -> bool, and Element.get_Parameter(System.Guid) -> Parameter (a
     distinct overload from get_Parameter(BuiltInParameter) and
     get_Parameter(Definition)) - all confirmed present with these exact
-    signatures.
+    signatures. Element.LookupParameter(string) -> Parameter (used for
+    ordinary PROJECT parameters, which have no GUID) is standard,
+    universally-documented Revit API and did not need this same
+    reflection check.
 The doc.ParameterBindings.ForwardIterator()/.MoveNext()/.Key/.Current
 iteration shape itself is not a new guess either - lib/
 dee_shared_param_service.py already proves it live (DeeLinkDist/
@@ -155,12 +195,13 @@ codebase's standing practice for any first-time API surface.
 --------------------------------------------------------------------
 Scope limits for this first pass (not silently incomplete)
 --------------------------------------------------------------------
-- Only shared parameters bound as PROJECT PARAMETERS (present in
-  doc.ParameterBindings) are discoverable/targetable - one embedded
-  only inside a loaded family's own definitions, never bound at the
-  document level, is out of reach (no bounded way to know which
-  elements might carry it).
-- The parameter picker lists only the ACTIVE document's bound shared
+- Only parameters bound as PROJECT PARAMETERS (present in
+  doc.ParameterBindings) are discoverable/targetable - shared or
+  ordinary project parameters alike, but a built-in parameter inherent
+  to a category (never added via Project Parameters) or one embedded
+  only inside a loaded family's own definitions is out of reach (no
+  bounded way to know which elements might carry it).
+- The parameter picker lists only the ACTIVE document's bound
   parameters - targeting one absent there means typing its exact name
   (scanning every target file twice - once for names, once for values -
   isn't a reasonable cost for a convenience dropdown).
@@ -190,8 +231,8 @@ Scope limits for this first pass (not silently incomplete)
 - Works with NO active document open - this tool manages its own batch
   of target files independently; an active document is only ever an
   optional convenience source for the Parameter dropdown
-  (discover_shared_parameters), never required. With nothing open, type
-  the exact parameter name instead of picking it from the list.
+  (discover_all_parameter_names), never required. With nothing open,
+  type the exact parameter name instead of picking it from the list.
 """
 import os
 import csv
@@ -203,6 +244,7 @@ clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
 from System.Windows.Forms import FolderBrowserDialog, OpenFileDialog, SaveFileDialog, DialogResult, MessageBox
 from System.Windows import Visibility
+from System.Windows.Data import CollectionViewSource, PropertyGroupDescription
 
 from pyrevit import forms
 import dee_branding
@@ -271,10 +313,27 @@ class _SafeProgress(object):
 # ==========================================================================
 # Pure discovery/read/write functions - no WPF, testable independent of it
 # ==========================================================================
-def discover_shared_parameters(doc):
-    """Sorted list of distinct names of every shared parameter bound
-    (doc.ParameterBindings) in this document - see module docstring for
-    the isinstance(definition, ExternalDefinition) test this relies on.
+def is_shared_definition(definition):
+    """True for a SHARED parameter's Definition (ExternalDefinition),
+    False for an ordinary PROJECT/system parameter's (InternalDefinition)
+    - see module docstring for how this distinction is used throughout
+    (GUID-based lookup is only valid/meaningful for the shared case)."""
+    return isinstance(definition, ExternalDefinition)
+
+
+def definition_type_text(definition):
+    return "Shared" if is_shared_definition(definition) else "Project"
+
+
+def discover_all_parameter_names(doc):
+    """Sorted list of distinct names of every parameter bound
+    (doc.ParameterBindings) in this document - SHARED (ExternalDefinition)
+    AND ordinary PROJECT parameters (InternalDefinition) alike, by
+    explicit user request ("get all the shared parameter and all the
+    parameter"). A parameter that is never bound at the document level at
+    all (e.g. only ever a built-in/instance parameter inherent to a
+    category, never added via Project Parameters) is still out of reach -
+    same scope limit as before, just no longer narrowed to shared-only.
     doc=None (no active document) is a real, expected case - returns an
     empty list rather than raising, not just an accidental side effect
     of the try/except below."""
@@ -284,26 +343,25 @@ def discover_shared_parameters(doc):
     try:
         it = doc.ParameterBindings.ForwardIterator()
         while it.MoveNext():
-            definition = it.Key
-            if isinstance(definition, ExternalDefinition):
-                names.append(definition.Name)
+            names.append(it.Key.Name)
     except Exception:
         pass
     return sorted(set(names))
 
 
-def find_shared_definition(doc, param_name):
-    """Returns (definition, binding) for the shared parameter named
-    param_name as currently bound in doc, or (None, None) if it isn't
-    bound there at all. Matches by NAME (not GUID) deliberately - the
-    same shared parameter re-bound across different files/sessions
-    keeps its GUID, but the caller only ever has a typed/picked NAME to
-    go on, never a GUID handed in from elsewhere."""
+def find_bound_definition(doc, param_name):
+    """Returns (definition, binding) for the parameter named param_name
+    as currently bound in doc - shared OR project - or (None, None) if it
+    isn't bound there at all. Matches by NAME (not GUID/BuiltInParameter)
+    deliberately - the caller only ever has a typed/picked NAME to go on,
+    never an identity handed in from elsewhere, and a shared parameter
+    re-bound across different files/sessions keeps its GUID but not
+    necessarily anything else stable to match on from here."""
     try:
         it = doc.ParameterBindings.ForwardIterator()
         while it.MoveNext():
             definition = it.Key
-            if isinstance(definition, ExternalDefinition) and definition.Name == param_name:
+            if definition.Name == param_name:
                 return definition, it.Current
     except Exception:
         pass
@@ -358,19 +416,34 @@ def _read_value_text(parameter):
         return "(unreadable)"
 
 
-def read_value_summary(guid, elements):
-    """Returns (storage_type_or_None, display_text) for the shared
-    parameter identified by guid, read from every element in `elements`
-    that actually carries it. "(no elements)" if none do (e.g. a bound
+def _get_element_parameter(element, definition):
+    """Returns the Parameter on `element` corresponding to `definition` -
+    GUID-based Element.get_Parameter(Guid) for a SHARED parameter (the
+    GUID is its stable, cross-document identity - already confirmed, see
+    module docstring), or name-based Element.LookupParameter(name) for an
+    ordinary PROJECT parameter (InternalDefinition has no GUID of that
+    kind - LookupParameter is the standard, well-documented Revit API for
+    finding a parameter by name, not something that needed reflection
+    verification). Never raises - returns None on any failure."""
+    try:
+        if is_shared_definition(definition):
+            return element.get_Parameter(definition.GUID)
+        return element.LookupParameter(definition.Name)
+    except Exception:
+        return None
+
+
+def read_value_summary(definition, elements):
+    """Returns (storage_type_or_None, display_text) for the parameter
+    identified by `definition` (shared or project - see
+    _get_element_parameter), read from every element in `elements` that
+    actually carries it. "(no elements)" if none do (e.g. a bound
     category with nothing placed); the shared value if every element
     that has it agrees; "(N different values)" otherwise."""
     values = []
     storage_type = None
     for el in elements:
-        try:
-            p = el.get_Parameter(guid)
-        except Exception:
-            p = None
+        p = _get_element_parameter(el, definition)
         if p is None:
             continue
         if storage_type is None:
@@ -393,17 +466,19 @@ def storage_type_text(storage_type):
     return str(storage_type)
 
 
-def discover_all_shared_parameter_values(doc):
-    """Returns {name: {"categories_text", "scope_text", "storage_type_text",
-    "element_count", "value_display"}} for EVERY shared parameter bound in
-    this document - not just one named one. Built from exactly the same
-    building blocks as the single-parameter path (collect_bound_elements/
-    read_value_summary), just applied to every ExternalDefinition found via
-    ParameterBindings instead of one looked up by name. Used by the "Scan
-    Common Parameters" discovery step (see module docstring) - never
-    raises; one definition that fails to resolve is skipped, not fatal to
-    the rest. doc=None returns {} rather than raising, same as
-    discover_shared_parameters."""
+def discover_all_parameter_values(doc):
+    """Returns {name: {"type_text", "categories_text", "scope_text",
+    "storage_type_text", "element_count", "value_display"}} for EVERY
+    parameter bound in this document - SHARED and ordinary PROJECT
+    parameters alike, by explicit user request ("get all the shared
+    parameter and all the parameter"), not just one named one. Built from
+    exactly the same building blocks as the single-parameter path
+    (collect_bound_elements/read_value_summary), just applied to every
+    bound Definition found via ParameterBindings instead of one looked up
+    by name. Used by the "Scan Common Parameters" discovery step (see
+    module docstring) - never raises; one definition that fails to
+    resolve is skipped, not fatal to the rest. doc=None returns {} rather
+    than raising, same as discover_all_parameter_names."""
     results = {}
     if doc is None:
         return results
@@ -411,13 +486,12 @@ def discover_all_shared_parameter_values(doc):
         it = doc.ParameterBindings.ForwardIterator()
         while it.MoveNext():
             definition = it.Key
-            if not isinstance(definition, ExternalDefinition):
-                continue
             binding = it.Current
             try:
                 elements, is_type_scope = collect_bound_elements(doc, binding)
-                storage, display = read_value_summary(definition.GUID, elements)
+                storage, display = read_value_summary(definition, elements)
                 results[definition.Name] = {
+                    "type_text": definition_type_text(definition),
                     "categories_text": category_names_text(binding),
                     "scope_text": "Type" if is_type_scope else "Instance",
                     "element_count": len(elements),
@@ -527,9 +601,10 @@ class CommonParamRow(object):
     highlight in DeeParaValue.xaml's common_grid.RowStyle whenever the
     files don't all agree on the parameter's value."""
 
-    def __init__(self, name, file_count, categories_text, scope_text,
+    def __init__(self, name, type_text, file_count, categories_text, scope_text,
                  storage_type_text, is_mismatched, sample_value):
         self.name = name
+        self.type_text = type_text
         self.file_count = file_count
         self.categories_text = categories_text
         self.scope_text = scope_text
@@ -600,7 +675,7 @@ class DeeParaValuePipeline(object):
         self.logger = logger
 
     def _scan_document(self, doc, row):
-        definition, binding = find_shared_definition(doc, self.param_name)
+        definition, binding = find_bound_definition(doc, self.param_name)
         if definition is None:
             row.status = "Not present"
             return
@@ -608,7 +683,7 @@ class DeeParaValuePipeline(object):
         row.categories_text = category_names_text(binding)
         row.scope_text = "Type" if is_type_scope else "Instance"
         row.element_count = len(elements)
-        storage, display = read_value_summary(definition.GUID, elements)
+        storage, display = read_value_summary(definition, elements)
         row.storage_type_text = storage_type_text(storage)
         row.current_value_display = display
         row.status = "OK" if elements else "No elements"
@@ -694,7 +769,7 @@ class DeeParaValuePipeline(object):
                     self.application, scanned_model.file_path, open_all_worksets=True, logger=self.logger)
                 if document is None:
                     return scanned_model.file_name, source_label, None, "Failed - could not open ({0})".format(err)
-            values = discover_all_shared_parameter_values(document)
+            values = discover_all_parameter_values(document)
             return scanned_model.file_name, source_label, values, "OK"
         except Exception as e:
             self.logger.exception("Unexpected error scanning all parameters", e, file=scanned_model.file_name)
@@ -713,7 +788,7 @@ class DeeParaValuePipeline(object):
                 uiapp, item.region, item.project_id, item.item_id, item.token, close_worksets=False)
             if ui_doc is None:
                 return item.display_name, "Cloud", None, "Failed - could not open ({0})".format(detail)
-            values = discover_all_shared_parameter_values(ui_doc.Document)
+            values = discover_all_parameter_values(ui_doc.Document)
             return item.display_name, "Cloud", values, "OK"
         except Exception as e:
             self.logger.exception("Unexpected error scanning all parameters", e, file=item.display_name)
@@ -726,7 +801,7 @@ class DeeParaValuePipeline(object):
                     pass
 
     def _apply_to_document(self, doc, raw_text, report):
-        definition, binding = find_shared_definition(doc, self.param_name)
+        definition, binding = find_bound_definition(doc, self.param_name)
         if definition is None:
             report.save_status = "Skipped - parameter no longer present"
             return False
@@ -742,10 +817,7 @@ class DeeParaValuePipeline(object):
         t.Start()
         try:
             for el in elements:
-                try:
-                    p = el.get_Parameter(definition.GUID)
-                except Exception:
-                    p = None
+                p = _get_element_parameter(el, definition)
                 if p is None:
                     skipped += 1
                     continue
@@ -861,7 +933,7 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
         # No active document is a real, supported case here - this tool
         # manages its OWN batch of target files independently; the
         # active document is only ever used as a convenience source for
-        # the Parameter dropdown (see discover_shared_parameters/
+        # the Parameter dropdown (see discover_all_parameter_names/
         # refresh_params_click, both already None-safe), never required.
         self.doc = uiapp.ActiveUIDocument.Document if uiapp.ActiveUIDocument is not None else None
         self.logger = deew_logger.DeeWLogger(_TOOL_NAME)
@@ -873,7 +945,7 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
         self._report_rows = []
         self._dialog_handler = None
 
-        self.parameter_cb.ItemsSource = discover_shared_parameters(self.doc)
+        self.parameter_cb.ItemsSource = discover_all_parameter_names(self.doc)
         if self.doc is None:
             self._log("Ready - no document open. Add target files (Target Files tab), then use "
                       "'Scan Common Parameters' (Parameter tab) to see every shared parameter common "
@@ -1144,6 +1216,7 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
             first_info = successful[0][1][name]
             rows.append(CommonParamRow(
                 name=name,
+                type_text=first_info["type_text"],
                 file_count=len(successful),
                 categories_text=first_info["categories_text"],
                 scope_text=first_info["scope_text"],
@@ -1154,13 +1227,75 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
 
         self._common_rows = rows
         self.common_grid.ItemsSource = None
-        self.common_grid.ItemsSource = rows
+        self.common_grid.ItemsSource = self._common_rows
+        self._apply_common_view()
         mismatched = sum(1 for r in rows if r.is_mismatched)
         skipped = len(per_file) - len(successful)
         self.common_status_tb.Text = "{0} parameter(s) common to all {1} successfully-scanned file(s) ({2} mismatched).{3}".format(
             len(rows), len(successful), mismatched,
             " {0} file(s) failed to scan and were excluded.".format(skipped) if skipped else "")
         self._log(self.common_status_tb.Text)
+
+    # ---------------- Common Parameters filter / grouping ----------------
+    _COMMON_GROUP_FIELDS = {
+        "No Grouping": None,
+        "Parameter Type": "type_text",
+        "Match Status": "match_text",
+        "Scope": "scope_text",
+        "Storage Type": "storage_type_text",
+    }
+
+    def _apply_common_view(self):
+        """Applies the current Filter textbox + Group By combo to the
+        common-parameters grid via WPF's own ICollectionView (filter/
+        group live on the VIEW, not on self._common_rows itself, so
+        switching Group By or editing the filter never re-scans or
+        mutates the underlying data - purely a presentation concern).
+        Guarded with getattr/hasattr because XAML can fire
+        TextChanged/SelectionChanged during initial load, before
+        self._common_rows exists yet."""
+        rows = getattr(self, "_common_rows", None)
+        if not rows:
+            return
+        try:
+            view = CollectionViewSource.GetDefaultView(rows)
+        except Exception:
+            return
+        if view is None:
+            return
+
+        view.GroupDescriptions.Clear()
+        group_choice = None
+        try:
+            selected = self.common_group_cb.SelectedItem
+            group_choice = selected.Content if selected is not None else None
+        except Exception:
+            group_choice = None
+        field = self._COMMON_GROUP_FIELDS.get(group_choice)
+        if field:
+            view.GroupDescriptions.Add(PropertyGroupDescription(field))
+
+        filter_text = ""
+        try:
+            filter_text = (self.common_filter_tb.Text or "").strip().lower()
+        except Exception:
+            pass
+        if filter_text:
+            def _matches(item, ft=filter_text):
+                try:
+                    return ft in (item.name or "").lower() or ft in (item.categories_text or "").lower()
+                except Exception:
+                    return False
+            view.Filter = _matches
+        else:
+            view.Filter = None
+        view.Refresh()
+
+    def common_filter_changed(self, sender, args):
+        self._apply_common_view()
+
+    def common_group_changed(self, sender, args):
+        self._apply_common_view()
 
     def use_common_parameter_click(self, sender, args):
         """Takes the selected row from the common-parameters grid and
@@ -1179,20 +1314,21 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
 
     # ---------------- Parameter ----------------
     def refresh_params_click(self, sender, args):
-        self.parameter_cb.ItemsSource = discover_shared_parameters(self.doc)
+        self.parameter_cb.ItemsSource = discover_all_parameter_names(self.doc)
         if self.doc is None:
-            self.parameter_info_tb.Text = "No document is open - type the exact shared parameter name; it'll be checked against each target file instead."
+            self.parameter_info_tb.Text = "No document is open - type the exact parameter name; it'll be checked against each target file instead."
             return
         name = (self.parameter_cb.Text or "").strip()
         if not name:
             self.parameter_info_tb.Text = "No parameter checked against the active document yet."
             return
-        definition, binding = find_shared_definition(self.doc, name)
+        definition, binding = find_bound_definition(self.doc, name)
         if definition is None:
             self.parameter_info_tb.Text = "'{0}' is not bound in the active document - you can still type it exactly and use it against your target files.".format(name)
             return
-        self.parameter_info_tb.Text = "Found in active document - Categories: {0} | Scope: {1}".format(
-            category_names_text(binding), "Type" if isinstance(binding, TypeBinding) else "Instance")
+        self.parameter_info_tb.Text = "Found in active document - Type: {0} | Categories: {1} | Scope: {2}".format(
+            definition_type_text(definition), category_names_text(binding),
+            "Type" if isinstance(binding, TypeBinding) else "Instance")
 
     # ---------------- Values ----------------
     def load_values_click(self, sender, args):
@@ -1474,6 +1610,6 @@ def launch(uiapp):
 TOOL_INFO = {
     "id": "dee_para_value",
     "title": "DeeParaValue",
-    "description": "Scan many Revit files (local, ACC cloud, and/or open documents) for every shared parameter common to all of them, see mismatches highlighted, then batch-edit and save corrections.",
+    "description": "Scan many Revit files (local, ACC cloud, and/or open documents) for every shared/project parameter common to all of them - filter, group, see mismatches highlighted, then batch-edit and save corrections.",
     "launch": launch,
 }
