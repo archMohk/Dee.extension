@@ -92,7 +92,10 @@ import datetime
 
 import clr
 clr.AddReference("System.Windows.Forms")
+clr.AddReference("PresentationCore")
+clr.AddReference("PresentationFramework")
 from System.Windows.Forms import FolderBrowserDialog, OpenFileDialog, SaveFileDialog, DialogResult, MessageBox
+from System.Windows import Visibility
 
 from pyrevit import forms
 import dee_branding
@@ -596,6 +599,17 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
         ts = datetime.datetime.now().strftime("%H:%M:%S")
         self.status_tb.Text = (self.status_tb.Text + "\n" if self.status_tb.Text else "") + "[{0}] {1}".format(ts, message)
         self.status_tb.ScrollToEnd()
+
+    # ---------------- Source mode (Local / ACC) ----------------
+    def source_mode_changed(self, sender, args):
+        """Toggles which input section is visible - purely a decluttering
+        toggle, not a data constraint: files already added to EITHER list
+        stay there and still get processed by Load Values regardless of
+        which radio is currently selected, so switching back and forth to
+        add both local and cloud files to the same run still works."""
+        is_acc = bool(self.source_acc_rb.IsChecked)
+        self.local_section.Visibility = Visibility.Collapsed if is_acc else Visibility.Visible
+        self.cloud_section.Visibility = Visibility.Visible if is_acc else Visibility.Collapsed
 
     # ---------------- Local files ----------------
     def browse_click(self, sender, args):

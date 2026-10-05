@@ -18,49 +18,57 @@
         <TabControl DockPanel.Dock="Top">
             <TabItem Header="Target Files">
                 <DockPanel Margin="8">
-                    <TextBlock DockPanel.Dock="Top" Text="Local Files" FontWeight="Bold" Margin="0,4,0,4"/>
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Source Folder:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBox x:Name="source_folder_tb" Width="420" Height="24" VerticalContentAlignment="Center" IsReadOnly="True"/>
-                        <Button x:Name="browse_b" Content="Browse..." Click="browse_click" Width="90" Height="24" Margin="8,0,0,0"/>
-                        <Button x:Name="scan_b" Content="Scan Folder" Click="scan_click" Width="100" Height="24" Margin="8,0,0,0"/>
-                        <CheckBox x:Name="recursive_cb" Content="Include subfolders" VerticalAlignment="Center" Margin="14,0,0,0" IsChecked="True"/>
-                        <Button x:Name="add_files_b" Content="Add Files..." Click="add_files_click" Width="100" Height="24" Margin="14,0,0,0"/>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+                        <TextBlock Text="Source:" VerticalAlignment="Center" FontWeight="Bold" Margin="0,0,10,0"/>
+                        <RadioButton x:Name="source_local_rb" GroupName="source_mode" Content="Local Files" IsChecked="True" Checked="source_mode_changed" VerticalAlignment="Center" Margin="0,0,20,0"/>
+                        <RadioButton x:Name="source_acc_rb" GroupName="source_mode" Content="ACC Cloud Models" Checked="source_mode_changed" VerticalAlignment="Center"/>
                     </StackPanel>
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                        <Button x:Name="select_all_b" Content="Select All" Click="select_all_click" Width="90" Height="24"/>
-                        <Button x:Name="select_none_b" Content="Select None" Click="select_none_click" Width="90" Height="24" Margin="6,0,0,0"/>
-                        <TextBlock x:Name="scan_status_tb" Text="No files scanned yet." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
-                    </StackPanel>
-                    <DataGrid x:Name="models_grid" Height="180" DockPanel.Dock="Top" AutoGenerateColumns="False" CanUserAddRows="False"
-                              CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0" Margin="0,0,0,10">
-                        <DataGrid.Columns>
-                            <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
-                            <DataGridTextColumn Header="File Name" Binding="{Binding file_name}" Width="*" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Version" Binding="{Binding version}" Width="70" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Model Type" Binding="{Binding model_type}" Width="100" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Size" Binding="{Binding size_text}" Width="80" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="160" IsReadOnly="True"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
 
-                    <TextBlock DockPanel.Dock="Top" Text="Cloud Models" FontWeight="Bold" Margin="0,0,0,4"/>
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                        <Button x:Name="add_cloud_b" Content="Add Cloud Models..." Click="add_cloud_click" Width="150" Height="24"/>
-                        <Button x:Name="select_all_cloud_b" Content="Select All" Click="select_all_cloud_click" Width="90" Height="24" Margin="14,0,0,0"/>
-                        <Button x:Name="select_none_cloud_b" Content="Select None" Click="select_none_cloud_click" Width="90" Height="24" Margin="6,0,0,0"/>
-                    </StackPanel>
-                    <DataGrid x:Name="cloud_grid" AutoGenerateColumns="False" CanUserAddRows="False"
-                              CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
-                        <DataGrid.Columns>
-                            <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
-                            <DataGridTextColumn Header="Model Name" Binding="{Binding display_name}" Width="*" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Hub" Binding="{Binding hub_name}" Width="140" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Project" Binding="{Binding project_name}" Width="160" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Region" Binding="{Binding region}" Width="70" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="160" IsReadOnly="True"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
+                    <DockPanel x:Name="local_section" DockPanel.Dock="Top">
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                            <TextBlock Text="Source Folder:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBox x:Name="source_folder_tb" Width="420" Height="24" VerticalContentAlignment="Center" IsReadOnly="True"/>
+                            <Button x:Name="browse_b" Content="Browse..." Click="browse_click" Width="90" Height="24" Margin="8,0,0,0"/>
+                            <Button x:Name="scan_b" Content="Scan Folder" Click="scan_click" Width="100" Height="24" Margin="8,0,0,0"/>
+                            <CheckBox x:Name="recursive_cb" Content="Include subfolders" VerticalAlignment="Center" Margin="14,0,0,0" IsChecked="True"/>
+                            <Button x:Name="add_files_b" Content="Add Files..." Click="add_files_click" Width="100" Height="24" Margin="14,0,0,0"/>
+                        </StackPanel>
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button x:Name="select_all_b" Content="Select All" Click="select_all_click" Width="90" Height="24"/>
+                            <Button x:Name="select_none_b" Content="Select None" Click="select_none_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                            <TextBlock x:Name="scan_status_tb" Text="No files scanned yet." VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
+                        </StackPanel>
+                        <DataGrid x:Name="models_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                                  CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
+                                <DataGridTextColumn Header="File Name" Binding="{Binding file_name}" Width="*" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Version" Binding="{Binding version}" Width="70" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Model Type" Binding="{Binding model_type}" Width="100" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Size" Binding="{Binding size_text}" Width="80" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="160" IsReadOnly="True"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+
+                    <DockPanel x:Name="cloud_section" DockPanel.Dock="Top" Visibility="Collapsed">
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button x:Name="add_cloud_b" Content="Add Cloud Models..." Click="add_cloud_click" Width="150" Height="24"/>
+                            <Button x:Name="select_all_cloud_b" Content="Select All" Click="select_all_cloud_click" Width="90" Height="24" Margin="14,0,0,0"/>
+                            <Button x:Name="select_none_cloud_b" Content="Select None" Click="select_none_cloud_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        </StackPanel>
+                        <DataGrid x:Name="cloud_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                                  CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
+                                <DataGridTextColumn Header="Model Name" Binding="{Binding display_name}" Width="*" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Hub" Binding="{Binding hub_name}" Width="140" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Project" Binding="{Binding project_name}" Width="160" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Region" Binding="{Binding region}" Width="70" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="160" IsReadOnly="True"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
                 </DockPanel>
             </TabItem>
 
