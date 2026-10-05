@@ -6,7 +6,7 @@
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Scans a batch of Revit files (local and/or ACC cloud) for ONE shared parameter's current value, shows it per file, and lets you type corrected values before writing them all back in one run. A blank New Value always means 'leave this file alone' - only files you actually type into get changed. Optional review step: Export for Review -&gt; someone fills in Approved -&gt; Import Reviewed Values -&gt; Save only applies the approved ones."/>
+                   Text="Scans a batch of Revit files (local, ACC cloud, and/or already-open documents) for ONE shared parameter's current value, shows it per file, and lets you type corrected values before writing them all back in one run. A blank New Value always means 'leave this file alone' - only files you actually type into get changed. Optional review step: Export for Review -&gt; someone fills in Approved -&gt; Import Reviewed Values -&gt; Save only applies the approved ones."/>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Button x:Name="load_values_b" Content="Load Values" Click="load_values_click" Width="100" Height="28"/>
@@ -23,7 +23,8 @@
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
                         <TextBlock Text="Source:" VerticalAlignment="Center" FontWeight="Bold" Margin="0,0,10,0"/>
                         <RadioButton x:Name="source_local_rb" GroupName="source_mode" Content="Local Files" IsChecked="True" Checked="source_mode_changed" VerticalAlignment="Center" Margin="0,0,20,0"/>
-                        <RadioButton x:Name="source_acc_rb" GroupName="source_mode" Content="ACC Cloud Models" Checked="source_mode_changed" VerticalAlignment="Center"/>
+                        <RadioButton x:Name="source_acc_rb" GroupName="source_mode" Content="ACC Cloud Models" Checked="source_mode_changed" VerticalAlignment="Center" Margin="0,0,20,0"/>
+                        <RadioButton x:Name="source_open_rb" GroupName="source_mode" Content="Open Documents" Checked="source_mode_changed" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <DockPanel x:Name="local_section" DockPanel.Dock="Top">
@@ -67,6 +68,27 @@
                                 <DataGridTextColumn Header="Hub" Binding="{Binding hub_name}" Width="140" IsReadOnly="True"/>
                                 <DataGridTextColumn Header="Project" Binding="{Binding project_name}" Width="160" IsReadOnly="True"/>
                                 <DataGridTextColumn Header="Region" Binding="{Binding region}" Width="70" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="160" IsReadOnly="True"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+
+                    <DockPanel x:Name="open_section" DockPanel.Dock="Top" Visibility="Collapsed">
+                        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,0,0,6"
+                                   Text="Every non-linked document already open in this same Revit session - never closed by this tool (you had it open before running this, so it's left exactly as you left it), whether it's used for a read (Load Values) or a write (Save)."/>
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button x:Name="add_open_b" Content="Add Open Documents" Click="add_open_click" Width="150" Height="24"/>
+                            <Button x:Name="select_all_open_b" Content="Select All" Click="select_all_open_click" Width="90" Height="24" Margin="14,0,0,0"/>
+                            <Button x:Name="select_none_open_b" Content="Select None" Click="select_none_open_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                        </StackPanel>
+                        <DataGrid x:Name="open_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                                  CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
+                                <DataGridTextColumn Header="File Name" Binding="{Binding file_name}" Width="*" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Version" Binding="{Binding version}" Width="70" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Model Type" Binding="{Binding model_type}" Width="100" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Size" Binding="{Binding size_text}" Width="80" IsReadOnly="True"/>
                                 <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="160" IsReadOnly="True"/>
                             </DataGrid.Columns>
                         </DataGrid>

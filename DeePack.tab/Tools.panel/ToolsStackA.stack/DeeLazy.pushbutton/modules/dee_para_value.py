@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 DeeLazy - DeeParaValue module
-Scans a batch of Revit files - local and/or ACC cloud - for ONE shared
-parameter's current value, shows it per file, and lets the user type
+Scans a batch of Revit files - local, ACC cloud, and/or documents
+already open in this same Revit session - for ONE shared parameter's
+current value, shows it per file, and lets the user type
 corrected values before writing them all back in one run. Built for the
 "audit many files, fix the ones that drifted" workflow, by explicit user
 request and two explicit scope choices made when asked:
@@ -120,10 +121,20 @@ Scope limits for this first pass (not silently incomplete)
   Revit's own binding model, not a bug.
 - Always opens with every workset open (matches DeeFUpdate) so closed
   worksets never hide bound elements - not user-configurable yet.
-- Local files AND ACC/BIM360 cloud models are both in scope (explicit
-  user correction during planning) - reuses acc_file_browser.py/
-  deew_cloud_service.py exactly as dee_fupdate.py already does, no new
-  cloud-access code.
+- Local files, ACC/BIM360 cloud models, AND documents already open in
+  this Revit session are all in scope - a third Source radio
+  ("Open Documents"), added by explicit user request alongside the
+  original Local/ACC ask. Local/cloud picking reuses
+  acc_file_browser.py/deew_cloud_service.py exactly as dee_fupdate.py
+  already does; Open Documents reuses scanner.scan_open_document and
+  the .live_document convention already proven in DeeWBatchSaveToCloud's
+  own "Add Open Files" - a document already open before this tool ran
+  is NEVER closed by it, whether it was used for a read or a write
+  (see DeeParaValuePipeline.scan_local/apply_local's opened_by_us
+  tracking). One consequence surfaced explicitly, not glossed over:
+  saving/synchronizing an already-open document commits EVERYTHING
+  pending in it, not just the one parameter this tool touched - the
+  Save confirmation dialog says so whenever an "Open" row is involved.
 - Works with NO active document open - this tool manages its own batch
   of target files independently; an active document is only ever an
   optional convenience source for the Parameter dropdown
@@ -496,23 +507,36 @@ class DeeParaValuePipeline(object):
             row.status = "Unsupported (ElementId)"
 
     def scan_local(self, scanned_model):
-        row = ValueRow(scanned_model, "Local", scanned_model.file_name)
+        # "Open" (already open in this Revit session, via Add Open
+        # Documents) vs "Local" (a closed path on disk) is decided here,
+        # per scanned_model, rather than needing a separate scan method -
+        # scanner.scan_open_document already stamps .live_document for
+        # exactly this branch.
+        source_label = "Open" if scanned_model.live_document is not None else "Local"
+        row = ValueRow(scanned_model, source_label, scanned_model.file_name)
         if scanned_model.model_type in (scanner.MODEL_TYPE_CORRUPTED, scanner.MODEL_TYPE_READ_ONLY):
             row.status = "Skipped - {0}".format(scanned_model.status)
             return row
         document = None
+        opened_by_us = True
         try:
-            document, err = docmgr.open_document_no_detach(
-                self.application, scanned_model.file_path, open_all_worksets=True, logger=self.logger)
-            if document is None:
-                row.status = "Failed - could not open ({0})".format(err)
-                return row
+            if scanned_model.live_document is not None:
+                document = scanned_model.live_document
+                opened_by_us = False
+            else:
+                document, err = docmgr.open_document_no_detach(
+                    self.application, scanned_model.file_path, open_all_worksets=True, logger=self.logger)
+                if document is None:
+                    row.status = "Failed - could not open ({0})".format(err)
+                    return row
             self._scan_document(document, row)
         except Exception as e:
             row.status = "Failed - unexpected error"
             self.logger.exception("Unexpected error scanning file", e, file=scanned_model.file_name)
         finally:
-            if document is not None:
+            # Never close a document this pipeline didn't open itself -
+            # the user had it open before running this tool.
+            if document is not None and opened_by_us:
                 docmgr.close_document(document, save_modified=False, logger=self.logger)
         return row
 
@@ -584,15 +608,29 @@ class DeeParaValuePipeline(object):
         return True
 
     def apply_local(self, scanned_model, raw_text):
-        report = ReportRow(scanned_model.file_name, "Local", raw_text, 0, 0, "")
+        # NOTE on "Open" rows (already open in this session): synchronize_
+        # with_central/save_standalone below commits EVERYTHING currently
+        # pending in that document, not just this one parameter edit - if
+        # the user has other unsaved work in it, that goes out too. This
+        # is surfaced as an explicit warning in the Save confirmation
+        # dialog (see save_click) whenever any row being applied is an
+        # "Open" one, rather than silently treated the same as a freshly-
+        # opened, nothing-else-pending file.
+        source_label = "Open" if scanned_model.live_document is not None else "Local"
+        report = ReportRow(scanned_model.file_name, source_label, raw_text, 0, 0, "")
         document = None
+        opened_by_us = True
         try:
-            document, err = docmgr.open_document_no_detach(
-                self.application, scanned_model.file_path, open_all_worksets=True, logger=self.logger)
-            if document is None:
-                report.save_status = "Failed - could not open"
-                report.errors = err
-                return report
+            if scanned_model.live_document is not None:
+                document = scanned_model.live_document
+                opened_by_us = False
+            else:
+                document, err = docmgr.open_document_no_detach(
+                    self.application, scanned_model.file_path, open_all_worksets=True, logger=self.logger)
+                if document is None:
+                    report.save_status = "Failed - could not open"
+                    report.errors = err
+                    return report
             committed = self._apply_to_document(document, raw_text, report)
             if not committed:
                 return report
@@ -612,7 +650,7 @@ class DeeParaValuePipeline(object):
             report.errors = str(e)
             self.logger.exception("Unexpected error applying value to file", e, file=scanned_model.file_name)
         finally:
-            if document is not None:
+            if document is not None and opened_by_us:
                 docmgr.close_document(document, save_modified=False, logger=self.logger)
         return report
 
@@ -665,6 +703,7 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
         self.logger = deew_logger.DeeWLogger(_TOOL_NAME)
         self._models = []
         self._cloud_items = []
+        self._open_models = []
         self._value_rows = []
         self._report_rows = []
         self._dialog_handler = None
@@ -685,14 +724,21 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
 
     # ---------------- Source mode (Local / ACC) ----------------
     def source_mode_changed(self, sender, args):
-        """Toggles which input section is visible - purely a decluttering
-        toggle, not a data constraint: files already added to EITHER list
-        stay there and still get processed by Load Values regardless of
-        which radio is currently selected, so switching back and forth to
-        add both local and cloud files to the same run still works."""
-        is_acc = bool(self.source_acc_rb.IsChecked)
-        self.local_section.Visibility = Visibility.Collapsed if is_acc else Visibility.Visible
-        self.cloud_section.Visibility = Visibility.Visible if is_acc else Visibility.Collapsed
+        """Toggles which ONE input section is visible - purely a
+        decluttering toggle, not a data constraint: files already added
+        to ANY of the three lists (local/cloud/open) stay there and
+        still get processed by Load Values regardless of which radio is
+        currently selected, so switching back and forth to add from all
+        three to the same run still works."""
+        if self.source_acc_rb.IsChecked:
+            mode = "acc"
+        elif self.source_open_rb.IsChecked:
+            mode = "open"
+        else:
+            mode = "local"
+        self.local_section.Visibility = Visibility.Visible if mode == "local" else Visibility.Collapsed
+        self.cloud_section.Visibility = Visibility.Visible if mode == "acc" else Visibility.Collapsed
+        self.open_section.Visibility = Visibility.Visible if mode == "open" else Visibility.Collapsed
 
     # ---------------- Local files ----------------
     def browse_click(self, sender, args):
@@ -751,6 +797,66 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
     def _refresh_models_grid(self):
         self.models_grid.ItemsSource = None
         self.models_grid.ItemsSource = self._models
+
+    # ---------------- Open documents ----------------
+    def add_open_click(self, sender, args):
+        """Adds every currently open, non-linked document in this same
+        Revit session - same scanner.scan_open_document approach already
+        proven in DeeWBatchSaveToCloud's own "Add Open Files": each row
+        carries a .live_document reference, which the pipeline (see
+        DeeParaValuePipeline) uses directly instead of reopening from
+        disk, and - critically - never closes, since the user had it
+        open before running this tool. A document that has never been
+        saved (no PathName) has no file to point at and is skipped."""
+        try:
+            open_docs = [d for d in self.uiapp.Application.Documents if not d.IsLinked]
+        except Exception as e:
+            forms.alert("Could not read open documents: {0}".format(e))
+            return
+        if not open_docs:
+            forms.alert("No open documents found in this session.")
+            return
+
+        existing_paths = set(m.file_path for m in self._open_models if not m.live_document)
+        added = 0
+        skipped_unsaved = 0
+        skipped_duplicate = 0
+        for doc in open_docs:
+            try:
+                path = doc.PathName or ""
+            except Exception:
+                path = ""
+            if not path:
+                skipped_unsaved += 1
+                continue
+            if path in existing_paths or any(m.live_document is doc for m in self._open_models):
+                skipped_duplicate += 1
+                continue
+            self._open_models.append(scanner.scan_open_document(doc))
+            existing_paths.add(path)
+            added += 1
+
+        self._refresh_open_grid()
+        note = "Added {0} open document(s)".format(added)
+        if skipped_unsaved:
+            note += "; {0} skipped (never saved - save first)".format(skipped_unsaved)
+        if skipped_duplicate:
+            note += "; {0} already in list".format(skipped_duplicate)
+        self._log(note + ".")
+
+    def select_all_open_click(self, sender, args):
+        for m in self._open_models:
+            m.selected = True
+        self._refresh_open_grid()
+
+    def select_none_open_click(self, sender, args):
+        for m in self._open_models:
+            m.selected = False
+        self._refresh_open_grid()
+
+    def _refresh_open_grid(self):
+        self.open_grid.ItemsSource = None
+        self.open_grid.ItemsSource = self._open_models
 
     # ---------------- Cloud models ----------------
     def add_cloud_click(self, sender, args):
@@ -828,16 +934,22 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Enter or pick a shared parameter name first (Parameter tab).")
             return
         selected_local = [m for m in self._models if m.selected]
+        selected_open = [m for m in self._open_models if m.selected]
         selected_cloud = [i for i in self._cloud_items if i.selected]
-        if not selected_local and not selected_cloud:
-            forms.alert("Select at least one local file or cloud model first (Target Files tab).")
+        if not selected_local and not selected_open and not selected_cloud:
+            forms.alert("Select at least one local file, open document, or cloud model first (Target Files tab).")
             return
 
         pipeline = DeeParaValuePipeline(self.application, param_name, self.logger)
-        total = len(selected_local) + len(selected_cloud)
+        # selected_open rows are plain ScannedModel objects too (via
+        # scanner.scan_open_document) - scan_local/apply_local already
+        # branch on .live_document, so they share the SAME loop as
+        # selected_local rather than needing a third one.
+        local_and_open = selected_local + selected_open
+        total = len(local_and_open) + len(selected_cloud)
         rows = []
         with progsvc.DeeWProgressService(_TOOL_TITLE, total) as prog:
-            for model in selected_local:
+            for model in local_and_open:
                 if prog.cancelled:
                     self._log("Cancelled by user.")
                     break
@@ -992,11 +1104,23 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
             forms.alert("{0} file(s) are ElementId-typed (unsupported) and will be skipped automatically.".format(
                 len(unsupported)))
 
-        if not forms.alert(
-                "Write '{0}' into {1} file(s)? Every bound element in each of those files will be set to its "
-                "typed New Value. This is saved/synchronized back to the real files - it cannot be undone from here.".format(
-                    param_name, len(to_apply)),
-                title=_TOOL_TITLE + " - confirm", yes=True, no=True):
+        confirm_text = (
+            "Write '{0}' into {1} file(s)? Every bound element in each of those files will be set to its "
+            "typed New Value. This is saved/synchronized back to the real files - it cannot be undone from here."
+        ).format(param_name, len(to_apply))
+        open_count = sum(1 for r in to_apply if r.source == "Open")
+        if open_count:
+            # Synchronize/Save on an already-open document commits
+            # EVERYTHING currently pending in it, not just this one
+            # parameter - a real consequence, not a hypothetical one, so
+            # it goes in the confirmation itself rather than a docstring
+            # only the developer reads.
+            confirm_text += (
+                "\n\nWarning: {0} of those are documents already open in this session - saving/synchronizing "
+                "them will also commit any OTHER unsaved changes already pending in them, not just this "
+                "parameter.".format(open_count))
+
+        if not forms.alert(confirm_text, title=_TOOL_TITLE + " - confirm", yes=True, no=True):
             return
 
         options_auto_resolve = True
