@@ -25,6 +25,7 @@ tolerates doc=None."""
 import os
 
 import clr
+clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
 from System.Windows import Visibility
 
