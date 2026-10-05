@@ -6,7 +6,7 @@
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10"
-                   Text="Exposes this running Revit session to an external MCP (Model Context Protocol) client - Claude Code/Desktop, or any other MCP-compatible AI tool. While running, a connected client can run arbitrary Revit API code against this document AND trigger a small set of curated Dee.extension tools. Loopback-only, token-protected, never starts on its own - see the warning below."/>
+                   Text="Exposes this running Revit session to an external MCP (Model Context Protocol) client - Claude Code/Desktop, or any other MCP-compatible AI tool. Works with no project open too - a connected client can open or create a document, and once one is active, run arbitrary Revit API code against it AND trigger a small set of curated Dee.extension tools. Loopback-only, token-protected, never starts on its own - see the warning below."/>
 
         <Border DockPanel.Dock="Top" Background="#3A2A00" BorderBrush="#C98A00" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,0,0,10">
             <TextBlock TextWrapping="Wrap" Foreground="#FFD680"

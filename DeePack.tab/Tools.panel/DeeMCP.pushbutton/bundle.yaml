@@ -1,5 +1,6 @@
 title: DeeMCP
-tooltip: Starts a local MCP (Model Context Protocol) server inside this Revit session so an external AI client (Claude Code/Desktop, or any other MCP-compatible tool) can run Revit API code and trigger curated Dee.extension tools against the active document. Loopback-only, token-protected, never starts automatically.
+tooltip: Starts a local MCP (Model Context Protocol) server inside this Revit session so an external AI client (Claude Code/Desktop, or any other MCP-compatible tool) can run Revit API code and trigger curated Dee.extension tools against the active document - or open/create one, since this works with no document open too. Loopback-only, token-protected, never starts automatically.
+context: zero-doc
 engine:
   clean: false
   persistent: true

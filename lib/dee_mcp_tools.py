@@ -48,6 +48,18 @@ changes in between - an inherent limitation of a REPL-style namespace
 spanning multiple real-world document states, not something papered
 over here.
 
+DeeMCP's bundle.yaml declares `context: zero-doc` (same reasoning as
+DeeOpener.pushbutton) so the button itself is not greyed out with no
+project open - the whole point being that an AI client can open or
+create a document via `uiapp`, not just manipulate one already open.
+`doc` is None in that case, and `Transaction(None, ...)` raises, so
+`_run_python` below skips TurnTransaction entirely and runs the code
+directly when there is no document yet - there is nothing to make
+undoable until a document exists. Once the AI's code opens/activates
+one (e.g. `uiapp.OpenAndActivateDocument(...)`), the NEXT call sees a
+real `doc` again (freshly read per call, per the rule above) and goes
+through the normal transactional path.
+
 --------------------------------------------------------------------
 Tool 2: set_view_template_link_display - a concrete "existing tool,
 exposed" example, not just a theoretical framework
@@ -70,6 +82,7 @@ dee_vtemp.py's own explicitly scoped first pass) - "Custom" link
 display is out of scope here too.
 """
 import os
+import sys
 import traceback
 
 from Autodesk.Revit.DB import (
@@ -80,6 +93,11 @@ from Autodesk.Revit.DB import (
 
 import dee_ai_sandbox as sandbox
 import dee_ai_service
+
+try:
+    from StringIO import StringIO
+except ImportError:
+    from io import StringIO
 
 
 # ==========================================================================
@@ -138,6 +156,16 @@ def _run_python(doc, uidoc, uiapp, arguments):
             "doc": doc, "uidoc": uidoc, "uiapp": uiapp, "__revit__": uiapp,
         })
 
+    if doc is None:
+        # No document open (DeeMCP's bundle.yaml declares context:
+        # zero-doc specifically to allow this) - Transaction(None, ...)
+        # raises, and there is nothing to make undoable yet anyway, so
+        # run directly instead of going through TurnTransaction. This is
+        # how an AI client opens/creates a document in the first place
+        # (e.g. uiapp.OpenAndActivateDocument(...)) before anything
+        # document-scoped becomes possible.
+        return _run_bare(code, _exec_globals)
+
     # One Transaction per tools/call, not one per "conversation" like
     # DeeAI (there is no equivalent grouping concept in a stateless
     # JSON-RPC request) - still gets DeeAI's exact SubTransaction safety
@@ -145,6 +173,23 @@ def _run_python(doc, uidoc, uiapp, arguments):
     with sandbox.TurnTransaction(doc, "DeeMCP - execute_revit_python") as turn:
         ok, output = turn.run(code, _exec_globals)
     return output if ok else "Error:\n{0}".format(output)
+
+
+def _run_bare(code, exec_globals):
+    """Same stdout-capture/traceback contract as
+    dee_ai_sandbox.TurnTransaction.run(), minus the Transaction/
+    SubTransaction wrapping that requires a real Document to exist."""
+    old_stdout = sys.stdout
+    buf = StringIO()
+    sys.stdout = buf
+    try:
+        exec(code, exec_globals)
+        sys.stdout = old_stdout
+        output = buf.getvalue()
+        return output if output.strip() else "(no output - code ran without printing anything)"
+    except Exception:
+        sys.stdout = old_stdout
+        return "Error:\n" + traceback.format_exc()
 
 
 # ==========================================================================
@@ -215,6 +260,8 @@ def _build_link_settings(display_option):
 
 
 def _set_view_template_link_display(doc, uidoc, uiapp, arguments):
+    if doc is None:
+        return "Error: no Revit document is open - open or create one first (e.g. via execute_revit_python)."
     args = arguments or {}
     option_text = args.get("display_option", "ByHostView")
     display_option = (RevitLinkGraphicsDisplayOptions.ByLinkView

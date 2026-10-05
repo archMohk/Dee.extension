@@ -109,16 +109,17 @@ def _handle_tools_list(request_id):
 
 
 def _handle_tools_call(request_id, params, doc, uidoc, uiapp):
+    # No blanket "doc is None -> error" gate here, deliberately: DeeMCP
+    # runs with no document open too (bundle.yaml: context: zero-doc),
+    # and execute_revit_python specifically needs to keep working then -
+    # it's how an AI client opens/creates a document in the first place.
+    # Each tool decides for itself whether it needs an open document
+    # (see lib/dee_mcp_tools.py's per-handler checks).
     params = params or {}
     tool_name = params.get("name")
     arguments = params.get("arguments") or {}
     if not tool_name:
         return _rpc_error(request_id, INVALID_PARAMS, "Missing 'name' in tools/call params.")
-    if doc is None:
-        return _rpc_result(request_id, {
-            "content": [{"type": "text", "text": "No Revit document is currently open."}],
-            "isError": True,
-        })
     ok, text = tools.call_tool(tool_name, doc, uidoc, uiapp, arguments)
     return _rpc_result(request_id, {
         "content": [{"type": "text", "text": text}],
