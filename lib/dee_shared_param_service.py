@@ -50,13 +50,29 @@ moved here unchanged. The ReInsert "extend an existing binding to a
 SECOND category" path (first exercised by DeeSheetLinks, giving Views
 the same parameter DeeLinkDist already bound to Revit Links) is new
 ground - never run live before.
+
+--------------------------------------------------------------------
+BuiltInParameterGroup removed in Revit 2026 - fixed, not guessed
+--------------------------------------------------------------------
+Autodesk.Revit.DB.BuiltInParameterGroup (used here as
+BuiltInParameterGroup.PG_IDENTITY_DATA, the 3rd arg to Insert/ReInsert)
+does not exist at all in Revit 2026's API - confirmed via .NET
+reflection against the installed RevitAPI.dll, not assumed - caught
+live when it broke DeeLazy's entire module-loading chain (every
+DeeLazy module is imported eagerly, so one broken import here blocked
+the whole launcher, not just this file). Replaced with
+GroupTypeId.IdentityData (a ForgeTypeId), the same enum-to-ForgeTypeId
+migration this codebase already uses for units (SpecTypeId/UnitTypeId
+elsewhere) - also confirmed to exist with this exact name via the same
+reflection pass, and BindingMap.Insert/ReInsert both have a matching
+3-arg overload accepting a ForgeTypeId in this Revit version.
 """
 import os
 import tempfile
 
 from Autodesk.Revit.DB import (
     Transaction, ExternalDefinitionCreationOptions, SpecTypeId,
-    BuiltInParameterGroup,
+    GroupTypeId,
 )
 
 _SP_GROUP_NAME = "DeePack"
@@ -165,7 +181,7 @@ def ensure_shared_parameters(doc, app, param_names, category_bic, category_label
                     cats = doc.Application.Create.NewCategorySet()
                     cats.Insert(target_cat)
                     binding = doc.Application.Create.NewInstanceBinding(cats)
-                    inserted = bindings.Insert(definition, binding, BuiltInParameterGroup.PG_IDENTITY_DATA)
+                    inserted = bindings.Insert(definition, binding, GroupTypeId.IdentityData)
                     results[name] = ((True, "created and bound to {0} ({1})".format(
                         category_label, file_detail)) if inserted else
                         (False, "Revit refused to bind '{0}' to {1}".format(name, category_label)))
@@ -183,7 +199,7 @@ def ensure_shared_parameters(doc, app, param_names, category_bic, category_label
                     cats.Insert(c)
                 cats.Insert(target_cat)
                 new_binding = doc.Application.Create.NewInstanceBinding(cats)
-                reinserted = bindings.ReInsert(definition, new_binding, BuiltInParameterGroup.PG_IDENTITY_DATA)
+                reinserted = bindings.ReInsert(definition, new_binding, GroupTypeId.IdentityData)
                 results[name] = ((True, "extended the existing binding to also cover {0} ({1})".format(
                     category_label, file_detail)) if reinserted else
                     (False, "Revit refused to extend '{0}' to also cover {1}".format(name, category_label)))

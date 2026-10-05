@@ -58,6 +58,16 @@ NEEDS LIVE-REVIT VERIFICATION (flagged, not assumed):
   within the SAME transaction, or needs the transaction committed
   first. This tool commits the creation transaction BEFORE the writing
   transaction specifically so it does not depend on that answer.
+
+RESOLVED, not a guess: Autodesk.Revit.DB.BuiltInParameterGroup (used
+here as the 3rd arg to ParameterBindings.Insert) does not exist at all
+in Revit 2026 - confirmed via .NET reflection against the installed
+RevitAPI.dll, caught live when it broke DeeLazy's ENTIRE module-loading
+chain (every DeeLazy module is imported eagerly by modules/__init__.py,
+so one broken import here blocked the whole launcher). Replaced with
+GroupTypeId.IdentityData (a ForgeTypeId) - the same enum-to-ForgeTypeId
+migration already used elsewhere in this codebase for units - also
+confirmed to exist with this exact name via the same reflection pass.
 """
 import os
 
@@ -69,7 +79,7 @@ import utils
 from Autodesk.Revit.DB import (
     FilteredElementCollector, View, ViewSheet, Transaction, BuiltInCategory,
     CategorySet, ExternalDefinitionCreationOptions, SpecTypeId,
-    BuiltInParameterGroup, ElementId, StorageType,
+    GroupTypeId, ElementId, StorageType,
 )
 from System.Collections.Generic import List
 
@@ -274,7 +284,7 @@ def create_shared_view_parameter(doc, app, param_name):
         if bindings.Contains(definition):
             t.Commit()
             return True, "'{0}' was already bound to Views ({1})".format(param_name, file_detail)
-        inserted = bindings.Insert(definition, binding, BuiltInParameterGroup.PG_IDENTITY_DATA)
+        inserted = bindings.Insert(definition, binding, GroupTypeId.IdentityData)
         t.Commit()
         if not inserted:
             return False, "Revit refused to bind '{0}' to the Views category".format(param_name)
