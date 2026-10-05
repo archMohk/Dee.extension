@@ -2,22 +2,30 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeAI — Revit AI Assistant"
         ShowInTaskbar="False"
-        MinHeight="560" MinWidth="760" Height="640" Width="860"
+        MinHeight="600" MinWidth="760" Height="700" Width="860"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="DeeAI writes IronPython code and runs it directly against this document to answer questions or make changes - there is no per-action confirmation. Each message you send is wrapped in one Transaction, so Undo (Ctrl+Z) reverts everything from that message in one step. Your API key is never saved - re-enter it each time you open this window."/>
+                   Text="DeeAI writes IronPython code and runs it directly against this document to answer questions or make changes - there is no per-action confirmation. Each message you send is wrapped in one Transaction, so Undo (Ctrl+Z) reverts everything from that message in one step. Each provider's API key is remembered locally (per-machine, never committed to the repo) after you enter it once."/>
 
         <GroupBox DockPanel.Dock="Top" Header="Connection" Margin="0,0,0,8">
             <StackPanel Margin="6">
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                    <TextBlock Text="Anthropic API Key:" VerticalAlignment="Center" Width="130"/>
+                    <TextBlock Text="AI Provider:" VerticalAlignment="Center" Width="130"/>
+                    <ComboBox x:Name="provider_cb" Width="220" Height="24" SelectionChanged="provider_changed"/>
+                    <TextBlock x:Name="key_hint_tb" Text="" VerticalAlignment="Center" Margin="10,0,0,0" FontStyle="Italic"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <TextBlock Text="API Key:" VerticalAlignment="Center" Width="130"/>
                     <PasswordBox x:Name="api_key_pb" Width="360" Height="24" VerticalContentAlignment="Center"/>
-                    <TextBlock Text="(not saved - re-enter each session)" VerticalAlignment="Center" Margin="10,0,0,0" FontStyle="Italic"/>
+                </StackPanel>
+                <StackPanel x:Name="base_url_panel" Orientation="Horizontal" Margin="0,0,0,6" Visibility="Collapsed">
+                    <TextBlock Text="Base URL:" VerticalAlignment="Center" Width="130"/>
+                    <TextBox x:Name="base_url_tb" Width="360" Height="24" VerticalContentAlignment="Center"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Model:" VerticalAlignment="Center" Width="130"/>
-                    <ComboBox x:Name="model_cb" Width="180" Height="24"/>
+                    <ComboBox x:Name="model_cb" Width="180" Height="24" IsEditable="True"/>
                     <TextBlock Text="Effort:" VerticalAlignment="Center" Width="60" Margin="20,0,0,0"/>
                     <ComboBox x:Name="effort_cb" Width="100" Height="24"/>
                     <Button x:Name="new_conversation_b" Content="New Conversation" Click="new_conversation_click" Width="130" Height="24" Margin="20,0,0,0"/>
