@@ -743,5 +743,6 @@ TOOL_INFO = {
     "id": "view_cropping",
     "title": "View Cropping",
     "description": "Batch-edit Crop Region active/visibility, Annotation Crop, Crop Offset, and Scope Box across many views at once.",
+    "icon": u"✂",  # scissors - cropping
     "launch": launch,
 }

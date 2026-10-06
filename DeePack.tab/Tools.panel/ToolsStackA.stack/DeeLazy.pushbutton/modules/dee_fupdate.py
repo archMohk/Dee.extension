@@ -659,5 +659,6 @@ TOOL_INFO = {
     "id": "dee_fupdate",
     "title": "DeeFUpdate",
     "description": "Batch-push a Family into many other Revit files (local and/or ACC cloud), overwriting the existing version wherever it's already present.",
+    "icon": u"\U0001F4E6",  # package - distributing a family into many files
     "launch": launch,
 }

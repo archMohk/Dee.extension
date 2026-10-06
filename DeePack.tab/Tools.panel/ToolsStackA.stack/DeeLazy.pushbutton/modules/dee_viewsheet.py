@@ -713,5 +713,6 @@ TOOL_INFO = {
     "id": "dee_viewsheet",
     "title": "DeeViewsheet",
     "description": "Write each sheet's Number/Name onto the views placed on it - pick an existing parameter or create a new shared one.",
+    "icon": u"\U0001F516",  # bookmark - stamping sheet identity onto its views
     "launch": launch,
 }

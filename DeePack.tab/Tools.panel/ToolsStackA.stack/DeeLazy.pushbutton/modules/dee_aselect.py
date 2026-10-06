@@ -1426,5 +1426,6 @@ TOOL_INFO = {
     "id": "dee_aselect",
     "title": "DeeMoveMirror",
     "description": "Select EVERY element in the project - model, annotation, links, everything - with a category checklist, one-click Model/Annotation presets, and X/Y move plus mirror (flip or pick-a-line) that keep dimensions and tags intact.",
+    "icon": u"\U0001F500",  # shuffle arrows - select-everything + move/mirror
     "launch": launch,
 }

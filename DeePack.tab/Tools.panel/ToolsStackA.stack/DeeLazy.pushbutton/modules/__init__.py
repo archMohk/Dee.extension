@@ -10,6 +10,11 @@ future module (Sheets, Dimensions, Levels, Grids, ...) means:
          "id": "your_module",           # unique, stable, used as a key
          "title": "Your Module",        # shown on the card
          "description": "One sentence for the card.",
+         "icon": u"\U0001F527",         # one emoji reflecting the tool's
+                                         # function - controller.py renders
+                                         # it via Segoe UI Emoji; omitting
+                                         # this key falls back to a generic
+                                         # wrench rather than erroring
          "launch": launch_function,     # def launch(uiapp): opens the
                                          # module's own window - owns
                                          # its own XAML/logic entirely

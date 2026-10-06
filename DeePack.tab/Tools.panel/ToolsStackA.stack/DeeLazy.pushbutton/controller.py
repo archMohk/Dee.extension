@@ -17,7 +17,16 @@ clr.AddReference("System.Windows.Forms")
 from System.Windows import Thickness, TextWrapping, VerticalAlignment, FontWeights, CornerRadius
 from System.Windows.Controls import Border, DockPanel, Dock, TextBlock
 from System.Windows.Input import Cursors
-from System.Windows.Media import Brushes, SolidColorBrush, Color
+from System.Windows.Media import Brushes, SolidColorBrush, Color, FontFamily
+
+# TextBlock's default font (Segoe UI) has no glyphs for the emoji used as
+# per-tool icons (see each module's TOOL_INFO "icon") - without this they'd
+# render as tofu/boxes. Segoe UI Emoji is the standard Windows color-emoji
+# font and has shipped on every Windows 10/11 install for years, so no
+# bundled icon files are needed - one shared FontFamily instance, applied
+# only to the icon TextBlock so the title/description keep the normal font.
+_EMOJI_FONT = FontFamily("Segoe UI Emoji")
+_FALLBACK_ICON = u"\U0001F6E0"  # hammer and wrench - any module that forgets to set "icon" still gets SOMETHING, not a blank
 
 import dee_branding
 
@@ -61,7 +70,7 @@ class DeeLazyHomeWindow(dee_branding.DeeBrandedWindow):
         the card instead."""
         border = Border()
         border.Width = 250
-        border.Height = 165
+        border.Height = 190
         border.Margin = Thickness(6)
         border.Padding = Thickness(10)
         border.BorderBrush = _IDLE_BORDER
@@ -76,6 +85,14 @@ class DeeLazyHomeWindow(dee_branding.DeeBrandedWindow):
         self._wire_card_interaction(border, tool_info)
 
         panel = DockPanel()
+
+        icon_tb = TextBlock()
+        icon_tb.Text = tool_info.get("icon") or _FALLBACK_ICON
+        icon_tb.FontFamily = _EMOJI_FONT
+        icon_tb.FontSize = 26
+        icon_tb.Margin = Thickness(0, 0, 0, 4)
+        DockPanel.SetDock(icon_tb, Dock.Top)
+        panel.Children.Add(icon_tb)
 
         title_tb = TextBlock()
         title_tb.Text = tool_info.get("title", tool_info.get("id", "Tool"))

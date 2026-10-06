@@ -599,5 +599,6 @@ TOOL_INFO = {
     "id": "dee_draft_coper",
     "title": "DeeDraftCoper",
     "description": "Copy lines, text, symbols and detail items drawn on one sheet onto any number of other sheets, at the same position.",
+    "icon": u"\U0001F4CB",  # clipboard - copying drafting content
     "launch": launch,
 }

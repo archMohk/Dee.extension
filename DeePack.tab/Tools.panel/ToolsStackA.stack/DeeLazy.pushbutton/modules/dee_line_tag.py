@@ -687,5 +687,6 @@ TOOL_INFO = {
     "id": "dee_line_tag",
     "title": "Lazy Line Tag",
     "description": "Auto-fit a title's underline and tag bubble to its text, across as many sheets as you pick.",
+    "icon": u"\U0001F4CF",  # ruler - fitting underline/bubble to text
     "launch": launch,
 }
