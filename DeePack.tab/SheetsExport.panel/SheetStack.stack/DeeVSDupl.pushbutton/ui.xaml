@@ -249,6 +249,16 @@
                                 </StackPanel>
                             </GroupBox>
 
+                            <GroupBox Header="Sheet Content" Padding="6" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <CheckBox x:Name="dup_sheet_views_cb">
+                                        <TextBlock Text="Also duplicate the Views/Schedules placed on these Sheets" TextWrapping="Wrap"/>
+                                    </CheckBox>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888" Margin="0,4,0,0"
+                                               Text="Checked (default) = every View/Schedule placed on a checked Sheet is duplicated and placed on its new Sheet too, exactly as before. Unchecked = the new Sheet still gets its title block and its own drawn annotation, but none of the hosted Views/Schedules are duplicated or placed - the new Sheet comes out empty of content (Revit never allows the same View/Schedule placed on two Sheets, so there's no 'reuse the original' option). A View or Schedule you ALSO checked on its own, on the Pick Items tab, is still duplicated and placed on the new Sheet regardless of this setting."/>
+                                </StackPanel>
+                            </GroupBox>
+
                             <GroupBox Header="Sheet Placement" Padding="6" Margin="0,0,0,8">
                                 <StackPanel>
                                     <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888888"

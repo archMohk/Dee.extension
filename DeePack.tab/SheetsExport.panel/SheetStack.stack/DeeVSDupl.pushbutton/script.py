@@ -30,6 +30,25 @@ Date/Approved-Checked-Drawn By/revision-on-sheet assignments - only
 Number/Name/the tag parameter, the title block, placed content, and
 sheet-owned annotation.
 
+Sheet Content toggle: by explicit user request, whether duplicating a
+checked Sheet also duplicates+places the Views/Schedules hosted on it is
+now a choice, not fixed behavior - "Also duplicate the Views/Schedules
+placed on these Sheets" (Naming tab, default CHECKED so every project
+that never touches this keeps the tool's original, always-on behavior
+exactly). Unchecked, _duplicate_sheet still creates the new Sheet (title
+block + the sheet's own drawn annotation, via the same ElementTransformUtils.
+CopyElements path) but skips the Viewport/ScheduleSheetInstance
+duplicate-and-place loop entirely, so the new Sheet comes out empty of
+hosted content - there's no valid alternative to "skip": Revit does not
+allow the SAME View/Schedule instance to be placed on two Sheets, so
+"don't duplicate" can only mean "don't place anything there either",
+never "place the original view on the new sheet too". This also changes
+the existing "a checked standalone View/Schedule whose host Sheet is
+ALSO checked gets skipped, handled once by the Sheet's own pass" rule
+(see run_click) - that skip now only fires when this toggle is ON, since
+with it OFF the Sheet's pass does nothing for that View/Schedule and an
+explicitly-checked standalone row is clearly meant to still go through.
+
 Sheet Number: by default the naming result is appended to the original
 Sheet Number (e.g. A-101 -> A-101-REV1), not just applied to the Name,
 so duplicates sort recognisably by number like everything else in the
@@ -691,10 +710,18 @@ def _duplicate_view_or_schedule(doc, row, dup_templates, template_map, param_nam
         return False, "FAILED: {0}".format(e)
 
 
-def _duplicate_sheet(doc, row, dup_templates, template_map, vp_by_sheet, ssi_by_sheet, param_name, as_dependent):
+def _duplicate_sheet(doc, row, dup_templates, template_map, vp_by_sheet, ssi_by_sheet, param_name, as_dependent,
+                      dup_sheet_views):
     """Returns (ok, detail, new_sheet_or_None) - the new_sheet is handed
     back so the caller can add it to sheet_id_map, letting any
-    standalone View/Schedule row processed afterward land on it too."""
+    standalone View/Schedule row processed afterward land on it too.
+
+    dup_sheet_views=False skips the Viewport/ScheduleSheetInstance
+    duplicate-and-place loops entirely - the new Sheet still gets its
+    title block and its own drawn annotation, just none of the hosted
+    Views/Schedules duplicated or placed onto it (see module docstring:
+    there's no valid "place the original there instead", since Revit
+    never allows one View/Schedule placed on two Sheets)."""
     original_sheet = row.picker_row.element
     t = Transaction(doc, "DeeVSDupl - Duplicate Sheet")
     t.Start()
@@ -708,36 +735,37 @@ def _duplicate_sheet(doc, row, dup_templates, template_map, vp_by_sheet, ssi_by_
         _set_tag(new_sheet, row.tag_value, param_name)
 
         detail_bits = []
-        view_dup_option = _view_duplicate_option("View", as_dependent)
-        for vp in vp_by_sheet.get(original_sheet.Id.IntegerValue, []):
-            src_view = doc.GetElement(vp.ViewId)
-            if src_view is None:
-                continue
-            new_view_id = src_view.Duplicate(view_dup_option)
-            new_view = doc.GetElement(new_view_id)
-            _apply_mapped_template(new_view, src_view, dup_templates, template_map)
-            try:
-                new_view.Name = u"{0} - {1}".format(row.new_name, _read_name(src_view) or "View")
-            except Exception:
-                pass
-            _set_tag(new_view, row.tag_value, param_name)
-            if Viewport.CanAddViewToSheet(doc, new_sheet.Id, new_view.Id):
-                Viewport.Create(doc, new_sheet.Id, new_view.Id, vp.GetBoxCenter())
-                detail_bits.append("1 view")
+        if dup_sheet_views:
+            view_dup_option = _view_duplicate_option("View", as_dependent)
+            for vp in vp_by_sheet.get(original_sheet.Id.IntegerValue, []):
+                src_view = doc.GetElement(vp.ViewId)
+                if src_view is None:
+                    continue
+                new_view_id = src_view.Duplicate(view_dup_option)
+                new_view = doc.GetElement(new_view_id)
+                _apply_mapped_template(new_view, src_view, dup_templates, template_map)
+                try:
+                    new_view.Name = u"{0} - {1}".format(row.new_name, _read_name(src_view) or "View")
+                except Exception:
+                    pass
+                _set_tag(new_view, row.tag_value, param_name)
+                if Viewport.CanAddViewToSheet(doc, new_sheet.Id, new_view.Id):
+                    Viewport.Create(doc, new_sheet.Id, new_view.Id, vp.GetBoxCenter())
+                    detail_bits.append("1 view")
 
-        for ssi in ssi_by_sheet.get(original_sheet.Id.IntegerValue, []):
-            src_sched = doc.GetElement(ssi.ScheduleId)
-            if src_sched is None:
-                continue
-            new_sched_id = src_sched.Duplicate(ViewDuplicateOption.Duplicate)
-            new_sched = doc.GetElement(new_sched_id)
-            try:
-                new_sched.Name = u"{0} - {1}".format(row.new_name, _read_name(src_sched) or "Schedule")
-            except Exception:
-                pass
-            _set_tag(new_sched, row.tag_value, param_name)
-            ScheduleSheetInstance.Create(doc, new_sheet.Id, new_sched.Id, ssi.Point)
-            detail_bits.append("1 schedule")
+            for ssi in ssi_by_sheet.get(original_sheet.Id.IntegerValue, []):
+                src_sched = doc.GetElement(ssi.ScheduleId)
+                if src_sched is None:
+                    continue
+                new_sched_id = src_sched.Duplicate(ViewDuplicateOption.Duplicate)
+                new_sched = doc.GetElement(new_sched_id)
+                try:
+                    new_sched.Name = u"{0} - {1}".format(row.new_name, _read_name(src_sched) or "Schedule")
+                except Exception:
+                    pass
+                _set_tag(new_sched, row.tag_value, param_name)
+                ScheduleSheetInstance.Create(doc, new_sheet.Id, new_sched.Id, ssi.Point)
+                detail_bits.append("1 schedule")
 
         ann_ids = _sheet_owned_annotation_ids(doc, original_sheet.Id)
         if ann_ids:
@@ -873,6 +901,11 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
         self.show_sheets_cb.IsChecked = True
         self.show_views_cb.IsChecked = True
         self.show_schedules_cb.IsChecked = True
+        # Default CHECKED, not unchecked like dup_templates_cb/as_dependent_cb -
+        # this reproduces the tool's ORIGINAL, always-on behavior exactly, so a
+        # project that never touches this new option keeps getting identical
+        # results to before it existed.
+        self.dup_sheet_views_cb.IsChecked = True
 
         self._refresh_preset_list()
         self._scan()
@@ -1207,6 +1240,7 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
         param_name = self._read_param_name()
         dup_templates = bool(self.dup_templates_cb.IsChecked)
         as_dependent = bool(self.as_dependent_cb.IsChecked)
+        dup_sheet_views = bool(self.dup_sheet_views_cb.IsChecked)
 
         self.run_status_tb.Text = "Running..."
         results = []
@@ -1215,14 +1249,18 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
         template_map = {}
         if dup_templates:
             elements_for_templates = [r.picker_row.element for r in ready_rows if r.kind != "Sheet"]
-            vp_by_sheet, _ssi = _placements_by_sheet(self.doc)
-            for r in ready_rows:
-                if r.kind != "Sheet":
-                    continue
-                for vp in vp_by_sheet.get(r.picker_row.element.Id.IntegerValue, []):
-                    v = self.doc.GetElement(vp.ViewId)
-                    if v is not None:
-                        elements_for_templates.append(v)
+            if dup_sheet_views:
+                # No point copying a template for a view that won't itself be
+                # duplicated/placed this run (dup_sheet_views off) - would
+                # just leave an unused template copy behind.
+                vp_by_sheet, _ssi = _placements_by_sheet(self.doc)
+                for r in ready_rows:
+                    if r.kind != "Sheet":
+                        continue
+                    for vp in vp_by_sheet.get(r.picker_row.element.Id.IntegerValue, []):
+                        v = self.doc.GetElement(vp.ViewId)
+                        if v is not None:
+                            elements_for_templates.append(v)
             template_map = _duplicate_templates(self.doc, elements_for_templates)
 
         vp_by_sheet, ssi_by_sheet = _placements_by_sheet(self.doc)
@@ -1266,14 +1304,20 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
                     break
                 if r.kind == "Sheet":
                     ok, detail, new_sheet = _duplicate_sheet(self.doc, r, dup_templates, template_map,
-                                                              vp_by_sheet, ssi_by_sheet, param_name, as_dependent)
+                                                              vp_by_sheet, ssi_by_sheet, param_name, as_dependent,
+                                                              dup_sheet_views)
                     if ok and new_sheet is not None:
                         sheet_id_map[r.picker_row.element.Id.IntegerValue] = new_sheet
                     old_label = u"{0} - {1}".format(r.old_number, r.old_name)
                     new_label = u"{0} - {1}".format(r.new_number, r.new_name)
                 else:
                     host = host_by_element.get(r.picker_row.element.Id.IntegerValue)
-                    if host is not None and host[0] in checked_sheet_ids:
+                    # Only skip when the Sheet's own pass would actually have
+                    # handled this View/Schedule (dup_sheet_views on) - with
+                    # it off, the Sheet's pass does nothing for hosted
+                    # content, so an explicitly-checked standalone row must
+                    # still go through its own duplication below.
+                    if dup_sheet_views and host is not None and host[0] in checked_sheet_ids:
                         ok, detail = True, ("Skipped standalone duplication - already duplicated together "
                                              "with its checked Sheet")
                     else:
