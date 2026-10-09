@@ -136,13 +136,18 @@ successful Run first either. Two tiers:
     anything has been created. No ACC API call.
   - RESOLVED (self._refresh_link_files, the "Refresh File List" button
     and the automatic call at the end of a successful Run): starts from
-    the same planned list, then looks up the real ACC item id for
-    whichever names have actually been uploaded this session
-    (self._report_rows where Uploaded) via acc_api.search_cloud_models
-    (the same function DeeWSharing's own _existing_cloud_names already
-    uses for name-collision checking, just read here for its id instead
-    of its name) - Document.SaveAsCloudModel never hands that id back
-    directly. A short, documented best-effort retry, not a guarantee.
+    the same planned list, then looks up the real ACC item id for EVERY
+    currently planned name via acc_api.search_cloud_models (the same
+    function DeeWSharing's own _existing_cloud_names already uses for
+    name-collision checking, just read here for its id instead of its
+    name) - Document.SaveAsCloudModel never hands that id back directly.
+    Deliberately NOT gated on self._report_rows ("did THIS session
+    upload it") - a name that already exists on ACC from an EARLIER
+    session (e.g. after "Load Set", which never saves/restores upload
+    results, only the setup) still resolves correctly this way; a name
+    that genuinely doesn't exist yet simply stays unresolved either way,
+    so searching unconditionally costs nothing extra. A short, documented
+    best-effort retry, not a guarantee.
 Matches (self._matches) can therefore be built against PLANNED names at
 any time; run_links_click only ever acts on a match whose LinkFileRef
 has a resolved item_id - a planned name with no real file yet is
@@ -1325,62 +1330,52 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
 
     def _refresh_link_files(self):
         """Starts from the same PLANNED list as _refresh_planned_link_files,
-        then resolves real ACC item ids for whichever names have actually
-        been uploaded this session (self._report_rows where Uploaded) -
-        never a live ACC scan (see module docstring). Resolves per
-        distinct ACC project (one search per project, not one per file).
-        Called by the Refresh File List button and automatically after a
-        successful Run."""
+        then resolves real ACC item ids by searching for EVERY currently
+        planned name - not just ones self._report_rows says THIS session
+        uploaded. That session-local gate was a real bug: after "Load
+        Set" (which never saves/restores upload results - only the
+        setup), self._report_rows is empty even though the files may
+        already exist on ACC from an earlier session, so the old code
+        had no path to ever resolve them and Run Links would always say
+        "none of the matches point at uploaded files" - a planned name
+        that genuinely doesn't exist on ACC yet simply stays unresolved
+        either way, so searching unconditionally costs nothing extra
+        (one query per project regardless of how many names it's
+        checked against) and fixes the Load Set case for free. Resolves
+        per distinct ACC project (one search per project, not one per
+        file). Called by the Refresh File List button and automatically
+        after a successful Run."""
         planned = self._build_planned_link_files()
 
-        uploaded_rows = [r for r in self._report_rows if r.upload_status == "Uploaded"]
-        party_by_id = dict((p.id, p) for p in self._parties)
         by_project = {}
-        for row in uploaded_rows:
-            party = party_by_id.get(row.party_id)
-            if party is None or not party.destination:
-                continue
-            by_project.setdefault(party.destination["project_id"], []).append((row, party))
+        for display_name, ref in planned.items():
+            if ref.project_id:
+                by_project.setdefault(ref.project_id, []).append(display_name)
 
         if by_project:
-            self._log("Resolving cloud file ids for already-uploaded files (can take a while - "
-                      "ACC's own search index needs a moment to pick up a brand new file)...")
-            for project_id, pairs in by_project.items():
-                # Always a FRESH token here, never the one cached on
-                # party.destination - that was fetched back when the ACC
-                # destination was first picked, which can be long enough
-                # before Run finishes (several file duplicate/open/
-                # upload cycles) that it's no longer valid; a stale token
-                # makes search_cloud_models fail silently (caught,
-                # logged, returns nothing) which looks identical to "the
-                # file just isn't indexed yet" unless you check the log.
+            self._log("Resolving cloud file ids (can take a while - ACC's own search index needs "
+                      "a moment to pick up a brand new file)...")
+            for project_id, names in by_project.items():
+                # Always a FRESH token here, never one cached on a
+                # party's destination - that was fetched whenever the
+                # ACC destination was first picked, which can easily be
+                # long enough before this runs (several file duplicate/
+                # open/upload cycles, or an entirely separate earlier
+                # session) that it's no longer valid; a stale token makes
+                # search_cloud_models fail silently (caught, logged,
+                # returns nothing) which looks identical to "the file
+                # just isn't indexed yet" unless you check the log.
                 token = cloudsvc.get_token()
-                expected_names = set()
-                for row, _party in pairs:
-                    name = row.new_file_name
-                    expected_names.add(name if name.lower().endswith(".rvt") else name + ".rvt")
+                expected_names = set(names)
 
                 def _on_attempt(attempt, attempts, found_count, remaining_count, _project_id=project_id):
                     if remaining_count:
-                        self._log("  [{0}] attempt {1}/{2}: {3} found, {4} still not indexed yet...".format(
+                        self._log("  [{0}] attempt {1}/{2}: {3} found, {4} still not found yet...".format(
                             _project_id, attempt, attempts, found_count, remaining_count))
 
                 found = _resolve_item_ids(project_id, token, expected_names, self.logger, on_attempt=_on_attempt)
                 for display_name, item_id in found.items():
-                    if display_name in planned:
-                        planned[display_name].item_id = item_id
-                    else:
-                        # Uploaded under a name no longer present in any
-                        # party's CURRENT bulk box (e.g. edited after
-                        # Run) - still linkable, just not "planned" any
-                        # more. first_party is whichever row's party
-                        # this name came from - good enough for region/
-                        # hub display purposes.
-                        first_party = party_by_id.get(pairs[0][0].party_id)
-                        planned[display_name] = LinkFileRef(
-                            display_name, item_id, project_id,
-                            first_party.destination.get("region", "") if first_party else "",
-                            first_party.destination.get("hub_id", "") if first_party else "")
+                    planned[display_name].item_id = item_id
 
         self._link_files = planned
         self._update_link_files_count_text()
