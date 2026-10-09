@@ -1,0 +1,66 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeInitiator — Batch-Create &amp; Publish to ACC"
+        ShowInTaskbar="False"
+        MinHeight="640" MinWidth="980" Height="780" Width="1080"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                   Text="Click '+ Add Zone' for each template you want to batch from - a Zone pairs one Template/RVT file with a bulk list of new file names and its own ACC destination. Validate every Zone (file + ACC), pick an Output Root Folder, then Run: each name gets a duplicate of its Zone's template, opened, worksharing-enabled, and uploaded to its Zone's ACC destination as a new Cloud Model."/>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Output Root Folder:" VerticalAlignment="Center"/>
+            <TextBox x:Name="root_folder_tb" Width="360" Height="24" Margin="8,0,0,0" IsReadOnly="True" VerticalContentAlignment="Center"/>
+            <Button x:Name="browse_root_b" Content="Browse..." Click="browse_root_click" Width="90" Height="24" Margin="8,0,0,0"/>
+            <CheckBox x:Name="delete_after_upload_cb" Content="Delete local copy after successful upload" VerticalAlignment="Center" Margin="24,0,0,0"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button x:Name="add_zone_b" Content="+ Add Zone" Click="add_zone_click" Width="110" Height="28" FontWeight="Bold"/>
+            <Button x:Name="validate_all_b" Content="Validate All Zones" Click="validate_all_click" Width="140" Height="28" Margin="8,0,0,0"/>
+            <Button x:Name="run_b" Content="Run" Click="run_click" Width="90" Height="28" Margin="8,0,0,0" FontWeight="Bold" IsEnabled="False"/>
+            <Button x:Name="export_report_b" Content="Export Report" Click="export_report_click" Width="120" Height="28" Margin="8,0,0,0"/>
+            <Button x:Name="cancel_b" Content="Close" Click="cancel_click" Width="90" Height="28" Margin="8,0,0,0"/>
+        </StackPanel>
+
+        <TextBlock x:Name="summary_tb" DockPanel.Dock="Top" Text="" FontStyle="Italic" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+        <TabControl x:Name="main_tabs">
+            <TabItem Header="Zones">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="4">
+                    <StackPanel x:Name="zones_panel" Orientation="Vertical"/>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Log &amp; Report">
+                <Grid Margin="6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="1.6*"/>
+                    </Grid.ColumnDefinitions>
+                    <DockPanel Grid.Column="0" Margin="0,0,6,0">
+                        <TextBlock DockPanel.Dock="Top" Text="Live Status" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <TextBox x:Name="status_tb" IsReadOnly="True" TextWrapping="NoWrap"
+                                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                 FontFamily="Consolas" FontSize="11"/>
+                    </DockPanel>
+                    <DockPanel Grid.Column="1" Margin="6,0,0,0">
+                        <TextBlock DockPanel.Dock="Top" Text="Report" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <DataGrid x:Name="report_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" RowHeaderWidth="0">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Zone" Binding="{Binding zone_id}" Width="50"/>
+                                <DataGridTextColumn Header="New File Name" Binding="{Binding new_file_name}" Width="140"/>
+                                <DataGridTextColumn Header="Output Folder" Binding="{Binding output_folder}" Width="180"/>
+                                <DataGridTextColumn Header="ACC Destination" Binding="{Binding acc_destination_text}" Width="200"/>
+                                <DataGridTextColumn Header="Upload Status" Binding="{Binding upload_status}" Width="140"/>
+                                <DataGridTextColumn Header="Worksharing" Binding="{Binding worksharing_enabled}" Width="90"/>
+                                <DataGridTextColumn Header="Local Copy" Binding="{Binding local_copy}" Width="90"/>
+                                <DataGridTextColumn Header="Errors" Binding="{Binding errors}" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>
