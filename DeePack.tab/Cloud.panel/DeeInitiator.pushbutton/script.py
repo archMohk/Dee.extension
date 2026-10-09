@@ -82,6 +82,26 @@ NEEDS LIVE-REVIT VERIFICATION:
   instead of a startup loop.
 
 --------------------------------------------------------------------
+Second export - handoff to DeeMAPLink, by explicit user request
+--------------------------------------------------------------------
+"Export Link-Setup File" (export_linkmap_click) writes a second, simpler
+CSV naming exactly the files THIS run uploaded successfully - meant to
+be opened in DeeMAPLink's (DeePack.tab/Coordination.panel/CoordViewStack.
+stack/DeeMAPLink.pushbutton) new "Import file" source mode, so the user
+can see those exact new files as DeeMAPLink's own two lists and wire up
+real Revit Links between them, without first re-scanning the whole ACC
+project (which may contain many unrelated files). DeeMAPLink already
+implements the two-list/click-to-wire/Canvas-line/link-creation UI this
+needed - this export is the only new piece, closing one real gap:
+Document.SaveAsCloudModel never hands back the new cloud item's id, so
+_resolve_item_ids looks it up afterward via acc_api.search_cloud_models
+(the same function DeeWSharing's own _existing_cloud_names already uses
+for name-collision checking, just read here for its id instead of its
+name) - a short, documented best-effort retry, not a guarantee; a file
+whose id can't be resolved yet is marked UNRESOLVED and DeeMAPLink's
+import skips it rather than risk opening the wrong item.
+
+--------------------------------------------------------------------
 Scope limits for this first pass - not silently incomplete
 --------------------------------------------------------------------
 - Duplicate-name collisions ON DISK are resolved via unique_target_
@@ -138,6 +158,7 @@ import deew_cloud_service as cloudsvc
 import deew_failure_handler as ffh
 import deew_progress_service as progsvc
 import deew_report_generator as reportgen
+import acc_api
 
 import dee_telemetry
 dee_telemetry.check_access("DeeInitiator")
@@ -287,6 +308,83 @@ class InitiatorReportRow(object):
         if "uploaded" in status:
             return "ok"
         return None
+
+
+# ==========================================================================
+# Link-setup handoff file - a second, simpler export naming exactly the
+# files this run uploaded, meant to be imported into DeeMAPLink
+# (DeePack.tab/Coordination.panel/CoordViewStack.stack/DeeMAPLink.pushbutton)
+# so the user can wire up Revit Links between the newly-created files
+# without re-scanning the whole ACC project. See module docstring.
+# ==========================================================================
+_LINKMAP_HEADERS = ["Zone", "New File Name", "Item Id", "Region", "Project Id",
+                    "Project Name", "Hub Id", "Hub Name", "Folder Id", "Folder Name",
+                    "Date", "User"]
+_LINKMAP_COL_WIDTHS = [8, 30, 36, 10, 36, 24, 36, 20, 36, 24, 18, 16]
+
+_UNRESOLVED_ITEM_ID = "UNRESOLVED"
+
+
+class LinkSetupRow(object):
+    def __init__(self, zone_id, new_file_name, item_id, destination):
+        self.zone_id = zone_id
+        self.new_file_name = new_file_name
+        self.item_id = item_id
+        self.region = destination.get("region", "")
+        self.project_id = destination.get("project_id", "")
+        self.project_name = destination.get("project_name", "")
+        self.hub_id = destination.get("hub_id", "")
+        self.hub_name = destination.get("hub_name", "")
+        self.folder_id = destination.get("folder_id", "")
+        self.folder_name = destination.get("folder_name", "")
+        self.date_text = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            self.user = os.environ.get("USERNAME", "Unknown")
+        except Exception:
+            self.user = "Unknown"
+
+    def to_list(self):
+        return [
+            self.zone_id, self.new_file_name, self.item_id, self.region, self.project_id,
+            self.project_name, self.hub_id, self.hub_name, self.folder_id, self.folder_name,
+            self.date_text, self.user,
+        ]
+
+
+def _resolve_item_ids(project_id, token, expected_names, logger, attempts=3, delay_seconds=2.0):
+    """Returns {expected_display_name: item_id}, best-effort. Document.
+    SaveAsCloudModel (deew_cloud_service.save_to_cloud) never hands back
+    the new cloud item's id, so it has to be looked up afterward via
+    acc_api.search_cloud_models(project_id, token) - the SAME function
+    DeeWSharing's own _existing_cloud_names already uses for name-
+    collision checking, just used here to read an id instead.
+
+    The search hits Autodesk's own index, which can lag moments behind
+    the upload transaction that just completed - retried up to
+    `attempts` times with a short pause rather than assumed to be
+    immediately consistent. A name still not found after every attempt
+    is simply absent from the returned dict; the caller marks it
+    UNRESOLVED rather than guessing - never silently invents an id."""
+    remaining = set(expected_names)
+    found = {}
+    for attempt in range(attempts):
+        if not remaining:
+            break
+        try:
+            items = acc_api.search_cloud_models(project_id, token)
+        except Exception as e:
+            logger.exception("search_cloud_models failed while resolving item ids", e)
+            items = []
+        by_name = {}
+        for item_id, display_name in items:
+            by_name.setdefault(display_name, item_id)
+        for name in list(remaining):
+            if name in by_name:
+                found[name] = by_name[name]
+                remaining.discard(name)
+        if remaining and attempt < attempts - 1:
+            time.sleep(delay_seconds)
+    return found
 
 
 # ==========================================================================
@@ -741,6 +839,79 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Could not export report: {0}".format(e))
             return
         MessageBox.Show("Report exported to:\n{0}".format(dlg.FileName), _TOOL_TITLE)
+
+    def export_linkmap_click(self, sender, args):
+        """Second export: a simple handoff file naming exactly the files
+        this run uploaded, for DeeMAPLink's "Import file" source mode
+        (see module docstring) - so the user can wire up Revit Links
+        between the new files without re-scanning the whole ACC project."""
+        uploaded_rows = [r for r in self._report_rows if r.upload_status == "Uploaded"]
+        if not uploaded_rows:
+            forms.alert("Run the tool first and have at least one file upload successfully - "
+                         "nothing to export yet.")
+            return
+
+        zone_by_id = dict((z.id, z) for z in self._zones)
+
+        # Resolve item ids project-by-project (one search per distinct
+        # project, not one per file) - mirrors DeeWSharing's own
+        # _existing_cloud_names caching shape.
+        self._log("Resolving cloud file ids for the link-setup export...")
+        by_project = {}
+        for row in uploaded_rows:
+            zone = zone_by_id.get(row.zone_id)
+            if zone is None or not zone.destination:
+                continue
+            by_project.setdefault(zone.destination["project_id"], []).append((row, zone))
+
+        resolved = {}
+        for project_id, pairs in by_project.items():
+            token = pairs[0][1].destination.get("token") or cloudsvc.get_token()
+            expected_names = set()
+            for row, _zone in pairs:
+                name = row.new_file_name
+                expected_names.add(name if name.lower().endswith(".rvt") else name + ".rvt")
+            found = _resolve_item_ids(project_id, token, expected_names, self.logger)
+            resolved[project_id] = found
+
+        link_rows = []
+        unresolved_count = 0
+        for row in uploaded_rows:
+            zone = zone_by_id.get(row.zone_id)
+            if zone is None or not zone.destination:
+                self._log("Zone {0} - '{1}': no longer available, skipped from link-setup export.".format(
+                    row.zone_id, row.new_file_name))
+                continue
+            name = row.new_file_name
+            display_name = name if name.lower().endswith(".rvt") else name + ".rvt"
+            item_id = resolved.get(zone.destination["project_id"], {}).get(display_name, "")
+            if not item_id:
+                item_id = _UNRESOLVED_ITEM_ID
+                unresolved_count += 1
+            link_rows.append(LinkSetupRow(row.zone_id, display_name, item_id, zone.destination))
+
+        dlg = SaveFileDialog()
+        dlg.Filter = "CSV (*.csv)|*.csv"
+        dlg.FileName = "DeeInitiator_LinkSetup.csv"
+        if dlg.ShowDialog() != DialogResult.OK:
+            return
+        try:
+            reportgen.export_csv(dlg.FileName, link_rows, headers=_LINKMAP_HEADERS)
+        except Exception as e:
+            forms.alert("Could not export the link-setup file: {0}".format(e))
+            return
+
+        note = ""
+        if unresolved_count:
+            note = ("\n\n{0} file(s) could not have their cloud id resolved yet (Autodesk's search "
+                     "index can lag a little after upload) - marked UNRESOLVED and will be skipped "
+                     "by DeeMAPLink's import. Re-export in a minute if you need them too.").format(
+                unresolved_count)
+        MessageBox.Show("Link-setup file exported to:\n{0}\n\nOpen DeeMAPLink, choose "
+                         "'Import file', and pick this CSV to wire up Revit Links between these "
+                         "new files.{1}".format(dlg.FileName, note), _TOOL_TITLE)
+        self._log("Exported link-setup file ({0} file(s), {1} unresolved) to {2}".format(
+            len(link_rows), unresolved_count, dlg.FileName))
 
     def cancel_click(self, sender, args):
         self.Close()

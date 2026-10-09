@@ -20,6 +20,8 @@
             <Button x:Name="validate_all_b" Content="Validate All Zones" Click="validate_all_click" Width="140" Height="28" Margin="8,0,0,0"/>
             <Button x:Name="run_b" Content="Run" Click="run_click" Width="90" Height="28" Margin="8,0,0,0" FontWeight="Bold" IsEnabled="False"/>
             <Button x:Name="export_report_b" Content="Export Report" Click="export_report_click" Width="120" Height="28" Margin="8,0,0,0"/>
+            <Button x:Name="export_linkmap_b" Content="Export Link-Setup File" Click="export_linkmap_click" Width="160" Height="28" Margin="8,0,0,0"
+                    ToolTip="Exports the files this run uploaded, for DeeMAPLink's 'Import file' source - wire up Revit Links between them without re-scanning the whole ACC project."/>
             <Button x:Name="cancel_b" Content="Close" Click="cancel_click" Width="90" Height="28" Margin="8,0,0,0"/>
         </StackPanel>
 

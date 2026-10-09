@@ -1,12 +1,32 @@
 # -*- coding: utf-8 -*-
 """
 DeeMAPLink
-Scans an ACC project OR a local folder for worksharing Revit files, pools
-them into two lists, and lets you build a many-to-many link map between
-them: tick files in List 1 (sources), tick files in List 2 (targets),
-press Add Match. Every target host is then opened headless, every matched
-source linked into it, and the host synchronized back - no file ever
-opened by hand.
+Scans an ACC project OR a local folder OR imports a link-setup file for
+worksharing Revit files, pools them into two lists, and lets you build a
+many-to-many link map between them: tick files in List 1 (sources), tick
+files in List 2 (targets), press Add Match. Every target host is then
+opened headless, every matched source linked into it, and the host
+synchronized back - no file ever opened by hand.
+
+--------------------------------------------------------------------
+Third source mode - "Import file", by explicit user request
+--------------------------------------------------------------------
+DeeInitiator (DeePack.tab/Cloud.panel/DeeInitiator.pushbutton) batch-
+creates new Revit files and uploads each to ACC; its "Export Link-Setup
+File" button writes a CSV naming exactly the files one run uploaded.
+import_file_click reads that CSV and populates self._all_items/_region/
+_project_id/_project_name/_hub_id in the EXACT same shape _scan_acc
+already produces from a live ACC listing - so nothing downstream (the
+two lists, the Wire Map's Canvas/lines, run_click's open/link/sync
+loop) needed to change at all; "import" is just a third way the file
+list gets populated, treated identically to "acc" everywhere that
+matters (_open_attached, _model_path_for, _progress_context_key) since
+it is still ACC item ids being opened via the same Revit API path. One
+ACC project per import - rows from a different Project Id than the
+file's first row are skipped (reported in the log), rather than mixing
+two projects' files into one wire map. A row whose cloud file id was
+not yet resolved at export time (Item Id == "UNRESOLVED") is skipped
+too - never opened by guessing at an id.
 
 --------------------------------------------------------------------
 How it differs from DeeSuperLINK (the tool this one is modeled on)
@@ -45,6 +65,7 @@ docstring for the full list (local ModelPath linking, local-central open
 real project).
 """
 import os
+import csv
 import time
 import datetime
 
@@ -113,8 +134,10 @@ _PROGRESS_TOOL_NAME = "DeeMAPLink_progress"
 def _progress_context_key(mode, project_id, local_folder):
     """One bucket per ACC project or per local folder, so completed-host
     history from one project never hides/skips a same-named host in a
-    totally different project."""
-    if mode == "acc":
+    totally different project. "import" mode buckets the SAME way as
+    "acc" - it's just a different way the ACC item list got populated
+    (from a file instead of a live scan), not a different project."""
+    if mode in ("acc", "import"):
         return "acc:{0}".format(project_id or "")
     return "local:{0}".format(local_folder or "")
 
@@ -221,7 +244,11 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
             return ""
 
     def _source_mode(self):
-        return "acc" if self.source_acc_rb.IsChecked is True else "local"
+        if self.source_acc_rb.IsChecked is True:
+            return "acc"
+        if self.source_import_rb.IsChecked is True:
+            return "import"
+        return "local"
 
     def _placement(self):
         idx = self.placement_cb.SelectedIndex
@@ -320,9 +347,10 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         # Fires during XAML load (source_acc_rb starts IsChecked="True"),
         # before the other fields exist yet.
         try:
-            is_acc = self._source_mode() == "acc"
-            self.acc_row.Visibility = Visibility.Visible if is_acc else Visibility.Collapsed
-            self.local_row.Visibility = Visibility.Collapsed if is_acc else Visibility.Visible
+            mode = self._source_mode()
+            self.acc_row.Visibility = Visibility.Visible if mode == "acc" else Visibility.Collapsed
+            self.local_row.Visibility = Visibility.Visible if mode == "local" else Visibility.Collapsed
+            self.import_row.Visibility = Visibility.Visible if mode == "import" else Visibility.Collapsed
         except Exception:
             return
 
@@ -397,6 +425,86 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         self._all_items = dms.scan_local_folder(self._local_folder, recursive, progress_cb=cb)
         self._progress_done_one()
         self._progress_end()
+        self._after_scan()
+
+    # ---------------- Import file (e.g. a DeeInitiator export) ----------------
+    # Populates self._all_items / _region / _project_id / _project_name /
+    # _hub_id the SAME shape _scan_acc already produces, from a CSV
+    # instead of a live ACC listing - everything downstream (_after_scan,
+    # the two lists, the Wire Map, run_click's linking loop) is reused
+    # completely unchanged; _source_mode()=="import" only ever matters
+    # for which Source row is visible and for treating it like "acc" in
+    # _open_attached/_model_path_for/_progress_context_key.
+    def import_file_click(self, sender, args):
+        dlg = OpenFileDialog()
+        dlg.Filter = "CSV (*.csv)|*.csv"
+        dlg.Title = "Import a link-setup file (e.g. from DeeInitiator)"
+        if dlg.ShowDialog() != DialogResult.OK:
+            return
+
+        try:
+            with open(dlg.FileName, "rb") as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+        except Exception as e:
+            forms.alert("Could not read the file:\n{0}".format(e))
+            return
+        if not rows:
+            forms.alert("That file has no rows to import.")
+            return
+
+        # One ACC project per import - a file spanning more than one
+        # project only loads the rows matching the FIRST row's project,
+        # rather than silently mixing two projects' files into one wire
+        # map. Matched by Project Id, not by name (names are not
+        # guaranteed unique across hubs).
+        first = rows[0]
+        project_id = (first.get("Project Id") or "").strip()
+        if not project_id:
+            forms.alert("That file's first row has no Project Id - is this a link-setup "
+                         "file exported by DeeInitiator?")
+            return
+
+        all_items = {}
+        skipped_other_project = 0
+        skipped_unresolved = 0
+        for row in rows:
+            if (row.get("Project Id") or "").strip() != project_id:
+                skipped_other_project += 1
+                continue
+            item_id = (row.get("Item Id") or "").strip()
+            name = (row.get("New File Name") or "").strip()
+            if not name or not item_id or item_id.upper() == "UNRESOLVED":
+                skipped_unresolved += 1
+                continue
+            all_items[name] = item_id
+
+        if not all_items:
+            forms.alert("Nothing importable was found in that file - every row was either from "
+                         "a different project or had no resolved cloud file id yet.")
+            return
+
+        try:
+            self._token = acc_auth.get_access_token()
+        except Exception as e:
+            forms.alert("Authentication failed:\n{0}".format(e))
+            return
+
+        self._project_id = project_id
+        self._region = (first.get("Region") or "").strip()
+        self._project_name = (first.get("Project Name") or "").strip()
+        self._hub_id = (first.get("Hub Id") or "").strip()
+        self._local_folder = None
+        self._all_items = all_items
+
+        note = os.path.basename(dlg.FileName)
+        detail = "{0} file(s) imported from '{1}'".format(len(all_items), note)
+        if skipped_other_project:
+            detail += "; {0} row(s) from a different project skipped".format(skipped_other_project)
+        if skipped_unresolved:
+            detail += "; {0} row(s) with no resolved cloud id skipped".format(skipped_unresolved)
+        self.import_tb.Text = detail
+        self._log(detail + ".")
         self._after_scan()
 
     # ---------------- after either scan ----------------
@@ -927,7 +1035,11 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
                 pass
 
     def _open_attached(self, target_name):
-        if self._source_mode() == "acc":
+        # "import" behaves exactly like "acc" here - it's just a
+        # different way self._all_items/_region/_project_id/_token got
+        # populated (from a file instead of a live ACC scan), not a
+        # different Revit API path.
+        if self._source_mode() in ("acc", "import"):
             item_id = self._all_items.get(target_name)
             return afb.open_cloud_document_attached(
                 self.application, self._region, self._project_id, item_id, self._token)
@@ -935,7 +1047,7 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         return docmgr.open_document_no_detach(self.application, file_path, logger=self.logger)
 
     def _model_path_for(self, source_name):
-        if self._source_mode() == "acc":
+        if self._source_mode() in ("acc", "import"):
             item_id = self._all_items.get(source_name)
             return afb.cloud_model_path(self._region, self._project_id, item_id, self._token)
         file_path = self._all_items.get(source_name)
@@ -958,6 +1070,9 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         mode = self._source_mode()
         if mode == "acc" and not self._project_id:
             forms.alert("Pick a hub and project first.")
+            return
+        if mode == "import" and not self._project_id:
+            forms.alert("Import a link-setup file first.")
             return
         if mode == "local" and not self._local_folder:
             forms.alert("Pick a folder first.")
