@@ -120,17 +120,28 @@ linkable file (LinkFileRef) carries its OWN project_id/region rather
 than reading one window-wide field - _open_link_target/
 _link_model_path_for read it from the file reference, not from self.
 
-The file lists are never a live ACC scan here - they are rebuilt from
-THIS run's own successfully-uploaded files (self._report_rows where
-Uploaded), via "Refresh File List" (also called automatically at the
-end of a successful main Run). Document.SaveAsCloudModel never hands
-back the new cloud item's id, so _resolve_item_ids looks it up
-afterward via acc_api.search_cloud_models (the same function
-DeeWSharing's own _existing_cloud_names already uses for name-
-collision checking, just read here for its id instead of its name) - a
-short, documented best-effort retry, not a guarantee; a file whose id
-can't be resolved yet is simply left out of the linkable list rather
-than guessed at.
+The file lists are never a live ACC scan here, and - by explicit user
+request ("make the links before the Run") - they do NOT require a
+successful Run first either. Two tiers:
+  - PLANNED (self._build_planned_link_files/_refresh_planned_link_files):
+    a cheap, local-only list built straight from every Delivery Party's
+    own typed bulk names + its ACC destination, with item_id=None. Runs
+    on every names/destination edit and on add/remove Delivery Party, so
+    Link Zones/Link Map/Zone always show what's currently planned, even
+    before anything has been created. No ACC API call.
+  - RESOLVED (self._refresh_link_files, the "Refresh File List" button
+    and the automatic call at the end of a successful Run): starts from
+    the same planned list, then looks up the real ACC item id for
+    whichever names have actually been uploaded this session
+    (self._report_rows where Uploaded) via acc_api.search_cloud_models
+    (the same function DeeWSharing's own _existing_cloud_names already
+    uses for name-collision checking, just read here for its id instead
+    of its name) - Document.SaveAsCloudModel never hands that id back
+    directly. A short, documented best-effort retry, not a guarantee.
+Matches (self._matches) can therefore be built against PLANNED names at
+any time; run_links_click only ever acts on a match whose LinkFileRef
+has a resolved item_id - a planned name with no real file yet is
+reported and skipped, never opened by guessing at an id.
 
 Scope limit, not silently dropped: DeeMAPLink's Wire Map tab also has
 per-column discipline-segment filter dropdowns (AR/ST/ME/...) for
@@ -629,6 +640,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
             self._parties.remove(party)
         self._update_run_enabled()
         self._log("Removed Delivery Party {0}.".format(party.id))
+        self._refresh_planned_link_files()
 
     def _build_party_ui(self, party):
         """Builds one Delivery Party's GroupBox of controls in code (no
@@ -852,6 +864,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
                 party.file_valid = None
                 party.controls["file_status_tb"].Text = ""
             self._update_run_enabled()
+            self._refresh_planned_link_files()
         return handler
 
     def _make_pick_acc_handler(self, party):
@@ -872,6 +885,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
             party.controls["acc_status_tb"].Text = ""
             self._update_run_enabled()
             self._log("Delivery Party {0} destination set: {1}".format(party.id, party.controls["acc_dest_tb"].Text))
+            self._refresh_planned_link_files()
         return handler
 
     def _make_validate_acc_handler(self, party):
@@ -1034,18 +1048,70 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
     # ======================================================================
 
     # ---------------- populating the linkable file list ----------------
+    # Two tiers, by explicit user request ("make the links before the
+    # Run"): a cheap, local-only PLANNED list (every Delivery Party's own
+    # typed names, no network call) that updates live as the user types
+    # or picks an ACC destination - so matches can be built on Link
+    # Zones/Link Map/Zone before anything is ever created - and a fuller
+    # RESOLVED pass (the Refresh File List button, and the automatic call
+    # at the end of a successful Run) that looks up the real ACC item id
+    # for whichever of those names have actually been uploaded. A
+    # LinkFileRef's item_id stays None until resolved; run_links_click
+    # only ever acts on a match whose item_id is actually set - a planned
+    # name with no real file yet is reported and skipped, never guessed at.
+    def _build_planned_link_files(self):
+        """Returns {display_name: LinkFileRef} from every Delivery
+        Party's OWN planned bulk names + its ACC destination - available
+        the moment a party has a destination and at least one name
+        typed, independent of whether Run has happened yet."""
+        planned = {}
+        for party in self._parties:
+            if not party.destination:
+                continue
+            project_id = party.destination.get("project_id", "")
+            region = party.destination.get("region", "")
+            hub_id = party.destination.get("hub_id", "")
+            for name in party.names():
+                display_name = name if name.lower().endswith(".rvt") else name + ".rvt"
+                planned[display_name] = LinkFileRef(display_name, None, project_id, region, hub_id)
+        return planned
+
+    def _refresh_planned_link_files(self):
+        """Cheap, local-only rebuild - no ACC API calls - called on every
+        names/destination edit and on add/remove Delivery Party, so the
+        Link tabs always reflect what's currently typed. Preserves any
+        item_id already resolved for a name that's still planned, so
+        editing one party's names doesn't forget another's already-
+        uploaded files."""
+        planned = self._build_planned_link_files()
+        for name, ref in planned.items():
+            existing = self._link_files.get(name)
+            if existing is not None and existing.item_id:
+                ref.item_id = existing.item_id
+        self._link_files = planned
+        self._update_link_files_count_text()
+        self._after_link_scan()
+
+    def _update_link_files_count_text(self):
+        resolved_count = sum(1 for f in self._link_files.values() if f.item_id)
+        self.link_files_count_tb.Text = "{0} file(s) planned, {1} already uploaded and ready to link".format(
+            len(self._link_files), resolved_count)
+
     def refresh_link_files_click(self, sender, args):
         self._refresh_link_files()
 
     def _refresh_link_files(self):
-        """Rebuilds self._link_files from THIS run's own successfully
-        uploaded files (self._report_rows where Uploaded) - never a live
-        ACC scan (see module docstring). Resolves each file's cloud item
-        id via _resolve_item_ids, grouped per distinct ACC project (one
-        search per project, not one per file)."""
+        """Starts from the same PLANNED list as _refresh_planned_link_files,
+        then resolves real ACC item ids for whichever names have actually
+        been uploaded this session (self._report_rows where Uploaded) -
+        never a live ACC scan (see module docstring). Resolves per
+        distinct ACC project (one search per project, not one per file).
+        Called by the Refresh File List button and automatically after a
+        successful Run."""
+        planned = self._build_planned_link_files()
+
         uploaded_rows = [r for r in self._report_rows if r.upload_status == "Uploaded"]
         party_by_id = dict((p.id, p) for p in self._parties)
-
         by_project = {}
         for row in uploaded_rows:
             party = party_by_id.get(row.party_id)
@@ -1053,45 +1119,34 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
                 continue
             by_project.setdefault(party.destination["project_id"], []).append((row, party))
 
-        if not by_project:
-            self._link_files = {}
-            self.link_files_count_tb.Text = "No files yet - Run first, then Refresh File List."
-            self._after_link_scan()
-            return
+        if by_project:
+            self._log("Resolving cloud file ids for already-uploaded files...")
+            for project_id, pairs in by_project.items():
+                token = pairs[0][1].destination.get("token") or cloudsvc.get_token()
+                expected_names = set()
+                for row, _party in pairs:
+                    name = row.new_file_name
+                    expected_names.add(name if name.lower().endswith(".rvt") else name + ".rvt")
+                found = _resolve_item_ids(project_id, token, expected_names, self.logger)
+                for display_name, item_id in found.items():
+                    if display_name in planned:
+                        planned[display_name].item_id = item_id
+                    else:
+                        # Uploaded under a name no longer present in any
+                        # party's CURRENT bulk box (e.g. edited after
+                        # Run) - still linkable, just not "planned" any
+                        # more. first_party is whichever row's party
+                        # this name came from - good enough for region/
+                        # hub display purposes.
+                        first_party = party_by_id.get(pairs[0][0].party_id)
+                        planned[display_name] = LinkFileRef(
+                            display_name, item_id, project_id,
+                            first_party.destination.get("region", "") if first_party else "",
+                            first_party.destination.get("hub_id", "") if first_party else "")
 
-        self._log("Resolving cloud file ids for linking...")
-        resolved = {}
-        for project_id, pairs in by_project.items():
-            token = pairs[0][1].destination.get("token") or cloudsvc.get_token()
-            expected_names = set()
-            for row, _party in pairs:
-                name = row.new_file_name
-                expected_names.add(name if name.lower().endswith(".rvt") else name + ".rvt")
-            resolved[project_id] = _resolve_item_ids(project_id, token, expected_names, self.logger)
-
-        link_files = {}
-        unresolved = 0
-        for row in uploaded_rows:
-            party = party_by_id.get(row.party_id)
-            if party is None or not party.destination:
-                continue
-            name = row.new_file_name
-            display_name = name if name.lower().endswith(".rvt") else name + ".rvt"
-            project_id = party.destination["project_id"]
-            item_id = resolved.get(project_id, {}).get(display_name)
-            if not item_id:
-                unresolved += 1
-                continue
-            link_files[display_name] = LinkFileRef(
-                display_name, item_id, project_id,
-                party.destination.get("region", ""), party.destination.get("hub_id", ""))
-
-        self._link_files = link_files
-        note = "{0} file(s) available to link".format(len(link_files))
-        if unresolved:
-            note += " ({0} not yet resolved - try Refresh again in a minute)".format(unresolved)
-        self.link_files_count_tb.Text = note
-        self._log(note + ".")
+        self._link_files = planned
+        self._update_link_files_count_text()
+        self._log(self.link_files_count_tb.Text)
         self._after_link_scan()
 
     def _after_link_scan(self):
@@ -1506,23 +1561,39 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
     def run_links_click(self, sender, args):
         if not self._matches:
             forms.alert("Build at least one match first - on Link Zones, tick files and press "
-                         "'Add from ticked lists', or wire files on Link Map/Zone.")
-            return
-        if not self._link_files:
-            forms.alert("Refresh File List first - there are no linkable files loaded.")
+                         "'Add from ticked lists', or wire files on Link Map/Zone. Matches can be "
+                         "set up any time, even before Run.")
             return
 
+        # A match can be built from a PLANNED name before that file is
+        # ever created - only a name whose LinkFileRef has a resolved
+        # item_id actually exists on ACC yet and can be opened/linked.
+        # Anything else is reported and skipped here, never guessed at.
+        def _ready(name):
+            ref = self._link_files.get(name)
+            return ref is not None and ref.item_id
+
         groups = dms.group_by_target(self._matches)
-        # A match whose source/target fell out of self._link_files (e.g.
-        # built before the most recent Refresh) is dropped rather than
-        # risking an open against a stale/incorrect id.
-        groups = dict((t, [s for s in sources if s in self._link_files])
-                      for t, sources in groups.items() if t in self._link_files)
+        not_ready = set()
+        for target, sources in groups.items():
+            if not _ready(target):
+                not_ready.add(target)
+            for source in sources:
+                if not _ready(source):
+                    not_ready.add(source)
+        groups = dict((t, [s for s in sources if _ready(s)])
+                      for t, sources in groups.items() if _ready(t))
         groups = dict((t, s) for t, s in groups.items() if s)
+
         if not groups:
-            forms.alert("None of the current matches point at files that are still available - "
-                         "Refresh File List and rebuild your matches.")
+            forms.alert("None of the current matches point at files that have been uploaded yet "
+                         "- Run first (or Refresh File List if you've already Run), then Run "
+                         "Links again.")
             return
+        if not_ready:
+            forms.alert("{0} file(s) in your matches haven't been uploaded yet, so they'll be "
+                         "skipped for now - Run first, then Run Links again to pick them up:\n\n{1}"
+                         .format(len(not_ready), ", ".join(sorted(not_ready))))
 
         context_key = self._link_progress_context_key()
         skip_completed = bool(self.link_skip_completed_cb.IsChecked)

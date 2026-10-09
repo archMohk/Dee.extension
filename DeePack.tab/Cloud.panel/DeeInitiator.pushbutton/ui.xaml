@@ -42,7 +42,7 @@
         </Border>
 
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Click '+ Add Delivery Party' for each template you want to batch from - a Delivery Party pairs a name (e.g. Architecture), one Template/RVT file, a bulk list of new file names, and its own ACC destination. Validate every party (file + ACC), pick an Output Root Folder, then Run: each name gets a duplicate of its party's template, opened, worksharing-enabled, and uploaded to its party's ACC destination as a new Cloud Model. Once files are uploaded, use Link Zones / Link Map/Zone to wire up real Revit Links between them."/>
+                   Text="Click '+ Add Delivery Party' for each template you want to batch from - a Delivery Party pairs a name (e.g. Architecture), one Template/RVT file, a bulk list of new file names, and its own ACC destination. As soon as you type names and pick a destination, those planned files already show up on Link Zones / Link Map/Zone - build your link matches there whenever you like, even before Run. Validate every party (file + ACC), pick an Output Root Folder, then Run: each name gets a duplicate of its party's template, opened, worksharing-enabled, and uploaded to its party's ACC destination as a new Cloud Model. Run Links then creates the real Revit Links for whichever matches point at files that are actually uploaded."/>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="Output Root Folder:" VerticalAlignment="Center"/>
@@ -66,7 +66,7 @@
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                     <Button x:Name="refresh_link_files_b" Content="Refresh File List" Click="refresh_link_files_click" Width="140" Height="26"/>
                     <TextBlock x:Name="link_files_count_tb" VerticalAlignment="Center" Margin="12,0,0,0" FontStyle="Italic"
-                               Text="No files yet - Run first, then Refresh File List."/>
+                               Text="No files planned yet - type bulk names and pick an ACC destination on a Delivery Party."/>
                 </StackPanel>
                 <Grid Margin="0,0,0,8">
                     <Grid.ColumnDefinitions>
