@@ -55,7 +55,11 @@
             <Button x:Name="run_b" Content="Run" Click="run_click" Width="90" Height="28" Margin="8,0,0,0" FontWeight="Bold" IsEnabled="False"
                     ToolTip="Creates, uploads, AND creates any link matches already set up on Link Management - one click does all of it."/>
             <Button x:Name="export_report_b" Content="Export Report" Click="export_report_click" Width="120" Height="28" Margin="8,0,0,0"/>
-            <Button x:Name="cancel_b" Content="Close" Click="cancel_click" Width="90" Height="28" Margin="8,0,0,0"/>
+            <Button x:Name="save_set_b" Content="Save Set..." Click="save_set_click" Width="100" Height="28" Margin="16,0,0,0"
+                    ToolTip="Saves every Delivery Party (name, template, file names, ACC destination), the Output Root Folder, link options, and the current link matches to one file you can re-open later."/>
+            <Button x:Name="load_set_b" Content="Load Set..." Click="load_set_click" Width="100" Height="28" Margin="6,0,0,0"
+                    ToolTip="Loads a previously saved set - replaces every Delivery Party and link match currently defined here. ACC sign-in isn't saved, so Validate All Parties again after loading."/>
+            <Button x:Name="cancel_b" Content="Close" Click="cancel_click" Width="90" Height="28" Margin="16,0,0,0"/>
         </StackPanel>
 
         <TextBlock x:Name="summary_tb" DockPanel.Dock="Top" Text="" FontStyle="Italic" Margin="0,0,0,8" TextWrapping="Wrap"/>

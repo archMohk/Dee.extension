@@ -156,6 +156,39 @@ so that filtering layer is not ported here - a plain search box per
 column is enough at this scale.
 
 --------------------------------------------------------------------
+Save Set / Load Set - the whole working session, by explicit user
+request ("save my work... later I can import it and it comes with the
+links and the file list and the paths and the template")
+--------------------------------------------------------------------
+save_set_click/load_set_click round-trip the ENTIRE in-progress setup -
+every Delivery Party (name, template path, bulk file names, ACC
+destination), the Output Root Folder, every link option, and the
+current link matches (self._matches) - to/from one plain JSON file the
+user names and keeps wherever they like (unlike deew_settings' own
+per-tool local store, this is an explicit external file meant to be
+reopened later or handed to someone else, so a real SaveFileDialog/
+OpenFileDialog is used, not deew_settings.save/load).
+
+Deliberately NEVER saves an ACC token (see _destination_without_token) -
+a token is a short-lived credential, not data, same reasoning the
+earlier DeeMAPLink CSV handoff file used. This costs nothing on load:
+every consumer of party.destination either doesn't need a token at all
+(cloudsvc.save_to_cloud uses Revit's own Autodesk sign-in, not this
+token) or already fetches a fresh one itself (validate_party_acc,
+_refresh_link_files) - so a loaded destination with no token "token" key
+works identically to a freshly-picked one everywhere it's actually used.
+The user is still told to re-run Validate All Parties after loading,
+since file-existence/ACC-reachability can only be confirmed live, never
+assumed still true from whenever the set was saved.
+
+json.dumps's own default ensure_ascii=True is used deliberately (not
+ensure_ascii=False) - an accented party name/template path comes out as
+plain \\uXXXX escapes, producing a guaranteed-ASCII str regardless of
+IronPython 2.7's str/unicode unification not matching CPython 2 exactly
+(the same class of bug this codebase's _csv_safe, elsewhere, exists to
+avoid) - sidesteps it entirely rather than risk a mis-encoded file.
+
+--------------------------------------------------------------------
 Delivery Party name presets
 --------------------------------------------------------------------
 A separate, DeeInitiator-only preset list (lib/deew_settings.py, the
@@ -214,6 +247,7 @@ Scope limits for this first pass - not silently incomplete
   not something verifiable without a live multi-project test.
 """
 import os
+import json
 import time
 import shutil
 import datetime
@@ -280,6 +314,26 @@ _DEFAULT_PARTY_PRESETS = ["Architecture", "Structure", "MEP", "Electrical",
                           "Plumbing", "Civil", "Landscape", "Interior Design"]
 
 _LINK_PROGRESS_TOOL_NAME = "DeeInitiator_link_progress"
+
+# "Save Set" / "Load Set" - the whole working session (Delivery Parties,
+# link matches, Output Root Folder, link options) as one external,
+# shareable JSON file, by explicit user request ("save my work... later
+# I can import it and it comes with the links and the file list and the
+# paths and the template"). Deliberately never includes an ACC token -
+# tokens are short-lived credentials, not data (same reasoning the
+# earlier CSV handoff file used); every consumer of party.destination
+# either doesn't need a token at all (cloudsvc.save_to_cloud uses
+# Revit's own Autodesk sign-in, not this token) or already fetches a
+# fresh one itself (validate_party_acc, _refresh_link_files) - so
+# loading a destination with no token is already fully supported,
+# nothing else needed to change for that.
+_SET_FILE_FORMAT = "DeeInitiator_SetV1"
+
+
+def _destination_without_token(destination):
+    if not destination:
+        return None
+    return dict((k, v) for k, v in destination.items() if k != "token")
 
 
 def _brush(hex_color):
@@ -1071,6 +1125,143 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Could not export report: {0}".format(e))
             return
         MessageBox.Show("Report exported to:\n{0}".format(dlg.FileName), _TOOL_TITLE)
+
+    # ---------------- Save / Load Set (whole working session) ----------------
+    def save_set_click(self, sender, args):
+        if not self._parties:
+            forms.alert("Add at least one Delivery Party first - nothing to save yet.")
+            return
+        dlg = SaveFileDialog()
+        dlg.Filter = "DeeInitiator Set (*.json)|*.json"
+        dlg.FileName = "DeeInitiator_Set.json"
+        if dlg.ShowDialog() != DialogResult.OK:
+            return
+
+        data = {
+            "format": _SET_FILE_FORMAT,
+            "root_folder": self.root_folder_tb.Text or "",
+            "delete_after_upload": bool(self.delete_after_upload_cb.IsChecked),
+            "link_settings": {
+                "placement_index": self.link_placement_cb.SelectedIndex,
+                "sync_comment": self.link_sync_comment_tb.Text or "",
+                "attachment": "Attachment" if self.link_attachment_attachment_rb.IsChecked else "Overlay",
+                "skip_existing": bool(self.link_skip_existing_cb.IsChecked),
+                "skip_completed": bool(self.link_skip_completed_cb.IsChecked),
+            },
+            "parties": [
+                {
+                    "name": p.name,
+                    "template_path": p.template_path,
+                    "bulk_names_text": p.bulk_names_text,
+                    "destination": _destination_without_token(p.destination),
+                }
+                for p in self._parties
+            ],
+            "matches": [[s, t] for s, t in self._matches],
+        }
+        try:
+            # ensure_ascii=True (json.dumps' own default) - non-ASCII
+            # characters (an accented party name/template path) come out
+            # as plain \uXXXX escapes, so the result is always a plain
+            # ASCII str regardless of IronPython 2.7's str/unicode
+            # unification not matching CPython 2 exactly (documented
+            # elsewhere in this codebase, e.g. dee_para_value.py's
+            # _csv_safe) - sidesteps that whole class of bug rather than
+            # risk writing a mis-encoded file.
+            with open(dlg.FileName, "w") as f:
+                f.write(json.dumps(data, indent=2))
+        except Exception as e:
+            forms.alert("Could not save the set: {0}".format(e))
+            return
+        self._log("Saved set ({0} Delivery Part{1}, {2} match(es)) to {3}".format(
+            len(self._parties), "y" if len(self._parties) == 1 else "ies", len(self._matches), dlg.FileName))
+        MessageBox.Show("Set saved to:\n{0}".format(dlg.FileName), _TOOL_TITLE)
+
+    def load_set_click(self, sender, args):
+        dlg = OpenFileDialog()
+        dlg.Filter = "DeeInitiator Set (*.json)|*.json"
+        dlg.Title = "Load a saved DeeInitiator Set"
+        if dlg.ShowDialog() != DialogResult.OK:
+            return
+
+        try:
+            with open(dlg.FileName, "r") as f:
+                data = json.load(f)
+        except Exception as e:
+            forms.alert("Could not read that file: {0}".format(e))
+            return
+        if not isinstance(data, dict) or "parties" not in data:
+            forms.alert("That doesn't look like a DeeInitiator Set file.")
+            return
+
+        if self._parties or self._matches:
+            if not forms.alert("Loading a set replaces every Delivery Party currently defined "
+                                 "here and clears the current link matches. Continue?",
+                                 title=_TOOL_TITLE + " - confirm", yes=True, no=True):
+                return
+
+        for party in list(self._parties):
+            try:
+                self.zones_panel.Children.Remove(party.controls.get("root"))
+            except Exception:
+                pass
+        self._parties = []
+        self._matches = []
+
+        self.root_folder_tb.Text = data.get("root_folder") or ""
+        self.delete_after_upload_cb.IsChecked = bool(data.get("delete_after_upload", False))
+
+        link_settings = data.get("link_settings") or {}
+        try:
+            idx = link_settings.get("placement_index", 0)
+            self.link_placement_cb.SelectedIndex = (
+                idx if isinstance(idx, int) and 0 <= idx < len(dms.PLACEMENT_OPTIONS) else 0)
+        except Exception:
+            pass
+        self.link_sync_comment_tb.Text = link_settings.get("sync_comment") or "Synchronize"
+        if link_settings.get("attachment") == "Attachment":
+            self.link_attachment_attachment_rb.IsChecked = True
+        else:
+            self.link_attachment_overlay_rb.IsChecked = True
+        self.link_skip_existing_cb.IsChecked = bool(link_settings.get("skip_existing", True))
+        self.link_skip_completed_cb.IsChecked = bool(link_settings.get("skip_completed", True))
+
+        for party_data in data.get("parties") or []:
+            party = DeliveryParty()
+            party.name = party_data.get("name") or ""
+            party.template_path = party_data.get("template_path") or ""
+            party.bulk_names_text = party_data.get("bulk_names_text") or ""
+            party.destination = party_data.get("destination") or None
+            self._parties.append(party)
+            root = self._build_party_ui(party)
+            self.zones_panel.Children.Add(root)
+            # _build_party_ui only seeds the name combo from party.name
+            # at construction time - template/names/ACC-destination text
+            # are normally only ever set by their own click/type handlers,
+            # so a loaded party needs them filled in explicitly here.
+            party.controls["template_tb"].Text = party.template_path
+            party.controls["names_tb"].Text = party.bulk_names_text
+            party.controls["names_count_tb"].Text = "{0} name(s)".format(len(party.names()))
+            if party.destination:
+                party.controls["acc_dest_tb"].Text = "{0} / {1} / {2}".format(
+                    party.destination.get("hub_name", "?"), party.destination.get("project_name", "?"),
+                    party.destination.get("folder_name", "?"))
+
+        self._matches = [tuple(pair) for pair in (data.get("matches") or [])
+                          if isinstance(pair, (list, tuple)) and len(pair) == 2]
+
+        self._update_run_enabled()
+        self._refresh_planned_link_files()
+        self._refresh_link_matches()
+
+        count = len(self._parties)
+        summary = "Loaded {0} Delivery Part{1} and {2} match(es) from {3}.".format(
+            count, "y" if count == 1 else "ies", len(self._matches), dlg.FileName)
+        self._log(summary + " ACC sign-in is never saved to the file - click Validate All "
+                  "Parties before running.")
+        forms.alert(summary + "\n\nClick 'Validate All Parties' before running - ACC sign-in "
+                     "isn't saved to the file, so every destination needs a quick re-check.",
+                     title=_TOOL_TITLE)
 
     def cancel_click(self, sender, args):
         self.Close()
