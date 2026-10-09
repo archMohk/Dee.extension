@@ -2,16 +2,20 @@
 """
 DeeInitiator
 Batch-creates new Revit project files from a template across any number
-of user-defined "Zones", then uploads every one of them to Autodesk
-Construction Cloud (ACC) as a new worksharing-enabled Cloud Model.
+of user-defined "Delivery Parties" (e.g. Architecture, Structure, MEP),
+uploads every one of them to Autodesk Construction Cloud (ACC) as a new
+worksharing-enabled Cloud Model, then lets the user wire up real Revit
+Links between the newly-created files, in-app - no second tool needed.
 
-Each Zone pairs ONE template/RVT file with a bulk list of new file
-names (one per line) and its OWN ACC destination (Hub/Project/Folder -
-ACC has no raw filesystem path, so a browsed destination IS "the ACC
-path", exactly like every other ACC tool in this repo). Zones are added
-one at a time by clicking "+ Add Zone" - unbounded, not a fixed pre-
-built count - per explicit user request ("I prefer clicking + [to add
-zones] rather than a tool pre-built with 8 zones toggled by checkboxes").
+Each Delivery Party pairs a name (picked from a preset list or typed -
+"Save as Preset" adds it for next time) with ONE template/RVT file, a
+bulk list of new file names (one per line), and its OWN ACC destination
+(Hub/Project/Folder - ACC has no raw filesystem path, so a browsed
+destination IS "the ACC path", exactly like every other ACC tool in
+this repo). Delivery Parties are added one at a time by clicking "+ Add
+Delivery Party" - unbounded, not a fixed pre-built count - per explicit
+user request ("I prefer clicking + [to add zones] rather than a tool
+pre-built with 8 zones toggled by checkboxes").
 
 --------------------------------------------------------------------
 Reused building blocks - this is NOT new ground for the upload half
@@ -70,36 +74,85 @@ NEEDS LIVE-REVIT VERIFICATION:
   raises on open, the fallback is Application.NewProjectDocument(
   templatePath) followed by Document.SaveAs to the target .rvt path
   (itself untested here too).
-- The dynamic "+ Add Zone" WPF UI (building a GroupBox of controls in
-  code and appending it to a StackPanel at runtime, per click) has no
-  precedent in this repo for a USER-TRIGGERED repeat-and-append
-  interaction - the closest analogs (DeeLazy.pushbutton/controller.py's
-  _build_cards, DeeRelink.pushbutton/script.py's _build_tabs) both
-  build a FIXED, pre-known set once at window-open. The underlying
-  technique (constructing WPF controls via direct .NET constructors
-  and wiring per-instance closures via Click +=) is the same proven
-  mechanism those two already use, just applied to a user-clicked "+"
-  instead of a startup loop.
+- The dynamic "+ Add Delivery Party" WPF UI (building a GroupBox of
+  controls in code and appending it to a StackPanel at runtime, per
+  click) has no precedent in this repo for a USER-TRIGGERED repeat-
+  and-append interaction - the closest analogs (DeeLazy.pushbutton/
+  controller.py's _build_cards, DeeRelink.pushbutton/script.py's
+  _build_tabs) both build a FIXED, pre-known set once at window-open.
+  The underlying technique (constructing WPF controls via direct .NET
+  constructors and wiring per-instance closures via Click +=) is the
+  same proven mechanism those two already use, just applied to a
+  user-clicked "+" instead of a startup loop.
 
 --------------------------------------------------------------------
-Second export - handoff to DeeMAPLink, by explicit user request
+In-app linking - Link Zones / Link Map/Zone tabs, by explicit user
+request (replacing an earlier CSV handoff to a separate tool)
 --------------------------------------------------------------------
-"Export Link-Setup File" (export_linkmap_click) writes a second, simpler
-CSV naming exactly the files THIS run uploaded successfully - meant to
-be opened in DeeMAPLink's (DeePack.tab/Coordination.panel/CoordViewStack.
-stack/DeeMAPLink.pushbutton) new "Import file" source mode, so the user
-can see those exact new files as DeeMAPLink's own two lists and wire up
-real Revit Links between them, without first re-scanning the whole ACC
-project (which may contain many unrelated files). DeeMAPLink already
-implements the two-list/click-to-wire/Canvas-line/link-creation UI this
-needed - this export is the only new piece, closing one real gap:
-Document.SaveAsCloudModel never hands back the new cloud item's id, so
-_resolve_item_ids looks it up afterward via acc_api.search_cloud_models
-(the same function DeeWSharing's own _existing_cloud_names already uses
-for name-collision checking, just read here for its id instead of its
-name) - a short, documented best-effort retry, not a guarantee; a file
-whose id can't be resolved yet is marked UNRESOLVED and DeeMAPLink's
-import skips it rather than risk opening the wrong item.
+An earlier version of this tool exported a CSV for DeeMAPLink
+(DeePack.tab/Coordination.panel/CoordViewStack.stack/DeeMAPLink.
+pushbutton) to import. The user asked for that workflow brought INSIDE
+DeeInitiator instead - two more tabs, reusing DeeMAPLink's own proven
+UI/pipeline rather than reinventing it:
+  - "Link Zones" = DeeMAPLink's "Two Lists" tab: two checkbox
+    DataGrids: tick several files in each, "Add from ticked lists"
+    cross-multiplies every ticked source into every ticked target in
+    one click.
+  - "Link Map/Zone" = DeeMAPLink's "Wire Map" tab: two columns of
+    files, click one then the other, a Canvas-drawn line (via
+    TranslatePoint, the same technique DeeMAPLink already proves live)
+    connects them.
+Both tabs share ONE self._matches list (DeeMAPLink's own code comment:
+"the two tabs are two views of ONE plan"), feeding a separate "Run
+Links" action (not the main "Run" - creating files and linking them
+are two distinct steps, and linking can only happen once files exist
+on ACC). Reused UNCHANGED: lib/dee_maplink_service.py (matching/
+grouping/estimate/link_into), lib/dee_link_create_service.py (the
+RevitLinkType.Create/RevitLinkInstance.Create primitive, via
+link_into), lib/acc_file_browser.py (open_cloud_document_attached,
+cloud_model_path), lib/deew_document_manager.py (synchronize_with_
+central, close_document).
+
+One real structural difference from DeeMAPLink: DeeMAPLink assumes ONE
+ACC project for its whole run (a live scan of one project). DeeInitiator's
+Delivery Parties can each upload to a DIFFERENT ACC project, so each
+linkable file (LinkFileRef) carries its OWN project_id/region rather
+than reading one window-wide field - _open_link_target/
+_link_model_path_for read it from the file reference, not from self.
+
+The file lists are never a live ACC scan here - they are rebuilt from
+THIS run's own successfully-uploaded files (self._report_rows where
+Uploaded), via "Refresh File List" (also called automatically at the
+end of a successful main Run). Document.SaveAsCloudModel never hands
+back the new cloud item's id, so _resolve_item_ids looks it up
+afterward via acc_api.search_cloud_models (the same function
+DeeWSharing's own _existing_cloud_names already uses for name-
+collision checking, just read here for its id instead of its name) - a
+short, documented best-effort retry, not a guarantee; a file whose id
+can't be resolved yet is simply left out of the linkable list rather
+than guessed at.
+
+Scope limit, not silently dropped: DeeMAPLink's Wire Map tab also has
+per-column discipline-segment filter dropdowns (AR/ST/ME/...) for
+narrowing hundreds of pre-existing project files. DeeInitiator's own
+file lists are just THIS run's own small batch of newly-created files,
+so that filtering layer is not ported here - a plain search box per
+column is enough at this scale.
+
+--------------------------------------------------------------------
+Delivery Party name presets
+--------------------------------------------------------------------
+A separate, DeeInitiator-only preset list (lib/deew_settings.py, the
+same load/save idiom DeeVSDupl's own selection presets and DeeMAPLink's
+own resumable-batch tracking already use) - NOT dee_linkmap_service's
+shared .dee_linkmap_disciplines.json, which is specifically for
+DeeLinkMAP's own file-name discipline-DETECTION logic (regex segment
+matching + hash-based coloring); reusing that file would couple this
+tool's simple name presets to unrelated detection semantics and let an
+edit in one tool's config silently change the other's. Seeded with
+common AEC disciplines; "Save as Preset" on any Delivery Party's name
+field adds whatever is typed, instantly visible in every other open
+Delivery Party's own name dropdown.
 
 --------------------------------------------------------------------
 Scope limits for this first pass - not silently incomplete
@@ -111,8 +164,9 @@ Scope limits for this first pass - not silently incomplete
   asked to use the typed name as-is; a real ACC-side collision surfaces
   as a failed upload with Autodesk's own error text in the report,
   rather than this tool guessing at a rename policy nobody asked for.
-- Duplicate name LINES typed into the same Zone's bulk box are silently
-  de-duplicated (Zone.names()), not flagged as an error.
+- Duplicate name LINES typed into the same Delivery Party's bulk box
+  are silently de-duplicated (DeliveryParty.names()), not flagged as
+  an error.
 - "Validate ACC" confirms the destination is populated (hub/project/
   folder ids all present) and that a token can currently be fetched -
   it does NOT re-walk the Hub/Project/Folder tree to confirm the
@@ -120,19 +174,28 @@ Scope limits for this first pass - not silently incomplete
   does this). A folder deleted between Validate and Run only surfaces
   as a failed upload in the report, never pre-emptively in green/red.
 - Only one Revit document is open at a time, processed start-to-finish
-  before the next starts - no parallelism across zones or files,
-  matching deew_document_manager's own stated memory-release
-  discipline.
-- No retry/resume - a cancelled or partially-failed run must be
-  re-triggered manually; already-uploaded files are not detected or
-  skipped on a second run.
+  before the next starts - no parallelism across parties, files, or
+  link hosts, matching deew_document_manager's own stated memory-
+  release discipline.
+- No retry/resume for the CREATE step - a cancelled or partially-
+  failed Run must be re-triggered manually; already-uploaded files are
+  not detected or skipped on a second Run. The LINK step (Run Links)
+  DOES have resumable-batch tracking (same crash-mid-batch safety net
+  DeeMAPLink itself has, since a huge host model can crash Revit
+  natively mid-batch) - already-synchronized hosts are skipped on a
+  re-run unless history is cleared.
 - The Output Root Folder is ONE shared location for the whole run, with
-  one auto-created subfolder per Zone ("<root>/Zone 1/", "<root>/
-  Zone 2/", ...) - not a separate picker per Zone.
+  one auto-created subfolder per Delivery Party ("<root>/01 -
+  Architecture/", "<root>/02 - Structure/", ...) - not a separate
+  picker per party.
 - "Delete local copy after successful upload" is ONE global checkbox
-  for the whole run, not per-zone - and only ever deletes AFTER a
+  for the whole run, not per-party - and only ever deletes AFTER a
   CONFIRMED successful upload; a failed upload always leaves the local
   duplicate in place so nothing is silently lost.
+- Linking across Delivery Parties that uploaded to DIFFERENT ACC
+  projects is supported structurally (per-file project/region), but is
+  only as reliable as Revit's own cross-project cloud-link support -
+  not something verifiable without a live multi-project test.
 """
 import os
 import time
@@ -142,22 +205,34 @@ import datetime
 import clr
 clr.AddReference("PresentationFramework")
 clr.AddReference("PresentationCore")
+clr.AddReference("WindowsBase")
 clr.AddReference("System.Windows.Forms")
-from System.Windows import Thickness, FontWeights, HorizontalAlignment, VerticalAlignment, TextWrapping
-from System.Windows.Controls import GroupBox, StackPanel, Orientation, TextBox, TextBlock, Button, ScrollBarVisibility
-from System.Windows.Media import SolidColorBrush, Color
+from System import Action
+from System.Windows import (Thickness, FontWeights, HorizontalAlignment, VerticalAlignment,
+                            TextWrapping, Point, TextTrimming)
+from System.Windows.Controls import (GroupBox, StackPanel, Orientation, TextBox, TextBlock,
+                                     Button, ScrollBarVisibility, Border, Canvas, ComboBox)
+from System.Windows.Media import SolidColorBrush, Color, Brushes, PointCollection
+from System.Windows.Shapes import Line, Polygon
+from System.Windows.Input import Cursors
+from System.Windows.Threading import Dispatcher, DispatcherFrame, DispatcherPriority
 from System.Windows.Forms import FolderBrowserDialog, OpenFileDialog, SaveFileDialog, DialogResult, MessageBox
+
+from Autodesk.Revit.DB import ImportPlacement, AttachmentType
 
 from pyrevit import forms, script
 import dee_branding
 
 import deew_logger
+import deew_settings
 import deew_model_scanner as scanner
 import deew_document_manager as docmgr
 import deew_cloud_service as cloudsvc
 import deew_failure_handler as ffh
 import deew_progress_service as progsvc
 import deew_report_generator as reportgen
+import acc_file_browser as afb
+import dee_maplink_service as dms
 import acc_api
 
 import dee_telemetry
@@ -173,15 +248,22 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 
 _VALID_EXTENSIONS = (".rvt", ".rte")
+_INVALID_FOLDER_CHARS = set('\\/:*?"<>|')
 
 _GREEN = "#2e7d32"
 _RED = "#c62828"
 
-HEADERS = ["Zone", "Template Used", "Local Output Folder", "New File Name",
+HEADERS = ["Delivery Party", "Template Used", "Local Output Folder", "New File Name",
            "File Validation", "ACC Hub / Project / Folder", "Upload Status",
            "Worksharing Enabled", "Local Copy", "Duration", "Errors",
            "Date", "Revit Version", "User"]
-COL_WIDTHS = [8, 34, 34, 26, 16, 34, 18, 16, 14, 12, 30, 18, 12, 16]
+COL_WIDTHS = [14, 34, 34, 26, 16, 34, 18, 16, 14, 12, 30, 18, 12, 16]
+
+_PARTY_PRESET_TOOL_NAME = "dee_initiator_party_presets"
+_DEFAULT_PARTY_PRESETS = ["Architecture", "Structure", "MEP", "Electrical",
+                          "Plumbing", "Civil", "Landscape", "Interior Design"]
+
+_LINK_PROGRESS_TOOL_NAME = "DeeInitiator_link_progress"
 
 
 def _brush(hex_color):
@@ -196,18 +278,34 @@ def _revit_version_text(app):
         return "Unknown"
 
 
+def _safe_folder_name(text):
+    cleaned = "".join(c if c not in _INVALID_FOLDER_CHARS else "_" for c in (text or "").strip())
+    return cleaned or "Party"
+
+
+def _load_party_presets():
+    data = deew_settings.load(_PARTY_PRESET_TOOL_NAME, {"presets": _DEFAULT_PARTY_PRESETS})
+    presets = data.get("presets")
+    return list(presets) if presets else list(_DEFAULT_PARTY_PRESETS)
+
+
+def _save_party_presets(presets):
+    deew_settings.save(_PARTY_PRESET_TOOL_NAME, {"presets": presets})
+
+
 # ==========================================================================
-# Zone - plain data holder, one per Zone, living alongside that Zone's own
-# WPF controls (same "data object next to its own UI" pattern this
-# codebase already uses for DataGrid rows, just applied to a bigger
-# per-zone block instead of a grid row).
+# DeliveryParty - plain data holder, one per Delivery Party, living
+# alongside that party's own WPF controls (same "data object next to
+# its own UI" pattern this codebase already uses for DataGrid rows,
+# just applied to a bigger per-party block instead of a grid row).
 # ==========================================================================
-class Zone(object):
+class DeliveryParty(object):
     _next_id = [1]
 
     def __init__(self):
-        self.id = Zone._next_id[0]
-        Zone._next_id[0] += 1
+        self.id = DeliveryParty._next_id[0]
+        DeliveryParty._next_id[0] += 1
+        self.name = ""
         self.template_path = ""
         self.bulk_names_text = ""
         self.destination = None    # dict from cloudsvc.pick_destination(), or None
@@ -228,12 +326,12 @@ class Zone(object):
         return out
 
 
-def validate_zone_file(zone):
+def validate_party_file(party):
     """Returns (ok, detail). Checks the template path exists, has a
     .rvt/.rte extension, passes scanner.scan_file's closed-file
     corrupted/read-only check, and that at least one new-file name was
     typed. Never raises."""
-    path = (zone.template_path or "").strip()
+    path = (party.template_path or "").strip()
     if not path:
         return False, "No template/RVT file selected"
     if not os.path.isfile(path):
@@ -247,18 +345,18 @@ def validate_zone_file(zone):
             return False, model.status
     except Exception as e:
         return False, "Could not read file: {0}".format(e)
-    if not zone.names():
+    if not party.names():
         return False, "Type at least one new file name (one per line)"
     return True, "Validated"
 
 
-def validate_zone_acc(zone):
+def validate_party_acc(party):
     """Returns (ok, detail). ACC has no literal path - "validated" means
     a destination was actually picked (Hub/Project/Folder ids all
     present) and a token can still be fetched right now. Does NOT
     re-confirm the folder still exists on Autodesk's side - see module
     docstring's Scope Limits."""
-    dest = zone.destination
+    dest = party.destination
     if not dest:
         return False, "No ACC destination selected"
     if not (dest.get("hub_id") and dest.get("project_id") and dest.get("folder_id")):
@@ -274,8 +372,8 @@ def validate_zone_acc(zone):
 # Report row
 # ==========================================================================
 class InitiatorReportRow(object):
-    def __init__(self, zone_id, template_used, output_folder, new_file_name, revit_version):
-        self.zone_id = zone_id
+    def __init__(self, party_id, template_used, output_folder, new_file_name, revit_version):
+        self.party_id = party_id
         self.template_used = template_used
         self.output_folder = output_folder
         self.new_file_name = new_file_name
@@ -295,7 +393,7 @@ class InitiatorReportRow(object):
 
     def to_list(self):
         return [
-            self.zone_id, self.template_used, self.output_folder, self.new_file_name,
+            self.party_id, self.template_used, self.output_folder, self.new_file_name,
             self.file_validation, self.acc_destination_text, self.upload_status,
             self.worksharing_enabled, self.local_copy, "{0:.1f}s".format(self.processing_time_seconds),
             self.errors, self.date_text, self.revit_version, self.user,
@@ -310,47 +408,6 @@ class InitiatorReportRow(object):
         return None
 
 
-# ==========================================================================
-# Link-setup handoff file - a second, simpler export naming exactly the
-# files this run uploaded, meant to be imported into DeeMAPLink
-# (DeePack.tab/Coordination.panel/CoordViewStack.stack/DeeMAPLink.pushbutton)
-# so the user can wire up Revit Links between the newly-created files
-# without re-scanning the whole ACC project. See module docstring.
-# ==========================================================================
-_LINKMAP_HEADERS = ["Zone", "New File Name", "Item Id", "Region", "Project Id",
-                    "Project Name", "Hub Id", "Hub Name", "Folder Id", "Folder Name",
-                    "Date", "User"]
-_LINKMAP_COL_WIDTHS = [8, 30, 36, 10, 36, 24, 36, 20, 36, 24, 18, 16]
-
-_UNRESOLVED_ITEM_ID = "UNRESOLVED"
-
-
-class LinkSetupRow(object):
-    def __init__(self, zone_id, new_file_name, item_id, destination):
-        self.zone_id = zone_id
-        self.new_file_name = new_file_name
-        self.item_id = item_id
-        self.region = destination.get("region", "")
-        self.project_id = destination.get("project_id", "")
-        self.project_name = destination.get("project_name", "")
-        self.hub_id = destination.get("hub_id", "")
-        self.hub_name = destination.get("hub_name", "")
-        self.folder_id = destination.get("folder_id", "")
-        self.folder_name = destination.get("folder_name", "")
-        self.date_text = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        try:
-            self.user = os.environ.get("USERNAME", "Unknown")
-        except Exception:
-            self.user = "Unknown"
-
-    def to_list(self):
-        return [
-            self.zone_id, self.new_file_name, self.item_id, self.region, self.project_id,
-            self.project_name, self.hub_id, self.hub_name, self.folder_id, self.folder_name,
-            self.date_text, self.user,
-        ]
-
-
 def _resolve_item_ids(project_id, token, expected_names, logger, attempts=3, delay_seconds=2.0):
     """Returns {expected_display_name: item_id}, best-effort. Document.
     SaveAsCloudModel (deew_cloud_service.save_to_cloud) never hands back
@@ -363,8 +420,8 @@ def _resolve_item_ids(project_id, token, expected_names, logger, attempts=3, del
     the upload transaction that just completed - retried up to
     `attempts` times with a short pause rather than assumed to be
     immediately consistent. A name still not found after every attempt
-    is simply absent from the returned dict; the caller marks it
-    UNRESOLVED rather than guessing - never silently invents an id."""
+    is simply absent from the returned dict - the caller leaves it out
+    of the linkable file list rather than guessing at an id."""
     remaining = set(expected_names)
     found = {}
     for attempt in range(attempts):
@@ -399,18 +456,18 @@ class InitiatorPipeline(object):
         self.delete_after_upload = delete_after_upload
         self.logger = logger
 
-    def process_one(self, zone, new_name, zone_output_folder, revit_version_text):
-        row = InitiatorReportRow(zone.id, zone.template_path, zone_output_folder, new_name, revit_version_text)
+    def process_one(self, party, new_name, party_output_folder, revit_version_text):
+        row = InitiatorReportRow(party.id, party.template_path, party_output_folder, new_name, revit_version_text)
         row.acc_destination_text = "{0} / {1} / {2}".format(
-            zone.destination.get("hub_name", "?"), zone.destination.get("project_name", "?"),
-            zone.destination.get("folder_name", "?"))
+            party.destination.get("hub_name", "?"), party.destination.get("project_name", "?"),
+            party.destination.get("folder_name", "?"))
         start = time.time()
         document = None
         target_path = None
         try:
-            target_path = docmgr.unique_target_path(zone_output_folder, new_name + ".rvt")
+            target_path = docmgr.unique_target_path(party_output_folder, new_name + ".rvt")
             try:
-                shutil.copy2(zone.template_path, target_path)
+                shutil.copy2(party.template_path, target_path)
             except Exception as e:
                 row.upload_status = "Failed - could not duplicate"
                 row.errors = str(e)
@@ -425,7 +482,7 @@ class InitiatorPipeline(object):
             ok = docmgr.enable_worksharing(document, logger=self.logger)
             row.worksharing_enabled = "Yes" if ok else "Failed"
 
-            success, detail = cloudsvc.save_to_cloud(document, zone.destination, new_name)
+            success, detail = cloudsvc.save_to_cloud(document, party.destination, new_name)
             if success:
                 row.upload_status = "Uploaded"
             else:
@@ -456,20 +513,78 @@ class InitiatorPipeline(object):
 
 
 # ==========================================================================
+# Link-setup data model - populated from THIS run's own uploaded files,
+# never a live ACC scan (see module docstring).
+# ==========================================================================
+class LinkFileRef(object):
+    """One file available to link. Carries its OWN project/region -
+    unlike DeeMAPLink (one ACC project per run), different Delivery
+    Parties here can upload to different ACC projects."""
+    def __init__(self, name, item_id, project_id, region, hub_id):
+        self.name = name
+        self.item_id = item_id
+        self.project_id = project_id
+        self.region = region
+        self.hub_id = hub_id
+
+
+class FileRow(object):
+    """One row in the Link Zones tab's two DataGrids."""
+    def __init__(self, name):
+        self.selected = False
+        self.name = name
+
+
+class MatchRow(object):
+    """One row in the shared matches grid - plain source/target strings,
+    the same shape dee_maplink_service.build_matches() works with."""
+    def __init__(self, source, target):
+        self.source = source
+        self.target = target
+
+
+# ==========================================================================
 # Window
 # ==========================================================================
 class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
+    _WIRE_BRUSH = SolidColorBrush(Color.FromRgb(0xF2, 0x99, 0x4D))
+    _ROW_BG = SolidColorBrush(Color.FromRgb(0x2B, 0x2B, 0x2B))
+    _ROW_ARMED = SolidColorBrush(Color.FromRgb(0x4A, 0x3A, 0x22))
+
     def __init__(self, xaml_file, uiapp):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.uiapp = uiapp
         self.application = uiapp.Application
         self.logger = deew_logger.DeeWLogger(_TOOL_NAME)
-        self._zones = []
+        self._parties = []
         self._report_rows = []
         self._status_lines = []
 
-        self._log("Ready. Click '+ Add Zone' to define a template + bulk name list and an ACC "
-                  "destination, pick an Output Root Folder, Validate All Zones, then Run.")
+        # Link-setup state, shared by the Link Zones / Link Map/Zone tabs.
+        self._link_files = {}      # {display_name: LinkFileRef}
+        self._rows1 = []
+        self._rows2 = []
+        self._matches = []         # [(source_name, target_name), ...]
+        self._map_left_rows = {}
+        self._map_right_rows = {}
+        self._map_pending = None
+        self._map_ready = False
+
+        self.link_placement_cb.ItemsSource = [label for label, _v in dms.PLACEMENT_OPTIONS]
+        self.link_placement_cb.SelectedIndex = 0
+        self._refresh_link_matches()
+
+        self._log("Ready. Click '+ Add Delivery Party' to define a name, template + bulk name "
+                  "list, and an ACC destination, pick an Output Root Folder, Validate All "
+                  "Parties, then Run.")
+
+        # Canvas handlers live on the scroll viewers/canvas itself, not
+        # per-row - a scroll or resize has to redraw every wire, not just
+        # the one under the cursor.
+        self.link_map_left_scroll.ScrollChanged += self._map_scrolled
+        self.link_map_right_scroll.ScrollChanged += self._map_scrolled
+        self.link_map_canvas.SizeChanged += self._map_scrolled
+        self._map_ready = True
 
     # ---------------- logging ----------------
     def _log(self, message):
@@ -481,6 +596,12 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         except Exception:
             pass
 
+    def _safe_text(self, textbox):
+        try:
+            return textbox.Text or ""
+        except Exception:
+            return ""
+
     # ---------------- Output root folder ----------------
     def browse_root_click(self, sender, args):
         dlg = FolderBrowserDialog()
@@ -489,41 +610,69 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         if dlg.ShowDialog() == DialogResult.OK:
             self.root_folder_tb.Text = dlg.SelectedPath
 
-    # ---------------- Zones: add / remove / build UI ----------------
-    def add_zone_click(self, sender, args):
-        zone = Zone()
-        self._zones.append(zone)
-        self.zones_panel.Children.Add(self._build_zone_ui(zone))
+    # ---------------- Delivery Parties: add / remove / build UI ----------------
+    def add_party_click(self, sender, args):
+        party = DeliveryParty()
+        self._parties.append(party)
+        self.zones_panel.Children.Add(self._build_party_ui(party))
         self._update_run_enabled()
-        self._log("Added Zone {0}.".format(zone.id))
+        self._log("Added Delivery Party {0}.".format(party.id))
 
-    def _remove_zone(self, zone):
-        if not forms.alert("Remove Zone {0}?".format(zone.id), title=_TOOL_TITLE, yes=True, no=True):
+    def _remove_party(self, party):
+        if not forms.alert("Remove Delivery Party {0}?".format(party.id), title=_TOOL_TITLE, yes=True, no=True):
             return
         try:
-            self.zones_panel.Children.Remove(zone.controls.get("root"))
+            self.zones_panel.Children.Remove(party.controls.get("root"))
         except Exception:
             pass
-        if zone in self._zones:
-            self._zones.remove(zone)
+        if party in self._parties:
+            self._parties.remove(party)
         self._update_run_enabled()
-        self._log("Removed Zone {0}.".format(zone.id))
+        self._log("Removed Delivery Party {0}.".format(party.id))
 
-    def _build_zone_ui(self, zone):
-        """Builds one Zone's GroupBox of controls in code (no static XAML
-        for this - the zone count is unbounded, set by "+ Add Zone"
-        clicks, same "build it in code because the count varies" reason
-        DeeLazy.pushbutton/controller.py's _build_cards already states).
-        Per-control closures are built via self._make_*_handler(zone) so
-        each one is bound to ITS OWN zone, not whichever zone happened
-        to be built last - same reasoning DeeLazy's own
-        _wire_card_interaction states for its per-card closures."""
+    def _build_party_ui(self, party):
+        """Builds one Delivery Party's GroupBox of controls in code (no
+        static XAML for this - the party count is unbounded, set by
+        "+ Add Delivery Party" clicks, same "build it in code because
+        the count varies" reason DeeLazy.pushbutton/controller.py's
+        _build_cards already states). Per-control closures are built via
+        self._make_*_handler(party) so each one is bound to ITS OWN
+        party, not whichever party happened to be built last - same
+        reasoning DeeLazy's own _wire_card_interaction states for its
+        per-card closures."""
         root = GroupBox()
-        root.Header = "Zone {0}".format(zone.id)
+        root.Header = "Delivery Party {0}".format(party.id)
         root.Margin = Thickness(0, 0, 0, 10)
         root.Padding = Thickness(6)
 
         panel = StackPanel()
+
+        # Row 0: delivery party name (preset combo)
+        row0 = StackPanel()
+        row0.Orientation = Orientation.Horizontal
+        row0.Margin = Thickness(0, 0, 0, 6)
+        lbl0 = TextBlock()
+        lbl0.Text = "Delivery Party Name:"
+        lbl0.Width = 140
+        lbl0.VerticalAlignment = VerticalAlignment.Center
+        row0.Children.Add(lbl0)
+        name_cb = ComboBox()
+        name_cb.Width = 220
+        name_cb.Height = 24
+        name_cb.IsEditable = True
+        name_cb.ItemsSource = _load_party_presets()
+        name_cb.Text = party.name
+        row0.Children.Add(name_cb)
+        name_cb.LostFocus += self._make_party_name_handler(party, name_cb)
+        name_cb.SelectionChanged += self._make_party_name_handler(party, name_cb)
+        save_preset_b = Button()
+        save_preset_b.Content = "Save as Preset"
+        save_preset_b.Width = 120
+        save_preset_b.Height = 24
+        save_preset_b.Margin = Thickness(8, 0, 0, 0)
+        save_preset_b.Click += self._make_save_preset_handler(name_cb)
+        row0.Children.Add(save_preset_b)
+        panel.Children.Add(row0)
 
         # Row 1: template/RVT file
         row1 = StackPanel()
@@ -545,14 +694,14 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         browse_b.Width = 90
         browse_b.Height = 24
         browse_b.Margin = Thickness(8, 0, 0, 0)
-        browse_b.Click += self._make_browse_template_handler(zone)
+        browse_b.Click += self._make_browse_template_handler(party)
         row1.Children.Add(browse_b)
         validate_file_b = Button()
         validate_file_b.Content = "Validate File"
         validate_file_b.Width = 100
         validate_file_b.Height = 24
         validate_file_b.Margin = Thickness(8, 0, 0, 0)
-        validate_file_b.Click += self._make_validate_file_handler(zone)
+        validate_file_b.Click += self._make_validate_file_handler(party)
         row1.Children.Add(validate_file_b)
         file_status_tb = TextBlock()
         file_status_tb.Margin = Thickness(10, 0, 0, 0)
@@ -576,7 +725,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         names_tb.TextWrapping = TextWrapping.NoWrap
         names_tb.VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         names_tb.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto
-        names_tb.TextChanged += self._make_names_changed_handler(zone)
+        names_tb.TextChanged += self._make_names_changed_handler(party)
         row2.Children.Add(names_tb)
         names_count_tb = TextBlock()
         names_count_tb.Text = "0 name(s)"
@@ -598,7 +747,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         pick_acc_b.Content = "Pick ACC Destination..."
         pick_acc_b.Width = 160
         pick_acc_b.Height = 24
-        pick_acc_b.Click += self._make_pick_acc_handler(zone)
+        pick_acc_b.Click += self._make_pick_acc_handler(party)
         row3.Children.Add(pick_acc_b)
         acc_dest_tb = TextBlock()
         acc_dest_tb.Text = "No destination selected yet."
@@ -612,7 +761,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         validate_acc_b.Width = 100
         validate_acc_b.Height = 24
         validate_acc_b.Margin = Thickness(8, 0, 0, 0)
-        validate_acc_b.Click += self._make_validate_acc_handler(zone)
+        validate_acc_b.Click += self._make_validate_acc_handler(party)
         row3.Children.Add(validate_acc_b)
         acc_status_tb = TextBlock()
         acc_status_tb.Margin = Thickness(10, 0, 0, 0)
@@ -621,62 +770,93 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         row3.Children.Add(acc_status_tb)
         panel.Children.Add(row3)
 
-        # Row 4: remove this zone
+        # Row 4: remove this party
         row4 = StackPanel()
         row4.Orientation = Orientation.Horizontal
         row4.HorizontalAlignment = HorizontalAlignment.Right
         remove_b = Button()
-        remove_b.Content = "Remove Zone"
-        remove_b.Width = 100
+        remove_b.Content = "Remove Delivery Party"
+        remove_b.Width = 140
         remove_b.Height = 22
-        remove_b.Click += self._make_remove_zone_handler(zone)
+        remove_b.Click += self._make_remove_party_handler(party)
         row4.Children.Add(remove_b)
         panel.Children.Add(row4)
 
         root.Content = panel
 
-        zone.controls["root"] = root
-        zone.controls["template_tb"] = template_tb
-        zone.controls["file_status_tb"] = file_status_tb
-        zone.controls["names_tb"] = names_tb
-        zone.controls["names_count_tb"] = names_count_tb
-        zone.controls["acc_dest_tb"] = acc_dest_tb
-        zone.controls["acc_status_tb"] = acc_status_tb
+        party.controls["root"] = root
+        party.controls["name_cb"] = name_cb
+        party.controls["template_tb"] = template_tb
+        party.controls["file_status_tb"] = file_status_tb
+        party.controls["names_tb"] = names_tb
+        party.controls["names_count_tb"] = names_count_tb
+        party.controls["acc_dest_tb"] = acc_dest_tb
+        party.controls["acc_status_tb"] = acc_status_tb
         return root
 
-    # ---------------- per-zone closures ----------------
-    def _make_browse_template_handler(self, zone):
+    # ---------------- per-party closures ----------------
+    def _make_party_name_handler(self, party, name_cb):
+        def handler(sender, args):
+            party.name = (name_cb.Text or "").strip()
+        return handler
+
+    def _make_save_preset_handler(self, name_cb):
+        def handler(sender, args):
+            text = (name_cb.Text or "").strip()
+            if not text:
+                return
+            presets = _load_party_presets()
+            if text in presets:
+                self._log("'{0}' is already a preset.".format(text))
+                return
+            presets.append(text)
+            _save_party_presets(presets)
+            self._refresh_all_party_name_presets()
+            self._log("Added '{0}' to Delivery Party presets.".format(text))
+        return handler
+
+    def _refresh_all_party_name_presets(self):
+        presets = _load_party_presets()
+        for party in self._parties:
+            cb = party.controls.get("name_cb")
+            if cb is None:
+                continue
+            current = cb.Text
+            cb.ItemsSource = presets
+            cb.Text = current
+
+    def _make_browse_template_handler(self, party):
         def handler(sender, args):
             dlg = OpenFileDialog()
             dlg.Filter = "Revit Files (*.rvt;*.rte)|*.rvt;*.rte|All Files (*.*)|*.*"
             dlg.Title = "Pick a Template or RVT File"
             if dlg.ShowDialog() != DialogResult.OK:
                 return
-            zone.template_path = dlg.FileName
-            zone.controls["template_tb"].Text = dlg.FileName
-            zone.file_valid = None
-            zone.controls["file_status_tb"].Text = ""
+            party.template_path = dlg.FileName
+            party.controls["template_tb"].Text = dlg.FileName
+            party.file_valid = None
+            party.controls["file_status_tb"].Text = ""
             self._update_run_enabled()
         return handler
 
-    def _make_validate_file_handler(self, zone):
+    def _make_validate_file_handler(self, party):
         def handler(sender, args):
-            self._apply_file_validation(zone)
+            self._apply_file_validation(party)
         return handler
 
-    def _make_names_changed_handler(self, zone):
+    def _make_names_changed_handler(self, party):
         def handler(sender, args):
-            zone.bulk_names_text = zone.controls["names_tb"].Text
-            zone.controls["names_count_tb"].Text = "{0} name(s)".format(len(zone.names()))
-            if zone.file_valid is not None:
-                zone.file_valid = None
-                zone.controls["file_status_tb"].Text = ""
+            party.bulk_names_text = party.controls["names_tb"].Text
+            party.controls["names_count_tb"].Text = "{0} name(s)".format(len(party.names()))
+            if party.file_valid is not None:
+                party.file_valid = None
+                party.controls["file_status_tb"].Text = ""
             self._update_run_enabled()
         return handler
 
-    def _make_pick_acc_handler(self, zone):
+    def _make_pick_acc_handler(self, party):
         def handler(sender, args):
-            self._log("Zone {0}: loading ACC Hubs/Projects/Folders...".format(zone.id))
+            self._log("Delivery Party {0}: loading ACC Hubs/Projects/Folders...".format(party.id))
             try:
                 destination = cloudsvc.pick_destination()
             except Exception as e:
@@ -684,87 +864,88 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
                 return
             if not destination:
                 return
-            zone.destination = destination
-            zone.controls["acc_dest_tb"].Text = "{0} / {1} / {2}".format(
+            party.destination = destination
+            party.controls["acc_dest_tb"].Text = "{0} / {1} / {2}".format(
                 destination.get("hub_name", "?"), destination.get("project_name", "?"),
                 destination.get("folder_name", "?"))
-            zone.acc_valid = None
-            zone.controls["acc_status_tb"].Text = ""
+            party.acc_valid = None
+            party.controls["acc_status_tb"].Text = ""
             self._update_run_enabled()
-            self._log("Zone {0} destination set: {1}".format(zone.id, zone.controls["acc_dest_tb"].Text))
+            self._log("Delivery Party {0} destination set: {1}".format(party.id, party.controls["acc_dest_tb"].Text))
         return handler
 
-    def _make_validate_acc_handler(self, zone):
+    def _make_validate_acc_handler(self, party):
         def handler(sender, args):
-            self._apply_acc_validation(zone)
+            self._apply_acc_validation(party)
         return handler
 
-    def _make_remove_zone_handler(self, zone):
+    def _make_remove_party_handler(self, party):
         def handler(sender, args):
-            self._remove_zone(zone)
+            self._remove_party(party)
         return handler
 
     # ---------------- validation ----------------
-    def _apply_file_validation(self, zone):
-        ok, detail = validate_zone_file(zone)
-        zone.file_valid = ok
-        tb = zone.controls.get("file_status_tb")
+    def _apply_file_validation(self, party):
+        ok, detail = validate_party_file(party)
+        party.file_valid = ok
+        tb = party.controls.get("file_status_tb")
         if tb is not None:
             tb.Text = "Validated" if ok else "Error: {0}".format(detail)
             tb.Foreground = _brush(_GREEN if ok else _RED)
         self._update_run_enabled()
 
-    def _apply_acc_validation(self, zone):
-        ok, detail = validate_zone_acc(zone)
-        zone.acc_valid = ok
-        tb = zone.controls.get("acc_status_tb")
+    def _apply_acc_validation(self, party):
+        ok, detail = validate_party_acc(party)
+        party.acc_valid = ok
+        tb = party.controls.get("acc_status_tb")
         if tb is not None:
             tb.Text = "Validated" if ok else "Error: {0}".format(detail)
             tb.Foreground = _brush(_GREEN if ok else _RED)
         self._update_run_enabled()
 
     def validate_all_click(self, sender, args):
-        if not self._zones:
-            forms.alert("Add at least one Zone first.")
+        if not self._parties:
+            forms.alert("Add at least one Delivery Party first.")
             return
-        for zone in self._zones:
-            self._apply_file_validation(zone)
-            self._apply_acc_validation(zone)
-        all_ok = all(z.file_valid and z.acc_valid for z in self._zones)
-        self._log("Validate All Zones: {0}".format(
-            "all zones passed" if all_ok else "one or more zones need attention - see red status text above"))
+        for party in self._parties:
+            self._apply_file_validation(party)
+            self._apply_acc_validation(party)
+        all_ok = all(p.file_valid and p.acc_valid for p in self._parties)
+        self._log("Validate All Delivery Parties: {0}".format(
+            "all passed" if all_ok else "one or more need attention - see red status text above"))
 
     def _update_run_enabled(self):
         try:
-            self.run_b.IsEnabled = bool(self._zones) and all(
-                z.file_valid and z.acc_valid for z in self._zones)
+            self.run_b.IsEnabled = bool(self._parties) and all(
+                p.file_valid and p.acc_valid for p in self._parties)
         except Exception:
             pass
 
-    # ---------------- Run ----------------
+    # ---------------- Run (create + upload) ----------------
     def run_click(self, sender, args):
-        if not self._zones:
-            forms.alert("Add at least one Zone first.")
+        if not self._parties:
+            forms.alert("Add at least one Delivery Party first.")
             return
         root_folder = (self.root_folder_tb.Text or "").strip()
         if not root_folder or not os.path.isdir(root_folder):
             forms.alert("Pick a valid Output Root Folder first.")
             return
         # Defensive re-check - never trust only the Run button's own
-        # IsEnabled state, since editing a zone's path/names/destination
-        # after validating resets that zone's own status to None.
-        if not all(z.file_valid and z.acc_valid for z in self._zones):
-            forms.alert("Validate every Zone (file + ACC) before running - editing a zone after "
-                         "validating it clears that zone's status.")
+        # IsEnabled state, since editing a party's path/names/destination
+        # after validating resets that party's own status to None.
+        if not all(p.file_valid and p.acc_valid for p in self._parties):
+            forms.alert("Validate every Delivery Party (file + ACC) before running - editing a "
+                         "party after validating it clears that party's status.")
             return
 
-        total = sum(len(z.names()) for z in self._zones)
+        total = sum(len(p.names()) for p in self._parties)
         if total < 1:
-            forms.alert("No file names to process - type at least one name into a Zone.")
+            forms.alert("No file names to process - type at least one name into a Delivery Party.")
             return
 
-        if not forms.alert("Create and upload {0} file(s) across {1} zone(s)?".format(total, len(self._zones)),
-                            title=_TOOL_TITLE + " - confirm", yes=True, no=True):
+        if not forms.alert("Create and upload {0} file(s) across {1} Delivery Part{2}?".format(
+                total, len(self._parties), "y" if len(self._parties) == 1 else "ies"),
+                title=_TOOL_TITLE + " - confirm", yes=True, no=True):
             return
 
         delete_after_upload = bool(self.delete_after_upload_cb.IsChecked)
@@ -780,27 +961,28 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         report_rows = []
         try:
             with progsvc.DeeWProgressService(_TOOL_TITLE, total) as prog:
-                for zone in self._zones:
+                for party in self._parties:
                     if prog.cancelled:
                         self._log("Cancelled by user.")
                         break
-                    zone_folder = os.path.join(root_folder, "Zone {0}".format(zone.id))
+                    party_folder = os.path.join(
+                        root_folder, "{0:02d} - {1}".format(party.id, _safe_folder_name(party.name)))
                     try:
-                        if not os.path.isdir(zone_folder):
-                            os.makedirs(zone_folder)
+                        if not os.path.isdir(party_folder):
+                            os.makedirs(party_folder)
                     except Exception as e:
-                        self._log("Zone {0}: could not create output folder - {1}".format(zone.id, e))
+                        self._log("Delivery Party {0}: could not create output folder - {1}".format(party.id, e))
                         continue
-                    for name in zone.names():
+                    for name in party.names():
                         if prog.cancelled:
                             self._log("Cancelled by user.")
                             break
                         prog.step(name, "Duplicating + uploading")
-                        row = pipeline.process_one(zone, name, zone_folder, revit_version_text)
+                        row = pipeline.process_one(party, name, party_folder, revit_version_text)
                         report_rows.append(row)
                         outcome = "success" if row.upload_status == "Uploaded" else "failed"
                         prog.finish_file(outcome)
-                        self._log("Zone {0} - '{1}': {2}".format(zone.id, name, row.upload_status))
+                        self._log("Delivery Party {0} - '{1}': {2}".format(party.id, name, row.upload_status))
         finally:
             try:
                 self.uiapp.DialogBoxShowing -= dialog_handler
@@ -817,8 +999,12 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
             len(report_rows), uploaded, failed)
         self._log(self.summary_tb.Text)
         forms.alert(self.summary_tb.Text, title=_TOOL_TITLE)
+
+        if uploaded:
+            self._refresh_link_files()
+
         try:
-            self.main_tabs.SelectedIndex = 1
+            self.main_tabs.SelectedIndex = 3
         except Exception:
             pass
 
@@ -840,81 +1026,657 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
             return
         MessageBox.Show("Report exported to:\n{0}".format(dlg.FileName), _TOOL_TITLE)
 
-    def export_linkmap_click(self, sender, args):
-        """Second export: a simple handoff file naming exactly the files
-        this run uploaded, for DeeMAPLink's "Import file" source mode
-        (see module docstring) - so the user can wire up Revit Links
-        between the new files without re-scanning the whole ACC project."""
+    def cancel_click(self, sender, args):
+        self.Close()
+
+    # ======================================================================
+    # Link setup - shared by the Link Zones and Link Map/Zone tabs
+    # ======================================================================
+
+    # ---------------- populating the linkable file list ----------------
+    def refresh_link_files_click(self, sender, args):
+        self._refresh_link_files()
+
+    def _refresh_link_files(self):
+        """Rebuilds self._link_files from THIS run's own successfully
+        uploaded files (self._report_rows where Uploaded) - never a live
+        ACC scan (see module docstring). Resolves each file's cloud item
+        id via _resolve_item_ids, grouped per distinct ACC project (one
+        search per project, not one per file)."""
         uploaded_rows = [r for r in self._report_rows if r.upload_status == "Uploaded"]
-        if not uploaded_rows:
-            forms.alert("Run the tool first and have at least one file upload successfully - "
-                         "nothing to export yet.")
-            return
+        party_by_id = dict((p.id, p) for p in self._parties)
 
-        zone_by_id = dict((z.id, z) for z in self._zones)
-
-        # Resolve item ids project-by-project (one search per distinct
-        # project, not one per file) - mirrors DeeWSharing's own
-        # _existing_cloud_names caching shape.
-        self._log("Resolving cloud file ids for the link-setup export...")
         by_project = {}
         for row in uploaded_rows:
-            zone = zone_by_id.get(row.zone_id)
-            if zone is None or not zone.destination:
+            party = party_by_id.get(row.party_id)
+            if party is None or not party.destination:
                 continue
-            by_project.setdefault(zone.destination["project_id"], []).append((row, zone))
+            by_project.setdefault(party.destination["project_id"], []).append((row, party))
 
+        if not by_project:
+            self._link_files = {}
+            self.link_files_count_tb.Text = "No files yet - Run first, then Refresh File List."
+            self._after_link_scan()
+            return
+
+        self._log("Resolving cloud file ids for linking...")
         resolved = {}
         for project_id, pairs in by_project.items():
             token = pairs[0][1].destination.get("token") or cloudsvc.get_token()
             expected_names = set()
-            for row, _zone in pairs:
+            for row, _party in pairs:
                 name = row.new_file_name
                 expected_names.add(name if name.lower().endswith(".rvt") else name + ".rvt")
-            found = _resolve_item_ids(project_id, token, expected_names, self.logger)
-            resolved[project_id] = found
+            resolved[project_id] = _resolve_item_ids(project_id, token, expected_names, self.logger)
 
-        link_rows = []
-        unresolved_count = 0
+        link_files = {}
+        unresolved = 0
         for row in uploaded_rows:
-            zone = zone_by_id.get(row.zone_id)
-            if zone is None or not zone.destination:
-                self._log("Zone {0} - '{1}': no longer available, skipped from link-setup export.".format(
-                    row.zone_id, row.new_file_name))
+            party = party_by_id.get(row.party_id)
+            if party is None or not party.destination:
                 continue
             name = row.new_file_name
             display_name = name if name.lower().endswith(".rvt") else name + ".rvt"
-            item_id = resolved.get(zone.destination["project_id"], {}).get(display_name, "")
+            project_id = party.destination["project_id"]
+            item_id = resolved.get(project_id, {}).get(display_name)
             if not item_id:
-                item_id = _UNRESOLVED_ITEM_ID
-                unresolved_count += 1
-            link_rows.append(LinkSetupRow(row.zone_id, display_name, item_id, zone.destination))
+                unresolved += 1
+                continue
+            link_files[display_name] = LinkFileRef(
+                display_name, item_id, project_id,
+                party.destination.get("region", ""), party.destination.get("hub_id", ""))
 
-        dlg = SaveFileDialog()
-        dlg.Filter = "CSV (*.csv)|*.csv"
-        dlg.FileName = "DeeInitiator_LinkSetup.csv"
-        if dlg.ShowDialog() != DialogResult.OK:
-            return
+        self._link_files = link_files
+        note = "{0} file(s) available to link".format(len(link_files))
+        if unresolved:
+            note += " ({0} not yet resolved - try Refresh again in a minute)".format(unresolved)
+        self.link_files_count_tb.Text = note
+        self._log(note + ".")
+        self._after_link_scan()
+
+    def _after_link_scan(self):
+        names = sorted(self._link_files.keys())
+        self._rows1 = [FileRow(n) for n in names]
+        self._rows2 = [FileRow(n) for n in names]
+        self._refresh_list1()
+        self._refresh_list2()
+        if self._map_ready:
+            try:
+                self._map_build()
+            except Exception as e:
+                self.logger.exception("Could not build the wire map", e)
+                self._log("Wire map could not be built: {0}".format(e))
+
+    # ---------------- Link Zones tab: two checkbox lists ----------------
+    def _visible(self, rows, query):
+        return [r for r in rows if dms.matches_search(r.name, query)]
+
+    def _refresh_list1(self):
+        visible = self._visible(self._rows1, self._safe_text(self.link_search1_tb))
+        self.link_list1_grid.ItemsSource = None
+        self.link_list1_grid.ItemsSource = visible
+
+    def _refresh_list2(self):
+        visible = self._visible(self._rows2, self._safe_text(self.link_search2_tb))
+        self.link_list2_grid.ItemsSource = None
+        self.link_list2_grid.ItemsSource = visible
+
+    def link_search1_changed(self, sender, args):
         try:
-            reportgen.export_csv(dlg.FileName, link_rows, headers=_LINKMAP_HEADERS)
+            self._refresh_list1()
+        except Exception:
+            pass
+
+    def link_search2_changed(self, sender, args):
+        try:
+            self._refresh_list2()
+        except Exception:
+            pass
+
+    def link_clear_search1_click(self, sender, args):
+        self.link_search1_tb.Text = ""
+
+    def link_clear_search2_click(self, sender, args):
+        self.link_search2_tb.Text = ""
+
+    def link_select_all1_click(self, sender, args):
+        query = self._safe_text(self.link_search1_tb)
+        for r in self._rows1:
+            if dms.matches_search(r.name, query):
+                r.selected = True
+        self._refresh_list1()
+
+    def link_select_none1_click(self, sender, args):
+        query = self._safe_text(self.link_search1_tb)
+        for r in self._rows1:
+            if dms.matches_search(r.name, query):
+                r.selected = False
+        self._refresh_list1()
+
+    def link_select_all2_click(self, sender, args):
+        query = self._safe_text(self.link_search2_tb)
+        for r in self._rows2:
+            if dms.matches_search(r.name, query):
+                r.selected = True
+        self._refresh_list2()
+
+    def link_select_none2_click(self, sender, args):
+        query = self._safe_text(self.link_search2_tb)
+        for r in self._rows2:
+            if dms.matches_search(r.name, query):
+                r.selected = False
+        self._refresh_list2()
+
+    # ---------------- matches - shared by both link tabs ----------------
+    def link_add_match_click(self, sender, args):
+        sources = [r.name for r in self._rows1 if r.selected]
+        targets = [r.name for r in self._rows2 if r.selected]
+        if not sources or not targets:
+            forms.alert("Tick at least one file in each list first.")
+            return
+        self._matches, added, skipped_self = dms.build_matches(self._matches, sources, targets)
+        self._refresh_link_matches()
+        msg = "Added {0} new match(es).".format(added)
+        if skipped_self:
+            msg += " ({0} self-match(es) skipped - a file can't be linked into itself.)".format(skipped_self)
+        self._log(msg)
+
+    def link_remove_match_click(self, sender, args):
+        selected_rows = list(self.link_matches_grid.SelectedItems)
+        if not selected_rows:
+            forms.alert("Select one or more rows in the matches list first.")
+            return
+        remove_set = set((r.source, r.target) for r in selected_rows)
+        self._matches = [m for m in self._matches if m not in remove_set]
+        self._refresh_link_matches()
+        self._log("Removed {0} match(es).".format(len(remove_set)))
+
+    def link_clear_matches_click(self, sender, args):
+        if not self._matches:
+            return
+        if not forms.alert("Clear all {0} match(es)?".format(len(self._matches)), yes=True, no=True):
+            return
+        self._matches = []
+        self._refresh_link_matches()
+        self._log("All matches cleared.")
+
+    def _refresh_link_matches(self):
+        self.link_matches_grid.ItemsSource = None
+        self.link_matches_grid.ItemsSource = [MatchRow(s, t) for s, t in self._matches]
+        groups = dms.group_by_target(self._matches)
+        est = dms.estimate_seconds(groups)
+        self.link_analysis_tb.Text = dms.analysis_text(groups, est)
+        if self._map_ready:
+            try:
+                self._map_draw_wires()
+            except Exception:
+                pass
+
+    # ---------------- Link Map/Zone tab: wire map (patchbay) ----------------
+    # Sources down the left, targets down the right, wires across the
+    # middle - ported from DeeMAPLink.pushbutton/script.py's own
+    # _map_* methods (see module docstring), minus its per-column
+    # discipline-filter dropdowns (not needed at this tool's scale).
+    def _guard_map(self, fn):
+        try:
+            fn()
         except Exception as e:
-            forms.alert("Could not export the link-setup file: {0}".format(e))
+            import traceback
+            self.logger.exception("Wire map error", e)
+            forms.alert("The wire map hit an error:\n\n{0}\n\n{1}".format(
+                e, traceback.format_exc()[-700:]), title=_TOOL_TITLE)
+
+    def _pump(self):
+        """Forces one Dispatcher pass before reading row geometry -
+        ported verbatim from DeeMAPLink, see its own comment: rows have
+        no ActualHeight until WPF lays them out, and TranslatePoint
+        silently returns (0,0) rather than erroring if read too soon."""
+        try:
+            frame = DispatcherFrame()
+
+            def _stop():
+                frame.Continue = False
+
+            self.Dispatcher.BeginInvoke(DispatcherPriority.Background, Action(_stop))
+            Dispatcher.PushFrame(frame)
+        except Exception:
+            pass
+
+    def _map_names_for(self, side):
+        if side == "source":
+            query = self._safe_text(self.link_map_left_search_tb)
+        else:
+            query = self._safe_text(self.link_map_right_search_tb)
+        return [n for n in sorted(self._link_files.keys()) if dms.matches_search(n, query)]
+
+    def _map_build(self):
+        left_names = self._map_names_for("source")
+        right_names = self._map_names_for("target")
+        total = len(self._link_files)
+        self.link_map_left_count_tb.Text = "{0}/{1}".format(len(left_names), total)
+        self.link_map_right_count_tb.Text = "{0}/{1}".format(len(right_names), total)
+        self.link_map_count_tb.Text = "{0} file(s) available".format(total)
+
+        self.link_map_left_panel.Children.Clear()
+        self.link_map_right_panel.Children.Clear()
+        self._map_left_rows = {}
+        self._map_right_rows = {}
+
+        for name in left_names:
+            left = self._map_make_row(name, "source")
+            self.link_map_left_panel.Children.Add(left)
+            self._map_left_rows[name] = left
+
+        for name in right_names:
+            right = self._map_make_row(name, "target")
+            self.link_map_right_panel.Children.Add(right)
+            self._map_right_rows[name] = right
+
+        if self._map_pending and self._map_pending not in self._map_left_rows:
+            self._map_pending = None
+        self._map_update_hint()
+        self._pump()
+        self._map_draw_wires()
+
+    def _map_make_row(self, name, side):
+        text = TextBlock()
+        text.Text = name
+        text.Foreground = Brushes.WhiteSmoke
+        text.FontSize = 10
+        text.TextTrimming = TextTrimming.CharacterEllipsis
+        text.VerticalAlignment = VerticalAlignment.Center
+        text.Margin = Thickness(6, 0, 6, 0)
+        text.IsHitTestVisible = False
+
+        row = Border()
+        row.Height = 20
+        row.Margin = Thickness(2, 1, 2, 1)
+        row.Background = self._ROW_BG
+        row.BorderThickness = Thickness(0, 0, 4, 0) if side == "source" else Thickness(4, 0, 0, 0)
+        row.BorderBrush = self._WIRE_BRUSH
+        row.Child = text
+        row.Cursor = Cursors.Hand
+        row.ToolTip = name
+        row.Tag = "{0}|{1}".format(side, name)
+        row.MouseLeftButtonDown += self._map_row_click
+        return row
+
+    def _map_row_click(self, sender, args):
+        def run():
+            side, name = str(sender.Tag).split("|", 1)
+            if side == "source":
+                # Clicking another source just moves the arming, rather
+                # than refusing - changing your mind is not an error.
+                self._map_pending = None if self._map_pending == name else name
+            else:
+                if not self._map_pending:
+                    self._map_update_hint("Pick a SOURCE on the left first, then this target.")
+                    return
+                source = self._map_pending
+                if source == name:
+                    self._map_update_hint("A file cannot be linked into itself.")
+                    return
+                pair = (source, name)
+                if pair in self._matches:
+                    self._map_update_hint("Already linked: {0} into {1}".format(source, name))
+                    self._map_pending = None
+                    self._map_refresh_row_states()
+                    return
+                self._matches.append(pair)
+                self._map_pending = None
+                self._refresh_link_matches()
+                self._log("Wired {0} into {1}".format(source, name))
+            self._map_refresh_row_states()
+            self._map_update_hint()
+            args.Handled = True
+        self._guard_map(run)
+
+    def _map_refresh_row_states(self):
+        for name, row in self._map_left_rows.items():
+            row.Background = (self._ROW_ARMED if name == self._map_pending else self._ROW_BG)
+
+    def _map_update_hint(self, message=None):
+        if message:
+            self.link_map_hint_tb.Text = message
+            return
+        if self._map_pending:
+            self.link_map_hint_tb.Text = (
+                "Linking FROM  {0}   —  now click a TARGET on the right. "
+                "Click it again to cancel.".format(self._map_pending))
+        else:
+            self.link_map_hint_tb.Text = (
+                "Click a file on the left, then a file on the right, to link "
+                "the first into the second.  Click a wire to remove it.")
+
+    def _map_row_y(self, row):
+        """TranslatePoint accounts for scroll offset automatically - see
+        DeeMAPLink's own comment on the same technique."""
+        try:
+            point = row.TranslatePoint(Point(0, row.ActualHeight / 2.0), self.link_map_canvas)
+            return point.Y
+        except Exception:
+            return None
+
+    def _map_draw_wires(self):
+        canvas = self.link_map_canvas
+        canvas.Children.Clear()
+
+        width = canvas.ActualWidth or 200.0
+        height = canvas.ActualHeight or 0.0
+        if height <= 0:
             return
 
-        note = ""
-        if unresolved_count:
-            note = ("\n\n{0} file(s) could not have their cloud id resolved yet (Autodesk's search "
-                     "index can lag a little after upload) - marked UNRESOLVED and will be skipped "
-                     "by DeeMAPLink's import. Re-export in a minute if you need them too.").format(
-                unresolved_count)
-        MessageBox.Show("Link-setup file exported to:\n{0}\n\nOpen DeeMAPLink, choose "
-                         "'Import file', and pick this CSV to wire up Revit Links between these "
-                         "new files.{1}".format(dlg.FileName, note), _TOOL_TITLE)
-        self._log("Exported link-setup file ({0} file(s), {1} unresolved) to {2}".format(
-            len(link_rows), unresolved_count, dlg.FileName))
+        for index, pair in enumerate(self._matches):
+            source, target = pair
+            left_row = self._map_left_rows.get(source)
+            right_row = self._map_right_rows.get(target)
+            if left_row is None or right_row is None:
+                continue
+            y1 = self._map_row_y(left_row)
+            y2 = self._map_row_y(right_row)
+            if y1 is None or y2 is None:
+                continue
+            if (y1 < 0 and y2 < 0) or (y1 > height and y2 > height):
+                continue
 
-    def cancel_click(self, sender, args):
-        self.Close()
+            hit = Line()
+            hit.X1, hit.Y1, hit.X2, hit.Y2 = 0.0, y1, width, y2
+            hit.Stroke = Brushes.Transparent
+            hit.StrokeThickness = 12.0
+            hit.Cursor = Cursors.Hand
+            hit.Tag = index
+            hit.MouseLeftButtonDown += self._map_wire_click
+
+            line = Line()
+            line.X1, line.Y1, line.X2, line.Y2 = 0.0, y1, width, y2
+            line.Stroke = self._WIRE_BRUSH
+            line.StrokeThickness = 2.0
+            line.Cursor = Cursors.Hand
+            line.Tag = index
+            line.ToolTip = "{0}\nlinked into\n{1}\n\n(click to remove)".format(source, target)
+            line.MouseLeftButtonDown += self._map_wire_click
+
+            head = Polygon()
+            head.Fill = self._WIRE_BRUSH
+            head.IsHitTestVisible = False
+            head.Points = PointCollection()
+            head.Points.Add(Point(width, y2))
+            head.Points.Add(Point(width - 9.0, y2 - 4.5))
+            head.Points.Add(Point(width - 9.0, y2 + 4.5))
+
+            for shape in (hit, line, head):
+                canvas.Children.Add(shape)
+
+    def _map_wire_click(self, sender, args):
+        def run():
+            index = sender.Tag
+            if not isinstance(index, int) or index >= len(self._matches):
+                return
+            source, target = self._matches[index]
+            del self._matches[index]
+            self._refresh_link_matches()
+            self._log("Removed wire {0} -> {1}".format(source, target))
+            args.Handled = True
+        self._guard_map(run)
+
+    def _map_scrolled(self, sender, args):
+        self._guard_map(self._map_draw_wires)
+
+    def link_map_left_search_changed(self, sender, args):
+        if self._map_ready:
+            self._guard_map(self._map_build)
+
+    def link_map_right_search_changed(self, sender, args):
+        if self._map_ready:
+            self._guard_map(self._map_build)
+
+    def link_map_left_clear_click(self, sender, args):
+        self.link_map_left_search_tb.Text = ""
+        if self._map_ready:
+            self._guard_map(self._map_build)
+
+    def link_map_right_clear_click(self, sender, args):
+        self.link_map_right_search_tb.Text = ""
+        if self._map_ready:
+            self._guard_map(self._map_build)
+
+    def link_map_refresh_click(self, sender, args):
+        self._guard_map(self._map_build)
+
+    def link_map_clear_wires_click(self, sender, args):
+        def run():
+            if not self._matches:
+                return
+            if not forms.alert("Remove all {0} wire(s)?".format(len(self._matches)), yes=True, no=True):
+                return
+            self._matches = []
+            self._map_pending = None
+            self._refresh_link_matches()
+            self._map_refresh_row_states()
+            self._map_update_hint()
+        self._guard_map(run)
+
+    # ---------------- Run Links ----------------
+    def _link_progress_context_key(self):
+        """One bucket per distinct SET of ACC projects involved, so
+        completed-host history from one combination never bleeds into a
+        different one - the multi-project equivalent of DeeMAPLink's own
+        per-project bucketing."""
+        project_ids = sorted(set(f.project_id for f in self._link_files.values()))
+        return "projects:{0}".format(",".join(project_ids))
+
+    def _load_done_link_hosts(self, context_key):
+        data = deew_settings.load(_LINK_PROGRESS_TOOL_NAME, {})
+        return dict(data.get(context_key, {}))
+
+    def _mark_link_host_done(self, context_key, target_name):
+        data = deew_settings.load(_LINK_PROGRESS_TOOL_NAME, {})
+        bucket = dict(data.get(context_key, {}))
+        bucket[target_name] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        data[context_key] = bucket
+        deew_settings.save(_LINK_PROGRESS_TOOL_NAME, data)
+
+    def clear_link_progress_click(self, sender, args):
+        context_key = self._link_progress_context_key()
+        data = deew_settings.load(_LINK_PROGRESS_TOOL_NAME, {})
+        if context_key in data:
+            del data[context_key]
+            deew_settings.save(_LINK_PROGRESS_TOOL_NAME, data)
+        forms.alert("Cleared completed-link history for the current file set - the next Run "
+                     "Links will process every matched host again.")
+
+    def _link_placement(self):
+        idx = self.link_placement_cb.SelectedIndex
+        if idx is None or idx < 0:
+            idx = 0
+        return dms.PLACEMENT_OPTIONS[idx][1]
+
+    def _link_attachment(self):
+        if self.link_attachment_attachment_rb.IsChecked is True:
+            return AttachmentType.Attachment
+        return AttachmentType.Overlay
+
+    def _open_link_target(self, target_ref, token):
+        return afb.open_cloud_document_attached(
+            self.application, target_ref.region, target_ref.project_id, target_ref.item_id, token)
+
+    def _link_model_path_for(self, source_ref, token):
+        return afb.cloud_model_path(source_ref.region, source_ref.project_id, source_ref.item_id, token)
+
+    def run_links_click(self, sender, args):
+        if not self._matches:
+            forms.alert("Build at least one match first - on Link Zones, tick files and press "
+                         "'Add from ticked lists', or wire files on Link Map/Zone.")
+            return
+        if not self._link_files:
+            forms.alert("Refresh File List first - there are no linkable files loaded.")
+            return
+
+        groups = dms.group_by_target(self._matches)
+        # A match whose source/target fell out of self._link_files (e.g.
+        # built before the most recent Refresh) is dropped rather than
+        # risking an open against a stale/incorrect id.
+        groups = dict((t, [s for s in sources if s in self._link_files])
+                      for t, sources in groups.items() if t in self._link_files)
+        groups = dict((t, s) for t, s in groups.items() if s)
+        if not groups:
+            forms.alert("None of the current matches point at files that are still available - "
+                         "Refresh File List and rebuild your matches.")
+            return
+
+        context_key = self._link_progress_context_key()
+        skip_completed = bool(self.link_skip_completed_cb.IsChecked)
+        done_hosts = self._load_done_link_hosts(context_key) if skip_completed else {}
+        already_done_count = sum(1 for t in groups.keys() if t in done_hosts)
+        if skip_completed and done_hosts:
+            groups = dict((t, s) for t, s in groups.items() if t not in done_hosts)
+        if not groups:
+            forms.alert("Every matched host was already synchronized in a previous Run Links. "
+                         "Uncheck 'Skip hosts already synchronized' or Clear History to redo them.")
+            return
+
+        est = dms.estimate_seconds(groups)
+        analysis = dms.analysis_text(groups, est)
+        resume_note = ("\n\n{0} host(s) already synchronized in a previous run are being skipped."
+                        .format(already_done_count)) if already_done_count else ""
+        if not forms.alert(
+                "{0}{1}\n\nEach host is opened, linked, and SYNCHRONIZED back - this modifies {2} "
+                "real shared cloud model(s). If Revit crashes partway through (a huge host model "
+                "can do this), hosts already synchronized before the crash are safely saved; just "
+                "Refresh File List and Run Links again to pick up where it left off.\n\nContinue?"
+                .format(analysis, resume_note, len(groups)),
+                title=_TOOL_TITLE + " - confirm", yes=True, no=True):
+            return
+
+        placement = self._link_placement()
+        attachment = self._link_attachment()
+        fallback = ImportPlacement.Origin if placement == ImportPlacement.Shared else None
+        comment = self.link_sync_comment_tb.Text or ""
+        skip_existing = bool(self.link_skip_existing_cb.IsChecked)
+
+        total_steps = sum(len(sources) + 1 for sources in groups.values())
+        sync_failed = False
+        results = []
+
+        dialog_handler = ffh.make_dialog_handler(self.logger)
+        try:
+            self.uiapp.DialogBoxShowing += dialog_handler
+        except Exception as e:
+            self.logger.exception("Could not attach dialog handler", e)
+
+        try:
+            with progsvc.DeeWProgressService(_TOOL_TITLE, total_steps) as prog:
+                for target_name, source_names in groups.items():
+                    if sync_failed or prog.cancelled:
+                        results.append((None, target_name, "skipped - batch stopped"))
+                        for _ in range(len(source_names) + 1):
+                            prog.finish_file("skipped")
+                        continue
+
+                    target_ref = self._link_files[target_name]
+                    token = cloudsvc.get_token()
+                    log_start = len(self.logger.entries)
+                    prog.step(target_name, "Opening")
+                    self._log("Opening host '{0}'...".format(target_name))
+                    doc, detail = self._open_link_target(target_ref, token)
+                    if doc is None:
+                        results.append((False, target_name, "could not open: {0}".format(detail)))
+                        self._log("  FAILED to open - {0}".format(detail))
+                        for _ in range(len(source_names) + 1):
+                            prog.finish_file("failed")
+                        continue
+
+                    try:
+                        existing = dms.existing_link_names(doc) if skip_existing else set()
+                        linked_here = 0
+                        for source_name in source_names:
+                            if skip_existing and dms.already_linked(existing, source_name):
+                                results.append((None, "{0} -> {1}".format(source_name, target_name),
+                                                "already linked - skipped"))
+                                self._log("  '{0}' already linked - skipped".format(source_name))
+                                prog.finish_file("skipped")
+                                continue
+
+                            source_ref = self._link_files[source_name]
+                            model_path, path_detail = self._link_model_path_for(source_ref, token)
+                            if model_path is None:
+                                results.append((False, "{0} -> {1}".format(source_name, target_name), path_detail))
+                                self._log("  '{0}' path failed - {1}".format(source_name, path_detail))
+                                prog.finish_file("failed")
+                                continue
+
+                            prog.step("{0} -> {1}".format(source_name, target_name), "Linking")
+                            ok, link_detail = dms.link_into(
+                                doc, source_name, model_path, placement, fallback,
+                                attachment=attachment, logger=self.logger)
+                            results.append((ok, "{0} -> {1}".format(source_name, target_name), link_detail))
+                            self._log("  '{0}': {1}".format(source_name, link_detail))
+                            if ok:
+                                linked_here += 1
+                            prog.finish_file("success" if ok else "failed")
+
+                        if linked_here:
+                            prog.step(target_name, "Synchronizing")
+                            ok_sync, sync_detail = docmgr.synchronize_with_central(
+                                doc, comment=comment, compact=False, logger=self.logger)
+                            results.append((ok_sync, target_name,
+                                            "synchronized" if ok_sync else "sync failed: {0}".format(sync_detail)))
+                            self._log("  host {0}".format("Synchronized" if ok_sync else "Linked but sync FAILED"))
+                            prog.finish_file("success" if ok_sync else "failed")
+                            if ok_sync:
+                                self._mark_link_host_done(context_key, target_name)
+                            else:
+                                self._log("  SYNC ERROR: {0}".format(sync_detail))
+                                sync_failed = True
+                        else:
+                            results.append((None, target_name, "opened - nothing new to link"))
+                            prog.finish_file("skipped")
+                            self._mark_link_host_done(context_key, target_name)
+                    except Exception as e:
+                        results.append((False, target_name, "unexpected error: {0}".format(e)))
+                        self.logger.exception("Unexpected error linking", e, file=target_name)
+                    finally:
+                        log_end = len(self.logger.entries)
+                        issues = dms.issues_from_log(self.logger, log_start, log_end)
+                        if issues:
+                            results.append((None, target_name + " - issues seen", issues))
+                        try:
+                            docmgr.close_document(doc, save_modified=False, logger=self.logger)
+                        except Exception:
+                            pass
+        finally:
+            try:
+                self.uiapp.DialogBoxShowing -= dialog_handler
+            except Exception:
+                pass
+
+        if sync_failed:
+            forms.alert(
+                "A host was linked but could NOT be synchronized, so the batch was stopped before "
+                "touching any more models. Open it, synchronize manually if you want to keep the "
+                "change, and relinquish - then re-run Run Links.",
+                title=_TOOL_TITLE + " - stopped after a sync failure")
+
+        ok_count = sum(1 for r in results if r[0] is True)
+        fail = sum(1 for r in results if r[0] is False)
+        self.link_run_status_tb.Text = "{0} succeeded, {1} failed. See the Log tab / pyRevit output.".format(
+            ok_count, fail)
+        self._log(self.link_run_status_tb.Text)
+        self._print_link_report(results)
+
+    def _print_link_report(self, results):
+        html = ['<h2 style="font-family:sans-serif;color:#ddd;">DeeInitiator - Link Results</h2>']
+        for ok, label, detail in results:
+            bg = "#2e7d32" if ok else ("#8d6e00" if ok is None else "#c62828")
+            icon = "&#10003;" if ok else ("&#9888;" if ok is None else "&#10007;")
+            html.append(
+                '<div style="padding:6px 12px;margin:3px 0;background:{0};color:#fff;'
+                'border-radius:4px;font-family:monospace;font-size:12px;">'
+                '{1}&nbsp; <b>{2}</b> &mdash; {3}</div>'.format(bg, icon, label, detail))
+        ok_count = sum(1 for r in results if r[0] is True)
+        html.append('<hr><b style="font-family:sans-serif;">{0} / {1} succeeded.</b>'.format(
+            ok_count, len(results)))
+        output.print_html("".join(html))
 
 
 def main():

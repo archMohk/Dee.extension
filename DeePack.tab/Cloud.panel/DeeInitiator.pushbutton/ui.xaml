@@ -2,11 +2,47 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeInitiator — Batch-Create &amp; Publish to ACC"
         ShowInTaskbar="False"
-        MinHeight="640" MinWidth="980" Height="780" Width="1080"
+        MinHeight="700" MinWidth="1200" Height="880" Width="1360"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
+        <Border DockPanel.Dock="Right" Width="360" Margin="8,0,0,0"
+                BorderBrush="#666" BorderThickness="1,0,0,0" Padding="8,0,0,0">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="LINK MATCHES  (Source → Target)"
+                           FontWeight="Bold" Foreground="#F2994D" Margin="0,0,0,6"/>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                    <Button x:Name="link_add_match_b" Content="Add from ticked lists" Width="150"
+                            Height="24" FontWeight="Bold" Click="link_add_match_click"
+                            ToolTip="Adds every ticked file in List 1 into every ticked file in List 2 (Link Zones tab)."/>
+                    <Button x:Name="link_remove_match_b" Content="Remove" Width="70" Height="24"
+                            Margin="6,0,0,0" Click="link_remove_match_click"/>
+                </StackPanel>
+                <Button DockPanel.Dock="Bottom" x:Name="link_clear_matches_b" Content="Clear All"
+                        Height="24" Margin="0,6,0,0" Click="link_clear_matches_click"/>
+                <Border DockPanel.Dock="Bottom" BorderBrush="#666" BorderThickness="1"
+                        Margin="0,8,0,0" Padding="6">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="ANALYSIS" FontWeight="Bold"
+                                   Foreground="#F2994D" Margin="0,0,0,4"/>
+                        <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Auto">
+                            <TextBlock x:Name="link_analysis_tb" FontFamily="Consolas" FontSize="10"
+                                       Text="No matches yet. Tick files in both lists on Link Zones, or wire two files on Link Map/Zone."/>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+                <DataGrid x:Name="link_matches_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                          CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Source (linked)" Binding="{Binding source}" IsReadOnly="True" Width="*"/>
+                        <DataGridTextColumn Header="Target (host)" Binding="{Binding target}" IsReadOnly="True" Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Border>
+
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Click '+ Add Zone' for each template you want to batch from - a Zone pairs one Template/RVT file with a bulk list of new file names and its own ACC destination. Validate every Zone (file + ACC), pick an Output Root Folder, then Run: each name gets a duplicate of its Zone's template, opened, worksharing-enabled, and uploaded to its Zone's ACC destination as a new Cloud Model."/>
+                   Text="Click '+ Add Delivery Party' for each template you want to batch from - a Delivery Party pairs a name (e.g. Architecture), one Template/RVT file, a bulk list of new file names, and its own ACC destination. Validate every party (file + ACC), pick an Output Root Folder, then Run: each name gets a duplicate of its party's template, opened, worksharing-enabled, and uploaded to its party's ACC destination as a new Cloud Model. Once files are uploaded, use Link Zones / Link Map/Zone to wire up real Revit Links between them."/>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="Output Root Folder:" VerticalAlignment="Center"/>
@@ -16,22 +52,172 @@
         </StackPanel>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-            <Button x:Name="add_zone_b" Content="+ Add Zone" Click="add_zone_click" Width="110" Height="28" FontWeight="Bold"/>
-            <Button x:Name="validate_all_b" Content="Validate All Zones" Click="validate_all_click" Width="140" Height="28" Margin="8,0,0,0"/>
+            <Button x:Name="add_party_b" Content="+ Add Delivery Party" Click="add_party_click" Width="150" Height="28" FontWeight="Bold"/>
+            <Button x:Name="validate_all_b" Content="Validate All Parties" Click="validate_all_click" Width="140" Height="28" Margin="8,0,0,0"/>
             <Button x:Name="run_b" Content="Run" Click="run_click" Width="90" Height="28" Margin="8,0,0,0" FontWeight="Bold" IsEnabled="False"/>
             <Button x:Name="export_report_b" Content="Export Report" Click="export_report_click" Width="120" Height="28" Margin="8,0,0,0"/>
-            <Button x:Name="export_linkmap_b" Content="Export Link-Setup File" Click="export_linkmap_click" Width="160" Height="28" Margin="8,0,0,0"
-                    ToolTip="Exports the files this run uploaded, for DeeMAPLink's 'Import file' source - wire up Revit Links between them without re-scanning the whole ACC project."/>
             <Button x:Name="cancel_b" Content="Close" Click="cancel_click" Width="90" Height="28" Margin="8,0,0,0"/>
         </StackPanel>
 
         <TextBlock x:Name="summary_tb" DockPanel.Dock="Top" Text="" FontStyle="Italic" Margin="0,0,0,8" TextWrapping="Wrap"/>
 
+        <GroupBox DockPanel.Dock="Top" Header="Link Setup (Link Zones / Link Map/Zone tabs)" Margin="0,0,0,8">
+            <StackPanel Margin="6">
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button x:Name="refresh_link_files_b" Content="Refresh File List" Click="refresh_link_files_click" Width="140" Height="26"/>
+                    <TextBlock x:Name="link_files_count_tb" VerticalAlignment="Center" Margin="12,0,0,0" FontStyle="Italic"
+                               Text="No files yet - Run first, then Refresh File List."/>
+                </StackPanel>
+                <Grid Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="220"/>
+                        <ColumnDefinition Width="24"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Link Type:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox Grid.Column="1" x:Name="link_placement_cb" Height="24"/>
+                    <TextBlock Grid.Column="3" Text="Sync comment:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBox Grid.Column="4" x:Name="link_sync_comment_tb" Height="24" VerticalContentAlignment="Center" Text="Synchronize"/>
+                    <CheckBox Grid.Column="5" x:Name="link_skip_existing_cb" Content="Skip if already linked" IsChecked="True" VerticalAlignment="Center" Margin="20,0,0,0"/>
+                </Grid>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Text="Link as:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <RadioButton x:Name="link_attachment_overlay_rb" GroupName="link_attachment" IsChecked="True" Content="Overlay" VerticalAlignment="Center"/>
+                    <RadioButton x:Name="link_attachment_attachment_rb" GroupName="link_attachment" Margin="20,0,0,0" Content="Attachment" VerticalAlignment="Center"/>
+                    <CheckBox x:Name="link_skip_completed_cb" Content="Skip hosts already synchronized in a previous Run Links" IsChecked="True" VerticalAlignment="Center" Margin="30,0,0,0"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="run_links_b" Content="Run Links" Click="run_links_click" Width="110" Height="28" FontWeight="Bold"/>
+                    <Button x:Name="clear_link_progress_b" Content="Clear History" Click="clear_link_progress_click" Width="110" Height="24" Margin="8,0,0,0"/>
+                    <TextBlock x:Name="link_run_status_tb" VerticalAlignment="Center" Margin="16,0,0,0" FontStyle="Italic"/>
+                </StackPanel>
+            </StackPanel>
+        </GroupBox>
+
         <TabControl x:Name="main_tabs">
-            <TabItem Header="Zones">
+            <TabItem Header="Delivery Parties">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="4">
                     <StackPanel x:Name="zones_panel" Orientation="Vertical"/>
                 </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Link Zones">
+                <Grid Margin="6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1*" MinWidth="200"/>
+                        <ColumnDefinition Width="6"/>
+                        <ColumnDefinition Width="1*" MinWidth="200"/>
+                    </Grid.ColumnDefinitions>
+
+                    <DockPanel Grid.Column="0">
+                        <TextBlock DockPanel.Dock="Top" Text="List 1 — Will be linked (sources)" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBox x:Name="link_search1_tb" Width="130" Height="22" VerticalContentAlignment="Center"
+                                     TextChanged="link_search1_changed"/>
+                            <Button x:Name="link_clear_search1_b" Content="Clear" Width="46" Height="22" Margin="4,0,0,0" Click="link_clear_search1_click"/>
+                            <Button x:Name="link_select_all1_b" Content="All" Width="36" Height="22" Margin="6,0,0,0" Click="link_select_all1_click"/>
+                            <Button x:Name="link_select_none1_b" Content="None" Width="44" Height="22" Margin="4,0,0,0" Click="link_select_none1_click"/>
+                        </StackPanel>
+                        <DataGrid x:Name="link_list1_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                                  CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="Use" Binding="{Binding selected, Mode=TwoWay}" Width="36"/>
+                                <DataGridTextColumn Header="Revit File" Binding="{Binding name}" IsReadOnly="True" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+
+                    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                  Background="#444" ResizeBehavior="PreviousAndNext"/>
+
+                    <DockPanel Grid.Column="2">
+                        <TextBlock DockPanel.Dock="Top" Text="List 2 — Hosts (targets)" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBox x:Name="link_search2_tb" Width="130" Height="22" VerticalContentAlignment="Center"
+                                     TextChanged="link_search2_changed"/>
+                            <Button x:Name="link_clear_search2_b" Content="Clear" Width="46" Height="22" Margin="4,0,0,0" Click="link_clear_search2_click"/>
+                            <Button x:Name="link_select_all2_b" Content="All" Width="36" Height="22" Margin="6,0,0,0" Click="link_select_all2_click"/>
+                            <Button x:Name="link_select_none2_b" Content="None" Width="44" Height="22" Margin="4,0,0,0" Click="link_select_none2_click"/>
+                        </StackPanel>
+                        <DataGrid x:Name="link_list2_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                                  CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="Use" Binding="{Binding selected, Mode=TwoWay}" Width="36"/>
+                                <DataGridTextColumn Header="Revit File" Binding="{Binding name}" IsReadOnly="True" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Link Map/Zone">
+                <DockPanel Margin="6">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+                        <Button x:Name="link_map_refresh_b" Content="Redraw" Width="70" Height="22" Click="link_map_refresh_click"/>
+                        <Button x:Name="link_map_clear_wires_b" Content="Clear Wires" Width="90" Height="22"
+                                Margin="6,0,0,0" Click="link_map_clear_wires_click"/>
+                        <TextBlock x:Name="link_map_count_tb" VerticalAlignment="Center" Margin="14,0,0,0"
+                                   Foreground="#888" Text=""/>
+                    </StackPanel>
+
+                    <Border DockPanel.Dock="Bottom" Background="#2B2B2B" BorderBrush="#555"
+                            BorderThickness="1" Padding="6,4" Margin="0,6,0,0">
+                        <TextBlock x:Name="link_map_hint_tb" FontSize="11" Foreground="#CCC"
+                                   Text="Click a file on the left, then a file on the right, to link the first into the second."/>
+                    </Border>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1*" MinWidth="220"/>
+                            <ColumnDefinition Width="170" MinWidth="80"/>
+                            <ColumnDefinition Width="1*" MinWidth="220"/>
+                        </Grid.ColumnDefinitions>
+
+                        <DockPanel Grid.Column="0">
+                            <TextBlock DockPanel.Dock="Top" Foreground="#F2994D" FontWeight="Bold"
+                                       Margin="0,0,0,3" Text="SOURCES — click one to start"/>
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,3">
+                                <TextBox x:Name="link_map_left_search_tb" Width="140" Height="22"
+                                         VerticalContentAlignment="Center" TextChanged="link_map_left_search_changed"/>
+                                <Button x:Name="link_map_left_clear_b" Content="Clear" Width="46" Height="22"
+                                        Margin="4,0,0,0" Click="link_map_left_clear_click"/>
+                                <TextBlock x:Name="link_map_left_count_tb" VerticalAlignment="Center"
+                                           Margin="8,0,0,0" Foreground="#888" Text=""/>
+                            </StackPanel>
+                            <Border BorderBrush="#555" BorderThickness="1">
+                                <ScrollViewer x:Name="link_map_left_scroll" VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel x:Name="link_map_left_panel" Background="#1E1E1E"/>
+                                </ScrollViewer>
+                            </Border>
+                        </DockPanel>
+
+                        <Canvas Grid.Column="1" x:Name="link_map_canvas" Background="#161616"
+                                ClipToBounds="True"/>
+
+                        <DockPanel Grid.Column="2">
+                            <TextBlock DockPanel.Dock="Top" Foreground="#F2994D" FontWeight="Bold"
+                                       Margin="0,0,0,3" Text="TARGETS — click one to finish"/>
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,3">
+                                <TextBox x:Name="link_map_right_search_tb" Width="140" Height="22"
+                                         VerticalContentAlignment="Center" TextChanged="link_map_right_search_changed"/>
+                                <Button x:Name="link_map_right_clear_b" Content="Clear" Width="46" Height="22"
+                                        Margin="4,0,0,0" Click="link_map_right_clear_click"/>
+                                <TextBlock x:Name="link_map_right_count_tb" VerticalAlignment="Center"
+                                           Margin="8,0,0,0" Foreground="#888" Text=""/>
+                            </StackPanel>
+                            <Border BorderBrush="#555" BorderThickness="1">
+                                <ScrollViewer x:Name="link_map_right_scroll" VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel x:Name="link_map_right_panel" Background="#1E1E1E"/>
+                                </ScrollViewer>
+                            </Border>
+                        </DockPanel>
+                    </Grid>
+                </DockPanel>
             </TabItem>
 
             <TabItem Header="Log &amp; Report">
@@ -50,7 +236,7 @@
                         <TextBlock DockPanel.Dock="Top" Text="Report" FontWeight="Bold" Margin="0,0,0,4"/>
                         <DataGrid x:Name="report_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" RowHeaderWidth="0">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Zone" Binding="{Binding zone_id}" Width="50"/>
+                                <DataGridTextColumn Header="Delivery Party" Binding="{Binding party_id}" Width="90"/>
                                 <DataGridTextColumn Header="New File Name" Binding="{Binding new_file_name}" Width="140"/>
                                 <DataGridTextColumn Header="Output Folder" Binding="{Binding output_folder}" Width="180"/>
                                 <DataGridTextColumn Header="ACC Destination" Binding="{Binding acc_destination_text}" Width="200"/>

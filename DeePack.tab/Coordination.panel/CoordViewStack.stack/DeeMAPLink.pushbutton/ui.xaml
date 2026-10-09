@@ -74,8 +74,6 @@
                                  Content="ACC / BIM360 project" Checked="source_mode_changed"/>
                     <RadioButton x:Name="source_local_rb" GroupName="source" Margin="24,0,0,0"
                                  Content="Local folder" Checked="source_mode_changed"/>
-                    <RadioButton x:Name="source_import_rb" GroupName="source" Margin="24,0,0,0"
-                                 Content="Import file (e.g. DeeInitiator export)" Checked="source_mode_changed"/>
                 </StackPanel>
 
                 <Grid x:Name="acc_row" Margin="0,10,0,0">
@@ -102,16 +100,6 @@
                               VerticalAlignment="Center" Margin="12,0,0,0"/>
                     <Button Grid.Column="3" x:Name="scan_folder_b" Content="Scan Folder" Width="110" Height="26"
                             Margin="12,0,0,0" Click="scan_folder_click"/>
-                </Grid>
-
-                <Grid x:Name="import_row" Margin="0,10,0,0" Visibility="Collapsed">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Button Grid.Column="0" x:Name="import_file_b" Content="Import File..." Width="160" Height="26" Click="import_file_click"/>
-                    <TextBlock Grid.Column="1" x:Name="import_tb" VerticalAlignment="Center" Margin="12,0,0,0"
-                               Text="No file imported yet." FontStyle="Italic" TextWrapping="Wrap"/>
                 </Grid>
             </StackPanel>
         </GroupBox>
