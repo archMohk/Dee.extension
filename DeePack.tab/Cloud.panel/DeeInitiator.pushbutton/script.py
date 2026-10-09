@@ -424,7 +424,7 @@ class InitiatorReportRow(object):
         return None
 
 
-def _resolve_item_ids(project_id, token, expected_names, logger, attempts=3, delay_seconds=2.0):
+def _resolve_item_ids(project_id, token, expected_names, logger, attempts=8, delay_seconds=4.0, on_attempt=None):
     """Returns {expected_display_name: item_id}, best-effort. Document.
     SaveAsCloudModel (deew_cloud_service.save_to_cloud) never hands back
     the new cloud item's id, so it has to be looked up afterward via
@@ -432,12 +432,22 @@ def _resolve_item_ids(project_id, token, expected_names, logger, attempts=3, del
     DeeWSharing's own _existing_cloud_names already uses for name-
     collision checking, just used here to read an id instead.
 
-    The search hits Autodesk's own index, which can lag moments behind
-    the upload transaction that just completed - retried up to
-    `attempts` times with a short pause rather than assumed to be
-    immediately consistent. A name still not found after every attempt
-    is simply absent from the returned dict - the caller leaves it out
-    of the linkable file list rather than guessing at an id."""
+    The search hits Autodesk's own index, which can lag noticeably
+    behind the upload transaction that just completed - live-observed
+    to take longer than a few seconds for a BRAND NEW model (unlike
+    DeeWSharing's own use of this same function, which only ever checks
+    EXISTING names before upload, never a just-created one) - so this
+    retries up to `attempts` times with a real pause between them rather
+    than assumed to be immediately consistent. on_attempt(attempt,
+    attempts, found_count, remaining_count), if given, is called after
+    every round so the caller can show live progress instead of the UI
+    looking hung during the wait. A name still not found after every
+    attempt is simply absent from the returned dict - the caller leaves
+    it out of the linkable file list rather than guessing at an id.
+
+    If acc_api.search_cloud_models itself raises on EVERY attempt (e.g.
+    an expired token), `found` stays empty for every name - logged via
+    logger.exception each time, not silently swallowed."""
     remaining = set(expected_names)
     found = {}
     for attempt in range(attempts):
@@ -455,6 +465,11 @@ def _resolve_item_ids(project_id, token, expected_names, logger, attempts=3, del
             if name in by_name:
                 found[name] = by_name[name]
                 remaining.discard(name)
+        if on_attempt is not None:
+            try:
+                on_attempt(attempt + 1, attempts, len(found), len(remaining))
+            except Exception:
+                pass
         if remaining and attempt < attempts - 1:
             time.sleep(delay_seconds)
     return found
@@ -1137,14 +1152,29 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
             by_project.setdefault(party.destination["project_id"], []).append((row, party))
 
         if by_project:
-            self._log("Resolving cloud file ids for already-uploaded files...")
+            self._log("Resolving cloud file ids for already-uploaded files (can take a while - "
+                      "ACC's own search index needs a moment to pick up a brand new file)...")
             for project_id, pairs in by_project.items():
-                token = pairs[0][1].destination.get("token") or cloudsvc.get_token()
+                # Always a FRESH token here, never the one cached on
+                # party.destination - that was fetched back when the ACC
+                # destination was first picked, which can be long enough
+                # before Run finishes (several file duplicate/open/
+                # upload cycles) that it's no longer valid; a stale token
+                # makes search_cloud_models fail silently (caught,
+                # logged, returns nothing) which looks identical to "the
+                # file just isn't indexed yet" unless you check the log.
+                token = cloudsvc.get_token()
                 expected_names = set()
                 for row, _party in pairs:
                     name = row.new_file_name
                     expected_names.add(name if name.lower().endswith(".rvt") else name + ".rvt")
-                found = _resolve_item_ids(project_id, token, expected_names, self.logger)
+
+                def _on_attempt(attempt, attempts, found_count, remaining_count, _project_id=project_id):
+                    if remaining_count:
+                        self._log("  [{0}] attempt {1}/{2}: {3} found, {4} still not indexed yet...".format(
+                            _project_id, attempt, attempts, found_count, remaining_count))
+
+                found = _resolve_item_ids(project_id, token, expected_names, self.logger, on_attempt=_on_attempt)
                 for display_name, item_id in found.items():
                     if display_name in planned:
                         planned[display_name].item_id = item_id
