@@ -86,27 +86,23 @@ NEEDS LIVE-REVIT VERIFICATION:
   user-clicked "+" instead of a startup loop.
 
 --------------------------------------------------------------------
-In-app linking - Link Zones / Link Map/Zone tabs, by explicit user
-request (replacing an earlier CSV handoff to a separate tool)
+In-app linking - Link Management tab, by explicit user request
+(replacing an earlier CSV handoff to a separate tool)
 --------------------------------------------------------------------
 An earlier version of this tool exported a CSV for DeeMAPLink
 (DeePack.tab/Coordination.panel/CoordViewStack.stack/DeeMAPLink.
 pushbutton) to import. The user asked for that workflow brought INSIDE
-DeeInitiator instead - two more tabs, reusing DeeMAPLink's own proven
-UI/pipeline rather than reinventing it:
-  - "Link Zones" = DeeMAPLink's "Two Lists" tab: two checkbox
-    DataGrids: tick several files in each, "Add from ticked lists"
-    cross-multiplies every ticked source into every ticked target in
-    one click.
-  - "Link Map/Zone" = DeeMAPLink's "Wire Map" tab: two columns of
-    files, click one then the other, a Canvas-drawn line (via
-    TranslatePoint, the same technique DeeMAPLink already proves live)
-    connects them.
-Both tabs share ONE self._matches list (DeeMAPLink's own code comment:
-"the two tabs are two views of ONE plan"), feeding a separate "Run
-Links" action (not the main "Run" - creating files and linking them
-are two distinct steps, and linking can only happen once files exist
-on ACC). Reused UNCHANGED: lib/dee_maplink_service.py (matching/
+DeeInitiator instead - one more tab, reusing DeeMAPLink's own proven
+UI/pipeline rather than reinventing it: "Link Management" ports
+DeeMAPLink's "Wire Map" tab - two columns of files, click one then the
+other, a Canvas-drawn line (via TranslatePoint, the same technique
+DeeMAPLink already proves live) connects them. (DeeMAPLink's OTHER tab,
+"Two Lists" - tick-both-sides, cross-multiply into matches - was also
+ported initially but removed again by explicit user request, keeping
+only the wire-map style interaction.)
+self._matches feeds a separate "Run Links" action (not the main "Run" -
+creating files and linking them are two distinct steps, and linking can
+only happen once files exist on ACC). Reused UNCHANGED: lib/dee_maplink_service.py (matching/
 grouping/estimate/link_into), lib/dee_link_create_service.py (the
 RevitLinkType.Create/RevitLinkInstance.Create primitive, via
 link_into), lib/acc_file_browser.py (open_cloud_document_attached,
@@ -127,8 +123,8 @@ successful Run first either. Two tiers:
     a cheap, local-only list built straight from every Delivery Party's
     own typed bulk names + its ACC destination, with item_id=None. Runs
     on every names/destination edit and on add/remove Delivery Party, so
-    Link Zones/Link Map/Zone always show what's currently planned, even
-    before anything has been created. No ACC API call.
+    Link Management always shows what's currently planned, even before
+    anything has been created. No ACC API call.
   - RESOLVED (self._refresh_link_files, the "Refresh File List" button
     and the automatic call at the end of a successful Run): starts from
     the same planned list, then looks up the real ACC item id for
@@ -539,13 +535,6 @@ class LinkFileRef(object):
         self.hub_id = hub_id
 
 
-class FileRow(object):
-    """One row in the Link Zones tab's two DataGrids."""
-    def __init__(self, name):
-        self.selected = False
-        self.name = name
-
-
 class MatchRow(object):
     """One row in the shared matches grid - plain source/target strings,
     the same shape dee_maplink_service.build_matches() works with."""
@@ -571,10 +560,8 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         self._report_rows = []
         self._status_lines = []
 
-        # Link-setup state, shared by the Link Zones / Link Map/Zone tabs.
+        # Link-setup state, driving the Link Management tab's wire map.
         self._link_files = {}      # {display_name: LinkFileRef}
-        self._rows1 = []
-        self._rows2 = []
         self._matches = []         # [(source_name, target_name), ...]
         self._map_left_rows = {}
         self._map_right_rows = {}
@@ -1018,7 +1005,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
             self._refresh_link_files()
 
         try:
-            self.main_tabs.SelectedIndex = 3
+            self.main_tabs.SelectedIndex = 2
         except Exception:
             pass
 
@@ -1044,7 +1031,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         self.Close()
 
     # ======================================================================
-    # Link setup - shared by the Link Zones and Link Map/Zone tabs
+    # Link setup - drives the Link Management tab
     # ======================================================================
 
     # ---------------- populating the linkable file list ----------------
@@ -1052,7 +1039,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
     # Run"): a cheap, local-only PLANNED list (every Delivery Party's own
     # typed names, no network call) that updates live as the user types
     # or picks an ACC destination - so matches can be built on Link
-    # Zones/Link Map/Zone before anything is ever created - and a fuller
+    # Management before anything is ever created - and a fuller
     # RESOLVED pass (the Refresh File List button, and the automatic call
     # at the end of a successful Run) that looks up the real ACC item id
     # for whichever of those names have actually been uploaded. A
@@ -1150,11 +1137,6 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         self._after_link_scan()
 
     def _after_link_scan(self):
-        names = sorted(self._link_files.keys())
-        self._rows1 = [FileRow(n) for n in names]
-        self._rows2 = [FileRow(n) for n in names]
-        self._refresh_list1()
-        self._refresh_list2()
         if self._map_ready:
             try:
                 self._map_build()
@@ -1162,80 +1144,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
                 self.logger.exception("Could not build the wire map", e)
                 self._log("Wire map could not be built: {0}".format(e))
 
-    # ---------------- Link Zones tab: two checkbox lists ----------------
-    def _visible(self, rows, query):
-        return [r for r in rows if dms.matches_search(r.name, query)]
-
-    def _refresh_list1(self):
-        visible = self._visible(self._rows1, self._safe_text(self.link_search1_tb))
-        self.link_list1_grid.ItemsSource = None
-        self.link_list1_grid.ItemsSource = visible
-
-    def _refresh_list2(self):
-        visible = self._visible(self._rows2, self._safe_text(self.link_search2_tb))
-        self.link_list2_grid.ItemsSource = None
-        self.link_list2_grid.ItemsSource = visible
-
-    def link_search1_changed(self, sender, args):
-        try:
-            self._refresh_list1()
-        except Exception:
-            pass
-
-    def link_search2_changed(self, sender, args):
-        try:
-            self._refresh_list2()
-        except Exception:
-            pass
-
-    def link_clear_search1_click(self, sender, args):
-        self.link_search1_tb.Text = ""
-
-    def link_clear_search2_click(self, sender, args):
-        self.link_search2_tb.Text = ""
-
-    def link_select_all1_click(self, sender, args):
-        query = self._safe_text(self.link_search1_tb)
-        for r in self._rows1:
-            if dms.matches_search(r.name, query):
-                r.selected = True
-        self._refresh_list1()
-
-    def link_select_none1_click(self, sender, args):
-        query = self._safe_text(self.link_search1_tb)
-        for r in self._rows1:
-            if dms.matches_search(r.name, query):
-                r.selected = False
-        self._refresh_list1()
-
-    def link_select_all2_click(self, sender, args):
-        query = self._safe_text(self.link_search2_tb)
-        for r in self._rows2:
-            if dms.matches_search(r.name, query):
-                r.selected = True
-        self._refresh_list2()
-
-    def link_select_none2_click(self, sender, args):
-        query = self._safe_text(self.link_search2_tb)
-        for r in self._rows2:
-            if dms.matches_search(r.name, query):
-                r.selected = False
-        self._refresh_list2()
-
-    # ---------------- matches - shared by both link tabs ----------------
-    def link_add_match_click(self, sender, args):
-        sources = [r.name for r in self._rows1 if r.selected]
-        targets = [r.name for r in self._rows2 if r.selected]
-        if not sources or not targets:
-            forms.alert("Tick at least one file in each list first.")
-            return
-        self._matches, added, skipped_self = dms.build_matches(self._matches, sources, targets)
-        self._refresh_link_matches()
-        msg = "Added {0} new match(es).".format(added)
-        if skipped_self:
-            msg += " ({0} self-match(es) skipped - a file can't be linked into itself.)".format(skipped_self)
-        self._log(msg)
-
+    # ---------------- matches - driven by the Link Management wire map ----------------
     def link_remove_match_click(self, sender, args):
         selected_rows = list(self.link_matches_grid.SelectedItems)
         if not selected_rows:
@@ -1267,7 +1176,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
             except Exception:
                 pass
 
-    # ---------------- Link Map/Zone tab: wire map (patchbay) ----------------
+    # ---------------- Link Management tab: wire map (patchbay) ----------------
     # Sources down the left, targets down the right, wires across the
     # middle - ported from DeeMAPLink.pushbutton/script.py's own
     # _map_* methods (see module docstring), minus its per-column
@@ -1560,8 +1469,8 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
 
     def run_links_click(self, sender, args):
         if not self._matches:
-            forms.alert("Build at least one match first - on Link Zones, tick files and press "
-                         "'Add from ticked lists', or wire files on Link Map/Zone. Matches can be "
+            forms.alert("Build at least one match first - on Link Management, click a file on "
+                         "the left then one on the right to wire them together. Matches can be "
                          "set up any time, even before Run.")
             return
 

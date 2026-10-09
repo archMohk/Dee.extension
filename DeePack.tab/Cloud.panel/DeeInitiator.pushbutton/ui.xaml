@@ -11,11 +11,9 @@
                 <TextBlock DockPanel.Dock="Top" Text="LINK MATCHES  (Source → Target)"
                            FontWeight="Bold" Foreground="#F2994D" Margin="0,0,0,6"/>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
-                    <Button x:Name="link_add_match_b" Content="Add from ticked lists" Width="150"
-                            Height="24" FontWeight="Bold" Click="link_add_match_click"
-                            ToolTip="Adds every ticked file in List 1 into every ticked file in List 2 (Link Zones tab)."/>
                     <Button x:Name="link_remove_match_b" Content="Remove" Width="70" Height="24"
-                            Margin="6,0,0,0" Click="link_remove_match_click"/>
+                            Click="link_remove_match_click"
+                            ToolTip="Removes the selected row(s) from MATCHES below."/>
                 </StackPanel>
                 <Button DockPanel.Dock="Bottom" x:Name="link_clear_matches_b" Content="Clear All"
                         Height="24" Margin="0,6,0,0" Click="link_clear_matches_click"/>
@@ -27,7 +25,7 @@
                         <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Auto">
                             <TextBlock x:Name="link_analysis_tb" FontFamily="Consolas" FontSize="10"
-                                       Text="No matches yet. Tick files in both lists on Link Zones, or wire two files on Link Map/Zone."/>
+                                       Text="No matches yet. Wire two files together on Link Management."/>
                         </ScrollViewer>
                     </DockPanel>
                 </Border>
@@ -42,7 +40,7 @@
         </Border>
 
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Click '+ Add Delivery Party' for each template you want to batch from - a Delivery Party pairs a name (e.g. Architecture), one Template/RVT file, a bulk list of new file names, and its own ACC destination. As soon as you type names and pick a destination, those planned files already show up on Link Zones / Link Map/Zone - build your link matches there whenever you like, even before Run. Validate every party (file + ACC), pick an Output Root Folder, then Run: each name gets a duplicate of its party's template, opened, worksharing-enabled, and uploaded to its party's ACC destination as a new Cloud Model. Run Links then creates the real Revit Links for whichever matches point at files that are actually uploaded."/>
+                   Text="Click '+ Add Delivery Party' for each template you want to batch from - a Delivery Party pairs a name (e.g. Architecture), one Template/RVT file, a bulk list of new file names, and its own ACC destination. As soon as you type names and pick a destination, those planned files already show up on Link Management - build your link matches there whenever you like, even before Run. Validate every party (file + ACC), pick an Output Root Folder, then Run: each name gets a duplicate of its party's template, opened, worksharing-enabled, and uploaded to its party's ACC destination as a new Cloud Model. Run Links then creates the real Revit Links for whichever matches point at files that are actually uploaded."/>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="Output Root Folder:" VerticalAlignment="Center"/>
@@ -61,7 +59,7 @@
 
         <TextBlock x:Name="summary_tb" DockPanel.Dock="Top" Text="" FontStyle="Italic" Margin="0,0,0,8" TextWrapping="Wrap"/>
 
-        <GroupBox DockPanel.Dock="Top" Header="Link Setup (Link Zones / Link Map/Zone tabs)" Margin="0,0,0,8">
+        <GroupBox DockPanel.Dock="Top" Header="Link Setup (Link Management tab)" Margin="0,0,0,8">
             <StackPanel Margin="6">
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                     <Button x:Name="refresh_link_files_b" Content="Refresh File List" Click="refresh_link_files_click" Width="140" Height="26"/>
@@ -104,56 +102,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="Link Zones">
-                <Grid Margin="6">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="1*" MinWidth="200"/>
-                        <ColumnDefinition Width="6"/>
-                        <ColumnDefinition Width="1*" MinWidth="200"/>
-                    </Grid.ColumnDefinitions>
-
-                    <DockPanel Grid.Column="0">
-                        <TextBlock DockPanel.Dock="Top" Text="List 1 — Will be linked (sources)" FontWeight="Bold" Margin="0,0,0,4"/>
-                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
-                            <TextBox x:Name="link_search1_tb" Width="130" Height="22" VerticalContentAlignment="Center"
-                                     TextChanged="link_search1_changed"/>
-                            <Button x:Name="link_clear_search1_b" Content="Clear" Width="46" Height="22" Margin="4,0,0,0" Click="link_clear_search1_click"/>
-                            <Button x:Name="link_select_all1_b" Content="All" Width="36" Height="22" Margin="6,0,0,0" Click="link_select_all1_click"/>
-                            <Button x:Name="link_select_none1_b" Content="None" Width="44" Height="22" Margin="4,0,0,0" Click="link_select_none1_click"/>
-                        </StackPanel>
-                        <DataGrid x:Name="link_list1_grid" AutoGenerateColumns="False" CanUserAddRows="False"
-                                  CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
-                            <DataGrid.Columns>
-                                <DataGridCheckBoxColumn Header="Use" Binding="{Binding selected, Mode=TwoWay}" Width="36"/>
-                                <DataGridTextColumn Header="Revit File" Binding="{Binding name}" IsReadOnly="True" Width="*"/>
-                            </DataGrid.Columns>
-                        </DataGrid>
-                    </DockPanel>
-
-                    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
-                                  Background="#444" ResizeBehavior="PreviousAndNext"/>
-
-                    <DockPanel Grid.Column="2">
-                        <TextBlock DockPanel.Dock="Top" Text="List 2 — Hosts (targets)" FontWeight="Bold" Margin="0,0,0,4"/>
-                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
-                            <TextBox x:Name="link_search2_tb" Width="130" Height="22" VerticalContentAlignment="Center"
-                                     TextChanged="link_search2_changed"/>
-                            <Button x:Name="link_clear_search2_b" Content="Clear" Width="46" Height="22" Margin="4,0,0,0" Click="link_clear_search2_click"/>
-                            <Button x:Name="link_select_all2_b" Content="All" Width="36" Height="22" Margin="6,0,0,0" Click="link_select_all2_click"/>
-                            <Button x:Name="link_select_none2_b" Content="None" Width="44" Height="22" Margin="4,0,0,0" Click="link_select_none2_click"/>
-                        </StackPanel>
-                        <DataGrid x:Name="link_list2_grid" AutoGenerateColumns="False" CanUserAddRows="False"
-                                  CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
-                            <DataGrid.Columns>
-                                <DataGridCheckBoxColumn Header="Use" Binding="{Binding selected, Mode=TwoWay}" Width="36"/>
-                                <DataGridTextColumn Header="Revit File" Binding="{Binding name}" IsReadOnly="True" Width="*"/>
-                            </DataGrid.Columns>
-                        </DataGrid>
-                    </DockPanel>
-                </Grid>
-            </TabItem>
-
-            <TabItem Header="Link Map/Zone">
+            <TabItem Header="Link Management">
                 <DockPanel Margin="6">
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
                         <Button x:Name="link_map_refresh_b" Content="Redraw" Width="70" Height="22" Click="link_map_refresh_click"/>
