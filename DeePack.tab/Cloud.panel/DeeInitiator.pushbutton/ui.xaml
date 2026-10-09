@@ -40,7 +40,7 @@
         </Border>
 
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Click '+ Add Delivery Party' for each template you want to batch from - a Delivery Party pairs a name (e.g. Architecture), one Template/RVT file, a bulk list of new file names, and its own ACC destination. As soon as you type names and pick a destination, those planned files already show up on Link Management - build your link matches there whenever you like, even before Run. Validate every party (file + ACC), pick an Output Root Folder, then Run: each name gets a duplicate of its party's template, opened, worksharing-enabled, and uploaded to its party's ACC destination as a new Cloud Model. Run Links then creates the real Revit Links for whichever matches point at files that are actually uploaded."/>
+                   Text="Click '+ Add Delivery Party' for each template you want to batch from - a Delivery Party pairs a name (e.g. Architecture), one Template/RVT file, a bulk list of new file names, and its own ACC destination. As soon as you type names and pick a destination, those planned files already show up on Link Management - build your link matches there whenever you like, even before Run. Validate every party (file + ACC), pick an Output Root Folder, then click Run ONCE: it creates, uploads, AND creates the Revit Links you've already wired up, all in one go. 'Run Links' is only needed afterward if you add more matches or want to retry linking on its own."/>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="Output Root Folder:" VerticalAlignment="Center"/>
@@ -52,7 +52,8 @@
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Button x:Name="add_party_b" Content="+ Add Delivery Party" Click="add_party_click" Width="150" Height="28" FontWeight="Bold"/>
             <Button x:Name="validate_all_b" Content="Validate All Parties" Click="validate_all_click" Width="140" Height="28" Margin="8,0,0,0"/>
-            <Button x:Name="run_b" Content="Run" Click="run_click" Width="90" Height="28" Margin="8,0,0,0" FontWeight="Bold" IsEnabled="False"/>
+            <Button x:Name="run_b" Content="Run" Click="run_click" Width="90" Height="28" Margin="8,0,0,0" FontWeight="Bold" IsEnabled="False"
+                    ToolTip="Creates, uploads, AND creates any link matches already set up on Link Management - one click does all of it."/>
             <Button x:Name="export_report_b" Content="Export Report" Click="export_report_click" Width="120" Height="28" Margin="8,0,0,0"/>
             <Button x:Name="cancel_b" Content="Close" Click="cancel_click" Width="90" Height="28" Margin="8,0,0,0"/>
         </StackPanel>
@@ -88,7 +89,8 @@
                     <CheckBox x:Name="link_skip_completed_cb" Content="Skip hosts already synchronized in a previous Run Links" IsChecked="True" VerticalAlignment="Center" Margin="30,0,0,0"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal">
-                    <Button x:Name="run_links_b" Content="Run Links" Click="run_links_click" Width="110" Height="28" FontWeight="Bold"/>
+                    <Button x:Name="run_links_b" Content="Run Links" Click="run_links_click" Width="110" Height="28" FontWeight="Bold"
+                            ToolTip="Manual/retry only - the main Run button above already does this automatically right after upload."/>
                     <Button x:Name="clear_link_progress_b" Content="Clear History" Click="clear_link_progress_click" Width="110" Height="24" Margin="8,0,0,0"/>
                     <TextBlock x:Name="link_run_status_tb" VerticalAlignment="Center" Margin="16,0,0,0" FontStyle="Italic"/>
                 </StackPanel>

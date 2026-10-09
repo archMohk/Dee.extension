@@ -100,9 +100,18 @@ DeeMAPLink already proves live) connects them. (DeeMAPLink's OTHER tab,
 "Two Lists" - tick-both-sides, cross-multiply into matches - was also
 ported initially but removed again by explicit user request, keeping
 only the wire-map style interaction.)
-self._matches feeds a separate "Run Links" action (not the main "Run" -
-creating files and linking them are two distinct steps, and linking can
-only happen once files exist on ACC). Reused UNCHANGED: lib/dee_maplink_service.py (matching/
+self._matches feeds the actual link-creation work in _execute_link_run,
+shared by TWO callers, by explicit user request ("I need it one RUN"):
+the main "Run" button calls it automatically right after a successful
+upload (interactive=False - no second confirmation, folded into Run's
+own one summary/report), and the standalone "Run Links" button calls it
+on its own (interactive=True - its own confirmation/alerts), kept
+around as a manual way to retry just the linking step later (e.g. a
+sync failure needs retrying, or matches were added/changed after the
+last Run) without re-creating/re-uploading every file. Either way, a
+match pointing at a file that isn't uploaded yet is reported and
+skipped, never guessed at - see _execute_link_run's own docstring.
+Reused UNCHANGED: lib/dee_maplink_service.py (matching/
 grouping/estimate/link_into), lib/dee_link_create_service.py (the
 RevitLinkType.Create/RevitLinkInstance.Create primitive, via
 link_into), lib/acc_file_browser.py (open_cloud_document_attached,
@@ -944,8 +953,12 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
             forms.alert("No file names to process - type at least one name into a Delivery Party.")
             return
 
-        if not forms.alert("Create and upload {0} file(s) across {1} Delivery Part{2}?".format(
-                total, len(self._parties), "y" if len(self._parties) == 1 else "ies"),
+        match_note = ""
+        if self._matches:
+            match_note = (" Afterward, the {0} link match(es) already set up on Link Management "
+                           "will be created too, for whichever ones are ready.".format(len(self._matches)))
+        if not forms.alert("Create and upload {0} file(s) across {1} Delivery Part{2}?{3}".format(
+                total, len(self._parties), "y" if len(self._parties) == 1 else "ies", match_note),
                 title=_TOOL_TITLE + " - confirm", yes=True, no=True):
             return
 
@@ -999,10 +1012,27 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         self.summary_tb.Text = "{0} processed: {1} uploaded, {2} failed.".format(
             len(report_rows), uploaded, failed)
         self._log(self.summary_tb.Text)
-        forms.alert(self.summary_tb.Text, title=_TOOL_TITLE)
 
         if uploaded:
             self._refresh_link_files()
+
+        # One Run, one result - chain straight into the already-set-up
+        # link matches (if any) rather than making the user click a
+        # second "Run Links" button, per explicit user request. A match
+        # pointing at a file that failed to upload is simply not ready
+        # yet (see _execute_link_run) and is reported, not silently lost.
+        if self._matches:
+            link_results, link_groups = self._execute_link_run(interactive=False)
+            if link_groups:
+                link_ok = sum(1 for r in link_results if r[0] is True)
+                link_fail = sum(1 for r in link_results if r[0] is False)
+                self.link_run_status_tb.Text = (
+                    "{0} succeeded, {1} failed. See the Log tab / pyRevit output.".format(link_ok, link_fail))
+                self._log(self.link_run_status_tb.Text)
+                self._print_link_report(link_results)
+                self.summary_tb.Text += "  Links: {0} succeeded, {1} failed.".format(link_ok, link_fail)
+
+        forms.alert(self.summary_tb.Text, title=_TOOL_TITLE)
 
         try:
             self.main_tabs.SelectedIndex = 2
@@ -1468,11 +1498,32 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         return afb.cloud_model_path(source_ref.region, source_ref.project_id, source_ref.item_id, token)
 
     def run_links_click(self, sender, args):
-        if not self._matches:
-            forms.alert("Build at least one match first - on Link Management, click a file on "
-                         "the left then one on the right to wire them together. Matches can be "
-                         "set up any time, even before Run.")
+        results, groups = self._execute_link_run(interactive=True)
+        if not groups:
             return
+        ok_count = sum(1 for r in results if r[0] is True)
+        fail = sum(1 for r in results if r[0] is False)
+        self.link_run_status_tb.Text = "{0} succeeded, {1} failed. See the Log tab / pyRevit output.".format(
+            ok_count, fail)
+        self._log(self.link_run_status_tb.Text)
+        self._print_link_report(results)
+
+    def _execute_link_run(self, interactive):
+        """Core link-creation loop, shared by the standalone "Run Links"
+        button (interactive=True - its own alerts/confirmation dialog)
+        and the single combined "Run" action (interactive=False - skips
+        straight past anything that would otherwise need a click,
+        silently doing nothing if there's nothing ready yet, so the
+        caller can fold the result into Run's own one summary instead of
+        popping up a second round of dialogs). Returns (results, groups) -
+        groups is empty (falsy) whenever nothing actually ran, which the
+        caller uses to decide whether there's anything to report."""
+        if not self._matches:
+            if interactive:
+                forms.alert("Build at least one match first - on Link Management, click a file on "
+                             "the left then one on the right to wire them together. Matches can be "
+                             "set up any time, even before Run.")
+            return [], {}
 
         # A match can be built from a PLANNED name before that file is
         # ever created - only a name whose LinkFileRef has a resolved
@@ -1495,11 +1546,12 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         groups = dict((t, s) for t, s in groups.items() if s)
 
         if not groups:
-            forms.alert("None of the current matches point at files that have been uploaded yet "
-                         "- Run first (or Refresh File List if you've already Run), then Run "
-                         "Links again.")
-            return
-        if not_ready:
+            if interactive:
+                forms.alert("None of the current matches point at files that have been uploaded yet "
+                             "- Run first (or Refresh File List if you've already Run), then Run "
+                             "Links again.")
+            return [], {}
+        if not_ready and interactive:
             forms.alert("{0} file(s) in your matches haven't been uploaded yet, so they'll be "
                          "skipped for now - Run first, then Run Links again to pick them up:\n\n{1}"
                          .format(len(not_ready), ", ".join(sorted(not_ready))))
@@ -1511,22 +1563,24 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         if skip_completed and done_hosts:
             groups = dict((t, s) for t, s in groups.items() if t not in done_hosts)
         if not groups:
-            forms.alert("Every matched host was already synchronized in a previous Run Links. "
-                         "Uncheck 'Skip hosts already synchronized' or Clear History to redo them.")
-            return
+            if interactive:
+                forms.alert("Every matched host was already synchronized in a previous Run Links. "
+                             "Uncheck 'Skip hosts already synchronized' or Clear History to redo them.")
+            return [], {}
 
-        est = dms.estimate_seconds(groups)
-        analysis = dms.analysis_text(groups, est)
-        resume_note = ("\n\n{0} host(s) already synchronized in a previous run are being skipped."
-                        .format(already_done_count)) if already_done_count else ""
-        if not forms.alert(
-                "{0}{1}\n\nEach host is opened, linked, and SYNCHRONIZED back - this modifies {2} "
-                "real shared cloud model(s). If Revit crashes partway through (a huge host model "
-                "can do this), hosts already synchronized before the crash are safely saved; just "
-                "Refresh File List and Run Links again to pick up where it left off.\n\nContinue?"
-                .format(analysis, resume_note, len(groups)),
-                title=_TOOL_TITLE + " - confirm", yes=True, no=True):
-            return
+        if interactive:
+            est = dms.estimate_seconds(groups)
+            analysis = dms.analysis_text(groups, est)
+            resume_note = ("\n\n{0} host(s) already synchronized in a previous run are being skipped."
+                            .format(already_done_count)) if already_done_count else ""
+            if not forms.alert(
+                    "{0}{1}\n\nEach host is opened, linked, and SYNCHRONIZED back - this modifies {2} "
+                    "real shared cloud model(s). If Revit crashes partway through (a huge host model "
+                    "can do this), hosts already synchronized before the crash are safely saved; just "
+                    "Refresh File List and Run Links again to pick up where it left off.\n\nContinue?"
+                    .format(analysis, resume_note, len(groups)),
+                    title=_TOOL_TITLE + " - confirm", yes=True, no=True):
+                return [], {}
 
         placement = self._link_placement()
         attachment = self._link_attachment()
@@ -1637,12 +1691,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
                 "change, and relinquish - then re-run Run Links.",
                 title=_TOOL_TITLE + " - stopped after a sync failure")
 
-        ok_count = sum(1 for r in results if r[0] is True)
-        fail = sum(1 for r in results if r[0] is False)
-        self.link_run_status_tb.Text = "{0} succeeded, {1} failed. See the Log tab / pyRevit output.".format(
-            ok_count, fail)
-        self._log(self.link_run_status_tb.Text)
-        self._print_link_report(results)
+        return results, groups
 
     def _print_link_report(self, results):
         html = ['<h2 style="font-family:sans-serif;color:#ddd;">DeeInitiator - Link Results</h2>']
