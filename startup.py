@@ -22,11 +22,11 @@ try/except so a failure in any one must never break the ribbon, Revit
 startup, or the others: lib/dee_prayer_service.py (prayer-time toasts)
 and lib/dee_broadcast_service.py (DeeCall admin broadcasts), both their
 own UIApplication.Idling subscription, plus lib/dee_icon_service.py
-(DeeIcon's automatic save-preview image), a ControlledApplication.
-DocumentSaved subscription instead - see that module's own docstring
-for why a different event fits there and the same still-to-be-live-
-tested risk (whether a subscription made here genuinely survives a
-whole session).
+(DeeIcon's real-file-thumbnail branding), ControlledApplication.
+DocumentOpened and DocumentSaved subscriptions instead - see that
+module's own docstring for why those events fit there and the same
+still-to-be-live-tested risk (whether a subscription made here
+genuinely survives a whole session).
 """
 import clr
 clr.AddReference("System")

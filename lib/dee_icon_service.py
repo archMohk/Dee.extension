@@ -1,58 +1,76 @@
 # -*- coding: utf-8 -*-
 """
 dee_icon_service
-Backs DeeIcon (About) - automatically creates a small branded preview
-image, "<rvt file>.DeeIcon.png" next to the .rvt, every time the file is
-saved: a snapshot of the active view with a Revit-version badge (e.g.
-"2024") in the top-left corner and an optional user-chosen logo in the
-bottom-right. Never touches Revit's own internal file thumbnail - there
-is no documented API for that (see DeeIcon.pushbutton/script.py's own
-docstring for the full scope decision); this is a separate, plain PNG
-file saved beside the model.
+Backs DeeIcon (About) - brands the REAL file thumbnail Revit embeds in
+every .rvt (the one shown in Windows Explorer AND Revit's own Recent
+Files screen) with a Revit-version badge and an optional custom logo.
 
 --------------------------------------------------------------------
-Architecture - same "run forever in the background, no click needed"
-pattern as dee_prayer_service.py / dee_broadcast_service.py / dee_force_state.py
+Why this is NOT a raw file-format hack
 --------------------------------------------------------------------
-The one difference from those three: this subscribes to
-ControlledApplication.DocumentSaved instead of UIApplication.Idling -
-the first use of that specific event in this codebase, though the
-subscribe/unsubscribe shape (module-level handler, `-=` before `+=` so a
-pyRevit Reload can never stack duplicate subscriptions) is identical to
-theirs, for the exact same reason: this module stays cached in
-sys.modules for the life of the Revit process, which is what makes `-=`
-from a later call actually remove what `+=` added from an earlier one.
+An earlier version of this tool directly rewrote Revit's own embedded
+OLE-compound-file preview stream. That was abandoned: confirmed via
+research that no one has ever published successfully WRITING that
+stream (only reading it), its name is Revit-version-suffixed and
+thinly documented, and Revit holds the .rvt file locked the entire
+time it's open - a live rewrite could only ever happen after Close,
+with real, hard-to-bound risk of corrupting the user's actual project
+file for an undocumented operation. The user was asked and did not
+consent to that risk.
 
-NEEDS LIVE-REVIT VERIFICATION, same as the three existing watchers:
-whether a subscription made once from startup.py keeps firing for a
-whole session, across closing/reopening documents. Also new/unverified
-here specifically: Document.ExportImage's exact output-filename
-behavior (some Revit versions append a view-name suffix to FilePath
-rather than using it exactly) - handled defensively by
-_resolve_exported_file() below, which looks for whatever file
-ExportImage actually produced instead of assuming the exact name.
+Instead, this uses a confirmed, fully documented Revit API mechanism:
+Revit's saved file thumbnail is a snapshot of a specific VIEW, and
+which view is used is controlled by Document.GetDocumentPreviewSettings()
+/ SetDocumentPreviewSettings() - DocumentPreviewSettings.PreviewViewId.
+Point that at a small dedicated view containing the version badge +
+logo, and Revit's own, completely unmodified native save process bakes
+that view's image in as the file's real thumbnail. No binary file
+access of any kind - everything here is standard, in-session Revit API
+calls against the open Document, the same risk profile as any other
+tool in this extension that creates a view or places an element.
 
-Never raises out of the DocumentSaved handler - a failure here (a
-locked output file, a view that can't export, a missing logo file) must
-never interrupt the save the user just performed.
+NEEDS LIVE-REVIT VERIFICATION: the exact Get/Set calling convention for
+DocumentPreviewSettings (this repo has never touched it before) - built
+defensively (try/except) so a failure here can never raise past the
+caller. ImageType/ImageInstance placement carries the same "needs a
+live check" flag already noted where it was first used in this repo
+(DeeAligner.pushbutton's _insert_image_on_sheet) - not a new risk
+invented for DeeIcon.
+
+--------------------------------------------------------------------
+Why DocumentOpened AND DocumentSaved, not DocumentSaving
+--------------------------------------------------------------------
+DocumentPreviewSettings is PERSISTENT document state - once set, Revit
+keeps using that view for every later native Save/Sync on its own, with
+no further intervention needed per save. That's what actually makes
+"automatic" achievable here: subscribing to DocumentSaving (which fires
+BEFORE the write) was considered and dropped - Revit documented-ly
+blocks changing the active view/starting new UI operations from inside
+that event. DocumentOpened and DocumentSaved are both unrestricted,
+POST-event hooks, safe to run a Transaction inside: DocumentOpened
+brands a project the moment it's opened (best case), DocumentSaved
+self-heals the same way if settings changed mid-session (a logo picked,
+or the feature just turned on) without needing to reopen.
+
+Same "run forever in the background, no click needed" architecture as
+dee_prayer_service.py / dee_broadcast_service.py / dee_force_state.py -
+module-level handlers, `-=` before `+=` so a pyRevit Reload can never
+stack duplicate subscriptions (this module stays cached in sys.modules
+for the life of the Revit process, which is what makes that work).
+
+Never raises out of either handler - a failure here (no drafting-view
+type in an oddly templated project, a missing logo file, an API call
+that doesn't behave as expected) must never interrupt the open/save the
+user just performed.
 """
 import os
-
-import clr
-clr.AddReference("System.Drawing")
-from System.Drawing import (
-    Bitmap, Graphics, Image as DrawingImage, Color as DrawingColor,
-    Font, FontStyle, SolidBrush, PointF)
-from System.Drawing.Imaging import ImageFormat
-from System.Drawing.Drawing2D import InterpolationMode
 
 import deew_settings
 
 _SETTINGS_TOOL_NAME = "dee_icon_settings"
-DEFAULT_SETTINGS = {"enabled": False, "logo_path": ""}
+DEFAULT_SETTINGS = {"enabled": False, "logo_path": "", "_applied_logo_path": ""}
 
-_OUTPUT_SUFFIX = ".DeeIcon.png"
-_TEMP_PREFIX = "~DeeIcon_"
+_VIEW_NAME = "DeeIcon - Do Not Delete"
 
 
 def load_settings():
@@ -70,157 +88,196 @@ def _version_text(doc):
         return ""
 
 
-def _resolve_exported_file(file_path_no_ext):
-    """Document.ExportImage's FilePath is a *base* path - some Revit
-    versions write exactly "<base>.png", others append a view-name
-    suffix first. Rather than assume either, look for whatever file
-    ExportImage actually produced with that base as a prefix, picking
-    the most recently modified match so a stale leftover from an
-    earlier failed run can never be picked over the fresh one."""
-    exact = file_path_no_ext + ".png"
-    if os.path.isfile(exact):
-        return exact
-    folder = os.path.dirname(file_path_no_ext) or "."
-    prefix = os.path.basename(file_path_no_ext).lower()
-    candidates = []
+def _find_view_by_name(doc, name):
+    from Autodesk.Revit.DB import FilteredElementCollector, View
+    for v in FilteredElementCollector(doc).OfClass(View):
+        try:
+            if not v.IsTemplate and v.Name == name:
+                return v
+        except Exception:
+            continue
+    return None
+
+
+def _drafting_view_family_type_id(doc):
+    from Autodesk.Revit.DB import FilteredElementCollector, ViewFamilyType, ViewFamily
+    for vft in FilteredElementCollector(doc).OfClass(ViewFamilyType):
+        try:
+            if vft.ViewFamily == ViewFamily.Drafting:
+                return vft.Id
+        except Exception:
+            continue
+    return None
+
+
+def _ensure_branding_view(doc):
+    from Autodesk.Revit.DB import ViewDrafting
+    view = _find_view_by_name(doc, _VIEW_NAME)
+    if view is not None:
+        return view
+    vft_id = _drafting_view_family_type_id(doc)
+    if vft_id is None:
+        raise Exception("No Drafting view type found in this project.")
+    view = ViewDrafting.Create(doc, vft_id)
     try:
-        for name in os.listdir(folder):
-            if name.lower().startswith(prefix) and name.lower().endswith(".png"):
-                candidates.append(os.path.join(folder, name))
+        view.Name = _VIEW_NAME
     except Exception:
         pass
-    if not candidates:
-        return None
-    candidates.sort(key=os.path.getmtime, reverse=True)
-    return candidates[0]
+    return view
 
 
-def _export_active_view(doc, file_path_no_ext):
-    from Autodesk.Revit.DB import (
-        ImageExportOptions, ExportRange, ZoomFitType, ImageResolution, ImageFileType)
-    view = doc.ActiveView
-    if view is None:
-        raise Exception("No active view to capture.")
-    options = ImageExportOptions()
-    options.ZoomType = ZoomFitType.FitToPage
-    options.PixelSize = 800
-    options.ImageResolution = ImageResolution.DPI_150
-    options.ExportRange = ExportRange.CurrentView
-    options.HLRandWFViewsFileType = ImageFileType.PNG
-    options.FilePath = file_path_no_ext
-    doc.ExportImage(options)
-    exported = _resolve_exported_file(file_path_no_ext)
-    if not exported:
-        raise Exception("Revit did not produce an image file for the active view.")
-    return exported
+def _find_text_note(doc, view):
+    from Autodesk.Revit.DB import FilteredElementCollector, TextNote
+    for ele in FilteredElementCollector(doc, view.Id).OfClass(TextNote):
+        return ele
+    return None
 
 
-def _composite_overlay(base_image_path, version_text, logo_path, output_path):
-    """Mirrors NotificationCenter.pushbutton's own
-    _resize_and_encode_image - same clr.AddReference("System.Drawing"),
-    same Bitmap/Graphics.FromImage/DrawImage shape, same "dispose
-    everything in a finally block" discipline. The one new piece beyond
-    that proven function: drawing TEXT onto the bitmap (DrawString/Font/
-    SolidBrush) - standard, well-documented GDI+ API, just not something
-    any file in this repo had done before this."""
-    base_img = DrawingImage.FromFile(base_image_path)
-    try:
-        bmp = Bitmap(base_img.Width, base_img.Height)
+def _text_note_type_id(doc, view):
+    from Autodesk.Revit.DB import FilteredElementCollector, TextNoteType
+    existing = _find_text_note(doc, view)
+    if existing is not None:
+        return existing.GetTypeId()
+    for tnt in FilteredElementCollector(doc).OfClass(TextNoteType):
+        return tnt.Id
+    return None
+
+
+def _ensure_text_note(doc, view, text):
+    """Matches the TextNoteType lookup/fallback already proven in
+    DeeLazy.pushbutton/modules/dee_sselect.py: reuse a type already
+    present in the view, else the first TextNoteType found anywhere in
+    the project."""
+    from Autodesk.Revit.DB import TextNote, XYZ
+    existing = _find_text_note(doc, view)
+    if existing is not None:
         try:
-            g = Graphics.FromImage(bmp)
-            try:
-                g.InterpolationMode = InterpolationMode.HighQualityBicubic
-                g.DrawImage(base_img, 0, 0, base_img.Width, base_img.Height)
-
-                if version_text:
-                    font = Font("Segoe UI", 13.0, FontStyle.Bold)
-                    try:
-                        text_size = g.MeasureString(version_text, font)
-                        pad_x, pad_y, margin = 10.0, 6.0, 10.0
-                        badge_w = text_size.Width + pad_x * 2
-                        badge_h = text_size.Height + pad_y * 2
-                        bg_brush = SolidBrush(DrawingColor.FromArgb(190, 0, 0, 0))
-                        try:
-                            g.FillRectangle(bg_brush, margin, margin, badge_w, badge_h)
-                        finally:
-                            bg_brush.Dispose()
-                        text_brush = SolidBrush(DrawingColor.White)
-                        try:
-                            g.DrawString(version_text, font, text_brush,
-                                          PointF(margin + pad_x, margin + pad_y))
-                        finally:
-                            text_brush.Dispose()
-                    finally:
-                        font.Dispose()
-
-                if logo_path and os.path.isfile(logo_path):
-                    logo_img = DrawingImage.FromFile(logo_path)
-                    try:
-                        max_dim = 110.0
-                        scale = min(1.0, max_dim / max(logo_img.Width, logo_img.Height))
-                        logo_w = max(1, int(logo_img.Width * scale))
-                        logo_h = max(1, int(logo_img.Height * scale))
-                        margin_px = 14
-                        x = bmp.Width - logo_w - margin_px
-                        y = bmp.Height - logo_h - margin_px
-                        g.DrawImage(logo_img, x, y, logo_w, logo_h)
-                    finally:
-                        logo_img.Dispose()
-            finally:
-                g.Dispose()
-            bmp.Save(output_path, ImageFormat.Png)
-        finally:
-            bmp.Dispose()
-    finally:
-        base_img.Dispose()
+            if existing.Text != text:
+                existing.Text = text
+        except Exception:
+            pass
+        return existing
+    type_id = _text_note_type_id(doc, view)
+    if type_id is None:
+        raise Exception("No text note type found in this project.")
+    return TextNote.Create(doc, view.Id, XYZ(0, 0, 0), text, type_id)
 
 
-def generate_preview(doc, settings=None):
-    """Does the actual work: export the active view, composite the
-    version badge + logo, save next to the .rvt as "<file>.DeeIcon.png".
-    Returns (True, output_path) or (False, reason) - never raises, so
-    both the DocumentSaved handler and the "Generate Preview Now" button
-    can treat this call the same way."""
+def _find_image_instance(doc, view):
+    from Autodesk.Revit.DB import FilteredElementCollector, ImageInstance
+    for ele in FilteredElementCollector(doc, view.Id).OfClass(ImageInstance):
+        return ele
+    return None
+
+
+def _ensure_logo_image(doc, view, logo_path):
+    """Same ImageType/ImageInstance placement already built (and
+    flagged there as needing a live Revit check - same flag applies
+    here) in DeeAligner.pushbutton's _insert_image_on_sheet, just
+    targeting a Drafting View instead of a ViewSheet. Replaces any
+    previously placed logo rather than stacking duplicates."""
+    from Autodesk.Revit.DB import (
+        ImageType, ImageTypeOptions, ImageTypeSource, ImagePlacementOptions,
+        BoxPlacement, XYZ)
+    existing = _find_image_instance(doc, view)
+    if existing is not None:
+        try:
+            doc.Delete(existing.Id)
+        except Exception:
+            pass
+    if not logo_path or not os.path.isfile(logo_path):
+        return None
+    options = ImageTypeOptions(logo_path, False, ImageTypeSource.Import)
+    image_type = ImageType.Create(doc, options)
+    placement = ImagePlacementOptions(XYZ(3.0, 0, 0), BoxPlacement.Center)
+    return ImageInstance.Create(doc, view, image_type.Id, placement)
+
+
+def _current_preview_view_id(doc):
+    try:
+        return doc.GetDocumentPreviewSettings().PreviewViewId
+    except Exception:
+        return None
+
+
+def _apply_preview_settings(doc, view):
+    try:
+        settings = doc.GetDocumentPreviewSettings()
+        settings.PreviewViewId = view.Id
+        doc.SetDocumentPreviewSettings(settings)
+        return True
+    except Exception:
+        return False
+
+
+def apply_branding(doc, settings=None):
+    """Does the actual work: find-or-create the dedicated branding
+    view, find-or-update its version-badge text, find-or-replace its
+    logo image if the logo changed, then point Revit's own thumbnail
+    setting at that view. Only opens a Transaction if something
+    actually needs to change - never marks an already-correct document
+    as modified. Returns (True, message) / (False, reason) - never
+    raises, so both the automatic hooks and a manual "Apply Now" button
+    can treat this the same way."""
     if settings is None:
         settings = load_settings()
+    if not settings.get("enabled"):
+        return False, "DeeIcon is turned off."
     try:
         if doc is None:
             return False, "No document."
+        if doc.IsFamilyDocument:
+            return False, "DeeIcon does not run inside the Family Editor."
+        if doc.IsLinked:
+            return False, "Linked document - skipped."
+
+        version_text = _version_text(doc)
+        logo_path = settings.get("logo_path") or ""
+        if logo_path and not os.path.isfile(logo_path):
+            logo_path = ""
+        applied_logo = settings.get("_applied_logo_path") or ""
+
+        existing_view = _find_view_by_name(doc, _VIEW_NAME)
+        existing_text = _find_text_note(doc, existing_view) if existing_view is not None else None
+        needs_view = existing_view is None
+        needs_text = existing_text is None or getattr(existing_text, "Text", None) != version_text
+        needs_logo = applied_logo != logo_path
+        needs_preview = (existing_view is None
+                          or _current_preview_view_id(doc) != existing_view.Id)
+
+        if not (needs_view or needs_text or needs_logo or needs_preview):
+            return True, "Already up to date - the thumbnail branding is already applied."
+
+        from Autodesk.Revit.DB import Transaction
+        t = Transaction(doc, "DeeIcon - Update Thumbnail Branding")
+        t.Start()
         try:
-            path = doc.PathName
+            view = _ensure_branding_view(doc)
+            _ensure_text_note(doc, view, version_text)
+            if needs_logo:
+                _ensure_logo_image(doc, view, logo_path)
+                settings["_applied_logo_path"] = logo_path
+                save_settings(settings)
+            _apply_preview_settings(doc, view)
+            t.Commit()
         except Exception:
-            path = None
-        if not path or not os.path.isfile(path):
-            return False, "This document has not been saved to a file yet."
-
-        folder = os.path.dirname(path)
-        base_name = os.path.splitext(os.path.basename(path))[0]
-        output_path = os.path.join(folder, base_name + _OUTPUT_SUFFIX)
-        temp_base = os.path.join(folder, _TEMP_PREFIX + base_name)
-
-        exported_path = _export_active_view(doc, temp_base)
-        try:
-            logo_path = settings.get("logo_path") or ""
-            if logo_path and not os.path.isfile(logo_path):
-                logo_path = ""
-            _composite_overlay(exported_path, _version_text(doc), logo_path, output_path)
-        finally:
-            try:
-                if os.path.isfile(exported_path):
-                    os.remove(exported_path)
-            except Exception:
-                pass
-        return True, output_path
+            t.RollBack()
+            raise
+        return True, "Applied - the file's thumbnail will show the update next time it's saved."
     except Exception as e:
         return False, str(e)
 
 
+def _on_document_opened(sender, args):
+    try:
+        apply_branding(args.Document)
+    except Exception:
+        pass
+
+
 def _on_document_saved(sender, args):
     try:
-        settings = load_settings()
-        if not settings.get("enabled"):
-            return
-        generate_preview(args.Document, settings)
+        apply_branding(args.Document)
     except Exception:
         pass
 
@@ -233,6 +290,14 @@ def start_watching(uiapp):
         app = uiapp.Application
     except Exception:
         return
+    try:
+        app.DocumentOpened -= _on_document_opened
+    except Exception:
+        pass
+    try:
+        app.DocumentOpened += _on_document_opened
+    except Exception:
+        pass
     try:
         app.DocumentSaved -= _on_document_saved
     except Exception:

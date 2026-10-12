@@ -1,25 +1,27 @@
 # -*- coding: utf-8 -*-
 """
 DeeIcon (About)
-Settings window for the automatic "save preview" feature backed by
+Settings window for the real-file-thumbnail branding feature backed by
 lib/dee_icon_service.py - the on/off toggle and the custom logo are
-configured here; the actual per-save work (export the active view,
-composite the version badge + logo, write "<file>.DeeIcon.png" next to
-the .rvt) lives entirely in that module and runs on its own, wired from
-startup.py, with no further clicks needed once turned on.
+configured here; the actual work (a dedicated hidden view holding a
+version-badge TextNote + logo ImageInstance, pointed at via Revit's own
+Document.DocumentPreviewSettings.PreviewViewId so Revit's native save
+process bakes it into the file's REAL embedded thumbnail - the one
+Explorer and Revit's own Recent Files screen both show) lives entirely
+in that module and runs on its own, automatically, whenever a project
+is opened or saved - wired from startup.py, no further clicks needed
+once turned on. See dee_icon_service.py's own docstring for why this
+replaced an earlier separate-PNG-file version, and why it does NOT
+touch the .rvt file's raw bytes.
 
-Scope, decided up front (see the DeeIcon plan): a separate PNG file,
-never Revit's own internal file-preview/thumbnail stream - there is no
-documented API for reading or writing that, confirmed via research
-before building this. One global enable toggle and one global logo for
-the whole Dee.extension session/user, not per-project. Captures
-whatever view is active at save time, not a specifically pinned
-"thumbnail view".
+One global enable toggle and one global logo for the whole
+Dee.extension session/user, not per-project.
 
-"Generate Preview Now" runs the exact same
-lib/dee_icon_service.generate_preview the automatic path uses, against
-the CURRENTLY open document, so a user can see/tune the result without
-needing to actually trigger a real Save.
+"Apply To This Document Now" runs the exact same
+lib/dee_icon_service.apply_branding the automatic path uses, against
+the CURRENTLY open document, so a user can see the branding view appear
+and confirm it took effect without needing to close/reopen or Save
+first.
 """
 import os
 
@@ -96,7 +98,7 @@ class DeeIconWindow(dee_branding.DeeBrandedWindow):
         dee_icon_service.save_settings(self._settings)
         self._refresh_logo_preview()
 
-    def generate_now_click(self, sender, args):
+    def apply_now_click(self, sender, args):
         try:
             doc = __revit__.ActiveUIDocument.Document if __revit__.ActiveUIDocument else None
         except Exception:
@@ -104,11 +106,11 @@ class DeeIconWindow(dee_branding.DeeBrandedWindow):
         if doc is None:
             self.generate_status_tb.Text = "Open a Revit project first."
             return
-        ok, result = dee_icon_service.generate_preview(doc, self._settings)
-        if ok:
-            self.generate_status_tb.Text = "Saved: {0}".format(result)
-        else:
-            self.generate_status_tb.Text = "Could not generate a preview - {0}".format(result)
+        if not self._settings.get("enabled"):
+            self.generate_status_tb.Text = "Tick \"Automatically...\" above first, then try again."
+            return
+        ok, result = dee_icon_service.apply_branding(doc, self._settings)
+        self.generate_status_tb.Text = result if ok else "Could not apply - {0}".format(result)
 
     def close_click(self, sender, args):
         self.Close()

@@ -9,14 +9,14 @@
                 Width="100" Height="28" HorizontalAlignment="Right" Margin="0,12,0,0"/>
 
         <StackPanel>
-            <TextBlock Text="Automatic Save Preview" FontWeight="Bold" Margin="0,0,0,8"/>
+            <TextBlock Text="Brand the Real File Thumbnail" FontWeight="Bold" Margin="0,0,0,8"/>
             <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888" Margin="0,0,0,10"
-                       Text="Every time this file is saved, create a small PNG next to it showing a snapshot of the active view with the Revit version and your logo overlaid."/>
+                       Text="Shows the Revit version and your logo on the file's own thumbnail - the one Windows Explorer and Revit's Recent Files screen both show. Applied automatically whenever the project is opened or saved; no separate file is created."/>
 
-            <CheckBox x:Name="enabled_cb" Content="Automatically create a preview every time I save"
+            <CheckBox x:Name="enabled_cb" Content="Automatically brand this project's thumbnail"
                       Margin="0,0,0,14" Checked="enabled_changed" Unchecked="enabled_changed"/>
 
-            <TextBlock Text="Custom logo (bottom-right corner):" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <TextBlock Text="Custom logo:" FontWeight="SemiBold" Margin="0,0,0,6"/>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                 <Border x:Name="logo_preview_border" Width="80" Height="80" BorderBrush="Gray"
                         BorderThickness="1" Margin="0,0,10,0" Visibility="Collapsed">
@@ -35,9 +35,9 @@
                 <StackPanel>
                     <TextBlock Text="Try it now" FontWeight="Bold" Margin="0,0,0,6"/>
                     <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888" Margin="0,0,0,8"
-                               Text="Generates a preview for the currently open document's active view right now, without needing to Save first."/>
-                    <Button x:Name="generate_now_b" Content="Generate Preview Now" Width="180" Height="28"
-                            HorizontalAlignment="Left" Click="generate_now_click"/>
+                               Text="Applies the branding to the currently open document right now, without needing to close or Save first."/>
+                    <Button x:Name="generate_now_b" Content="Apply To This Document Now" Width="200" Height="28"
+                            HorizontalAlignment="Left" Click="apply_now_click"/>
                     <TextBlock x:Name="generate_status_tb" TextWrapping="Wrap" FontSize="11" Margin="0,8,0,0"/>
                 </StackPanel>
             </Border>
