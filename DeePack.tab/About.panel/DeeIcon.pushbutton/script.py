@@ -24,9 +24,10 @@ needing to actually trigger a real Save.
 import os
 
 import clr
-clr.AddReference("System.Windows.Forms")
+clr.AddReference("WindowsBase")
 clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
+clr.AddReference("System.Windows.Forms")
 from System import Uri
 from System.Windows import Visibility
 from System.Windows.Media.Imaging import BitmapImage, BitmapCacheOption
