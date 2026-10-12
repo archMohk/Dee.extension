@@ -201,13 +201,23 @@ def _current_preview_view_id(doc):
 
 
 def _apply_preview_settings(doc, view):
+    """Returns (True, None) or (False, error_text) - the caller surfaces
+    error_text verbatim since this exact API call has never been used
+    in this repo before and its calling convention needs live-Revit
+    confirmation."""
     try:
         settings = doc.GetDocumentPreviewSettings()
+    except Exception as e:
+        return False, "GetDocumentPreviewSettings() - {0}".format(e)
+    try:
         settings.PreviewViewId = view.Id
+    except Exception as e:
+        return False, "setting PreviewViewId - {0}".format(e)
+    try:
         doc.SetDocumentPreviewSettings(settings)
-        return True
-    except Exception:
-        return False
+    except Exception as e:
+        return False, "SetDocumentPreviewSettings() - {0}".format(e)
+    return True, None
 
 
 def apply_branding(doc, settings=None):
@@ -218,7 +228,16 @@ def apply_branding(doc, settings=None):
     actually needs to change - never marks an already-correct document
     as modified. Returns (True, message) / (False, reason) - never
     raises, so both the automatic hooks and a manual "Apply Now" button
-    can treat this the same way."""
+    can treat this the same way.
+
+    Each step after the view itself is wrapped in its OWN try/except
+    and the transaction is still committed even if one step fails - a
+    failure placing the logo image (the single most novel, least-
+    verified piece here) must never wipe out an otherwise-successful
+    view + version badge by rolling back the whole transaction. Problems
+    are collected and reported back in plain text instead of being
+    silently swallowed, so a live failure is actually diagnosable from
+    one run instead of a blind guess."""
     if settings is None:
         settings = load_settings()
     if not settings.get("enabled"):
@@ -248,21 +267,36 @@ def apply_branding(doc, settings=None):
         if not (needs_view or needs_text or needs_logo or needs_preview):
             return True, "Already up to date - the thumbnail branding is already applied."
 
+        problems = []
         from Autodesk.Revit.DB import Transaction
         t = Transaction(doc, "DeeIcon - Update Thumbnail Branding")
         t.Start()
         try:
             view = _ensure_branding_view(doc)
+        except Exception as e:
+            t.RollBack()
+            return False, "Could not create the branding view - {0}".format(e)
+
+        try:
             _ensure_text_note(doc, view, version_text)
-            if needs_logo:
+        except Exception as e:
+            problems.append("version badge text - {0}".format(e))
+
+        if needs_logo:
+            try:
                 _ensure_logo_image(doc, view, logo_path)
                 settings["_applied_logo_path"] = logo_path
                 save_settings(settings)
-            _apply_preview_settings(doc, view)
-            t.Commit()
-        except Exception:
-            t.RollBack()
-            raise
+            except Exception as e:
+                problems.append("logo image - {0}".format(e))
+
+        preview_ok, preview_error = _apply_preview_settings(doc, view)
+        if not preview_ok:
+            problems.append("pointing Revit's thumbnail setting at the view - {0}".format(preview_error))
+
+        t.Commit()
+        if problems:
+            return False, "Partly applied - the view was created, but: " + "; ".join(problems)
         return True, "Applied - the file's thumbnail will show the update next time it's saved."
     except Exception as e:
         return False, str(e)
