@@ -28,7 +28,7 @@ clr.AddReference("WindowsBase")
 clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
 clr.AddReference("System.Windows.Forms")
-from System import Uri
+from System.IO import File, MemoryStream
 from System.Windows import Visibility
 from System.Windows.Media.Imaging import BitmapImage, BitmapCacheOption
 from System.Windows.Forms import OpenFileDialog, DialogResult
@@ -62,7 +62,7 @@ class DeeIconWindow(dee_branding.DeeBrandedWindow):
                 bmp = BitmapImage()
                 bmp.BeginInit()
                 bmp.CacheOption = BitmapCacheOption.OnLoad
-                bmp.UriSource = Uri(logo_path)
+                bmp.StreamSource = MemoryStream(File.ReadAllBytes(logo_path))
                 bmp.EndInit()
                 bmp.Freeze()
                 self.logo_preview_img.Source = bmp
