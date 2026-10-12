@@ -1,0 +1,3 @@
+title: DeeIcon
+tooltip: Automatically create a Revit-version + custom-logo preview image next to your file every time you save. Works with no Revit file open.
+context: zero-doc

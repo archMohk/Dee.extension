@@ -3,5 +3,6 @@ layout:
   - DeeControl
   - UserInfo
   - NotificationCenter
+  - DeeIcon
   - ContactStack
   - UpdateStack

@@ -17,15 +17,16 @@ On the developer's own PC (plain OneDrive-synced folder, not a
 must never raise or hang - a failed/offline pull should never block
 Revit startup.
 
-Also starts two background watchers, each its own UIApplication.Idling
-subscription so they run for the rest of the Revit session with no
-button click at all: lib/dee_prayer_service.py (prayer-time toasts) and
-lib/dee_broadcast_service.py (DeeCall admin broadcasts). Each wrapped in
-its own try/except, same as the update check above - a failure in
-either must never break the ribbon, Revit startup, or the other
-watcher. See dee_prayer_service's own docstring for the full mechanism
-and its known, still-to-be-live-tested risk (whether a subscription
-made here genuinely survives a whole session).
+Also starts three background watchers, each wrapped in its own
+try/except so a failure in any one must never break the ribbon, Revit
+startup, or the others: lib/dee_prayer_service.py (prayer-time toasts)
+and lib/dee_broadcast_service.py (DeeCall admin broadcasts), both their
+own UIApplication.Idling subscription, plus lib/dee_icon_service.py
+(DeeIcon's automatic save-preview image), a ControlledApplication.
+DocumentSaved subscription instead - see that module's own docstring
+for why a different event fits there and the same still-to-be-live-
+tested risk (whether a subscription made here genuinely survives a
+whole session).
 """
 import clr
 clr.AddReference("System")
@@ -56,5 +57,12 @@ try:
     from pyrevit import HOST_APP
     import dee_broadcast_service
     dee_broadcast_service.start_watching(HOST_APP.uiapp)
+except Exception:
+    pass
+
+try:
+    from pyrevit import HOST_APP
+    import dee_icon_service
+    dee_icon_service.start_watching(HOST_APP.uiapp)
 except Exception:
     pass

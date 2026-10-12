@@ -1,0 +1,46 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Dee.extension — DeeIcon"
+        ShowInTaskbar="False"
+        Height="470" Width="420" ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="14">
+        <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
+                Width="100" Height="28" HorizontalAlignment="Right" Margin="0,12,0,0"/>
+
+        <StackPanel>
+            <TextBlock Text="Automatic Save Preview" FontWeight="Bold" Margin="0,0,0,8"/>
+            <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888" Margin="0,0,0,10"
+                       Text="Every time this file is saved, create a small PNG next to it showing a snapshot of the active view with the Revit version and your logo overlaid."/>
+
+            <CheckBox x:Name="enabled_cb" Content="Automatically create a preview every time I save"
+                      Margin="0,0,0,14" Checked="enabled_changed" Unchecked="enabled_changed"/>
+
+            <TextBlock Text="Custom logo (bottom-right corner):" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <Border x:Name="logo_preview_border" Width="80" Height="80" BorderBrush="Gray"
+                        BorderThickness="1" Margin="0,0,10,0" Visibility="Collapsed">
+                    <Image x:Name="logo_preview_img" Stretch="Uniform" Margin="4"/>
+                </Border>
+                <StackPanel VerticalAlignment="Center">
+                    <Button x:Name="pick_logo_b" Content="Pick Logo..." Width="120" Height="26"
+                            Margin="0,0,0,6" Click="pick_logo_click"/>
+                    <Button x:Name="remove_logo_b" Content="Remove Logo" Width="120" Height="26"
+                            Click="remove_logo_click" Visibility="Collapsed"/>
+                </StackPanel>
+            </StackPanel>
+            <TextBlock x:Name="logo_status_tb" Text="No logo selected." FontSize="11" Foreground="#888" Margin="0,0,0,14"/>
+
+            <Border BorderBrush="#3a3f4d" BorderThickness="0,1,0,0" Padding="0,14,0,0">
+                <StackPanel>
+                    <TextBlock Text="Try it now" FontWeight="Bold" Margin="0,0,0,6"/>
+                    <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888" Margin="0,0,0,8"
+                               Text="Generates a preview for the currently open document's active view right now, without needing to Save first."/>
+                    <Button x:Name="generate_now_b" Content="Generate Preview Now" Width="180" Height="28"
+                            HorizontalAlignment="Left" Click="generate_now_click"/>
+                    <TextBlock x:Name="generate_status_tb" TextWrapping="Wrap" FontSize="11" Margin="0,8,0,0"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </DockPanel>
+</Window>
