@@ -1,0 +1,48 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Dee.extension — DeeAccount"
+        ShowInTaskbar="False"
+        Height="430" Width="460" ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="14">
+        <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click"
+                Width="100" Height="28" HorizontalAlignment="Right" Margin="0,12,0,0"/>
+
+        <StackPanel>
+            <TextBlock Text="Autodesk Account" FontWeight="Bold" Margin="0,0,0,8"/>
+            <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#888" Margin="0,0,0,14"
+                       Text="Every cloud tool in this extension (ACC publishing, linking, browsing, etc) uses whichever account is selected as Active below. Signing in to one account never affects the other."/>
+
+            <Border BorderBrush="#3a3f4d" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,10">
+                <StackPanel>
+                    <RadioButton x:Name="work_active_rb" Content="Work / Company Account" GroupName="activeAccount"
+                                 FontWeight="Bold" Margin="0,0,0,6" Checked="active_changed"/>
+                    <TextBlock x:Name="work_status_tb" Text="Not signed in." FontSize="11" Foreground="#888" Margin="20,0,0,8"/>
+                    <StackPanel Orientation="Horizontal" Margin="20,0,0,0">
+                        <Button x:Name="work_signin_b" Content="Sign In..." Width="100" Height="26"
+                                Margin="0,0,8,0" Click="work_signin_click"/>
+                        <Button x:Name="work_signout_b" Content="Sign Out" Width="100" Height="26"
+                                Click="work_signout_click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border BorderBrush="#3a3f4d" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,14">
+                <StackPanel>
+                    <RadioButton x:Name="personal_active_rb" Content="Personal Account" GroupName="activeAccount"
+                                 FontWeight="Bold" Margin="0,0,0,6" Checked="active_changed"/>
+                    <TextBlock x:Name="personal_status_tb" Text="Not signed in." FontSize="11" Foreground="#888" Margin="20,0,0,8"/>
+                    <StackPanel Orientation="Horizontal" Margin="20,0,0,0">
+                        <Button x:Name="personal_signin_b" Content="Sign In..." Width="100" Height="26"
+                                Margin="0,0,8,0" Click="personal_signin_click"/>
+                        <Button x:Name="personal_signout_b" Content="Sign Out" Width="100" Height="26"
+                                Click="personal_signout_click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <TextBlock TextWrapping="Wrap" FontSize="10" Foreground="#888"
+                       Text="Note: this always opens Autodesk's own sign-in page. Whether that redirects to your company's own login (Microsoft Entra ID, Okta, Google Workspace, etc.) depends entirely on how your organization's Autodesk account is configured on Autodesk's side - not something this extension controls."/>
+        </StackPanel>
+    </DockPanel>
+</Window>

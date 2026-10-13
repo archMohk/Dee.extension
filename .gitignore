@@ -9,8 +9,11 @@ acc_config.json
 .mcp.json
 
 # Per-machine caches / runtime state - not source, and re-generated
-# automatically on first use of the relevant tool.
-.acc_token_cache.json
+# automatically on first use of the relevant tool. The wildcard covers
+# every named account slot's own cache file (DeeAccount.pushbutton,
+# e.g. .acc_token_cache_personal.json), not just the original/default
+# account's .acc_token_cache.json.
+.acc_token_cache*.json
 .acc_file_cache.json
 # DeeNWCs' own remembered export settings (source/view-filter/NWC
 # options) - per-machine preference, not source.

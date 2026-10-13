@@ -19,6 +19,28 @@ that field is just ignored). The APS app registration itself must be
 the "Desktop, Mobile, Single-Page App" type for this to work - a
 "Traditional Web App" registration (what a client_secret-based flow
 requires) will reject a token exchange that has no client_secret.
+
+--------------------------------------------------------------------
+Named account slots (DeeAccount.pushbutton) - Work vs Personal
+--------------------------------------------------------------------
+Every one of the ~19 tools that call get_access_token() does so with
+no `account` argument - this module resolves "which account" to
+`get_active_account()` internally by default, so adding a second,
+independently-cached Autodesk identity (e.g. the user's own personal
+account, kept separate from their work/company one) needed ZERO
+changes at any of those call sites. The DEFAULT_ACCOUNT slot keeps
+using the exact same TOKEN_CACHE_PATH filename this module always has,
+so an existing single-account setup is completely undisturbed; only a
+second, explicitly-chosen slot gets its own separate cache file.
+
+This does NOT implement SSO/SAML/OIDC federation (Microsoft Entra ID,
+Okta, Google Workspace, etc.) - every sign-in still opens Autodesk's
+own hosted login page (APS_AUTH_URL) exactly as before. Whether that
+page redirects to a company identity provider depends entirely on how
+the signing-in Autodesk account's organization is configured on
+Autodesk's own side (Autodesk Admin Console) - nothing this extension
+does or could do changes that. What this adds is purely "remember more
+than one already-authenticated Autodesk account, separately."
 """
 import base64
 import hashlib
@@ -35,6 +57,8 @@ from System.Net import HttpListener
 from System.Net.Http import HttpClient, FormUrlEncodedContent
 from System.Collections.Generic import Dictionary
 
+import deew_settings
+
 APS_AUTH_URL = "https://developer.api.autodesk.com/authentication/v2/authorize"
 APS_TOKEN_URL = "https://developer.api.autodesk.com/authentication/v2/token"
 SCOPES = "data:read data:write account:read"
@@ -43,6 +67,32 @@ _THIS_DIR = os.path.dirname(__file__)
 _EXTENSION_DIR = os.path.dirname(_THIS_DIR)
 CONFIG_PATH = os.path.join(_EXTENSION_DIR, "acc_config.json")
 TOKEN_CACHE_PATH = os.path.join(_THIS_DIR, ".acc_token_cache.json")
+
+DEFAULT_ACCOUNT = "work"
+_ACCOUNT_SWITCH_SETTINGS = "acc_account_switch"
+
+
+def get_active_account():
+    """Which named account slot get_access_token() uses when a caller
+    doesn't pass one explicitly - i.e. every existing call site in this
+    extension. Defaults to DEFAULT_ACCOUNT (the original, single-account
+    behavior) until a user explicitly switches via DeeAccount.pushbutton."""
+    data = deew_settings.load(_ACCOUNT_SWITCH_SETTINGS, {"active_account": DEFAULT_ACCOUNT})
+    return data.get("active_account") or DEFAULT_ACCOUNT
+
+
+def set_active_account(account):
+    deew_settings.save(_ACCOUNT_SWITCH_SETTINGS, {"active_account": account})
+
+
+def _token_cache_path(account):
+    """DEFAULT_ACCOUNT keeps the exact original filename - an existing
+    single-account setup is never disrupted by this feature existing.
+    Any other named slot gets its own separate file."""
+    if account == DEFAULT_ACCOUNT:
+        return TOKEN_CACHE_PATH
+    safe = "".join(c for c in account if c.isalnum() or c in ("_", "-")) or "account"
+    return os.path.join(_THIS_DIR, ".acc_token_cache_{0}.json".format(safe))
 
 
 def _load_config():
@@ -72,19 +122,42 @@ def is_configured():
         return False
 
 
-def _load_cached_token():
-    if os.path.exists(TOKEN_CACHE_PATH):
-        with open(TOKEN_CACHE_PATH, "r") as f:
+def _load_cached_token(account):
+    path = _token_cache_path(account)
+    if os.path.exists(path):
+        with open(path, "r") as f:
             data = json.load(f)
         if data.get("expires_at", 0) > time.time() + 60:
             return data.get("access_token")
     return None
 
 
-def _save_token(token, expires_in):
+def _save_token(token, expires_in, account):
     data = {"access_token": token, "expires_at": time.time() + int(expires_in)}
-    with open(TOKEN_CACHE_PATH, "w") as f:
+    with open(_token_cache_path(account), "w") as f:
         json.dump(data, f)
+
+
+def account_status(account):
+    """True if a valid, non-expired cached token already exists for
+    this account slot - never touches the network and never triggers a
+    login, same "cheap, local-only, display-purposes-only" spirit as
+    is_configured() above. For the DeeAccount switcher UI."""
+    try:
+        return _load_cached_token(account) is not None
+    except Exception:
+        return False
+
+
+def sign_out(account):
+    """Deletes a slot's cached token - best-effort, never raises."""
+    try:
+        path = _token_cache_path(account)
+        if os.path.exists(path):
+            os.remove(path)
+        return True
+    except Exception:
+        return False
 
 
 def _b64url(raw):
@@ -136,9 +209,16 @@ def _listen_for_code(redirect_uri):
     return code
 
 
-def get_access_token(force_login=False):
+def get_access_token(force_login=False, account=None):
+    """account=None (every existing call site) resolves to whichever
+    slot is currently active (get_active_account()) - see the module
+    docstring's "Named account slots" section. Passing an explicit
+    account lets DeeAccount.pushbutton (re)authenticate one specific
+    slot regardless of which one is active."""
+    if account is None:
+        account = get_active_account()
     if not force_login:
-        cached = _load_cached_token()
+        cached = _load_cached_token(account)
         if cached:
             return cached
 
@@ -176,5 +256,5 @@ def get_access_token(force_login=False):
 
     data = json.loads(body)
     token = data["access_token"]
-    _save_token(token, data.get("expires_in", 3600))
+    _save_token(token, data.get("expires_in", 3600), account)
     return token
