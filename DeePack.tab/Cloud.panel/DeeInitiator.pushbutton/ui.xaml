@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeInitiator — Batch-Create &amp; Publish to ACC"
         ShowInTaskbar="False"
-        MinHeight="700" MinWidth="1200" Height="880" Width="1360"
+        MinHeight="780" MinWidth="1300" Height="960" Width="1600"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <Border DockPanel.Dock="Right" Width="360" Margin="8,0,0,0"
@@ -64,7 +64,7 @@
 
         <TextBlock x:Name="summary_tb" DockPanel.Dock="Top" Text="" FontStyle="Italic" Margin="0,0,0,8" TextWrapping="Wrap"/>
 
-        <GroupBox DockPanel.Dock="Top" Header="Link Setup (Link Management tab)" Margin="0,0,0,8">
+        <GroupBox DockPanel.Dock="Top" Header="Link Setup (default - override per match on Selected Links)" Margin="0,0,0,8">
             <StackPanel Margin="6">
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                     <Button x:Name="refresh_link_files_b" Content="Refresh File List" Click="refresh_link_files_click" Width="140" Height="26"/>
@@ -101,7 +101,7 @@
             </StackPanel>
         </GroupBox>
 
-        <TabControl x:Name="main_tabs">
+        <TabControl x:Name="main_tabs" SelectionChanged="main_tabs_selection_changed">
             <TabItem Header="Delivery Parties">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="4">
                     <StackPanel x:Name="zones_panel" Orientation="Vertical"/>
@@ -172,6 +172,48 @@
                             </Border>
                         </DockPanel>
                     </Grid>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="Matrix">
+                <DockPanel Margin="6">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBox x:Name="matrix_search_tb" Width="200" Height="22"
+                                 VerticalContentAlignment="Center" TextChanged="matrix_search_changed"
+                                 ToolTip="Filters both rows and columns together - they are the same file list."/>
+                        <Button x:Name="matrix_clear_search_b" Content="Clear" Width="46" Height="22"
+                                Margin="4,0,0,0" Click="matrix_clear_search_click"/>
+                        <TextBlock Text="Delivery Party:" VerticalAlignment="Center" Margin="14,0,4,0"/>
+                        <ComboBox x:Name="matrix_party_filter_cb" Width="160" Height="22"
+                                  SelectionChanged="matrix_party_filter_changed"/>
+                        <Button x:Name="matrix_clear_all_b" Content="Clear All" Width="80" Height="22"
+                                Margin="14,0,0,0" Click="matrix_clear_click"/>
+                        <TextBlock x:Name="matrix_count_tb" VerticalAlignment="Center" Margin="14,0,0,0"
+                                   Foreground="#888" Text=""/>
+                    </StackPanel>
+
+                    <Border DockPanel.Dock="Bottom" Background="#2B2B2B" BorderBrush="#555"
+                            BorderThickness="1" Padding="6,4" Margin="0,6,0,0">
+                        <TextBlock FontSize="11" Foreground="#CCC" TextWrapping="Wrap"
+                                   Text="Rows and columns are the SAME file list. Tick a cell to link that ROW into that COLUMN. The diagonal is disabled - a file can't be linked into itself."/>
+                    </Border>
+
+                    <Border BorderBrush="#555" BorderThickness="1">
+                        <ScrollViewer x:Name="matrix_scroll" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Auto">
+                            <Grid x:Name="matrix_grid" Background="#1E1E1E"/>
+                        </ScrollViewer>
+                    </Border>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="Selected Links">
+                <DockPanel Margin="6">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Every current match, with its own Link Type and Attachment. Leave a match alone to use the Link Setup defaults above - only change what you need to differ."/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="selected_links_panel" Margin="4"/>
+                    </ScrollViewer>
                 </DockPanel>
             </TabItem>
 

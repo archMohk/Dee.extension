@@ -263,11 +263,12 @@ clr.AddReference("PresentationCore")
 clr.AddReference("WindowsBase")
 clr.AddReference("System.Windows.Forms")
 from System import Action
-from System.Windows import (Thickness, FontWeights, HorizontalAlignment, VerticalAlignment,
+from System.Windows import (Thickness, FontWeights, GridLength, HorizontalAlignment, VerticalAlignment,
                             TextWrapping, Point, TextTrimming)
 from System.Windows.Controls import (GroupBox, StackPanel, Orientation, TextBox, TextBlock,
-                                     Button, ScrollBarVisibility, Border, Canvas, ComboBox)
-from System.Windows.Media import SolidColorBrush, Color, Brushes, PointCollection
+                                     Button, ScrollBarVisibility, Border, Canvas, ComboBox,
+                                     Grid, ColumnDefinition, RowDefinition)
+from System.Windows.Media import SolidColorBrush, Color, Brushes, PointCollection, RotateTransform
 from System.Windows.Shapes import Line, Polygon
 from System.Windows.Input import Cursors
 from System.Windows.Threading import Dispatcher, DispatcherFrame, DispatcherPriority
@@ -666,6 +667,22 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         self.link_map_right_scroll.ScrollChanged += self._map_scrolled
         self.link_map_canvas.SizeChanged += self._map_scrolled
         self._map_ready = True
+
+        # Matrix tab - built lazily the first time it's actually selected
+        # (main_tabs_selection_changed), not here. Selected Links is cheap
+        # enough (one row per match, not per file) to just rebuild every
+        # time it's selected instead of caching.
+        self._matrix_built = False
+        self._matrix_cells = {}
+        self._matrix_names = []
+        # Per-match Placement/Attachment overrides set on Selected Links -
+        # {(source, target): {"placement_label":.., "attachment_label":..}}.
+        # A match with no entry here uses the global Link Setup controls,
+        # so existing behavior is unchanged unless the user actually opens
+        # Selected Links and overrides something.
+        self._match_options = {}
+        self._matrix_ready = True
+        self._refresh_matrix_party_filter()
 
     # ---------------- logging ----------------
     def _log(self, message):
@@ -1109,7 +1126,9 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         forms.alert(self.summary_tb.Text, title=_TOOL_TITLE)
 
         try:
-            self.main_tabs.SelectedIndex = 2
+            # Log & Report is now index 4 - Matrix(2) and Selected
+            # Links(3) were inserted before it.
+            self.main_tabs.SelectedIndex = 4
         except Exception:
             pass
 
@@ -1390,6 +1409,17 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
                 self.logger.exception("Could not build the wire map", e)
                 self._log("Wire map could not be built: {0}".format(e))
 
+        # The Matrix tab's grid is built lazily from self._link_files - a
+        # rescan makes that stale, so force a rebuild next time the tab
+        # is actually viewed (or right away if it's already the active
+        # tab). The party filter dropdown also needs refreshing since
+        # parties may have been added/removed/renamed.
+        if getattr(self, "_matrix_ready", False):
+            self._refresh_matrix_party_filter()
+            self._matrix_built = False
+            if self.main_tabs.SelectedIndex == 2:
+                self._guard_map(self._matrix_build)
+
     # ---------------- matches - driven by the Link Management wire map ----------------
     def link_remove_match_click(self, sender, args):
         selected_rows = list(self.link_matches_grid.SelectedItems)
@@ -1419,6 +1449,11 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         if self._map_ready:
             try:
                 self._map_draw_wires()
+            except Exception:
+                pass
+        if getattr(self, "_matrix_ready", False) and self._matrix_built:
+            try:
+                self._matrix_refresh_ticks()
             except Exception:
                 pass
 
@@ -1632,6 +1667,370 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
     def _map_scrolled(self, sender, args):
         self._guard_map(self._map_draw_wires)
 
+    # ---------------- Matrix tab: one unified list on both axes ----------------
+    # Reuses self._link_files (the same scanned/planned pool Link
+    # Management already draws from) and mutates self._matches directly -
+    # the exact same list Link Management already reads/writes, so
+    # switching tabs always shows current state. Built with plain
+    # Border/TextBlock cells placed into a Grid's dynamically added rows/
+    # columns (not a DataGrid - its columns aren't meant to be generated
+    # per a runtime-variable file count), mirroring the wire map's own
+    # "manual layout, not a heavier built-in control" choice.
+    def main_tabs_selection_changed(self, sender, args):
+        # Guarded the same way _map_ready guards the wire map's own
+        # XAML-wired handlers - the TabControl can fire this once while
+        # its own XAML is still loading, before __init__ has set
+        # _matrix_ready (see feedback_wpf_xaml_early_event_fire).
+        if not getattr(self, "_matrix_ready", False):
+            return
+        try:
+            idx = self.main_tabs.SelectedIndex
+            if idx == 2 and not self._matrix_built:
+                self._matrix_build()
+            elif idx == 3:
+                self._selected_links_build()
+        except Exception:
+            pass
+
+    def _refresh_matrix_party_filter(self):
+        try:
+            current = self.matrix_party_filter_cb.SelectedItem
+            labels = ["(all)"] + [p.name or "(unnamed)" for p in self._parties]
+            self.matrix_party_filter_cb.ItemsSource = labels
+            if current in labels:
+                self.matrix_party_filter_cb.SelectedItem = current
+            else:
+                self.matrix_party_filter_cb.SelectedIndex = 0
+        except Exception:
+            pass
+
+    def _matrix_party_by_name(self):
+        """{display_name: party_label} - a file's display name is derived
+        from its party's typed name the exact same way
+        _build_planned_link_files does (".rvt" appended if missing), so
+        this always agrees with what's actually in self._link_files."""
+        lookup = {}
+        for party in self._parties:
+            label = party.name or "(unnamed)"
+            for name in party.names():
+                display = name if name.lower().endswith(".rvt") else name + ".rvt"
+                lookup[display] = label
+        return lookup
+
+    def _matrix_build(self):
+        self._matrix_built = True
+        query = self._safe_text(self.matrix_search_tb)
+        party_filter = None
+        try:
+            selected = self.matrix_party_filter_cb.SelectedItem
+            if selected and selected != "(all)":
+                party_filter = selected
+        except Exception:
+            party_filter = None
+
+        party_by_name = self._matrix_party_by_name() if party_filter else {}
+        names = []
+        for name in sorted(self._link_files.keys()):
+            if not dms.matches_search(name, query):
+                continue
+            if party_filter and party_by_name.get(name) != party_filter:
+                continue
+            names.append(name)
+
+        self._matrix_names = names
+        self.matrix_count_tb.Text = "{0}/{1} file(s)".format(len(names), len(self._link_files))
+
+        grid = self.matrix_grid
+        grid.Children.Clear()
+        grid.RowDefinitions.Clear()
+        grid.ColumnDefinitions.Clear()
+        self._matrix_cells = {}
+
+        if not names:
+            return
+
+        grid.RowDefinitions.Add(RowDefinition(Height=GridLength(140)))
+        grid.ColumnDefinitions.Add(ColumnDefinition(Width=GridLength(190)))
+        for _n in names:
+            grid.RowDefinitions.Add(RowDefinition(Height=GridLength(26)))
+            grid.ColumnDefinitions.Add(ColumnDefinition(Width=GridLength(26)))
+
+        corner = TextBlock()
+        Grid.SetRow(corner, 0)
+        Grid.SetColumn(corner, 0)
+        grid.Children.Add(corner)
+
+        for j, name in enumerate(names):
+            header = self._matrix_make_col_header(name)
+            Grid.SetRow(header, 0)
+            Grid.SetColumn(header, j + 1)
+            grid.Children.Add(header)
+
+        for i, row_name in enumerate(names):
+            row_header = self._matrix_make_row_header(row_name)
+            Grid.SetRow(row_header, i + 1)
+            Grid.SetColumn(row_header, 0)
+            grid.Children.Add(row_header)
+
+            for j, col_name in enumerate(names):
+                cell = self._matrix_make_cell(row_name, col_name, i == j)
+                Grid.SetRow(cell, i + 1)
+                Grid.SetColumn(cell, j + 1)
+                grid.Children.Add(cell)
+                if i != j:
+                    self._matrix_cells[(row_name, col_name)] = cell
+
+    def _matrix_make_row_header(self, name):
+        text = TextBlock()
+        text.Text = name
+        text.Foreground = Brushes.WhiteSmoke
+        text.FontSize = 10
+        text.TextTrimming = TextTrimming.CharacterEllipsis
+        text.VerticalAlignment = VerticalAlignment.Center
+        text.Margin = Thickness(4, 0, 6, 0)
+        text.ToolTip = name
+        return text
+
+    def _matrix_make_col_header(self, name):
+        # Vertical text (rotated -90deg) rather than truncated horizontal
+        # text, so the full file name is readable without a tooltip -
+        # LayoutTransform+RotateTransform is standard WPF, no precedent
+        # elsewhere in this codebase but routine.
+        text = TextBlock()
+        text.Text = name
+        text.Foreground = Brushes.WhiteSmoke
+        text.FontSize = 9
+        text.VerticalAlignment = VerticalAlignment.Bottom
+        text.HorizontalAlignment = HorizontalAlignment.Left
+        text.Margin = Thickness(2, 4, 2, 4)
+        text.ToolTip = name
+        text.LayoutTransform = RotateTransform(-90)
+
+        border = Border()
+        border.Child = text
+        border.Background = self._ROW_BG
+        border.BorderBrush = Brushes.Gray
+        border.BorderThickness = Thickness(0, 0, 1, 1)
+        border.VerticalAlignment = VerticalAlignment.Bottom
+        border.HorizontalAlignment = HorizontalAlignment.Center
+        return border
+
+    def _matrix_make_cell(self, row_name, col_name, is_diagonal):
+        text = TextBlock()
+        text.FontSize = 13
+        text.HorizontalAlignment = HorizontalAlignment.Center
+        text.VerticalAlignment = VerticalAlignment.Center
+        text.IsHitTestVisible = False
+
+        cell = Border()
+        cell.BorderBrush = Brushes.Gray
+        cell.BorderThickness = Thickness(0, 0, 1, 1)
+        cell.Child = text
+
+        if is_diagonal:
+            # A file cannot be linked into itself - disabled up front
+            # (never wired to a click handler) rather than relying on
+            # build_matches's own self-pair skip, so the user sees it's
+            # invalid instead of clicking a cell that silently does
+            # nothing.
+            cell.Background = SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3A))
+            text.Text = u"—"
+            text.Foreground = Brushes.Gray
+            return cell
+
+        cell.Background = self._ROW_BG
+        cell.Cursor = Cursors.Hand
+        cell.Tag = (row_name, col_name)
+        cell.ToolTip = "{0}\nlinked into\n{1}".format(row_name, col_name)
+        ticked = (row_name, col_name) in self._matches
+        text.Text = u"✓" if ticked else ""
+        text.Foreground = self._WIRE_BRUSH
+        if ticked:
+            cell.Background = self._ROW_ARMED
+        cell.MouseLeftButtonDown += self._matrix_cell_click
+        return cell
+
+    def _matrix_cell_click(self, sender, args):
+        def run():
+            row_name, col_name = sender.Tag
+            pair = (row_name, col_name)
+            text = sender.Child
+            if pair in self._matches:
+                self._matches.remove(pair)
+                text.Text = ""
+                sender.Background = self._ROW_BG
+                self._log("Removed {0} -> {1}".format(row_name, col_name))
+            else:
+                self._matches.append(pair)
+                text.Text = u"✓"
+                sender.Background = self._ROW_ARMED
+                self._log("Wired {0} into {1}".format(row_name, col_name))
+            self._refresh_link_matches()
+            args.Handled = True
+        self._guard_map(run)
+
+    def _matrix_refresh_ticks(self):
+        match_set = set(self._matches)
+        for pair, cell in self._matrix_cells.items():
+            ticked = pair in match_set
+            cell.Child.Text = u"✓" if ticked else ""
+            cell.Background = self._ROW_ARMED if ticked else self._ROW_BG
+
+    def matrix_search_changed(self, sender, args):
+        if getattr(self, "_matrix_ready", False) and self._matrix_built:
+            self._guard_map(self._matrix_build)
+
+    def matrix_clear_search_click(self, sender, args):
+        self.matrix_search_tb.Text = ""
+        if getattr(self, "_matrix_ready", False) and self._matrix_built:
+            self._guard_map(self._matrix_build)
+
+    def matrix_party_filter_changed(self, sender, args):
+        if getattr(self, "_matrix_ready", False) and self._matrix_built:
+            self._guard_map(self._matrix_build)
+
+    def matrix_clear_click(self, sender, args):
+        def run():
+            if not self._matches:
+                return
+            if not forms.alert("Remove all {0} match(es)?".format(len(self._matches)),
+                               yes=True, no=True):
+                return
+            self._matches = []
+            self._refresh_link_matches()
+            if self._matrix_built:
+                self._matrix_build()
+            self._log("All matches cleared (from Matrix).")
+        self._guard_map(run)
+
+    # ---------------- Selected Links tab: per-match Link Type/Attachment ----------------
+    # self._match_options holds only OVERRIDES - a match with no entry
+    # here uses the global Link Setup controls, resolved per-pair in
+    # _effective_link_options at Run time. Rebuilt in full every time the
+    # tab is selected (cheap - one row per match, not per file - so no
+    # dirty-tracking is needed the way the Matrix's O(N^2) grid needs it).
+    def _selected_links_build(self):
+        panel = self.selected_links_panel
+        panel.Children.Clear()
+
+        if not self._matches:
+            empty = TextBlock()
+            empty.Text = "No matches yet - build some on Link Management or Matrix first."
+            empty.Foreground = Brushes.Gray
+            empty.Margin = Thickness(6)
+            panel.Children.Add(empty)
+            return
+
+        placement_labels = [label for label, _v in dms.PLACEMENT_OPTIONS]
+        attachment_labels = ["Overlay", "Attachment"]
+        idx = self.link_placement_cb.SelectedIndex
+        default_placement_label = placement_labels[idx] if 0 <= idx < len(placement_labels) else placement_labels[0]
+        default_attachment_label = "Attachment" if self.link_attachment_attachment_rb.IsChecked is True else "Overlay"
+
+        header = StackPanel()
+        header.Orientation = Orientation.Horizontal
+        header.Margin = Thickness(2, 0, 2, 6)
+        h1 = TextBlock()
+        h1.Text = "Match"
+        h1.FontWeight = FontWeights.Bold
+        h1.Width = 420
+        h2 = TextBlock()
+        h2.Text = "Link Type"
+        h2.FontWeight = FontWeights.Bold
+        h2.Width = 220
+        h2.Margin = Thickness(8, 0, 0, 0)
+        h3 = TextBlock()
+        h3.Text = "Attachment"
+        h3.FontWeight = FontWeights.Bold
+        h3.Width = 140
+        h3.Margin = Thickness(8, 0, 0, 0)
+        header.Children.Add(h1)
+        header.Children.Add(h2)
+        header.Children.Add(h3)
+        panel.Children.Add(header)
+
+        for pair in self._matches:
+            source_name, target_name = pair
+            override = self._match_options.get(pair, {})
+
+            row = StackPanel()
+            row.Orientation = Orientation.Horizontal
+            row.Margin = Thickness(2, 1, 2, 1)
+
+            label = TextBlock()
+            label.Text = "{0}  ->  {1}".format(source_name, target_name)
+            label.Width = 420
+            label.TextTrimming = TextTrimming.CharacterEllipsis
+            label.Foreground = Brushes.WhiteSmoke
+            label.VerticalAlignment = VerticalAlignment.Center
+            label.ToolTip = "{0} -> {1}".format(source_name, target_name)
+            row.Children.Add(label)
+
+            placement_combo = ComboBox()
+            placement_combo.Width = 220
+            placement_combo.Height = 22
+            placement_combo.Margin = Thickness(8, 0, 0, 0)
+            placement_combo.ItemsSource = placement_labels
+            placement_combo.SelectedItem = override.get("placement_label") or default_placement_label
+            placement_combo.Tag = pair
+            placement_combo.SelectionChanged += self._selected_link_placement_changed
+            row.Children.Add(placement_combo)
+
+            attachment_combo = ComboBox()
+            attachment_combo.Width = 140
+            attachment_combo.Height = 22
+            attachment_combo.Margin = Thickness(8, 0, 0, 0)
+            attachment_combo.ItemsSource = attachment_labels
+            attachment_combo.SelectedItem = override.get("attachment_label") or default_attachment_label
+            attachment_combo.Tag = pair
+            attachment_combo.SelectionChanged += self._selected_link_attachment_changed
+            row.Children.Add(attachment_combo)
+
+            panel.Children.Add(row)
+
+    def _selected_link_placement_changed(self, sender, args):
+        try:
+            pair = sender.Tag
+            label = sender.SelectedItem
+            if pair and label:
+                self._match_options.setdefault(pair, {})["placement_label"] = label
+        except Exception:
+            pass
+
+    def _selected_link_attachment_changed(self, sender, args):
+        try:
+            pair = sender.Tag
+            label = sender.SelectedItem
+            if pair and label:
+                self._match_options.setdefault(pair, {})["attachment_label"] = label
+        except Exception:
+            pass
+
+    def _effective_link_options(self, source_name, target_name):
+        """Per-match Placement/Attachment, set via Selected Links - falls
+        back to the global Link Setup controls for any match that's never
+        been individually overridden, so existing behavior is unchanged
+        unless the user actually opens Selected Links."""
+        override = self._match_options.get((source_name, target_name), {})
+
+        placement_label = override.get("placement_label")
+        if placement_label:
+            by_label = dict(dms.PLACEMENT_OPTIONS)
+            placement = by_label.get(placement_label, self._link_placement())
+        else:
+            placement = self._link_placement()
+
+        attachment_label = override.get("attachment_label")
+        if attachment_label == "Attachment":
+            attachment = AttachmentType.Attachment
+        elif attachment_label == "Overlay":
+            attachment = AttachmentType.Overlay
+        else:
+            attachment = self._link_attachment()
+
+        fallback = ImportPlacement.Origin if placement == ImportPlacement.Shared else None
+        return placement, attachment, fallback
+
     def link_map_left_search_changed(self, sender, args):
         if self._map_ready:
             self._guard_map(self._map_build)
@@ -1798,9 +2197,6 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
                     title=_TOOL_TITLE + " - confirm", yes=True, no=True):
                 return [], {}
 
-        placement = self._link_placement()
-        attachment = self._link_attachment()
-        fallback = ImportPlacement.Origin if placement == ImportPlacement.Shared else None
         comment = self.link_sync_comment_tb.Text or ""
         skip_existing = bool(self.link_skip_existing_cb.IsChecked)
 
@@ -1855,6 +2251,8 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
                                 prog.finish_file("failed")
                                 continue
 
+                            placement, attachment, fallback = self._effective_link_options(
+                                source_name, target_name)
                             prog.step("{0} -> {1}".format(source_name, target_name), "Linking")
                             ok, link_detail = dms.link_into(
                                 doc, source_name, model_path, placement, fallback,
