@@ -60,10 +60,10 @@ from System import Action
 # it belongs with Thickness and CornerRadius, but it lives in
 # System.Windows.Input alongside Keyboard - importing it from
 # System.Windows fails at load with "Cannot import name Cursors".
-from System.Windows import (CornerRadius, Point, TextTrimming, Thickness,
-                            VerticalAlignment, Visibility)
-from System.Windows.Controls import (Border, Canvas, ComboBox, Panel,
-                                     TextBlock, WrapPanel)
+from System.Windows import (CornerRadius, GridLength, HorizontalAlignment, Point,
+                            TextTrimming, Thickness, VerticalAlignment, Visibility)
+from System.Windows.Controls import (Border, Canvas, ColumnDefinition, ComboBox, Grid,
+                                     Panel, RowDefinition, TextBlock, WrapPanel)
 from System.Windows.Input import Cursors, Keyboard, ModifierKeys
 from System.Windows.Media import (Brushes, Color, DoubleCollection,
                                   PointCollection, SolidColorBrush,
@@ -203,6 +203,14 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         self.map_right_scroll.ScrollChanged += self._map_scrolled
         self.map_canvas.SizeChanged += self._map_scrolled
         self._map_ready = True
+
+        # Matrix tab - built lazily the first time it's actually selected
+        # (mode_tabs_selection_changed), not here, so a user who never
+        # opens it never pays for building it.
+        self._matrix_built = False
+        self._matrix_cells = {}
+        self._matrix_names = []
+        self._matrix_ready = True
 
     # ---------------- helpers ----------------
     def _log(self, message):
@@ -426,6 +434,15 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
                 # that stayed empty with no explanation anywhere.
                 self.logger.exception("Could not build the wire map", e)
                 self._log("Wire map could not be built: {0}".format(e))
+
+        # The Matrix tab's grid is built lazily from self._all_items - a
+        # new scan makes that stale, so force a rebuild next time the
+        # tab is actually viewed rather than silently showing last scan's
+        # file list.
+        if getattr(self, "_matrix_ready", False):
+            self._matrix_built = False
+            if self.mode_tabs.SelectedIndex == 2:
+                self._guard_map(self._matrix_build)
 
     def _visible(self, rows, query):
         return [r for r in rows if dms.matches_search(r.name, query)]
@@ -837,6 +854,182 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         # Cheap: only the wires move, the rows are where WPF put them.
         self._guard_map(self._map_draw_wires)
 
+    # ---- Matrix tab: one unified list on both axes ----
+    # Reuses self._all_items (the same scanned pool Two Lists/Wire Map
+    # already draw from) and mutates self._matches directly - the exact
+    # same list those two tabs already read/write, so switching tabs
+    # always shows current state with no extra sync code. Built with
+    # plain Border/TextBlock cells placed into a Grid's dynamically
+    # added rows/columns (not a DataGrid - DataGrid columns aren't meant
+    # to be generated per a runtime-variable file count), mirroring Wire
+    # Map's own "manual layout, not a heavier built-in control" choice.
+    def mode_tabs_selection_changed(self, sender, args):
+        # Guarded the same way _map_ready guards the Wire Map's own
+        # XAML-wired handlers - the TabControl can fire this once while
+        # its own XAML is still loading, before __init__ has set
+        # _matrix_ready (see feedback_wpf_xaml_early_event_fire).
+        if not getattr(self, "_matrix_ready", False):
+            return
+        try:
+            if self.mode_tabs.SelectedIndex == 2 and not self._matrix_built:
+                self._matrix_build()
+        except Exception:
+            pass
+
+    def _matrix_build(self):
+        self._matrix_built = True
+        query = self._safe_text(self.matrix_search_tb)
+        names = [n for n in sorted(self._all_items.keys()) if dms.matches_search(n, query)]
+        self._matrix_names = names
+        self.matrix_count_tb.Text = "{0}/{1} file(s)".format(len(names), len(self._all_items))
+
+        grid = self.matrix_grid
+        grid.Children.Clear()
+        grid.RowDefinitions.Clear()
+        grid.ColumnDefinitions.Clear()
+        self._matrix_cells = {}
+
+        if not names:
+            return
+
+        grid.RowDefinitions.Add(RowDefinition(Height=GridLength(60)))
+        grid.ColumnDefinitions.Add(ColumnDefinition(Width=GridLength(190)))
+        for _n in names:
+            grid.RowDefinitions.Add(RowDefinition(Height=GridLength(26)))
+            grid.ColumnDefinitions.Add(ColumnDefinition(Width=GridLength(28)))
+
+        corner = TextBlock()
+        Grid.SetRow(corner, 0)
+        Grid.SetColumn(corner, 0)
+        grid.Children.Add(corner)
+
+        for j, name in enumerate(names):
+            header = self._matrix_make_col_header(name)
+            Grid.SetRow(header, 0)
+            Grid.SetColumn(header, j + 1)
+            grid.Children.Add(header)
+
+        for i, row_name in enumerate(names):
+            row_header = self._matrix_make_row_header(row_name)
+            Grid.SetRow(row_header, i + 1)
+            Grid.SetColumn(row_header, 0)
+            grid.Children.Add(row_header)
+
+            for j, col_name in enumerate(names):
+                cell = self._matrix_make_cell(row_name, col_name, i == j)
+                Grid.SetRow(cell, i + 1)
+                Grid.SetColumn(cell, j + 1)
+                grid.Children.Add(cell)
+                if i != j:
+                    self._matrix_cells[(row_name, col_name)] = cell
+
+    def _matrix_make_row_header(self, name):
+        text = TextBlock()
+        text.Text = name
+        text.Foreground = Brushes.WhiteSmoke
+        text.FontSize = 10
+        text.TextTrimming = TextTrimming.CharacterEllipsis
+        text.VerticalAlignment = VerticalAlignment.Center
+        text.Margin = Thickness(4, 0, 6, 0)
+        text.ToolTip = name
+        return text
+
+    def _matrix_make_col_header(self, name):
+        short = name if len(name) <= 16 else name[:14] + "..."
+        text = TextBlock()
+        text.Text = short
+        text.Foreground = Brushes.WhiteSmoke
+        text.FontSize = 9
+        text.TextTrimming = TextTrimming.CharacterEllipsis
+        text.HorizontalAlignment = HorizontalAlignment.Center
+        text.VerticalAlignment = VerticalAlignment.Bottom
+        text.Margin = Thickness(1, 2, 1, 4)
+        text.ToolTip = name
+
+        border = Border()
+        border.Child = text
+        border.Background = self._ROW_BG
+        border.BorderBrush = Brushes.Gray
+        border.BorderThickness = Thickness(0, 0, 1, 1)
+        return border
+
+    def _matrix_make_cell(self, row_name, col_name, is_diagonal):
+        text = TextBlock()
+        text.FontSize = 13
+        text.HorizontalAlignment = HorizontalAlignment.Center
+        text.VerticalAlignment = VerticalAlignment.Center
+        text.IsHitTestVisible = False
+
+        cell = Border()
+        cell.BorderBrush = Brushes.Gray
+        cell.BorderThickness = Thickness(0, 0, 1, 1)
+        cell.Child = text
+
+        if is_diagonal:
+            # A file cannot be linked into itself - disabled up front
+            # (never wired to a click handler) rather than relying on
+            # build_matches's own self-pair skip, used by the other two
+            # tabs, so the user sees it's invalid instead of clicking a
+            # cell that silently does nothing.
+            cell.Background = SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3A))
+            text.Text = u"—"
+            text.Foreground = Brushes.Gray
+            return cell
+
+        cell.Background = self._ROW_BG
+        cell.Cursor = Cursors.Hand
+        cell.Tag = (row_name, col_name)
+        cell.ToolTip = "{0}\nlinked into\n{1}".format(row_name, col_name)
+        ticked = (row_name, col_name) in self._matches
+        text.Text = u"✓" if ticked else ""
+        text.Foreground = self._WIRE_BRUSH
+        if ticked:
+            cell.Background = self._ROW_ARMED
+        cell.MouseLeftButtonDown += self._matrix_cell_click
+        return cell
+
+    def _matrix_cell_click(self, sender, args):
+        def run():
+            row_name, col_name = sender.Tag
+            pair = (row_name, col_name)
+            text = sender.Child
+            if pair in self._matches:
+                self._matches.remove(pair)
+                text.Text = ""
+                sender.Background = self._ROW_BG
+                self._log("Removed {0} -> {1}".format(row_name, col_name))
+            else:
+                self._matches.append(pair)
+                text.Text = u"✓"
+                sender.Background = self._ROW_ARMED
+                self._log("Wired {0} into {1}".format(row_name, col_name))
+            self._refresh_matches()
+            args.Handled = True
+        self._guard_map(run)
+
+    def matrix_search_changed(self, sender, args):
+        if getattr(self, "_matrix_ready", False) and self._matrix_built:
+            self._guard_map(self._matrix_build)
+
+    def matrix_clear_search_click(self, sender, args):
+        self.matrix_search_tb.Text = ""
+        if getattr(self, "_matrix_ready", False) and self._matrix_built:
+            self._guard_map(self._matrix_build)
+
+    def matrix_clear_click(self, sender, args):
+        def run():
+            if not self._matches:
+                return
+            if not forms.alert("Remove all {0} match(es)?".format(len(self._matches)),
+                               yes=True, no=True):
+                return
+            self._matches = []
+            self._refresh_matches()
+            if self._matrix_built:
+                self._matrix_build()
+            self._log("All matches cleared (from Matrix).")
+        self._guard_map(run)
+
     # ---- toolbar ----
     def map_left_search_changed(self, sender, args):
         if getattr(self, "_map_ready", False):
@@ -925,6 +1118,22 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
                 self._map_draw_wires()
             except Exception:
                 pass
+
+        # Same for the Matrix tab - a match added/removed from Two
+        # Lists or Wire Map keeps the matrix's own tick marks current
+        # without needing a full grid rebuild.
+        if getattr(self, "_matrix_ready", False) and self._matrix_built:
+            try:
+                self._matrix_refresh_ticks()
+            except Exception:
+                pass
+
+    def _matrix_refresh_ticks(self):
+        match_set = set(self._matches)
+        for pair, cell in self._matrix_cells.items():
+            ticked = pair in match_set
+            cell.Child.Text = u"✓" if ticked else ""
+            cell.Background = self._ROW_ARMED if ticked else self._ROW_BG
 
     def _open_attached(self, target_name):
         if self._source_mode() == "acc":

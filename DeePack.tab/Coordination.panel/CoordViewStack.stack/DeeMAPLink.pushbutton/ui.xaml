@@ -146,7 +146,7 @@
             </Grid>
         </GroupBox>
 
-        <TabControl x:Name="mode_tabs">
+        <TabControl x:Name="mode_tabs" SelectionChanged="mode_tabs_selection_changed">
 
             <TabItem Header="Two Lists">
                 <Grid Margin="6">
@@ -266,6 +266,35 @@
                             </Border>
                         </DockPanel>
                     </Grid>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="Matrix">
+                <DockPanel Margin="6">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBox x:Name="matrix_search_tb" Width="200" Height="22"
+                                 VerticalContentAlignment="Center" TextChanged="matrix_search_changed"
+                                 ToolTip="Filters both rows and columns together - they are the same file list."/>
+                        <Button x:Name="matrix_clear_search_b" Content="Clear" Width="46" Height="22"
+                                Margin="4,0,0,0" Click="matrix_clear_search_click"/>
+                        <Button x:Name="matrix_clear_all_b" Content="Clear All" Width="80" Height="22"
+                                Margin="14,0,0,0" Click="matrix_clear_click"/>
+                        <TextBlock x:Name="matrix_count_tb" VerticalAlignment="Center" Margin="14,0,0,0"
+                                   Foreground="#888" Text=""/>
+                    </StackPanel>
+
+                    <Border DockPanel.Dock="Bottom" Background="#2B2B2B" BorderBrush="#555"
+                            BorderThickness="1" Padding="6,4" Margin="0,6,0,0">
+                        <TextBlock FontSize="11" Foreground="#CCC" TextWrapping="Wrap"
+                                   Text="Rows and columns are the SAME file list. Tick a cell to link that ROW into that COLUMN. The diagonal is disabled - a file can't be linked into itself."/>
+                    </Border>
+
+                    <Border BorderBrush="#555" BorderThickness="1">
+                        <ScrollViewer x:Name="matrix_scroll" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Auto">
+                            <Grid x:Name="matrix_grid" Background="#1E1E1E"/>
+                        </ScrollViewer>
+                    </Border>
                 </DockPanel>
             </TabItem>
 
