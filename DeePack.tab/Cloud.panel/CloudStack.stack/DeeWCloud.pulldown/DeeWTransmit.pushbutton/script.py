@@ -72,6 +72,7 @@ import dee_branding
 
 import deew_logger
 import deew_settings
+import dee_settings_file
 import deew_model_scanner as scanner
 import deew_document_manager as docmgr
 import deew_clean_service as cleansvc
@@ -316,11 +317,7 @@ class DeeWTransmitWindow(dee_branding.DeeBrandedWindow):
         self._dialog_handler = None
 
         saved = deew_settings.load(_TOOL_NAME, _DEFAULT_SETTINGS)
-        if saved.get("last_source_folder") and os.path.isdir(saved["last_source_folder"]):
-            self.source_folder_tb.Text = saved["last_source_folder"]
-        if saved.get("last_dest_folder") and os.path.isdir(saved["last_dest_folder"]):
-            self.dest_folder_tb.Text = saved["last_dest_folder"]
-        self._apply_saved_options(saved.get("options", {}))
+        self._apply_settings_dict(saved)
 
         self._log("Ready. Pick source models, set a destination folder, then Run.")
 
@@ -360,12 +357,30 @@ class DeeWTransmitWindow(dee_branding.DeeBrandedWindow):
         except Exception:
             pass
 
-    def _save_settings(self):
-        deew_settings.save(_TOOL_NAME, {
+    def _collect_settings_dict(self):
+        return {
             "last_source_folder": self.source_folder_tb.Text,
             "last_dest_folder": self.dest_folder_tb.Text,
             "options": self._current_options(),
-        })
+        }
+
+    def _apply_settings_dict(self, settings):
+        if settings.get("last_source_folder") and os.path.isdir(settings["last_source_folder"]):
+            self.source_folder_tb.Text = settings["last_source_folder"]
+        if settings.get("last_dest_folder") and os.path.isdir(settings["last_dest_folder"]):
+            self.dest_folder_tb.Text = settings["last_dest_folder"]
+        self._apply_saved_options(settings.get("options", {}))
+
+    def _save_settings(self):
+        deew_settings.save(_TOOL_NAME, self._collect_settings_dict())
+
+    def save_settings_click(self, sender, args):
+        dee_settings_file.save_settings_file(
+            _TOOL_TITLE, "DeeWTransmit_Settings.json", self._collect_settings_dict)
+
+    def load_settings_click(self, sender, args):
+        if dee_settings_file.load_settings_file(_TOOL_TITLE, self._apply_settings_dict):
+            self._save_settings()
 
     # ---------------- logging ----------------
     def _log(self, message):

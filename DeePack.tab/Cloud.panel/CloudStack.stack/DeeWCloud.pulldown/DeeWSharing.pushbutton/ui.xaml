@@ -11,7 +11,9 @@
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Button x:Name="run_b" Content="Run" Click="run_click" Width="90" Height="28"/>
             <Button x:Name="export_report_b" Content="Export Report" Click="export_report_click" Width="120" Height="28" Margin="8,0,0,0"/>
-            <Button x:Name="cancel_b" Content="Cancel" Click="cancel_click" Width="90" Height="28" Margin="8,0,0,0"/>
+            <Button x:Name="save_settings_b" Content="Save Settings..." Click="save_settings_click" Width="130" Height="28" Margin="16,0,0,0"/>
+            <Button x:Name="load_settings_b" Content="Load Settings..." Click="load_settings_click" Width="130" Height="28" Margin="6,0,0,0"/>
+            <Button x:Name="cancel_b" Content="Cancel" Click="cancel_click" Width="90" Height="28" Margin="16,0,0,0"/>
         </StackPanel>
 
         <TabControl DockPanel.Dock="Top">

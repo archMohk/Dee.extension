@@ -45,6 +45,7 @@ from pyrevit import forms, script
 
 import dee_branding
 import deew_settings
+import dee_settings_file
 import deew_document_manager as dm
 import deew_model_scanner as scanner
 import dee_transmit_service as core
@@ -292,6 +293,16 @@ class OptionsWindow(dee_branding.DeeBrandedWindow):
     def cancel_click(self, sender, args):
         self.confirmed = False
         self.Close()
+
+    def save_settings_click(self, sender, args):
+        dee_settings_file.save_settings_file(_TOOL, "DeeTransmit_Settings.json", self._collect)
+
+    def load_settings_click(self, sender, args):
+        if dee_settings_file.load_settings_file(_TOOL, self._apply):
+            try:
+                deew_settings.save(_SETTINGS, self._collect())
+            except Exception:
+                pass
 
 
 # ==========================================================================

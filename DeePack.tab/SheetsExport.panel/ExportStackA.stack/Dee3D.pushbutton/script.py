@@ -35,6 +35,7 @@ from pyrevit import forms, script
 
 import dee_branding
 import deew_settings
+import dee_settings_file
 import dee_3d_export_service as core
 import dee_telemetry
 dee_telemetry.check_access("Dee3D")
@@ -171,16 +172,7 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
 
         # Assigned here rather than in the XAML: a selection set in the
         # markup fires the handler before this object has its fields.
-        self.quality_cb.SelectedIndex = self._clamp(
-            self._settings.get("quality", 1), len(core.QUALITY_PRESETS))
-        self.color_cb.SelectedIndex = self._clamp(
-            self._settings.get("color_mode", 0), len(core.VIEW_MODES))
-        self.links_cb.IsChecked = bool(self._settings.get("include_links"))
-        self.params_cb.IsChecked = bool(self._settings.get("include_params"))
-        self.open_cb.IsChecked = bool(self._settings.get("open_after", True))
-        self.limit_tb.Text = str(self._settings.get("max_triangles", core.DEFAULT_MAX_TRIANGLES))
-        self.unlimited_cb.IsChecked = bool(self._settings.get("unlimited", False))
-        self.limit_tb.IsEnabled = not self.unlimited_cb.IsChecked
+        self._apply_settings_dict(self._settings)
 
         self._ready = True
         self._refresh_views()
@@ -346,25 +338,54 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
             "max_triangles": max_tris,
         }
 
+    def _collect_settings_dict(self):
+        """The exact dict shape saved to deew_settings - reused as-is for
+        the explicit Save Settings.../Load Settings... file round-trip
+        (lib/dee_settings_file.py), so there's only one definition of
+        what this tool's "settings" actually are."""
+        return {
+            "quality": self.quality_cb.SelectedIndex,
+            "color_mode": self.color_cb.SelectedIndex,
+            "include_links": self.links_cb.IsChecked is True,
+            "include_params": self.params_cb.IsChecked is True,
+            "open_after": self.open_cb.IsChecked is True,
+            "unlimited": self.unlimited_cb.IsChecked is True,
+            # The box's own number is what persists, not the huge
+            # unlimited ceiling - unticking Unlimited later gets the
+            # user their last real limit back.
+            "max_triangles": (int(str(self.limit_tb.Text).replace(",", "").strip())
+                              if str(self.limit_tb.Text).replace(",", "").strip().isdigit()
+                              else core.DEFAULT_MAX_TRIANGLES),
+            "last_folder": self._settings.get("last_folder", ""),
+        }
+
+    def _apply_settings_dict(self, settings):
+        """The exact restore-on-open logic, factored out so the Load
+        Settings... button can reuse it against a loaded file too."""
+        self.quality_cb.SelectedIndex = self._clamp(
+            settings.get("quality", 1), len(core.QUALITY_PRESETS))
+        self.color_cb.SelectedIndex = self._clamp(
+            settings.get("color_mode", 0), len(core.VIEW_MODES))
+        self.links_cb.IsChecked = bool(settings.get("include_links"))
+        self.params_cb.IsChecked = bool(settings.get("include_params"))
+        self.open_cb.IsChecked = bool(settings.get("open_after", True))
+        self.limit_tb.Text = str(settings.get("max_triangles", core.DEFAULT_MAX_TRIANGLES))
+        self.unlimited_cb.IsChecked = bool(settings.get("unlimited", False))
+        self.limit_tb.IsEnabled = not self.unlimited_cb.IsChecked
+        self._settings = settings
+
     def _save_settings(self):
         try:
-            deew_settings.save(_SETTINGS, {
-                "quality": self.quality_cb.SelectedIndex,
-                "color_mode": self.color_cb.SelectedIndex,
-                "include_links": self.links_cb.IsChecked is True,
-                "include_params": self.params_cb.IsChecked is True,
-                "open_after": self.open_cb.IsChecked is True,
-                "unlimited": self.unlimited_cb.IsChecked is True,
-                # The box's own number is what persists, not the huge
-                # unlimited ceiling - unticking Unlimited later gets the
-                # user their last real limit back.
-                "max_triangles": (int(str(self.limit_tb.Text).replace(",", "").strip())
-                                  if str(self.limit_tb.Text).replace(",", "").strip().isdigit()
-                                  else core.DEFAULT_MAX_TRIANGLES),
-                "last_folder": self._settings.get("last_folder", ""),
-            })
+            deew_settings.save(_SETTINGS, self._collect_settings_dict())
         except Exception:
             pass
+
+    def save_settings_click(self, sender, args):
+        dee_settings_file.save_settings_file(_TOOL, "Dee3D_Settings.json", self._collect_settings_dict)
+
+    def load_settings_click(self, sender, args):
+        if dee_settings_file.load_settings_file(_TOOL, self._apply_settings_dict):
+            self._save_settings()
 
     def _ask_path(self, model_name, view_name):
         dlg = SaveFileDialog()

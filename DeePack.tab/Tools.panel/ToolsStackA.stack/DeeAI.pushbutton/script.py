@@ -35,6 +35,7 @@ import dee_branding
 import dee_ai_service as ai
 import dee_ai_providers as providers
 import deew_settings
+import dee_settings_file
 import dee_telemetry
 dee_telemetry.check_access("DeeAI")
 
@@ -103,12 +104,7 @@ class DeeAIWindow(dee_branding.DeeBrandedWindow):
 
         self.provider_cb.ItemsSource = providers.provider_labels()
         self.effort_cb.ItemsSource = ai.EFFORT_CHOICES
-        self.effort_cb.SelectedItem = self._settings.get("effort", ai.DEFAULT_EFFORT)
-
-        saved_provider_id = self._settings.get("provider", ai.DEFAULT_PROVIDER)
-        saved_provider = providers.get_provider(saved_provider_id)
-        self.provider_cb.SelectedItem = saved_provider["label"]
-        self._apply_provider(saved_provider["id"])
+        self._apply_settings_dict(self._settings)
 
         self.Closing += self._on_closing
         self._loading = False
@@ -176,7 +172,23 @@ class DeeAIWindow(dee_branding.DeeBrandedWindow):
             self._log_line("< error:\n{0}".format(text))
 
     # ---------------- settings ----------------
-    def _save_settings(self):
+    def _apply_settings_dict(self, settings):
+        """Shared by __init__'s restore-on-open and the Load Settings...
+        button - settings.get("provider"/"effort") drive the combo
+        boxes, _apply_provider then fills the per-provider fields
+        (key/model/base_url) from settings["by_provider"]."""
+        self._settings = settings
+        self.effort_cb.SelectedItem = self._settings.get("effort", ai.DEFAULT_EFFORT)
+        saved_provider_id = self._settings.get("provider", ai.DEFAULT_PROVIDER)
+        saved_provider = providers.get_provider(saved_provider_id)
+        self.provider_cb.SelectedItem = saved_provider["label"]
+        self._apply_provider(saved_provider["id"])
+
+    def _collect_settings_dict(self):
+        """The FULL dict, including every provider's saved API key -
+        only ever used for the SILENT local deew_settings auto-remember,
+        never for the explicit Save Settings file export (see
+        _collect_exportable_settings)."""
         provider_id = providers.provider_id_by_label(self.provider_cb.SelectedItem)
         saved = self._provider_settings(provider_id)
         saved["key"] = self.api_key_pb.Password
@@ -184,7 +196,33 @@ class DeeAIWindow(dee_branding.DeeBrandedWindow):
         saved["base_url"] = self.base_url_tb.Text or ""
         self._settings["provider"] = provider_id
         self._settings["effort"] = self.effort_cb.SelectedItem or ai.DEFAULT_EFFORT
-        deew_settings.save(_TOOL_NAME, self._settings)
+        return self._settings
+
+    def _collect_exportable_settings(self):
+        """Same shape as _collect_settings_dict, but with every
+        provider's saved API key stripped - an explicit Save Settings
+        file is meant to be reopened later or handed to someone else,
+        and an API key is a credential, not data (same reasoning
+        DeeInitiator's own Save Set already applies to ACC tokens)."""
+        full = self._collect_settings_dict()
+        sanitized = dict(full)
+        sanitized["by_provider"] = dict(
+            (pid, dict((k, v) for k, v in data.items() if k != "key"))
+            for pid, data in full.get("by_provider", {}).items())
+        return sanitized
+
+    def _save_settings(self):
+        deew_settings.save(_TOOL_NAME, self._collect_settings_dict())
+
+    def save_settings_click(self, sender, args):
+        dee_settings_file.save_settings_file(
+            _TOOL_NAME, "DeeAI_Settings.json", self._collect_exportable_settings)
+
+    def load_settings_click(self, sender, args):
+        if dee_settings_file.load_settings_file(_TOOL_NAME, self._apply_settings_dict):
+            self._save_settings()
+            forms.alert("API keys are never saved to a Settings file - re-enter your key for "
+                        "each provider you use.", title=_TOOL_NAME)
 
     # ---------------- handlers ----------------
     def send_click(self, sender, args):

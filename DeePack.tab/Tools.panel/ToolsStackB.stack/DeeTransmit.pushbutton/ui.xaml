@@ -24,6 +24,10 @@
             <Button x:Name="preset_b" Content="Issue preset" Width="110" Height="32"
                     Margin="8,0,0,0" Click="preset_click"
                     ToolTip="A sensible starting point for sending a model out: strip drawings, links, imports and clutter, keep the model and its data."/>
+            <Button x:Name="save_settings_b" Content="Save Settings..." Width="130" Height="28"
+                    Margin="24,0,0,0" Click="save_settings_click"/>
+            <Button x:Name="load_settings_b" Content="Load Settings..." Width="130" Height="28"
+                    Margin="6,0,0,0" Click="load_settings_click"/>
         </StackPanel>
 
         <Border DockPanel.Dock="Top" Background="#FDECEA" Padding="8" Margin="0,0,0,8"
