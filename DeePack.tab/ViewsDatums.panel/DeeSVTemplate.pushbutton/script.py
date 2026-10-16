@@ -76,6 +76,7 @@ class DeeSVTemplateWindow(dee_branding.DeeBrandedWindow):
         self._ready = False
         self._status_lines = []
         self._presets_cache = []
+        self._current_discipline = None
         self._current_package = None
         self._target_checks = []  # [(element, CheckBox)]
         self._preview_cells = {}  # {category_name: Border}
@@ -175,9 +176,10 @@ class DeeSVTemplateWindow(dee_branding.DeeBrandedWindow):
 
     # ---------------- 2. Presets ----------------
     def _refresh_presets(self):
-        _disc, _orig, pkg = self._current_selection()
+        disc, _orig, pkg = self._current_selection()
+        self._current_discipline = disc
         self._current_package = pkg
-        presets = svc.presets_for(pkg) if pkg else []
+        presets = svc.presets_for(disc, pkg) if (disc and pkg) else []
         self._presets_cache = presets
         self.preset_cb.ItemsSource = [p["name"] for p in presets]
         if presets:
@@ -201,7 +203,7 @@ class DeeSVTemplateWindow(dee_branding.DeeBrandedWindow):
         self.preset_detail_tb.Text = (", ".join(
             "{0} ({1})".format(k, self._entry_label(v)) for k, v in cats.items())
             or "No category overrides.")
-        builtin_count = len(svc.builtin_presets_for(self._current_package))
+        builtin_count = len(svc.builtin_presets_for(self._current_discipline, self._current_package))
         self.delete_preset_b.IsEnabled = idx >= builtin_count
 
     def delete_preset_click(self, sender, args):
@@ -211,7 +213,7 @@ class DeeSVTemplateWindow(dee_branding.DeeBrandedWindow):
         preset = self._presets_cache[idx]
         if not forms.alert("Delete preset '{0}'?".format(preset["name"]), yes=True, no=True):
             return
-        svc.delete_user_preset(self._current_package, preset["name"])
+        svc.delete_user_preset(self._current_discipline, self._current_package, preset["name"])
         self._log("Deleted preset '{0}'.".format(preset["name"]))
         self._refresh_presets()
 
@@ -454,8 +456,8 @@ class DeeSVTemplateWindow(dee_branding.DeeBrandedWindow):
             self._paint_preview_cell(name)
 
     def save_preset_click(self, sender, args):
-        _disc, _orig, pkg = self._current_selection()
-        if not pkg:
+        disc, _orig, pkg = self._current_selection()
+        if not (disc and pkg):
             forms.alert("Pick a Discipline/Originator/Package first.", title=_TOOL)
             return
         if not self._draft_categories:
@@ -466,7 +468,7 @@ class DeeSVTemplateWindow(dee_branding.DeeBrandedWindow):
                                     title=_TOOL)
         if not name:
             return
-        svc.save_user_preset(pkg, {"name": name, "categories": dict(self._draft_categories)})
+        svc.save_user_preset(disc, pkg, {"name": name, "categories": dict(self._draft_categories)})
         self._log("Saved new preset '{0}' for '{1}'.".format(name, pkg))
         self._refresh_presets()
 

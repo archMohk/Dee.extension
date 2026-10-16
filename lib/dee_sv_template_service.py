@@ -38,14 +38,30 @@ look a different way, via transparency + colour, tuned for its own
 recolor effect rather than reproducing Revit's literal Halftone toggle).
 
 --------------------------------------------------------------------
-Built-in vs. user-saved presets - see the DeeSVTemplate plan's own
-scope note: BUILTIN_PRESETS below covers a handful of fully-worked
-example Packages to prove the mechanism end-to-end. Every other Package
-has no built-in presets - only the firm can correctly say which
-categories should be halftoned/hidden/outlined for 130+ distinct
-deliverable types, against their own real standards. "Save New Preset"
-is how they fill the rest in over time, through the tool's own Preview
-tab, not invented here.
+Hand-authored examples vs. the rule-based generator
+--------------------------------------------------------------------
+The live tool's own user pushed back on the original plan (hand-author
+only a few example Packages, leave the other 130+ for the firm to
+author themselves via Save New Preset) and asked for every Package to
+have presets now. Individually hand-authoring 138 Packages x 3+ presets
+each against real BIM standards is still not something this session has
+an authoritative basis for - so instead of fabricating 400+ one-off
+opinions, EXAMPLE_PRESETS below keeps the 3 original fully-worked,
+hand-considered Packages (proving the mechanism), and
+generate_default_presets() below provides every OTHER Package with 3
+systematically generated presets from one shared, auditable rule set:
+which categories "belong" to a Discipline (DISCIPLINE_CATEGORIES),
+which to lean on for a Package's own stated focus (_KEYWORD_EMPHASIS,
+matched against the Package name). This is a sensible STARTING POINT
+applied consistently everywhere, not a claim of correctness against any
+specific firm's real standard - exactly what "Save New Preset" (and
+simply editing the rule tables below) remains for: tuning the result
+against real standards, in one place, not retyping 400+ presets by hand.
+
+Presets are keyed by (discipline, package), not package name alone - a
+live check found one real name collision ("Furniture Installation"
+exists under both Interior and Landscape) that a package-name-only key
+would have silently cross-contaminated.
 --------------------------------------------------------------------
 """
 import deew_settings
@@ -53,10 +69,152 @@ import dee_mono_service as mono
 
 _USER_PRESETS_TOOL_NAME = "dee_sv_template_presets"
 
-# {package_name: [preset_dict, ...]} - a handful of fully-worked examples,
-# not an attempt at covering every Package in dee_sv_template_data.
-BUILTIN_PRESETS = {
-    "General Arrangement Plan": [
+
+def _key(discipline, package):
+    return "{0}||{1}".format(discipline, package)
+
+
+# ==========================================================================
+# Rule-based generator - every Package not in EXAMPLE_PRESETS gets 3
+# presets built from these tables.
+# ==========================================================================
+DISCIPLINE_CATEGORIES = {
+    "Architecture": [
+        "Walls", "Curtain Walls", "Curtain Systems", "Curtain Wall Mullions",
+        "Doors", "Windows", "Floors", "Ceilings", "Roofs", "Stairs",
+        "Railings", "Ramps", "Casework", "Furniture", "Furniture Systems",
+        "Specialty Equipment", "Rooms", "Room Tags", "Door Tags", "Window Tags",
+    ],
+    "Interior": [
+        "Furniture", "Furniture Systems", "Casework", "Specialty Equipment",
+        "Ceilings", "Walls", "Floors", "Room Tags",
+    ],
+    "Structure": [
+        "Structural Columns", "Structural Framing", "Structural Foundations",
+        "Structural Connections", "Structural Stiffeners", "Structural Trusses",
+        "Structural Rebar", "Structural Area Reinforcement",
+        "Structural Path Reinforcement", "Grids",
+    ],
+    "Mechanical": [
+        "Mechanical Equipment", "Duct Systems", "Duct Fittings",
+        "Duct Accessories", "Air Terminals", "Flex Ducts",
+        "Duct Insulations", "Duct Linings",
+    ],
+    "Plumbing": [
+        "Plumbing Fixtures", "Pipes", "Pipe Fittings", "Pipe Accessories",
+        "Pipe Insulations", "Flex Pipes",
+    ],
+    "Fire Protection": ["Sprinklers", "Fire Protection", "Fire Alarm Devices"],
+    "Electrical": [
+        "Electrical Equipment", "Electrical Fixtures", "Lighting Fixtures",
+        "Lighting Devices", "Conduits", "Conduit Fittings", "Cable Tray",
+        "Cable Tray Fittings", "Communication Devices", "Data Devices",
+    ],
+    "ELV": [
+        "Communication Devices", "Data Devices", "Security Devices",
+        "Nurse Call Devices", "Telephone Devices", "Fire Alarm Devices",
+    ],
+    "Landscape": ["Planting", "Site", "Parking", "Topography", "Entourage"],
+    # "General" deliberately has no entry - cover sheets/drawing indexes/
+    # legends/schedules are administrative, not real model views with
+    # categories worth overriding.
+}
+
+_ALL_KNOWN_CATEGORIES = sorted(set(
+    cat for cats in DISCIPLINE_CATEGORIES.values() for cat in cats))
+
+# (keywords to look for in the Package name, categories to emphasize for
+# Preset 3) - first match wins, checked in order.
+_KEYWORD_EMPHASIS = [
+    (["ceiling"], ["Ceilings", "Lighting Fixtures"]),
+    (["furniture", "fit-out", "fit out", "millwork", "joinery", "ffe"],
+     ["Furniture", "Furniture Systems", "Casework"]),
+    (["finish", "tile", "stone"], ["Walls", "Floors", "Ceilings"]),
+    (["elevation", "facade", "cladding"], ["Walls", "Windows", "Doors"]),
+    (["section"], ["Walls", "Structural Framing", "Structural Columns"]),
+    (["foundation", "pile", "footing"], ["Structural Foundations"]),
+    (["column"], ["Structural Columns"]),
+    (["framing", "slab", "formwork", "precast", "steel"], ["Structural Framing"]),
+    (["reinforcement", "rebar", "post-tensioning", "tendon"], ["Structural Rebar"]),
+    (["duct", "ventilation", "air distribution", "chilled"],
+     ["Duct Systems", "Air Terminals", "Mechanical Equipment"]),
+    (["pipe", "water", "drainage", "plumbing", "waterproofing", "bathroom"],
+     ["Pipes", "Plumbing Fixtures"]),
+    (["sprinkler", "fire pump", "fire alarm", "smoke", "standpipe", "clean-agent"],
+     ["Sprinklers", "Fire Alarm Devices"]),
+    (["power", "panel", "switchgear", "cable", "generator", "earthing", "containment"],
+     ["Electrical Equipment", "Cable Tray", "Conduits"]),
+    (["lighting"], ["Lighting Fixtures", "Lighting Devices"]),
+    (["data", "telecom", "rack", "camera", "access control", "audiovisual", "information technology"],
+     ["Data Devices", "Communication Devices", "Security Devices"]),
+    (["planting", "softscape", "irrigation", "tree"], ["Planting"]),
+    (["hardscape", "paving"], ["Site"]),
+]
+
+
+def _owned_categories(discipline):
+    return DISCIPLINE_CATEGORIES.get(discipline, [])
+
+
+def _other_categories(discipline):
+    owned = set(_owned_categories(discipline))
+    return [c for c in _ALL_KNOWN_CATEGORIES if c not in owned]
+
+
+def _emphasis_for(discipline, package):
+    pkg_lower = package.lower()
+    for keywords, cats in _KEYWORD_EMPHASIS:
+        if any(k in pkg_lower for k in keywords):
+            return cats
+    return _owned_categories(discipline)[:3]
+
+
+def _preset_clean(discipline):
+    categories = {}
+    for cat in _other_categories(discipline):
+        categories[cat] = {"halftone": True}
+    for cat in _owned_categories(discipline):
+        categories[cat] = {"line_weight": 4}
+    return {"name": "Preset 1 - {0} Focus (Clean)".format(discipline), "categories": categories}
+
+
+def _preset_coordination(discipline):
+    structure_cats = set(DISCIPLINE_CATEGORIES.get("Structure", []))
+    categories = {}
+    for cat in _other_categories(discipline):
+        if discipline != "Structure" and cat in structure_cats:
+            categories[cat] = {"line_weight": 1}
+        else:
+            categories[cat] = {"halftone": True}
+    for cat in _owned_categories(discipline):
+        categories[cat] = {"line_weight": 3}
+    return {"name": "Preset 2 - Coordination", "categories": categories}
+
+
+def _preset_focus(discipline, package):
+    emphasis = set(_emphasis_for(discipline, package))
+    categories = {}
+    for cat in _other_categories(discipline):
+        categories[cat] = {"line_weight": 2} if cat in emphasis else {"hidden": True}
+    for cat in _owned_categories(discipline):
+        categories[cat] = {"line_weight": 5} if cat in emphasis else {"halftone": True}
+    return {"name": "Preset 3 - Package Focus", "categories": categories}
+
+
+def generate_default_presets(discipline, package):
+    """3 systematically generated presets for ANY (discipline, package) -
+    see this module's own docstring for what these are (and aren't)."""
+    if discipline not in DISCIPLINE_CATEGORIES:
+        return []
+    return [_preset_clean(discipline), _preset_coordination(discipline),
+            _preset_focus(discipline, package)]
+
+
+# {(discipline, package) key: [preset_dict, ...]} - the 3 original,
+# hand-considered examples kept as-is; every other Package instead gets
+# generate_default_presets()'s output (see presets_for below).
+EXAMPLE_PRESETS = {
+    _key("Architecture", "General Arrangement Plan"): [
         {
             "name": "Preset 1 - Architectural Plan (Clean)",
             "categories": {
@@ -99,7 +257,7 @@ BUILTIN_PRESETS = {
             },
         },
     ],
-    "Reflected Ceiling Plan": [
+    _key("Architecture", "Reflected Ceiling Plan"): [
         {
             "name": "Preset 1 - Ceiling Emphasis",
             "categories": {
@@ -136,7 +294,7 @@ BUILTIN_PRESETS = {
             },
         },
     ],
-    "Foundation Layout": [
+    _key("Structure", "Foundation Layout"): [
         {
             "name": "Preset 1 - Foundation Plan",
             "categories": {
@@ -170,40 +328,53 @@ BUILTIN_PRESETS = {
 }
 
 
-def builtin_presets_for(package):
-    return list(BUILTIN_PRESETS.get(package, []))
+def builtin_presets_for(discipline, package):
+    """The 3 hand-authored EXAMPLE_PRESETS if this exact (discipline,
+    package) has one, else the rule-based generator's output - every
+    Package gets real presets either way, never an empty "built-in"
+    list, without 138 Packages needing individual hand-authored entries."""
+    key = _key(discipline, package)
+    if key in EXAMPLE_PRESETS:
+        return list(EXAMPLE_PRESETS[key])
+    return generate_default_presets(discipline, package)
 
 
 def _user_presets_all():
     return deew_settings.load(_USER_PRESETS_TOOL_NAME, {})
 
 
-def user_presets_for(package):
-    return list(_user_presets_all().get(package, []))
+def user_presets_for(discipline, package):
+    return list(_user_presets_all().get(_key(discipline, package), []))
 
 
-def save_user_preset(package, preset):
+def save_user_preset(discipline, package, preset):
     """preset: {"name":.., "categories": {...}} - appended, or replaces an
-    existing user preset of the same name for this Package."""
+    existing user preset of the same name for this (discipline, package).
+    Keyed by BOTH, not package name alone - "Furniture Installation"
+    exists under both Interior and Landscape, and a package-name-only key
+    would let one discipline's saved preset silently leak into the
+    other's dropdown."""
+    key = _key(discipline, package)
     data = _user_presets_all()
-    bucket = list(data.get(package, []))
+    bucket = list(data.get(key, []))
     bucket = [p for p in bucket if p.get("name") != preset.get("name")]
     bucket.append(preset)
-    data[package] = bucket
+    data[key] = bucket
     deew_settings.save(_USER_PRESETS_TOOL_NAME, data)
 
 
-def delete_user_preset(package, preset_name):
+def delete_user_preset(discipline, package, preset_name):
+    key = _key(discipline, package)
     data = _user_presets_all()
-    bucket = [p for p in data.get(package, []) if p.get("name") != preset_name]
-    data[package] = bucket
+    bucket = [p for p in data.get(key, []) if p.get("name") != preset_name]
+    data[key] = bucket
     deew_settings.save(_USER_PRESETS_TOOL_NAME, data)
 
 
-def presets_for(package):
-    """Built-ins first, then user-saved - the shape the Preset dropdown
-    actually lists."""
-    return builtin_presets_for(package) + user_presets_for(package)
+def presets_for(discipline, package):
+    """Built-ins/generated first, then user-saved - the shape the Preset
+    dropdown actually lists."""
+    return builtin_presets_for(discipline, package) + user_presets_for(discipline, package)
 
 
 def all_category_names(doc, view):
