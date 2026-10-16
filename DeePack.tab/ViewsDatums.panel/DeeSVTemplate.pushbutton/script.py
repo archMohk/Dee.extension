@@ -64,6 +64,8 @@ _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 
 _SWATCH_DEFAULT = SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3A))
 _SWATCH_HALFTONE = SolidColorBrush(Color.FromRgb(0x77, 0x77, 0x77))
+_SWATCH_THICK = SolidColorBrush(Color.FromRgb(0x2E, 0x4B, 0x6E))
+_SWATCH_FILLED = SolidColorBrush(Color.FromRgb(0x3E, 0x6E, 0x4B))
 _SWATCH_HIDDEN = SolidColorBrush(Color.FromRgb(0x5C, 0x2A, 0x2A))
 _ROW_BG = SolidColorBrush(Color.FromRgb(0x2B, 0x2B, 0x2B))
 
@@ -116,9 +118,11 @@ class DeeSVTemplateWindow(dee_branding.DeeBrandedWindow):
         parts = []
         if entry.get("halftone"):
             parts.append("halftone")
+        if entry.get("filled"):
+            parts.append("filled")
         if entry.get("line_weight") is not None:
             parts.append("weight {0}".format(entry["line_weight"]))
-        return ", ".join(parts) or "default"
+        return ", ".join(parts) or "original"
 
     # ---------------- 1. Discipline / Originator / Package ----------------
     def discipline_changed(self, sender, args):
@@ -374,23 +378,37 @@ class DeeSVTemplateWindow(dee_branding.DeeBrandedWindow):
         entry = self._draft_categories.get(name)
         if entry is None:
             swatch.Background = _SWATCH_DEFAULT
-            swatch.Child.Text = name
+            swatch.Child.Text = name + "\n(original)"
         elif entry.get("hidden"):
             swatch.Background = _SWATCH_HIDDEN
             swatch.Child.Text = name + "\n(hidden)"
+        elif entry.get("filled"):
+            swatch.Background = _SWATCH_FILLED
+            swatch.Child.Text = name + "\n(filled)"
+        elif entry.get("line_weight"):
+            swatch.Background = _SWATCH_THICK
+            swatch.Child.Text = name + "\n(thick outline)"
         elif entry.get("halftone"):
             swatch.Background = _SWATCH_HALFTONE
             swatch.Child.Text = name + "\n(halftone)"
         else:
             swatch.Background = _SWATCH_DEFAULT
-            swatch.Child.Text = name
+            swatch.Child.Text = name + "\n(original)"
 
     def _preview_swatch_click(self, sender, args):
+        # Cycle: Original -> Halftone -> Thick Outline -> Filled ->
+        # Hidden -> Original - more manipulation options than a plain
+        # on/off toggle, matching the same four treatments
+        # apply_preset()/_build_ogs() actually understand.
         name = sender.Tag
         entry = self._draft_categories.get(name)
         if entry is None:
             self._draft_categories[name] = {"halftone": True}
         elif entry.get("halftone"):
+            self._draft_categories[name] = {"line_weight": 6}
+        elif entry.get("line_weight"):
+            self._draft_categories[name] = {"filled": True}
+        elif entry.get("filled"):
             self._draft_categories[name] = {"hidden": True}
         else:
             self._draft_categories.pop(name, None)

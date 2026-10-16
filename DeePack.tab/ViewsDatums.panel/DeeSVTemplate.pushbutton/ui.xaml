@@ -94,7 +94,7 @@
                 <DockPanel Margin="6">
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
                         <TextBlock FontSize="11" Foreground="#888" TextWrapping="Wrap"
-                                   Text="Categories from the active view. Click a swatch to cycle Normal -&gt; Halftone -&gt; Hidden -&gt; Normal, while authoring a new preset."/>
+                                   Text="Categories from the active view. Click a swatch to cycle Original -&gt; Halftone -&gt; Thick Outline -&gt; Filled -&gt; Hidden -&gt; Original, while authoring a new preset."/>
                     </StackPanel>
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                         <Button x:Name="preview_refresh_b" Content="Refresh from Active View" Width="170" Height="26" Click="preview_refresh_click"/>

@@ -23,19 +23,40 @@ needs. So presets here are a plain, explicit dict instead:
         "categories": {
             "Walls": {"halftone": True},
             "Structural Framing": {"line_weight": 1},
+            "Ceilings": {"filled": True},
             "Grids": {"hidden": True},
         },
     }
 
-Only categories that need a NON-DEFAULT treatment are listed - applying a
-preset never touches any category it doesn't mention.
+Only categories that need a NON-DEFAULT treatment are listed - a
+category absent from the dict is left completely ORIGINAL (true default
+Revit appearance). This is deliberate, not just an implementation detail
+left over from "only list what changed" - the generator's own Preset 3
+("Original") relies on it directly: it's the only way to say "leave this
+category exactly as modeled," since there is no Revit API call that
+means "explicitly set this category back to nothing."
 
-`halftone` uses OverrideGraphicSettings.SetHalftone(bool) - Revit's own
-literal per-category Halftone checkbox (the same one in the Visibility/
-Graphics dialog) - NEEDS LIVE-REVIT VERIFICATION, since no file in this
-repo has called it before (dee_mono_service.py fakes a "halftone-like"
-look a different way, via transparency + colour, tuned for its own
-recolor effect rather than reproducing Revit's literal Halftone toggle).
+Four per-category treatments, matching exactly what a user can cycle
+through on the Preview tab's swatches (Original -> Halftone -> Thick
+Outline -> Filled -> Hidden -> Original):
+- `halftone`: OverrideGraphicSettings.SetHalftone(bool) - Revit's own
+  literal per-category Halftone checkbox (the same one in the
+  Visibility/Graphics dialog) - NEEDS LIVE-REVIT VERIFICATION, since no
+  file in this repo had called it before this tool (dee_mono_service.py
+  fakes a "halftone-like" look a different way, via transparency +
+  colour, tuned for its own recolor effect rather than reproducing
+  Revit's literal Halftone toggle).
+- `line_weight`: SetProjectionLineWeight/SetCutLineWeight (1-16) - a
+  thick/bold outline when set high, the same mechanism dee_mono_service
+  already proves works.
+- `filled`: SetSurfaceForegroundPatternColor/SetCutForegroundPatternColor
+  plus a solid fill pattern (dee_mono_service.solid_fill_pattern_id,
+  reused directly) - a literal solid color fill, the same technique
+  dee_mono_service's own apply_theme() already uses for its recolor
+  effect, just applied selectively per category here instead of to
+  every category in the view.
+- `hidden`: view.SetCategoryHidden - a real visibility change, not a
+  graphic override.
 
 --------------------------------------------------------------------
 Hand-authored examples vs. the rule-based generator
@@ -169,159 +190,166 @@ def _emphasis_for(discipline, package):
     return _owned_categories(discipline)[:3]
 
 
-def _preset_clean(discipline):
+def _preset_thick(discipline):
+    """Preset 1 - the Package's own discipline's categories (whatever the
+    Package is actually about - the "focus" categories for keyword-
+    matched disciplines, else every owned category) get a bold/thick
+    outline; everything else is halftoned out of the way."""
+    emphasis = set(_owned_categories(discipline))
+    categories = {}
+    for cat in _other_categories(discipline):
+        categories[cat] = {"halftone": True}
+    for cat in emphasis:
+        categories[cat] = {"line_weight": 6}
+    return {"name": "Preset 1 - Thick Outline", "categories": categories}
+
+
+def _preset_filled(discipline, package):
+    """Preset 2 - the SAME focus categories as Preset 1, but with a
+    solid fill instead of a thick line - a different way of making the
+    same content stand out, not a different set of categories."""
+    emphasis = set(_emphasis_for(discipline, package))
     categories = {}
     for cat in _other_categories(discipline):
         categories[cat] = {"halftone": True}
     for cat in _owned_categories(discipline):
-        categories[cat] = {"line_weight": 4}
-    return {"name": "Preset 1 - {0} Focus (Clean)".format(discipline), "categories": categories}
+        categories[cat] = {"filled": True} if cat in emphasis else {"halftone": True}
+    return {"name": "Preset 2 - Filled", "categories": categories}
 
 
-def _preset_coordination(discipline):
-    structure_cats = set(DISCIPLINE_CATEGORIES.get("Structure", []))
+def _preset_original(discipline):
+    """Preset 3 - the Package's own categories are left completely
+    ORIGINAL (no entry at all - true default Revit appearance, not even
+    a line-weight tweak); only OTHER disciplines get halftoned out of
+    the way, so the Package's own content reads exactly as modeled."""
     categories = {}
     for cat in _other_categories(discipline):
-        if discipline != "Structure" and cat in structure_cats:
-            categories[cat] = {"line_weight": 1}
-        else:
-            categories[cat] = {"halftone": True}
-    for cat in _owned_categories(discipline):
-        categories[cat] = {"line_weight": 3}
-    return {"name": "Preset 2 - Coordination", "categories": categories}
-
-
-def _preset_focus(discipline, package):
-    emphasis = set(_emphasis_for(discipline, package))
-    categories = {}
-    for cat in _other_categories(discipline):
-        categories[cat] = {"line_weight": 2} if cat in emphasis else {"hidden": True}
-    for cat in _owned_categories(discipline):
-        categories[cat] = {"line_weight": 5} if cat in emphasis else {"halftone": True}
-    return {"name": "Preset 3 - Package Focus", "categories": categories}
+        categories[cat] = {"halftone": True}
+    return {"name": "Preset 3 - Original", "categories": categories}
 
 
 def generate_default_presets(discipline, package):
-    """3 systematically generated presets for ANY (discipline, package) -
+    """3 systematically generated presets for ANY (discipline, package),
+    all three built around the SAME focus categories shown three
+    different ways (thick outline / filled / left completely original) -
     see this module's own docstring for what these are (and aren't)."""
     if discipline not in DISCIPLINE_CATEGORIES:
         return []
-    return [_preset_clean(discipline), _preset_coordination(discipline),
-            _preset_focus(discipline, package)]
+    return [_preset_thick(discipline), _preset_filled(discipline, package),
+            _preset_original(discipline)]
 
 
 # {(discipline, package) key: [preset_dict, ...]} - the 3 original,
 # hand-considered examples kept as-is; every other Package instead gets
 # generate_default_presets()'s output (see presets_for below).
+# Each example below follows the SAME pattern the generator uses: the
+# Package's own focus category (Walls for a plan, Ceilings for an RCP,
+# Foundations for a foundation layout) shown three different ways across
+# the three presets - thick outline, filled, and left completely
+# original - everything else halftoned out of the way, rather than three
+# presets that vary WHICH categories are touched.
 EXAMPLE_PRESETS = {
     _key("Architecture", "General Arrangement Plan"): [
         {
-            "name": "Preset 1 - Architectural Plan (Clean)",
+            "name": "Preset 1 - Thick Outline",
             "categories": {
                 "Structural Columns": {"halftone": True},
                 "Structural Framing": {"halftone": True},
-                "Grids": {"halftone": True, "line_weight": 1},
+                "Grids": {"halftone": True},
                 "Furniture": {"halftone": True},
-                "Mechanical Equipment": {"hidden": True},
-                "Duct Systems": {"hidden": True},
-                "Piping": {"hidden": True},
-                "Walls": {"line_weight": 5},
-                "Doors": {"line_weight": 3},
-                "Windows": {"line_weight": 3},
+                "Mechanical Equipment": {"halftone": True},
+                "Duct Systems": {"halftone": True},
+                "Walls": {"line_weight": 6},
+                "Doors": {"line_weight": 4},
+                "Windows": {"line_weight": 4},
             },
         },
         {
-            "name": "Preset 2 - Coordination (Structure Visible)",
+            "name": "Preset 2 - Filled",
             "categories": {
-                "Structural Columns": {"line_weight": 4},
-                "Structural Framing": {"line_weight": 2},
-                "Grids": {"line_weight": 1},
-                "Furniture": {"halftone": True},
-                "Walls": {"halftone": True},
-                "Doors": {"halftone": True},
-                "Windows": {"halftone": True},
-            },
-        },
-        {
-            "name": "Preset 3 - Presentation (Furniture Emphasis)",
-            "categories": {
-                "Furniture": {"line_weight": 3},
-                "Furniture Systems": {"line_weight": 3},
                 "Structural Columns": {"halftone": True},
-                "Structural Framing": {"hidden": True},
-                "Grids": {"hidden": True},
-                "Mechanical Equipment": {"hidden": True},
-                "Duct Systems": {"hidden": True},
-                "Piping": {"hidden": True},
-                "Walls": {"line_weight": 5},
+                "Structural Framing": {"halftone": True},
+                "Grids": {"halftone": True},
+                "Furniture": {"halftone": True},
+                "Mechanical Equipment": {"halftone": True},
+                "Duct Systems": {"halftone": True},
+                "Walls": {"filled": True},
+            },
+        },
+        {
+            "name": "Preset 3 - Original",
+            "categories": {
+                "Structural Columns": {"halftone": True},
+                "Structural Framing": {"halftone": True},
+                "Grids": {"halftone": True},
+                "Furniture": {"halftone": True},
+                "Mechanical Equipment": {"halftone": True},
+                "Duct Systems": {"halftone": True},
+                # Walls deliberately absent - left completely original.
             },
         },
     ],
     _key("Architecture", "Reflected Ceiling Plan"): [
         {
-            "name": "Preset 1 - Ceiling Emphasis",
+            "name": "Preset 1 - Thick Outline",
             "categories": {
                 "Furniture": {"halftone": True},
                 "Casework": {"halftone": True},
                 "Walls": {"halftone": True},
                 "Doors": {"halftone": True},
-                "Ceilings": {"line_weight": 4},
-                "Lighting Fixtures": {"line_weight": 3},
-                "Mechanical Equipment": {"line_weight": 2},
+                "Mechanical Equipment": {"halftone": True},
+                "Ceilings": {"line_weight": 6},
             },
         },
         {
-            "name": "Preset 2 - Coordination (MEP Visible)",
+            "name": "Preset 2 - Filled",
             "categories": {
-                "Furniture": {"hidden": True},
-                "Casework": {"hidden": True},
-                "Ceilings": {"line_weight": 1},
-                "Lighting Fixtures": {"line_weight": 3},
-                "Duct Systems": {"line_weight": 2},
-                "Mechanical Equipment": {"line_weight": 2},
-                "Sprinklers": {"line_weight": 2},
+                "Furniture": {"halftone": True},
+                "Casework": {"halftone": True},
+                "Walls": {"halftone": True},
+                "Doors": {"halftone": True},
+                "Mechanical Equipment": {"halftone": True},
+                "Ceilings": {"filled": True},
             },
         },
         {
-            "name": "Preset 3 - Lighting Only",
+            "name": "Preset 3 - Original",
             "categories": {
-                "Furniture": {"hidden": True},
-                "Casework": {"hidden": True},
-                "Ceilings": {"halftone": True},
-                "Duct Systems": {"hidden": True},
-                "Mechanical Equipment": {"hidden": True},
-                "Lighting Fixtures": {"line_weight": 4},
+                "Furniture": {"halftone": True},
+                "Casework": {"halftone": True},
+                "Walls": {"halftone": True},
+                "Doors": {"halftone": True},
+                "Mechanical Equipment": {"halftone": True},
+                # Ceilings deliberately absent - left completely original.
             },
         },
     ],
     _key("Structure", "Foundation Layout"): [
         {
-            "name": "Preset 1 - Foundation Plan",
-            "categories": {
-                "Structural Columns": {"line_weight": 3},
-                "Structural Foundations": {"line_weight": 5},
-                "Walls": {"halftone": True},
-                "Grids": {"line_weight": 1},
-            },
-        },
-        {
-            "name": "Preset 2 - Coordination (Architecture Halftoned)",
+            "name": "Preset 1 - Thick Outline",
             "categories": {
                 "Walls": {"halftone": True},
-                "Doors": {"halftone": True},
-                "Windows": {"halftone": True},
-                "Furniture": {"hidden": True},
-                "Structural Foundations": {"line_weight": 5},
-                "Structural Columns": {"line_weight": 3},
-            },
-        },
-        {
-            "name": "Preset 3 - Pile/Footing Emphasis",
-            "categories": {
-                "Structural Foundations": {"line_weight": 6},
                 "Structural Columns": {"halftone": True},
-                "Walls": {"hidden": True},
-                "Grids": {"line_weight": 1},
+                "Grids": {"halftone": True},
+                "Structural Foundations": {"line_weight": 6},
+            },
+        },
+        {
+            "name": "Preset 2 - Filled",
+            "categories": {
+                "Walls": {"halftone": True},
+                "Structural Columns": {"halftone": True},
+                "Grids": {"halftone": True},
+                "Structural Foundations": {"filled": True},
+            },
+        },
+        {
+            "name": "Preset 3 - Original",
+            "categories": {
+                "Walls": {"halftone": True},
+                "Structural Columns": {"halftone": True},
+                "Grids": {"halftone": True},
+                # Structural Foundations deliberately absent - left completely original.
             },
         },
     ],
@@ -396,12 +424,27 @@ def _category_by_name(doc, view, name):
     return None
 
 
+_DEFAULT_FILL_RGB = (140, 140, 140)
+
+
 def _build_ogs(doc, entry):
-    from Autodesk.Revit.DB import OverrideGraphicSettings
+    from Autodesk.Revit.DB import OverrideGraphicSettings, Color as RevitColor, ElementId
     ogs = OverrideGraphicSettings()
     if entry.get("halftone"):
         try:
             ogs.SetHalftone(True)
+        except Exception:
+            pass
+    if entry.get("filled"):
+        try:
+            rgb = entry.get("color") or _DEFAULT_FILL_RGB
+            color = RevitColor(*rgb)
+            ogs.SetSurfaceForegroundPatternColor(color)
+            ogs.SetCutForegroundPatternColor(color)
+            solid_id = mono.solid_fill_pattern_id(doc)
+            if solid_id != ElementId.InvalidElementId:
+                ogs.SetSurfaceForegroundPatternId(solid_id)
+                ogs.SetCutForegroundPatternId(solid_id)
         except Exception:
             pass
     weight = entry.get("line_weight")
