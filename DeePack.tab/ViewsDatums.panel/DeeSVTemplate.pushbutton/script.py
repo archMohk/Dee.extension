@@ -53,6 +53,7 @@ import dee_branding
 import dee_sv_template_data as data
 import dee_sv_template_service as svc
 import dee_maplink_service as dms
+import dee_settings_file
 import dee_telemetry
 dee_telemetry.check_access("DeeSVTemplate")
 
@@ -220,6 +221,17 @@ class DeeSVTemplateWindow(dee_branding.DeeBrandedWindow):
         svc.delete_user_preset(self._current_discipline, self._current_package, preset["name"])
         self._log("Deleted preset '{0}'.".format(preset["name"]))
         self._refresh_presets()
+
+    def export_presets_click(self, sender, args):
+        if dee_settings_file.save_settings_file(
+                _TOOL, "DeeSVTemplate_Presets.json", svc.export_all_user_presets):
+            self._log("Exported your saved presets to a file.")
+
+    def import_presets_click(self, sender, args):
+        if dee_settings_file.load_settings_file(
+                _TOOL, lambda data: svc.import_user_presets(data, replace=False)):
+            self._log("Imported presets - added to what you already had.")
+            self._refresh_presets()
 
     # ---------------- 3. Targets ----------------
     def target_mode_changed(self, sender, args):

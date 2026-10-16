@@ -61,23 +61,29 @@ Outline -> Filled -> Hidden -> Original):
 --------------------------------------------------------------------
 Hand-authored examples vs. the rule-based generator
 --------------------------------------------------------------------
-The live tool's own user pushed back on the original plan (hand-author
-only a few example Packages, leave the other 130+ for the firm to
-author themselves via Save New Preset) and asked for every Package to
-have presets now. Individually hand-authoring 138 Packages x 3+ presets
-each against real BIM standards is still not something this session has
-an authoritative basis for - so instead of fabricating 400+ one-off
-opinions, EXAMPLE_PRESETS below keeps the 3 original fully-worked,
-hand-considered Packages (proving the mechanism), and
-generate_default_presets() below provides every OTHER Package with 3
-systematically generated presets from one shared, auditable rule set:
-which categories "belong" to a Discipline (DISCIPLINE_CATEGORIES),
-which to lean on for a Package's own stated focus (_KEYWORD_EMPHASIS,
-matched against the Package name). This is a sensible STARTING POINT
-applied consistently everywhere, not a claim of correctness against any
-specific firm's real standard - exactly what "Save New Preset" (and
-simply editing the rule tables below) remains for: tuning the result
-against real standards, in one place, not retyping 400+ presets by hand.
+Every Package in a Discipline visualized the SAME way - no per-Package
+keyword variation
+--------------------------------------------------------------------
+Earlier versions of this generator picked a different "focus" category
+per Package based on keywords in its name (a Ceiling package emphasized
+Ceilings, a Finish package emphasized Walls/Floors, etc.) - live
+feedback asked for the opposite: every Plan (every Package) within one
+Discipline should present the SAME way. So generate_default_presets()
+now applies each of the 3 treatments (thick outline / filled / left
+completely original) to the Discipline's ENTIRE owned category set,
+identically, for every Package in that Discipline - "General Arrangement
+Plan" and "Roof Plan" and "Wall Finish Plan" all look the same way under
+Preset 1, the same way under Preset 2, and so on, which is what makes
+them consistent with each other.
+
+Individually hand-authoring 126 Packages x 3+ presets each against real
+BIM standards is still not something this session has an authoritative
+basis for - EXAMPLE_PRESETS below keeps 3 fully-worked, hand-considered
+Packages (proving the mechanism), and every other Package gets the
+generator's output instead: a sensible, CONSISTENT starting point, not a
+claim of correctness against any specific firm's real standard - exactly
+what "Save New Preset" (and simply editing DISCIPLINE_CATEGORIES below)
+remains for: tuning the result against real standards in one place.
 
 Presets are keyed by (discipline, package), not package name alone - a
 live check found one real name collision ("Furniture Installation"
@@ -98,79 +104,73 @@ def _key(discipline, package):
 # ==========================================================================
 # Rule-based generator - every Package not in EXAMPLE_PRESETS gets 3
 # presets built from these tables.
+#
+# DISCIPLINE_CATEGORIES aims for broad coverage of the model categories a
+# real project actually uses per discipline (per live feedback: "impact
+# on all the Revit Categories, the possible of them") - not a literal
+# enumeration of every one of Revit's ~400 BuiltInCategory values, most
+# of which are annotation-only, analytical, or never relevant to a
+# visibility/graphics preset. Easy to extend: add a category name to the
+# relevant discipline's list below and every Package in that discipline
+# picks it up immediately, with no other code change needed.
 # ==========================================================================
 DISCIPLINE_CATEGORIES = {
     "Architecture": [
         "Walls", "Curtain Walls", "Curtain Systems", "Curtain Wall Mullions",
-        "Doors", "Windows", "Floors", "Ceilings", "Roofs", "Stairs",
-        "Railings", "Ramps", "Casework", "Furniture", "Furniture Systems",
-        "Specialty Equipment", "Rooms", "Room Tags", "Door Tags", "Window Tags",
+        "Curtain Panels", "Doors", "Windows", "Floors", "Ceilings", "Roofs",
+        "Stairs", "Railings", "Ramps", "Casework", "Furniture",
+        "Furniture Systems", "Specialty Equipment", "Rooms", "Room Tags",
+        "Door Tags", "Window Tags", "Generic Models", "Mass",
+        "Building Pads", "Parts", "Assemblies", "Shaft Openings",
+        "Signage", "Planting",
     ],
     "Interior": [
         "Furniture", "Furniture Systems", "Casework", "Specialty Equipment",
-        "Ceilings", "Walls", "Floors", "Room Tags",
+        "Ceilings", "Walls", "Floors", "Room Tags", "Signage",
+        "Generic Models", "Stairs", "Railings",
     ],
     "Structure": [
         "Structural Columns", "Structural Framing", "Structural Foundations",
         "Structural Connections", "Structural Stiffeners", "Structural Trusses",
         "Structural Rebar", "Structural Area Reinforcement",
-        "Structural Path Reinforcement", "Grids",
+        "Structural Path Reinforcement", "Structural Fabric Reinforcement",
+        "Structural Fabric Areas", "Structural Beam Systems",
+        "Structural Framing Tags", "Structural Column Tags", "Grids", "Levels",
     ],
     "Mechanical": [
         "Mechanical Equipment", "Duct Systems", "Duct Fittings",
         "Duct Accessories", "Air Terminals", "Flex Ducts",
-        "Duct Insulations", "Duct Linings",
+        "Duct Insulations", "Duct Linings", "Duct Placeholders",
+        "HVAC Zones", "Zone Equipment", "Mechanical Control Devices",
     ],
     "Plumbing": [
         "Plumbing Fixtures", "Pipes", "Pipe Fittings", "Pipe Accessories",
-        "Pipe Insulations", "Flex Pipes",
+        "Pipe Insulations", "Flex Pipes", "Pipe Placeholders", "Sprinklers",
     ],
-    "Fire Protection": ["Sprinklers", "Fire Protection", "Fire Alarm Devices"],
+    "Fire Protection": [
+        "Sprinklers", "Fire Protection", "Fire Alarm Devices",
+        "Specialty Equipment",
+    ],
     "Electrical": [
         "Electrical Equipment", "Electrical Fixtures", "Lighting Fixtures",
         "Lighting Devices", "Conduits", "Conduit Fittings", "Cable Tray",
         "Cable Tray Fittings", "Communication Devices", "Data Devices",
+        "Nurse Call Devices", "Telephone Devices", "Fire Alarm Devices",
+        "Electrical Circuits",
     ],
     "ELV": [
         "Communication Devices", "Data Devices", "Security Devices",
         "Nurse Call Devices", "Telephone Devices", "Fire Alarm Devices",
+        "Specialty Equipment",
     ],
-    "Landscape": ["Planting", "Site", "Parking", "Topography", "Entourage"],
-    # "General" deliberately has no entry - cover sheets/drawing indexes/
-    # legends/schedules are administrative, not real model views with
-    # categories worth overriding.
+    "Landscape": [
+        "Planting", "Site", "Parking", "Topography", "Entourage",
+        "Property Line", "Pads", "Specialty Equipment", "Furniture",
+    ],
 }
 
 _ALL_KNOWN_CATEGORIES = sorted(set(
     cat for cats in DISCIPLINE_CATEGORIES.values() for cat in cats))
-
-# (keywords to look for in the Package name, categories to emphasize for
-# Preset 3) - first match wins, checked in order.
-_KEYWORD_EMPHASIS = [
-    (["ceiling"], ["Ceilings", "Lighting Fixtures"]),
-    (["furniture", "fit-out", "fit out", "millwork", "joinery", "ffe"],
-     ["Furniture", "Furniture Systems", "Casework"]),
-    (["finish", "tile", "stone"], ["Walls", "Floors", "Ceilings"]),
-    (["elevation", "facade", "cladding"], ["Walls", "Windows", "Doors"]),
-    (["section"], ["Walls", "Structural Framing", "Structural Columns"]),
-    (["foundation", "pile", "footing"], ["Structural Foundations"]),
-    (["column"], ["Structural Columns"]),
-    (["framing", "slab", "formwork", "precast", "steel"], ["Structural Framing"]),
-    (["reinforcement", "rebar", "post-tensioning", "tendon"], ["Structural Rebar"]),
-    (["duct", "ventilation", "air distribution", "chilled"],
-     ["Duct Systems", "Air Terminals", "Mechanical Equipment"]),
-    (["pipe", "water", "drainage", "plumbing", "waterproofing", "bathroom"],
-     ["Pipes", "Plumbing Fixtures"]),
-    (["sprinkler", "fire pump", "fire alarm", "smoke", "standpipe", "clean-agent"],
-     ["Sprinklers", "Fire Alarm Devices"]),
-    (["power", "panel", "switchgear", "cable", "generator", "earthing", "containment"],
-     ["Electrical Equipment", "Cable Tray", "Conduits"]),
-    (["lighting"], ["Lighting Fixtures", "Lighting Devices"]),
-    (["data", "telecom", "rack", "camera", "access control", "audiovisual", "information technology"],
-     ["Data Devices", "Communication Devices", "Security Devices"]),
-    (["planting", "softscape", "irrigation", "tree"], ["Planting"]),
-    (["hardscape", "paving"], ["Site"]),
-]
 
 
 def _owned_categories(discipline):
@@ -182,38 +182,28 @@ def _other_categories(discipline):
     return [c for c in _ALL_KNOWN_CATEGORIES if c not in owned]
 
 
-def _emphasis_for(discipline, package):
-    pkg_lower = package.lower()
-    for keywords, cats in _KEYWORD_EMPHASIS:
-        if any(k in pkg_lower for k in keywords):
-            return cats
-    return _owned_categories(discipline)[:3]
-
-
 def _preset_thick(discipline):
-    """Preset 1 - the Package's own discipline's categories (whatever the
-    Package is actually about - the "focus" categories for keyword-
-    matched disciplines, else every owned category) get a bold/thick
-    outline; everything else is halftoned out of the way."""
-    emphasis = set(_owned_categories(discipline))
-    categories = {}
-    for cat in _other_categories(discipline):
-        categories[cat] = {"halftone": True}
-    for cat in emphasis:
-        categories[cat] = {"line_weight": 6}
-    return {"name": "Preset 1 - Thick Outline", "categories": categories}
-
-
-def _preset_filled(discipline, package):
-    """Preset 2 - the SAME focus categories as Preset 1, but with a
-    solid fill instead of a thick line - a different way of making the
-    same content stand out, not a different set of categories."""
-    emphasis = set(_emphasis_for(discipline, package))
+    """Preset 1 - every category this Discipline owns gets a bold/thick
+    outline; every other Discipline's categories are halftoned out of
+    the way. Applied identically to EVERY Package in this Discipline -
+    no per-Package variation - so every Plan presents the same way."""
     categories = {}
     for cat in _other_categories(discipline):
         categories[cat] = {"halftone": True}
     for cat in _owned_categories(discipline):
-        categories[cat] = {"filled": True} if cat in emphasis else {"halftone": True}
+        categories[cat] = {"line_weight": 6}
+    return {"name": "Preset 1 - Thick Outline", "categories": categories}
+
+
+def _preset_filled(discipline):
+    """Preset 2 - the SAME owned categories as Preset 1, but with a
+    solid fill instead of a thick line - a different way of making the
+    same content stand out, not a different set of categories."""
+    categories = {}
+    for cat in _other_categories(discipline):
+        categories[cat] = {"halftone": True}
+    for cat in _owned_categories(discipline):
+        categories[cat] = {"filled": True}
     return {"name": "Preset 2 - Filled", "categories": categories}
 
 
@@ -230,12 +220,13 @@ def _preset_original(discipline):
 
 def generate_default_presets(discipline, package):
     """3 systematically generated presets for ANY (discipline, package),
-    all three built around the SAME focus categories shown three
-    different ways (thick outline / filled / left completely original) -
-    see this module's own docstring for what these are (and aren't)."""
+    all three built around the SAME owned-category set shown three
+    different ways (thick outline / filled / left completely original),
+    identical for every Package in a Discipline - see this module's own
+    docstring for what these are (and aren't)."""
     if discipline not in DISCIPLINE_CATEGORIES:
         return []
-    return [_preset_thick(discipline), _preset_filled(discipline, package),
+    return [_preset_thick(discipline), _preset_filled(discipline),
             _preset_original(discipline)]
 
 
@@ -403,6 +394,34 @@ def presets_for(discipline, package):
     """Built-ins/generated first, then user-saved - the shape the Preset
     dropdown actually lists."""
     return builtin_presets_for(discipline, package) + user_presets_for(discipline, package)
+
+
+def export_all_user_presets():
+    """The FULL user-saved preset store (every (discipline, package) key)
+    - the collect_fn for the explicit "Export Presets..." file, via
+    lib/dee_settings_file.py's generic save_settings_file(). Deliberately
+    only the user-SAVED presets, not EXAMPLE_PRESETS/the generator's
+    output - those are already part of this extension's own code and
+    travel with it; exporting them too would bloat the file with nothing
+    the next machine doesn't already have."""
+    return _user_presets_all()
+
+
+def import_user_presets(data, replace=False):
+    """Loads a previously exported presets file. replace=False (default)
+    MERGES - every (discipline, package) key in `data` is added/
+    overwritten on top of whatever's already saved locally, keys not
+    present in `data` are left untouched. replace=True wipes the local
+    store first - only use this if the user explicitly wants a full
+    replace, not the normal "bring in a colleague's presets" case."""
+    if not isinstance(data, dict):
+        raise ValueError("Not a valid presets file.")
+    if replace:
+        deew_settings.save(_USER_PRESETS_TOOL_NAME, dict(data))
+        return
+    current = _user_presets_all()
+    current.update(data)
+    deew_settings.save(_USER_PRESETS_TOOL_NAME, current)
 
 
 def all_category_names(doc, view):

@@ -3,9 +3,9 @@
 dee_sv_template_data
 The Discipline/Originator/Package reference table DeeSVTemplate.pushbutton's
 three cascading dropdowns are built from - transcribed directly from the
-tables the user provided (one table per discipline: General, Architecture,
+tables the user provided (one table per discipline: Architecture,
 Interior, Structure, Mechanical, Plumbing, Fire Protection, Electrical,
-ELV, Landscape).
+ELV, Landscape - "General" was removed, see below).
 
 Each row: (discipline, originator, package, views_to_place_on_sheet,
 matching_view_templates) - the last two are semicolon-joined strings in
@@ -31,45 +31,12 @@ point, not guessed at from the text alone.
 """
 
 # (discipline, originator, package, views_to_place, matching_view_templates)
+# "General" (Cover Sheet, Drawing Index, Code and Compliance, etc.) was
+# removed per live feedback - purely administrative/schedule content
+# with no real model view behind it to apply a visibility/graphics
+# preset to, consistent with the "neglect items with no real view"
+# instruction this dataset was built against from the start.
 ROWS = [
-    # ---------------- General ----------------
-    ("General", "Consultant", "Cover Sheet",
-     "Cover drafting view; drawing index schedule; abbreviations legend",
-     "Cover Drafting View; Drawing Index Schedule; Abbreviations Legend"),
-    ("General", "Consultant", "Drawing Index",
-     "Sheet list schedule; discipline legend; revision schedule",
-     "Sheet List Schedule; Discipline Legend; Revision Schedule"),
-    ("General", "Consultant", "General Notes and Symbols",
-     "General notes drafting view; symbols legend; abbreviations legend",
-     "General Notes Drafting View; Symbols Legend; Abbreviations Legend"),
-    ("General", "Consultant", "Location and Key Plans",
-     "Location site plan; site key plan; building key plan",
-     "Location Plan; Site Key Plan; Building Key Plan"),
-    ("General", "Consultant", "Code and Compliance",
-     "Occupancy floor plan; accessibility floor plan; egress floor plan; compliance schedule",
-     "Occupancy Plan; Accessibility Plan; Egress Plan; Compliance Schedule"),
-    ("General", "Consultant", "Composite Coordination",
-     "Combined discipline floor plan; interface section; coordination three-dimensional view",
-     "Composite Coordination Plan; Interface Section; Coordination Three-Dimensional View"),
-    ("General", "Contractor", "Shop Drawing Cover and Index",
-     "Shop drawing list schedule; construction zone plan; revision schedule",
-     "Shop Drawing List Schedule; Construction Zone Plan; Revision Schedule"),
-    ("General", "Contractor", "Construction Zones",
-     "Work zone floor plan; sequence drafting view; zone schedule",
-     "Work Zone Plan; Construction Sequence Drafting View; Zone Schedule"),
-    ("General", "Contractor", "Builder's Work Openings",
-     "Opening floor plan; penetration section; opening schedule",
-     "Builder's Work Opening Plan; Penetration Section; Opening Schedule"),
-    ("General", "Contractor", "Sleeves and Embeds",
-     "Sleeve floor plan; embedded item floor plan; installation detail; sleeve schedule",
-     "Sleeve Plan; Embedded Item Plan; Sleeve Detail; Sleeve Schedule"),
-    ("General", "Contractor", "Combined Services Coordination",
-     "Coordinated services floor plan; corridor section; plantroom section",
-     "Combined Services Plan; Services Corridor Section; Plantroom Coordination Section"),
-    ("General", "Contractor", "As-Built Index",
-     "Record sheet list schedule; final zone key plan; handover schedule",
-     "Record Sheet List Schedule; Final Zone Key Plan; Handover Schedule"),
-
     # ---------------- Architecture ----------------
     ("Architecture", "Consultant", "General Arrangement Plan",
      "Floor plan; building key plan; room or area schedule",

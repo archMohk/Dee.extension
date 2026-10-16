@@ -46,10 +46,18 @@
 
                     <DockPanel Grid.Column="0">
                         <TextBlock DockPanel.Dock="Top" Text="2. Preset" FontWeight="Bold" Margin="0,0,0,6"/>
-                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
                             <ComboBox x:Name="preset_cb" Width="260" Height="24" SelectionChanged="preset_changed"/>
                             <Button x:Name="delete_preset_b" Content="Delete" Width="70" Height="24"
                                     Margin="8,0,0,0" Click="delete_preset_click"/>
+                        </StackPanel>
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button x:Name="export_presets_b" Content="Export Presets..." Width="130" Height="24"
+                                    Click="export_presets_click"
+                                    ToolTip="Saves every preset you've saved yourself (not the built-in ones) to a file you can keep or hand to a colleague."/>
+                            <Button x:Name="import_presets_b" Content="Import Presets..." Width="130" Height="24"
+                                    Margin="6,0,0,0" Click="import_presets_click"
+                                    ToolTip="Loads a previously exported presets file - adds to what you already have, never deletes anything existing."/>
                         </StackPanel>
                         <TextBlock DockPanel.Dock="Top" x:Name="preset_detail_tb" TextWrapping="Wrap"
                                    FontSize="11" Foreground="#888" Margin="0,0,0,12" Text=""/>
