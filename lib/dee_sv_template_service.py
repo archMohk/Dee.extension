@@ -305,6 +305,67 @@ def create_view_template(doc, view, name=None):
     return mono.create_view_template(doc, view, name=name)
 
 
+def _resolve_exported_file(file_path_no_ext):
+    """Document.ExportImage's FilePath is a *base* path - some Revit
+    versions write exactly "<base>.png", others append a view-name
+    suffix first. Same defensive resolution lib/dee_icon_service.py
+    already proved out for this exact uncertainty - not imported from
+    there since it's that module's own private helper, but the
+    technique is identical: look for whatever ExportImage actually
+    produced, picking the most recently modified match."""
+    import os
+    exact = file_path_no_ext + ".png"
+    if os.path.isfile(exact):
+        return exact
+    folder = os.path.dirname(file_path_no_ext) or "."
+    prefix = os.path.basename(file_path_no_ext).lower()
+    candidates = []
+    try:
+        for name in os.listdir(folder):
+            if name.lower().startswith(prefix) and name.lower().endswith(".png"):
+                candidates.append(os.path.join(folder, name))
+    except Exception:
+        pass
+    if not candidates:
+        return None
+    candidates.sort(key=os.path.getmtime, reverse=True)
+    return candidates[0]
+
+
+def export_preview_image(doc, view):
+    """Exports `view` (expected to already have the draft/preset's
+    overrides applied - this never applies anything itself) as a PNG
+    into the system temp folder, for the Preview tab's "Generate
+    Preview Image" button. Returns (path, None) or (None, error_text) -
+    never raises.
+
+    NEEDS LIVE-REVIT VERIFICATION - same ImageExportOptions/
+    Document.ExportImage call already flagged unverified in
+    lib/dee_icon_service.py, reused here for the same reason: no other
+    way to turn a view into a picture exists in this codebase."""
+    import os
+    import tempfile
+    try:
+        from Autodesk.Revit.DB import (
+            ImageExportOptions, ExportRange, ZoomFitType, ImageResolution, ImageFileType)
+        folder = tempfile.gettempdir()
+        base = os.path.join(folder, "DeeSVTemplate_Preview_{0}".format(view.Id.IntegerValue))
+        options = ImageExportOptions()
+        options.ZoomType = ZoomFitType.FitToPage
+        options.PixelSize = 900
+        options.ImageResolution = ImageResolution.DPI_150
+        options.ExportRange = ExportRange.CurrentView
+        options.HLRandWFViewsFileType = ImageFileType.PNG
+        options.FilePath = base
+        doc.ExportImage(options)
+        exported = _resolve_exported_file(base)
+        if not exported:
+            return None, "Revit did not produce an image file for this view."
+        return exported, None
+    except Exception as e:
+        return None, str(e)
+
+
 def views_on_sheets(doc, sheets):
     """Every view actually placed on any of `sheets`, de-duplicated,
     via ViewSheet.GetAllPlacedViews() - the "target by sheet instead of

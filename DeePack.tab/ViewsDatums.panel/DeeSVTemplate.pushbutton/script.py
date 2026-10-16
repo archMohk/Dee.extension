@@ -41,7 +41,9 @@ from System.Windows import (CornerRadius, HorizontalAlignment, Thickness,
 from System.Windows.Controls import (Border, CheckBox, Orientation, StackPanel,
                                      TextBlock, WrapPanel)
 from System.Windows.Media import Brushes, Color, SolidColorBrush
+from System.Windows.Media.Imaging import BitmapImage, BitmapCacheOption
 from System.Windows.Input import Cursors
+from System.IO import File, MemoryStream
 
 from Autodesk.Revit.DB import FilteredElementCollector, View, ViewSheet
 
@@ -121,31 +123,42 @@ class DeeSVTemplateWindow(dee_branding.DeeBrandedWindow):
     def discipline_changed(self, sender, args):
         if not self._ready:
             return
-        disc = self.discipline_cb.SelectedItem
-        origs = data.originators_for(disc) if disc else []
-        self.originator_cb.ItemsSource = origs
-        if origs:
-            self.originator_cb.SelectedIndex = 0
-        else:
-            self.package_cb.ItemsSource = []
-            self._refresh_reference_text()
-            self._refresh_presets()
+        self._rebuild_originators()
 
     def originator_changed(self, sender, args):
         if not self._ready:
             return
-        disc, orig, _pkg = self._current_selection()
-        pkgs = data.packages_for(disc, orig) if (disc and orig) else []
-        self.package_cb.ItemsSource = pkgs
-        if pkgs:
-            self.package_cb.SelectedIndex = 0
-        else:
-            self._refresh_reference_text()
-            self._refresh_presets()
+        self._rebuild_packages()
 
     def package_changed(self, sender, args):
         if not self._ready:
             return
+        self._refresh_reference_text()
+        self._refresh_presets()
+
+    def _rebuild_originators(self):
+        # Called directly (never relying on SelectionChanged alone) -
+        # WPF does NOT raise SelectionChanged when SelectedIndex is set
+        # to the value it already has, which a naive "set ItemsSource
+        # then SelectedIndex = 0" cascade silently breaks on: e.g.
+        # switching Discipline from "General" to "Architecture" leaves
+        # Originator's own SelectedIndex at 0 both times (Consultant is
+        # first for both), so originator_changed never fires and the
+        # Package list stays stuck on the PREVIOUS discipline's rows -
+        # live-reported bug. Calling _rebuild_packages() directly here,
+        # every time, regardless of whether the event fires, is what
+        # actually fixes it.
+        disc = self.discipline_cb.SelectedItem
+        origs = data.originators_for(disc) if disc else []
+        self.originator_cb.ItemsSource = origs
+        self.originator_cb.SelectedIndex = 0 if origs else -1
+        self._rebuild_packages()
+
+    def _rebuild_packages(self):
+        disc, orig, _pkg = self._current_selection()
+        pkgs = data.packages_for(disc, orig) if (disc and orig) else []
+        self.package_cb.ItemsSource = pkgs
+        self.package_cb.SelectedIndex = 0 if pkgs else -1
         self._refresh_reference_text()
         self._refresh_presets()
 
@@ -381,17 +394,59 @@ class DeeSVTemplateWindow(dee_branding.DeeBrandedWindow):
             self._draft_categories.pop(name, None)
         self._paint_preview_cell(name)
 
+    def _effective_preview_categories(self):
+        """The in-progress draft (if the user has clicked any swatches)
+        takes priority - that's a work-in-progress new preset being
+        authored. Otherwise falls back to whichever Preset is picked on
+        the Setup tab, so "Preview on Active View" and "Generate Preview
+        Image" are also useful for checking an EXISTING preset, not only
+        a brand-new one being drafted."""
+        if self._draft_categories:
+            return self._draft_categories
+        idx = self.preset_cb.SelectedIndex
+        if 0 <= idx < len(self._presets_cache):
+            return self._presets_cache[idx].get("categories", {})
+        return {}
+
     def preview_apply_now_click(self, sender, args):
         view = self.doc.ActiveView
         if view is None:
             forms.alert("No active view.", title=_TOOL)
             return
-        if not self._draft_categories:
-            forms.alert("Click some swatches first - nothing to preview yet.", title=_TOOL)
+        categories = self._effective_preview_categories()
+        if not categories:
+            forms.alert("Pick a Preset, or click some swatches first.", title=_TOOL)
             return
-        result = svc.apply_preset(self.doc, [view], {"categories": self._draft_categories})
-        self._log("Previewed draft on '{0}' - {1} categor(y/ies) applied.".format(
+        result = svc.apply_preset(self.doc, [view], {"categories": categories})
+        self._log("Previewed on '{0}' - {1} categor(y/ies) applied.".format(
             view.Name, result.categories_applied))
+
+    def preview_image_click(self, sender, args):
+        view = self.doc.ActiveView
+        if view is None:
+            forms.alert("No active view.", title=_TOOL)
+            return
+        categories = self._effective_preview_categories()
+        if not categories:
+            forms.alert("Pick a Preset, or click some swatches first.", title=_TOOL)
+            return
+        svc.apply_preset(self.doc, [view], {"categories": categories})
+        path, error = svc.export_preview_image(self.doc, view)
+        if path is None:
+            forms.alert("Could not generate a preview image:\n{0}".format(error), title=_TOOL)
+            self._log("Preview image failed: {0}".format(error))
+            return
+        try:
+            bmp = BitmapImage()
+            bmp.BeginInit()
+            bmp.CacheOption = BitmapCacheOption.OnLoad
+            bmp.StreamSource = MemoryStream(File.ReadAllBytes(path))
+            bmp.EndInit()
+            bmp.Freeze()
+            self.preview_image_img.Source = bmp
+            self._log("Generated preview image from '{0}'.".format(view.Name))
+        except Exception as e:
+            forms.alert("Generated the image but could not display it:\n{0}".format(e), title=_TOOL)
 
     def preview_reset_click(self, sender, args):
         self._draft_categories = {}
