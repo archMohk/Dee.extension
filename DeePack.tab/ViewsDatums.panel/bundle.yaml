@@ -1,6 +1,7 @@
 title: "Views & Datums"
 layout:
   - DeeView
+  - DeeSVTemplate
   - ViewStack
   - DatumStack
   - CoordPointStack
