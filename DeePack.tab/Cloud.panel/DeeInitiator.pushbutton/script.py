@@ -611,12 +611,13 @@ class LinkFileRef(object):
     """One file available to link. Carries its OWN project/region -
     unlike DeeMAPLink (one ACC project per run), different Delivery
     Parties here can upload to different ACC projects."""
-    def __init__(self, name, item_id, project_id, region, hub_id):
+    def __init__(self, name, item_id, project_id, region, hub_id, folder_id=""):
         self.name = name
         self.item_id = item_id
         self.project_id = project_id
         self.region = region
         self.hub_id = hub_id
+        self.folder_id = folder_id
 
 
 class MatchRow(object):
@@ -1318,9 +1319,10 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
             project_id = party.destination.get("project_id", "")
             region = party.destination.get("region", "")
             hub_id = party.destination.get("hub_id", "")
+            folder_id = party.destination.get("folder_id", "")
             for name in party.names():
                 display_name = name if name.lower().endswith(".rvt") else name + ".rvt"
-                planned[display_name] = LinkFileRef(display_name, None, project_id, region, hub_id)
+                planned[display_name] = LinkFileRef(display_name, None, project_id, region, hub_id, folder_id)
         return planned
 
     def _refresh_planned_link_files(self):
@@ -1395,6 +1397,45 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
                 found = _resolve_item_ids(project_id, token, expected_names, self.logger, on_attempt=_on_attempt)
                 for display_name, item_id in found.items():
                     planned[display_name].item_id = item_id
+
+                # search_cloud_models hits Autodesk's own SEARCH INDEX,
+                # which can lag far longer than the retries above cover,
+                # or simply never classify a freshly-uploaded model under
+                # the "C4RModel" extension type this filters on (observed
+                # live - Refresh File List + Run Links still reporting
+                # files as not-yet-uploaded for files that already open
+                # fine from ACC). list_folder_contents hits the folder's
+                # own contents endpoint directly instead of a derived
+                # index, so it is immediately consistent - fall back to
+                # it, scoped to just this party's own destination
+                # folder(s), for whatever names the index still hasn't
+                # caught up on. Same acc_api function acc_file_browser.
+                # list_project_files already relies on as its own
+                # fallback after search_cloud_models, for the same
+                # reason.
+                still_missing = [n for n in names if not planned[n].item_id]
+                if still_missing:
+                    folders = {}
+                    for n in still_missing:
+                        folders.setdefault(planned[n].folder_id, []).append(n)
+                    for folder_id, folder_names in folders.items():
+                        if not folder_id:
+                            continue
+                        try:
+                            _subfolders, items = acc_api.list_folder_contents(project_id, folder_id, token)
+                        except Exception as e:
+                            self.logger.exception("list_folder_contents fallback failed", e)
+                            continue
+                        by_name = {}
+                        for item_id, item_name in items:
+                            by_name.setdefault(item_name, item_id)
+                        resolved_now = [n for n in folder_names if n in by_name]
+                        for n in resolved_now:
+                            planned[n].item_id = by_name[n]
+                        if resolved_now:
+                            self._log("  Found {0} file(s) directly in the destination folder "
+                                      "(search index hadn't caught up yet): {1}".format(
+                                          len(resolved_now), ", ".join(resolved_now)))
 
         self._link_files = planned
         self._update_link_files_count_text()
