@@ -2,11 +2,46 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeSuperLINK — Link ACC Models Into Each Other (no file open)"
         ShowInTaskbar="False"
-        MinHeight="640" MinWidth="1060" Height="720" Width="1140"
+        MinHeight="780" MinWidth="1300" Height="860" Width="1380"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
+        <Border DockPanel.Dock="Right" Width="380" Margin="8,0,0,0"
+                BorderBrush="#666" BorderThickness="1,0,0,0" Padding="8,0,0,0">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="MATCHES  (Source → Target)"
+                           FontWeight="Bold" Foreground="#F2994D"
+                           Margin="0,0,0,6"/>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                    <Button x:Name="remove_match_b" Content="Remove" Width="70" Height="24"
+                            Click="remove_match_click"
+                            ToolTip="Removes the selected row(s) from MATCHES below."/>
+                </StackPanel>
+                <Button DockPanel.Dock="Bottom" x:Name="clear_matches_b" Content="Clear All"
+                        Height="24" Margin="0,6,0,0" Click="clear_matches_click"/>
+                <Border DockPanel.Dock="Bottom" BorderBrush="#666" BorderThickness="1"
+                        Margin="0,8,0,0" Padding="6">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="ANALYSIS" FontWeight="Bold"
+                                   Foreground="#F2994D" Margin="0,0,0,4"/>
+                        <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Auto">
+                            <TextBlock x:Name="analysis_tb" FontFamily="Consolas" FontSize="10"
+                                       Text="No matches yet. Wire two files together on Wire Map or Matrix."/>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+                <DataGrid x:Name="matches_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                          CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Source (linked)" Binding="{Binding source}" IsReadOnly="True" Width="*"/>
+                        <DataGridTextColumn Header="Target (host)" Binding="{Binding target}" IsReadOnly="True" Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Border>
+
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Links ACC/BIM360 cloud models into each other without opening anything first. Pick a project, choose a direction, then pick the single file on one side and tick the many files on the other. Each host model is opened in the background, the link is created, and the host is synchronized back to ACC."/>
+                   Text="Links ACC/BIM360 cloud models into each other without opening anything first. Pick a project, then either use Fixed Mode (one model into many hosts, or many models into one host) or build an arbitrary many-to-many map on Wire Map / Matrix - shown in MATCHES on the right either way. Each host model is opened in the background, matched links are created, and the host is synchronized back to ACC."/>
 
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem><TextBlock x:Name="status_tb" Text="Ready."/></StatusBarItem>
@@ -19,9 +54,22 @@
         </Grid>
 
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
-            <Button x:Name="run_b" Content="Create Links" Width="150" Height="30" FontWeight="Bold" Click="run_click"/>
+            <Button x:Name="run_b" Content="Create Links (Fixed Mode)" Width="190" Height="30" FontWeight="Bold" Click="run_click"/>
+            <Button x:Name="run_matches_b" Content="Run Matches" Width="130" Height="30" FontWeight="Bold" Margin="8,0,0,0" Click="run_matches_click"
+                    ToolTip="Runs whatever matches are currently wired up on Wire Map / Matrix - independent of Fixed Mode above."/>
+            <Button x:Name="save_set_b" Content="Save Set..." Width="100" Height="30" Margin="16,0,0,0" Click="save_set_click"
+                    ToolTip="Saves the ACC project, link options, matches, and per-match overrides to one file you can re-open later."/>
+            <Button x:Name="load_set_b" Content="Load Set..." Width="100" Height="30" Margin="6,0,0,0" Click="load_set_click"
+                    ToolTip="Loads a previously saved set - rescans the same project and re-applies its matches/overrides against the current file list."/>
             <Button x:Name="close_b" Content="Close" Width="90" Height="30" Margin="16,0,0,0" Click="close_click"/>
         </StackPanel>
+
+        <DockPanel DockPanel.Dock="Bottom" Height="130" Margin="0,8,0,0">
+            <TextBlock DockPanel.Dock="Top" Text="Live status" FontWeight="Bold" Margin="0,0,0,4"/>
+            <TextBox x:Name="log_tb" IsReadOnly="True" TextWrapping="NoWrap"
+                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                     FontFamily="Consolas" FontSize="11"/>
+        </DockPanel>
 
         <GroupBox DockPanel.Dock="Top" Header="1. ACC Project" Margin="0,0,0,8">
             <StackPanel Orientation="Horizontal" Margin="6">
@@ -31,38 +79,17 @@
             </StackPanel>
         </GroupBox>
 
-        <GroupBox DockPanel.Dock="Top" Header="2. Direction and placement" Margin="0,0,0,8">
+        <GroupBox DockPanel.Dock="Top" Header="2. Link Type and options (default - override per match on Selected Links)" Margin="0,0,0,8">
             <StackPanel Margin="6">
                 <StackPanel Orientation="Horizontal">
-                    <RadioButton x:Name="mode_one_to_many_rb" GroupName="mode" IsChecked="True"
-                                 Content="Link ONE model into MANY hosts" Checked="mode_changed"/>
-                    <RadioButton x:Name="mode_many_to_one_rb" GroupName="mode" Margin="24,0,0,0"
-                                 Content="Link MANY models into ONE host" Checked="mode_changed"/>
-                </StackPanel>
-
-                <Grid Margin="0,10,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="24"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="300"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" x:Name="single_label_tb" Text="Model to link:"
-                               VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <ComboBox Grid.Column="1" x:Name="single_cb" Height="24" SelectionChanged="single_changed"/>
-                    <TextBlock Grid.Column="3" Text="Placement:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <ComboBox Grid.Column="4" x:Name="placement_cb" Height="24"/>
-                </Grid>
-
-                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                    <TextBlock Text="Sync comment:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBox x:Name="sync_comment_tb" Width="420" Height="24" VerticalContentAlignment="Center"
+                    <TextBlock Text="Link Type:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="placement_cb" Width="280" Height="24"/>
+                    <TextBlock Text="Sync comment:" VerticalAlignment="Center" Margin="20,0,6,0"/>
+                    <TextBox x:Name="sync_comment_tb" Width="300" Height="24" VerticalContentAlignment="Center"
                              Text="Synchronize"/>
                     <CheckBox x:Name="skip_existing_cb" Content="Skip if already linked" IsChecked="True"
                               VerticalAlignment="Center" Margin="20,0,0,0"/>
                 </StackPanel>
-
                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                     <TextBlock Text="Link as:" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <RadioButton x:Name="attachment_overlay_rb" GroupName="attachment" IsChecked="True"
@@ -75,44 +102,204 @@
             </StackPanel>
         </GroupBox>
 
-        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-            <TextBlock x:Name="many_label_tb" FontWeight="Bold" Text="3. Host models to link INTO (tick them):"/>
-            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                <TextBox x:Name="search_tb" Width="260" Height="24" VerticalContentAlignment="Center"
-                         TextChanged="search_changed"
-                         ToolTip="Type part of a file name. Multiple words all have to match, in any order - e.g. &quot;vil cor&quot; finds 25-036-NAG-BIM-VIL-00A-COR-AR."/>
-                <Button x:Name="clear_search_b" Content="Clear" Width="60" Height="24" Margin="6,0,0,0" Click="clear_search_click"/>
-                <Button x:Name="select_all_b" Content="Select All" Width="90" Height="24" Margin="16,0,0,0" Click="select_all_click"/>
-                <Button x:Name="select_none_b" Content="Select None" Width="90" Height="24" Margin="6,0,0,0" Click="select_none_click"/>
-                <Button x:Name="refresh_b" Content="Refresh List" Width="100" Height="24" Margin="6,0,0,0" Click="refresh_click"/>
-                <TextBlock x:Name="hidden_warning_tb" VerticalAlignment="Center" Margin="16,0,0,0"
-                           Foreground="#C62828" FontWeight="Bold" Text=""/>
-            </StackPanel>
-        </StackPanel>
+        <TabControl x:Name="mode_tabs" SelectionChanged="mode_tabs_selection_changed">
 
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="1.3*"/>
-                <ColumnDefinition Width="8"/>
-                <ColumnDefinition Width="1*"/>
-            </Grid.ColumnDefinitions>
+            <TabItem Header="Fixed Mode">
+                <DockPanel Margin="6">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <RadioButton x:Name="mode_one_to_many_rb" GroupName="mode" IsChecked="True"
+                                     Content="Link ONE model into MANY hosts" Checked="mode_changed"/>
+                        <RadioButton x:Name="mode_many_to_one_rb" GroupName="mode" Margin="24,0,0,0"
+                                     Content="Link MANY models into ONE host" Checked="mode_changed"/>
+                    </StackPanel>
 
-            <DataGrid Grid.Column="0" x:Name="files_grid" AutoGenerateColumns="False" CanUserAddRows="False"
-                      CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
-                <DataGrid.Columns>
-                    <DataGridCheckBoxColumn Header="Use" Binding="{Binding selected, Mode=TwoWay}" Width="50"/>
-                    <DataGridTextColumn Header="Revit File" Binding="{Binding name}" IsReadOnly="True" Width="*"/>
-                    <DataGridTextColumn Header="Status" Binding="{Binding status}" IsReadOnly="True" Width="200"/>
-                </DataGrid.Columns>
-            </DataGrid>
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" x:Name="single_label_tb" Text="Model to link:"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ComboBox Grid.Column="1" x:Name="single_cb" Width="400" HorizontalAlignment="Left"
+                                  Height="24" SelectionChanged="single_changed"/>
+                    </Grid>
 
-            <DockPanel Grid.Column="2">
-                <TextBlock DockPanel.Dock="Top" Text="Live status" FontWeight="Bold" Margin="0,0,0,4"/>
-                <TextBox x:Name="log_tb" IsReadOnly="True" TextWrapping="NoWrap"
-                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                         FontFamily="Consolas" FontSize="11"/>
-            </DockPanel>
-        </Grid>
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <TextBlock x:Name="many_label_tb" FontWeight="Bold" Text="Host models to link INTO (tick them):"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBox x:Name="search_tb" Width="220" Height="24" VerticalContentAlignment="Center"
+                                     TextChanged="search_changed"
+                                     ToolTip="Type part of a file name. Multiple words all have to match, in any order - e.g. &quot;vil cor&quot; finds 25-036-NAG-BIM-VIL-00A-COR-AR."/>
+                            <Button x:Name="clear_search_b" Content="Clear" Width="60" Height="24" Margin="6,0,0,0" Click="clear_search_click"/>
+                            <Button x:Name="select_all_b" Content="Select All" Width="90" Height="24" Margin="16,0,0,0" Click="select_all_click"/>
+                            <Button x:Name="select_none_b" Content="Select None" Width="90" Height="24" Margin="6,0,0,0" Click="select_none_click"/>
+                            <Button x:Name="refresh_b" Content="Refresh List" Width="100" Height="24" Margin="6,0,0,0" Click="refresh_click"/>
+                            <TextBlock x:Name="hidden_warning_tb" VerticalAlignment="Center" Margin="16,0,0,0"
+                                       Foreground="#C62828" FontWeight="Bold" Text=""/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <DataGrid x:Name="files_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                              CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Use" Binding="{Binding selected, Mode=TwoWay}" Width="50"/>
+                            <DataGridTextColumn Header="Revit File" Binding="{Binding name}" IsReadOnly="True" Width="*"/>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status}" IsReadOnly="True" Width="200"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="Wire Map">
+                <DockPanel Margin="6">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+                        <Button x:Name="wiremap_refresh_b" Content="Redraw" Width="70" Height="22"
+                                Click="wiremap_refresh_click"/>
+                        <Button x:Name="wiremap_clear_wires_b" Content="Clear Wires" Width="90" Height="22"
+                                Margin="6,0,0,0" Click="wiremap_clear_wires_click"/>
+                        <TextBlock x:Name="wiremap_count_tb" VerticalAlignment="Center" Margin="14,0,0,0"
+                                   Foreground="#888" Text=""/>
+                    </StackPanel>
+
+                    <Border DockPanel.Dock="Bottom" Background="#2B2B2B" BorderBrush="#555"
+                            BorderThickness="1" Padding="6,4" Margin="0,6,0,0">
+                        <TextBlock x:Name="wiremap_hint_tb" FontSize="11" Foreground="#CCC"
+                                   Text="Click a file on the left, then a file on the right, to link the first into the second."/>
+                    </Border>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1*" MinWidth="220"/>
+                            <ColumnDefinition Width="170" MinWidth="80"/>
+                            <ColumnDefinition Width="1*" MinWidth="220"/>
+                        </Grid.ColumnDefinitions>
+
+                        <DockPanel Grid.Column="0">
+                            <TextBlock DockPanel.Dock="Top" Foreground="#F2994D" FontWeight="Bold"
+                                       Margin="0,0,0,3" Text="SOURCES — click one to start"/>
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,3">
+                                <TextBox x:Name="wiremap_left_search_tb" Width="140" Height="22"
+                                         VerticalContentAlignment="Center" TextChanged="wiremap_left_search_changed"/>
+                                <Button x:Name="wiremap_left_clear_b" Content="Clear" Width="46" Height="22"
+                                        Margin="4,0,0,0" Click="wiremap_left_clear_click"/>
+                                <TextBlock x:Name="wiremap_left_count_tb" VerticalAlignment="Center"
+                                           Margin="8,0,0,0" Foreground="#888" Text=""/>
+                            </StackPanel>
+                            <Border BorderBrush="#555" BorderThickness="1">
+                                <ScrollViewer x:Name="wiremap_left_scroll" VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel x:Name="wiremap_left_panel" Background="#1E1E1E"/>
+                                </ScrollViewer>
+                            </Border>
+                        </DockPanel>
+
+                        <Canvas Grid.Column="1" x:Name="wiremap_canvas" Background="#161616"
+                                ClipToBounds="True"/>
+
+                        <DockPanel Grid.Column="2">
+                            <TextBlock DockPanel.Dock="Top" Foreground="#F2994D" FontWeight="Bold"
+                                       Margin="0,0,0,3" Text="TARGETS — click one to finish"/>
+                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,3">
+                                <TextBox x:Name="wiremap_right_search_tb" Width="140" Height="22"
+                                         VerticalContentAlignment="Center" TextChanged="wiremap_right_search_changed"/>
+                                <Button x:Name="wiremap_right_clear_b" Content="Clear" Width="46" Height="22"
+                                        Margin="4,0,0,0" Click="wiremap_right_clear_click"/>
+                                <TextBlock x:Name="wiremap_right_count_tb" VerticalAlignment="Center"
+                                           Margin="8,0,0,0" Foreground="#888" Text=""/>
+                            </StackPanel>
+                            <Border BorderBrush="#555" BorderThickness="1">
+                                <ScrollViewer x:Name="wiremap_right_scroll" VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel x:Name="wiremap_right_panel" Background="#1E1E1E"/>
+                                </ScrollViewer>
+                            </Border>
+                        </DockPanel>
+                    </Grid>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="Matrix">
+                <DockPanel Margin="6">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBox x:Name="matrix_search_tb" Width="160" Height="22"
+                                 VerticalContentAlignment="Center" TextChanged="matrix_search_changed"
+                                 ToolTip="Filters both rows and columns."/>
+                        <Button x:Name="matrix_clear_search_b" Content="Clear" Width="46" Height="22"
+                                Margin="4,0,0,0" Click="matrix_clear_search_click"/>
+                        <TextBlock Text="Rows (Y):" VerticalAlignment="Center" Margin="14,0,4,0"/>
+                        <ComboBox x:Name="matrix_row_filter_cb" Width="120" Height="22"
+                                  SelectionChanged="matrix_filter_changed"/>
+                        <TextBlock Text="Columns (X):" VerticalAlignment="Center" Margin="10,0,4,0"/>
+                        <ComboBox x:Name="matrix_col_filter_cb" Width="120" Height="22"
+                                  SelectionChanged="matrix_filter_changed"/>
+                        <Button x:Name="matrix_clear_all_b" Content="Clear All" Width="80" Height="22"
+                                Margin="14,0,0,0" Click="matrix_clear_click"/>
+                        <TextBlock x:Name="matrix_count_tb" VerticalAlignment="Center" Margin="14,0,0,0"
+                                   Foreground="#888" Text=""/>
+                    </StackPanel>
+
+                    <Border DockPanel.Dock="Bottom" Background="#2B2B2B" BorderBrush="#555"
+                            BorderThickness="1" Padding="6,4" Margin="0,6,0,0">
+                        <TextBlock FontSize="11" Foreground="#CCC" TextWrapping="Wrap"
+                                   Text="Tick a cell to link that ROW into that COLUMN - shift-click to set a whole rectangle at once. The diagonal is disabled - a file can't be linked into itself. Right-click a header to insert/remove a separator line (saved with Save Set)."/>
+                    </Border>
+
+                    <Border BorderBrush="#555" BorderThickness="1">
+                        <ScrollViewer x:Name="matrix_scroll" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Auto">
+                            <Grid x:Name="matrix_grid" Background="#1E1E1E"/>
+                        </ScrollViewer>
+                    </Border>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="Selected Links">
+                <DockPanel Margin="6">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Every current match, with its own Link Type and Attachment. Leave a match alone to use the Link Type/options defaults above - only change what you need to differ. Select multiple rows (Ctrl/Shift-click) to bulk-apply a change below."/>
+                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBlock Text="Set Link Type for selected:" Foreground="WhiteSmoke" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="bulk_placement_cb" Width="200" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="bulk_placement_apply_b" Content="Apply" Width="70" Height="24"
+                                Margin="6,0,0,0" Click="bulk_placement_apply_click"/>
+                        <TextBlock Text="Attachment:" Foreground="WhiteSmoke" VerticalAlignment="Center" Margin="20,0,0,0"/>
+                        <ComboBox x:Name="bulk_attachment_cb" Width="120" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="bulk_attachment_apply_b" Content="Apply" Width="70" Height="24"
+                                Margin="6,0,0,0" Click="bulk_attachment_apply_click"/>
+                    </StackPanel>
+                    <DataGrid x:Name="selected_links_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                              SelectionMode="Extended" SelectionUnit="FullRow" RowHeaderWidth="0"
+                              RowEditEnding="selected_links_row_edit_ending">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Match" Binding="{Binding match_label}" IsReadOnly="True" Width="2*">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="WhiteSmoke"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridComboBoxColumn x:Name="selected_links_placement_col" Header="Link Type"
+                                                     SelectedItemBinding="{Binding placement_label}" Width="220">
+                                <DataGridComboBoxColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="WhiteSmoke"/>
+                                    </Style>
+                                </DataGridComboBoxColumn.ElementStyle>
+                            </DataGridComboBoxColumn>
+                            <DataGridComboBoxColumn x:Name="selected_links_attachment_col" Header="Attachment"
+                                                     SelectedItemBinding="{Binding attachment_label}" Width="140">
+                                <DataGridComboBoxColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="WhiteSmoke"/>
+                                    </Style>
+                                </DataGridComboBoxColumn.ElementStyle>
+                            </DataGridComboBoxColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+        </TabControl>
     </DockPanel>
 </Window>
