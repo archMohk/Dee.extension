@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 dee_smart_sheet_dialogs
-Three small modal dialogs for DeeSheet's "SmartSheet" tab:
+Four small modal dialogs for DeeSheet's "SmartSheet" tab:
 
   show_duplicate(node, ancestor_chain) - confirms the new identifying
   value for a Duplicate Group action, shows which parent folders will be
@@ -24,6 +24,15 @@ Three small modal dialogs for DeeSheet's "SmartSheet" tab:
   anything is created. Returns the list of names on Add, or None on
   Cancel/close.
 
+  show_levels_config(levels, param_names, overrides) - one row per
+  hierarchy level (from dee_smart_sheet_service.levels_info), each with
+  a dropdown of candidate parameters (from list_sheet_parameter_names)
+  pre-filled with whatever that level currently resolves to - lets the
+  user confirm or correct auto-detection per level, explicitly, instead
+  of hoping it guessed right everywhere. Returns the new {depth: name}
+  overrides dict (a level left on "(Auto-detect)" is simply absent from
+  it) on Save, or None on Cancel/close.
+
 Same show()-returns-None-or-result pattern as dee_rename_pipeline_dialog,
 so callers never need to distinguish "cancelled" from "returned empty".
 """
@@ -36,6 +45,9 @@ _THIS_DIR = os.path.dirname(__file__)
 _DUP_XAML = os.path.join(_THIS_DIR, "DeeSmartSheetDuplicateDialog.xaml")
 _ADD_XAML = os.path.join(_THIS_DIR, "DeeSmartSheetAddDialog.xaml")
 _BULK_ADD_XAML = os.path.join(_THIS_DIR, "DeeSmartSheetBulkAddDialog.xaml")
+_LEVELS_XAML = os.path.join(_THIS_DIR, "DeeSmartSheetLevelsDialog.xaml")
+
+_AUTO_DETECT_LABEL = "(Auto-detect)"
 
 _NONE_TITLEBLOCK_LABEL = "(None - no title block)"
 
@@ -155,6 +167,46 @@ class _BulkAddDialog(dee_branding.DeeBrandedWindow):
         self.Close()
 
 
+class _LevelRow(object):
+    """One row in the Configure Classification Parameters dialog - a
+    plain object with simple attributes, bound directly from XAML the
+    same way SuperSheetRow/SheetRenameRow already are elsewhere in
+    DeeSheet (WPF reads/writes Python attributes via reflection, no
+    INotifyPropertyChanged needed for a dialog that's read once on
+    close)."""
+    def __init__(self, depth, sample_label, param_choices, selected_param):
+        self.depth = depth
+        self.level_label = "Level {0}".format(depth)
+        self.sample_text = "e.g. '{0}'".format(sample_label) if sample_label else "(no sample found)"
+        self.param_choices = param_choices
+        self.selected_param = selected_param
+
+
+class _LevelsDialog(dee_branding.DeeBrandedWindow):
+    def __init__(self, xaml_file, levels, param_names, overrides):
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        self._result = None
+        choices = [_AUTO_DETECT_LABEL] + list(param_names or [])
+        self._rows = []
+        for depth, sample_label, auto_param in levels:
+            current = (overrides or {}).get(depth) or auto_param or _AUTO_DETECT_LABEL
+            row_choices = choices if current in choices else choices + [current]
+            self._rows.append(_LevelRow(depth, sample_label, row_choices, current))
+        self.levels_ic.ItemsSource = self._rows
+
+    def ok_click(self, sender, args):
+        overrides = {}
+        for row in self._rows:
+            if row.selected_param and row.selected_param != _AUTO_DETECT_LABEL:
+                overrides[row.depth] = row.selected_param
+        self._result = overrides
+        self.Close()
+
+    def cancel_click(self, sender, args):
+        self._result = None
+        self.Close()
+
+
 def show_duplicate(node, ancestor_chain=None):
     """node: a SmartSheetNode with node.is_group True. ancestor_chain:
     the result of dee_smart_sheet_service.ancestor_chain(node.parent) -
@@ -188,5 +240,19 @@ def show_bulk_add(scope_label, groups):
     first becomes each group's next Sheet Number, the second the one
     after that, and so on) on Add, or None on Cancel/close/empty input."""
     dlg = _BulkAddDialog(_BULK_ADD_XAML, scope_label, groups)
+    dlg.ShowDialog()
+    return dlg._result
+
+
+def show_levels_config(levels, param_names, overrides=None):
+    """levels: dee_smart_sheet_service.levels_info(root)'s result.
+    param_names: dee_smart_sheet_service.list_sheet_parameter_names(doc)'s
+    result. overrides: the currently-stored {depth: parameter_name} dict,
+    if any (pre-selects those over whatever auto-detection guessed).
+    Returns the new {depth: parameter_name} overrides dict on Save
+    (a level left on "(Auto-detect)" is simply absent from it, reverting
+    that level to automatic detection on the next scan), or None on
+    Cancel/close."""
+    dlg = _LevelsDialog(_LEVELS_XAML, levels, param_names, overrides)
     dlg.ShowDialog()
     return dlg._result

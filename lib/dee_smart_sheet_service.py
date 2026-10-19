@@ -33,17 +33,28 @@ a single root node - SmartSheet still works for Add Sheet, there just
 are no folders to Duplicate.
 
 A folder's classification parameter (the thing Duplicate/Add Sheet
-writes into) is found empirically rather than read off the Browser
-Organization's rules directly (no public API exposes those rules) - see
+writes into) is found empirically by default - see
 _find_classifying_parameter: the parameter whose displayed value equals
 the folder's label on every sheet nested under it. This runs for EVERY
-folder level, not just the bottom-level group - a new sheet needs its
-Villa Type, Mirror/Regular AND Plot Number (or whatever levels a given
-project uses) all set, not just the deepest one, or it shows up
-unclassified ('???') in the Project Browser instead of alongside its
-siblings. When no single parameter matches on every sheet at a given
-level, that level's classify_param stays None and is simply skipped
-(the Sheet Number/Sheet Name substitution still happens).
+folder level, not just the bottom-level group. It is only a best guess
+though, and it can fail in ways that are invisible until a new sheet
+shows up unclassified: a level whose value is blank for every sheet in
+a branch renders as Revit's own '???' placeholder, which cannot match
+any real parameter value, so nothing can be auto-detected there; a
+level's parameter might match ambiguously, or sit on a type rather than
+an instance parameter, and so on.
+
+So auto-detection is a default, not the only option: scan_tree() takes
+an optional `param_overrides` dict ({depth: parameter_name}) that pins a
+specific parameter to a specific hierarchy level regardless of what
+auto-detection would have guessed - this is what lets a user explicitly
+confirm "Level 2 is the Mirror/Regular parameter" once, from
+levels_info()'s list of the tree's actual levels and
+list_sheet_parameter_names()'s list of candidates, rather than hoping
+auto-detection got every level right. When a level has neither an
+override nor a usable auto-detected guess, its classify_param stays
+None and is simply skipped (the Sheet Number/Sheet Name substitution
+still happens).
 """
 import re
 
@@ -211,10 +222,13 @@ def _folder_path(bo, sheet):
         return []
 
 
-def scan_tree(doc):
+def scan_tree(doc, param_overrides=None):
     """Builds the SmartSheet tree for every real (non-placeholder) sheet
     in the project, mirroring the project's current Sheet Browser
-    Organization. Returns the single root SmartSheetNode."""
+    Organization. param_overrides, if given, is {depth: parameter_name}
+    (depth 1 = the first real classification level, i.e. root's direct
+    children) - see levels_info() and the module docstring. Returns the
+    single root SmartSheetNode."""
     sheets = []
     for sheet in FilteredElementCollector(doc).OfClass(ViewSheet):
         try:
@@ -250,7 +264,7 @@ def scan_tree(doc):
         parent.group_sheets.append(sheet)
         parent.children.append(SmartSheetNode(_sheet_name(sheet), sheet=sheet, parent=parent))
 
-    _assign_classify_params(root)
+    _assign_classify_params(root, 0, param_overrides or {})
     return root
 
 
@@ -269,15 +283,24 @@ def _collect_sheets(node, out=None):
     return out
 
 
-def _assign_classify_params(node):
+def _assign_classify_params(node, depth, overrides):
     """Identifies classify_param for EVERY folder level, not just the
     bottom-level group - a new sheet needs ALL of them set (Villa Type,
     Mirror/Regular, Plot Number, ...) to land in the exact same Sheet
-    Browser folder as its siblings, not just the deepest one."""
+    Browser folder as its siblings, not just the deepest one. `depth` is
+    this node's own level (root's direct children are depth 1); a node's
+    sheet-leaf children share its own depth rather than incrementing,
+    since a leaf isn't a classification level. `overrides` pins a
+    specific parameter name to a given depth, bypassing auto-detection
+    entirely - the fix for a level whose value is blank everywhere
+    ('???' in the tree) and so can never be auto-detected, or where
+    auto-detection simply guessed wrong."""
     for child in node.children:
-        _assign_classify_params(child)
+        child_depth = depth + 1 if child.is_folder else depth
+        _assign_classify_params(child, child_depth, overrides)
     if node.is_folder and node.label:
-        node.classify_param = _find_classifying_parameter(_collect_sheets(node), node.label)
+        override = overrides.get(depth)
+        node.classify_param = override if override else _find_classifying_parameter(_collect_sheets(node), node.label)
 
 
 def ancestor_chain(node):
@@ -296,6 +319,61 @@ def ancestor_chain(node):
         n = n.parent
     chain.reverse()
     return chain
+
+
+def levels_info(root):
+    """[(depth, sample_label_or_None, classify_param_or_None), ...] for
+    every real classification level found in the tree (depth 1 = root's
+    direct children, depth 2 the level below that, and so on - root
+    itself, depth 0, is just the Browser Organization's rule-set name,
+    never a configurable level). One entry per depth, with a sample
+    label for context (e.g. depth 1 -> '4 Bedroom Villa') and whatever
+    classify_param currently resolves to there (auto-detected or
+    already overridden) - this is exactly what the Configure
+    Classification Parameters dialog needs to show the user, and what
+    list_sheet_parameter_names() supplies the dropdown choices for.
+    Prefers a non-'???' sample where one exists, since '???' doesn't
+    tell the user anything about what the level actually represents."""
+    best = {}
+    def walk(node, depth):
+        if node.is_folder and depth > 0 and node.label:
+            placeholder = (node.label == u"???")
+            current = best.get(depth)
+            if current is None or (current[2] and not placeholder):
+                best[depth] = (node.label, node.classify_param, placeholder)
+        for child in node.children:
+            walk(child, depth + 1 if child.is_folder else depth)
+    walk(root, 0)
+    return [(depth, label, param) for depth, (label, param, _placeholder) in sorted(best.items())]
+
+
+def list_sheet_parameter_names(doc, max_sheets=60):
+    """Every instance parameter name found on a sample of the project's
+    real sheets (same noise-filtering as the Sheet Renamer tab's own
+    parameter picker) - the candidate list for the Configure
+    Classification Parameters dialog's dropdowns."""
+    names = set()
+    count = 0
+    for sheet in FilteredElementCollector(doc).OfClass(ViewSheet):
+        try:
+            if getattr(sheet, "IsPlaceholder", False):
+                continue
+        except Exception:
+            pass
+        count += 1
+        if count > max_sheets:
+            break
+        try:
+            for p in sheet.Parameters:
+                try:
+                    name = p.Definition.Name
+                except Exception:
+                    continue
+                if name and name not in _NOISE_PARAM_NAMES:
+                    names.add(name)
+        except Exception:
+            continue
+    return sorted(names)
 
 
 def containing_group(node):

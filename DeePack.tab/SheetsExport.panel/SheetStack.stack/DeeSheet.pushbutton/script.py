@@ -29,23 +29,31 @@ Two tabs:
 
 4. SmartSheet - mirrors the project's current Sheet Browser
    Organization (Project Browser > Sheets) as a tree, via
-   lib/dee_smart_sheet_service.py. Select a bottom-level folder (one
+   lib/dee_smart_sheet_service.py. Configure Classification Parameters
+   lists every level in that tree (Villa Type, Mirror/Regular, Plot
+   Number, ...) and lets the user confirm or correct which parameter
+   drives each one, instead of relying solely on automatic detection -
+   auto-detection guesses by matching existing values and simply cannot
+   guess a level that is blank on every sheet in a branch (shown as
+   Revit's own '???' placeholder). Select a bottom-level folder (one
    holding sheets directly, e.g. a Plot Number under Villa Type >
    Mirror) and Duplicate Group creates a whole new matching set of
    sheets - one per sheet in the template group - substituting the old
-   folder's value for a new one in Sheet Number/Sheet Name (and in
-   whichever parameter was found to drive that folder level, if any).
-   Add Sheet creates a single new sheet anywhere in the tree, with the
-   clicked node's folder chain pre-filled so it lands in the right
-   group, and its Sheet Number suggested by continuing that group's own
-   numbering (01..06 -> suggests 07). Add Sheet(s) to All Groups does
-   the same across every group under the current selection (or the
-   whole tree if nothing/the root is selected) in one pass - each group
-   works out its own next number(s) from its own existing sheets, so
-   groups that already have different counts don't collide. Falls back
-   to one flat list if the project's Sheet Browser Organization has no
-   grouping rules (or the API is unavailable) - Add Sheet still works,
-   there's just nothing to Duplicate.
+   folder's value for a new one in Sheet Number/Sheet Name and in every
+   configured/identified parameter down the whole chain (not just the
+   deepest level), so the new sheets land in the same Sheet Browser
+   branch instead of showing up unclassified. Add Sheet creates a single
+   new sheet anywhere in the tree, with the clicked node's folder chain
+   pre-filled so it lands in the right group, and its Sheet Number
+   suggested by continuing that group's own numbering (01..06 ->
+   suggests 07). Add Sheet(s) to All Groups does the same across every
+   group under the current selection (or the whole tree if nothing/the
+   root is selected) in one pass - each group works out its own next
+   number(s) from its own existing sheets, so groups that already have
+   different counts don't collide. Falls back to one flat list if the
+   project's Sheet Browser Organization has no grouping rules (or the
+   API is unavailable) - Add Sheet still works, there's just nothing to
+   Duplicate.
 
 Needs live-Revit verification: ChangeTypeId on a placed title block
 instance, Document.Create.NewFamilyInstance(XYZ.Zero, symbol, sheet)
@@ -274,6 +282,7 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         self._naming_methods = DEFAULT_METHODS()
         self._smart_root = None
         self._smart_selected = None
+        self._smart_param_overrides = {}
 
         tb_names = [_NONE_TITLEBLOCK_LABEL] + sorted(self._titleblock_types.keys())
         self.titleblock_cb.ItemsSource = tb_names
@@ -1010,7 +1019,7 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
     # ======================================================================
     def _scan_smart_sheet(self):
         with _SafeProgress(title="DeeSheet - scanning SmartSheet tree...", indeterminate=True):
-            self._smart_root = smart_sheet.scan_tree(self.doc)
+            self._smart_root = smart_sheet.scan_tree(self.doc, self._smart_param_overrides)
         self._smart_selected = None
         self.smart_tree.ItemsSource = [self._smart_root]
         self._update_smart_selected_panel()
@@ -1019,6 +1028,21 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         self.smart_status_tb.Text = "{0} sheet(s), {1} duplicable group(s).".format(total_sheets, group_count)
 
     def smart_refresh_click(self, sender, args):
+        self._scan_smart_sheet()
+
+    def smart_configure_params_click(self, sender, args):
+        if self._smart_root is None:
+            return
+        levels = smart_sheet.levels_info(self._smart_root)
+        if not levels:
+            forms.alert("No classification levels found - this project's Sheet Browser Organization for Sheets "
+                         "has no grouping rules (or SmartSheet couldn't read it), so there's nothing to configure.")
+            return
+        param_names = smart_sheet.list_sheet_parameter_names(self.doc)
+        result = smart_dialogs.show_levels_config(levels, param_names, self._smart_param_overrides)
+        if result is None:
+            return
+        self._smart_param_overrides = result
         self._scan_smart_sheet()
 
     def _walk_tree_items(self, control, visit):
