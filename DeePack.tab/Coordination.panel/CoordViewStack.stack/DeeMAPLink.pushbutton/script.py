@@ -70,7 +70,7 @@ from System.Windows.Media import (Brushes, Color, DoubleCollection,
                                   VisualTreeHelper)
 from System.Windows.Shapes import Line, Polygon
 from System.Windows.Threading import Dispatcher, DispatcherFrame, DispatcherPriority
-from System.Windows.Forms import FolderBrowserDialog, DialogResult
+from System.Windows.Forms import FolderBrowserDialog, DialogResult, SaveFileDialog, OpenFileDialog, MessageBox
 
 from Autodesk.Revit.DB import ImportPlacement, ModelPathUtils, AttachmentType
 
@@ -82,6 +82,9 @@ import deew_logger
 import deew_settings
 import dee_linkmap_service as lms
 import dee_maplink_service as dms
+import dee_matchset_ui as mxui
+import dee_selected_links_ui as slui
+import dee_matchset_io as msio
 import dee_telemetry
 dee_telemetry.check_access("DeeMAPLink")
 
@@ -184,6 +187,12 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
 
         self.placement_cb.ItemsSource = [label for label, _v in dms.PLACEMENT_OPTIONS]
         self.placement_cb.SelectedIndex = 0
+        placement_labels = [label for label, _v in dms.PLACEMENT_OPTIONS]
+        attachment_labels = ["Overlay", "Attachment"]
+        self.selected_links_placement_col.ItemsSource = placement_labels
+        self.selected_links_attachment_col.ItemsSource = attachment_labels
+        self.bulk_placement_cb.ItemsSource = placement_labels
+        self.bulk_attachment_cb.ItemsSource = attachment_labels
         self._refresh_matches()
         self._log("Ready. Pick an ACC project or a local folder to begin.")
 
@@ -206,11 +215,18 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
 
         # Matrix tab - built lazily the first time it's actually selected
         # (mode_tabs_selection_changed), not here, so a user who never
-        # opens it never pays for building it.
-        self._matrix_built = False
-        self._matrix_cells = {}
-        self._matrix_names = []
+        # opens it never pays for building it. Grid/filter/separator/
+        # shift-select mechanics live in the shared lib/dee_matchset_ui.py
+        # (also used by DeeInitiator/DeeSuperLINK now) - this tool only
+        # supplies the state object, its own file pool, and the two
+        # callbacks the shared module calls back into.
+        self._matrix = mxui.MatrixState()
         self._matrix_ready = True
+        # Selected Links tab - per-match Link Type/Attachment overrides,
+        # new to this tool (previously only a global placement_cb/
+        # attachment radio pair for the whole run). Built via the shared
+        # lib/dee_selected_links_ui.py, same as DeeInitiator.
+        self._match_options = {}
 
     # ---------------- helpers ----------------
     def _log(self, message):
@@ -440,7 +456,8 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         # tab is actually viewed rather than silently showing last scan's
         # file list.
         if getattr(self, "_matrix_ready", False):
-            self._matrix_built = False
+            self._refresh_matrix_filters()
+            self._matrix.built = False
             if self.mode_tabs.SelectedIndex == 2:
                 self._guard_map(self._matrix_build)
 
@@ -871,149 +888,92 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         if not getattr(self, "_matrix_ready", False):
             return
         try:
-            if self.mode_tabs.SelectedIndex == 2 and not self._matrix_built:
+            idx = self.mode_tabs.SelectedIndex
+            if idx == 2 and not self._matrix.built:
                 self._matrix_build()
+            elif idx == 3:
+                self._selected_links_build()
         except Exception:
             pass
 
-    def _matrix_build(self):
-        self._matrix_built = True
-        query = self._safe_text(self.matrix_search_tb)
-        names = [n for n in sorted(self._all_items.keys()) if dms.matches_search(n, query)]
-        self._matrix_names = names
-        self.matrix_count_tb.Text = "{0}/{1} file(s)".format(len(names), len(self._all_items))
+    def _refresh_matrix_filters(self):
+        """No "Delivery Party" concept here (DeeInitiator's own axis) -
+        filters by the first NAME SEGMENT that actually varies across the
+        scan (the same lms.name_segments/discipline-token idea the Wire
+        Map's own per-column filter dropdowns already use), independently
+        per axis."""
+        values = sorted(set(self._map_segment(n, 0) for n in self._all_items.keys()))
+        values = [v for v in values if v]
+        labels = ["(all)"] + values
+        for combo in (self.matrix_row_filter_cb, self.matrix_col_filter_cb):
+            try:
+                current = combo.SelectedItem
+                combo.ItemsSource = labels
+                combo.SelectedItem = current if current in labels else "(all)"
+            except Exception:
+                pass
 
-        grid = self.matrix_grid
-        grid.Children.Clear()
-        grid.RowDefinitions.Clear()
-        grid.ColumnDefinitions.Clear()
-        self._matrix_cells = {}
+    def _matrix_filter_value(self, combo):
+        try:
+            selected = combo.SelectedItem
+            if selected and selected != "(all)":
+                return selected
+        except Exception:
+            pass
+        return None
 
-        if not names:
-            return
+    def _matrix_is_matched(self, row_name, col_name):
+        return (row_name, col_name) in self._matches
 
-        grid.RowDefinitions.Add(RowDefinition(Height=GridLength(60)))
-        grid.ColumnDefinitions.Add(ColumnDefinition(Width=GridLength(190)))
-        for _n in names:
-            grid.RowDefinitions.Add(RowDefinition(Height=GridLength(26)))
-            grid.ColumnDefinitions.Add(ColumnDefinition(Width=GridLength(28)))
-
-        corner = TextBlock()
-        Grid.SetRow(corner, 0)
-        Grid.SetColumn(corner, 0)
-        grid.Children.Add(corner)
-
-        for j, name in enumerate(names):
-            header = self._matrix_make_col_header(name)
-            Grid.SetRow(header, 0)
-            Grid.SetColumn(header, j + 1)
-            grid.Children.Add(header)
-
-        for i, row_name in enumerate(names):
-            row_header = self._matrix_make_row_header(row_name)
-            Grid.SetRow(row_header, i + 1)
-            Grid.SetColumn(row_header, 0)
-            grid.Children.Add(row_header)
-
-            for j, col_name in enumerate(names):
-                cell = self._matrix_make_cell(row_name, col_name, i == j)
-                Grid.SetRow(cell, i + 1)
-                Grid.SetColumn(cell, j + 1)
-                grid.Children.Add(cell)
-                if i != j:
-                    self._matrix_cells[(row_name, col_name)] = cell
-
-    def _matrix_make_row_header(self, name):
-        text = TextBlock()
-        text.Text = name
-        text.Foreground = Brushes.WhiteSmoke
-        text.FontSize = 10
-        text.TextTrimming = TextTrimming.CharacterEllipsis
-        text.VerticalAlignment = VerticalAlignment.Center
-        text.Margin = Thickness(4, 0, 6, 0)
-        text.ToolTip = name
-        return text
-
-    def _matrix_make_col_header(self, name):
-        short = name if len(name) <= 16 else name[:14] + "..."
-        text = TextBlock()
-        text.Text = short
-        text.Foreground = Brushes.WhiteSmoke
-        text.FontSize = 9
-        text.TextTrimming = TextTrimming.CharacterEllipsis
-        text.HorizontalAlignment = HorizontalAlignment.Center
-        text.VerticalAlignment = VerticalAlignment.Bottom
-        text.Margin = Thickness(1, 2, 1, 4)
-        text.ToolTip = name
-
-        border = Border()
-        border.Child = text
-        border.Background = self._ROW_BG
-        border.BorderBrush = Brushes.Gray
-        border.BorderThickness = Thickness(0, 0, 1, 1)
-        return border
-
-    def _matrix_make_cell(self, row_name, col_name, is_diagonal):
-        text = TextBlock()
-        text.FontSize = 13
-        text.HorizontalAlignment = HorizontalAlignment.Center
-        text.VerticalAlignment = VerticalAlignment.Center
-        text.IsHitTestVisible = False
-
-        cell = Border()
-        cell.BorderBrush = Brushes.Gray
-        cell.BorderThickness = Thickness(0, 0, 1, 1)
-        cell.Child = text
-
-        if is_diagonal:
-            # A file cannot be linked into itself - disabled up front
-            # (never wired to a click handler) rather than relying on
-            # build_matches's own self-pair skip, used by the other two
-            # tabs, so the user sees it's invalid instead of clicking a
-            # cell that silently does nothing.
-            cell.Background = SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3A))
-            text.Text = u"—"
-            text.Foreground = Brushes.Gray
-            return cell
-
-        cell.Background = self._ROW_BG
-        cell.Cursor = Cursors.Hand
-        cell.Tag = (row_name, col_name)
-        cell.ToolTip = "{0}\nlinked into\n{1}".format(row_name, col_name)
-        ticked = (row_name, col_name) in self._matches
-        text.Text = u"✓" if ticked else ""
-        text.Foreground = self._WIRE_BRUSH
-        if ticked:
-            cell.Background = self._ROW_ARMED
-        cell.MouseLeftButtonDown += self._matrix_cell_click
-        return cell
-
-    def _matrix_cell_click(self, sender, args):
-        def run():
-            row_name, col_name = sender.Tag
-            pair = (row_name, col_name)
-            text = sender.Child
-            if pair in self._matches:
-                self._matches.remove(pair)
-                text.Text = ""
-                sender.Background = self._ROW_BG
-                self._log("Removed {0} -> {1}".format(row_name, col_name))
-            else:
+    def _matrix_toggle_range(self, pairs, new_value):
+        """The ONLY thing that mutates self._matches on behalf of the
+        shared Matrix grid - see DeeInitiator's own identical method for
+        the full reasoning. Called once per click/shift-click gesture."""
+        match_set = set(self._matches)
+        changed = 0
+        for pair in pairs:
+            if new_value and pair not in match_set:
                 self._matches.append(pair)
-                text.Text = u"✓"
-                sender.Background = self._ROW_ARMED
-                self._log("Wired {0} into {1}".format(row_name, col_name))
-            self._refresh_matches()
-            args.Handled = True
-        self._guard_map(run)
+                match_set.add(pair)
+                changed += 1
+            elif not new_value and pair in match_set:
+                self._matches.remove(pair)
+                match_set.discard(pair)
+                changed += 1
+        if not changed:
+            return
+        verb = "Wired" if new_value else "Removed"
+        if len(pairs) == 1:
+            self._log("{0} {1} -> {2}".format(verb, pairs[0][0], pairs[0][1]))
+        else:
+            self._log("{0} {1} match(es) (shift-select).".format(verb, changed))
+        self._refresh_matches()
+
+    def _matrix_build(self):
+        query = self._safe_text(self.matrix_search_tb)
+        row_filter = self._matrix_filter_value(self.matrix_row_filter_cb)
+        col_filter = self._matrix_filter_value(self.matrix_col_filter_cb)
+        seg0 = lambda n: self._map_segment(n, 0)
+
+        names_rows = mxui.filtered_names(self._all_items.keys(), query, row_filter, seg0)
+        names_cols = mxui.filtered_names(self._all_items.keys(), query, col_filter, seg0)
+
+        mxui.build(self.matrix_grid, self._matrix, names_rows, names_cols,
+                   self._matrix_is_matched, self._matrix_toggle_range)
+        self.matrix_count_tb.Text = "{0} row(s) x {1} column(s) / {2} file(s) total".format(
+            len(names_rows), len(names_cols), len(self._all_items))
 
     def matrix_search_changed(self, sender, args):
-        if getattr(self, "_matrix_ready", False) and self._matrix_built:
+        if getattr(self, "_matrix_ready", False) and self._matrix.built:
             self._guard_map(self._matrix_build)
 
     def matrix_clear_search_click(self, sender, args):
         self.matrix_search_tb.Text = ""
-        if getattr(self, "_matrix_ready", False) and self._matrix_built:
+        if getattr(self, "_matrix_ready", False) and self._matrix.built:
+            self._guard_map(self._matrix_build)
+
+    def matrix_filter_changed(self, sender, args):
+        if getattr(self, "_matrix_ready", False) and self._matrix.built:
             self._guard_map(self._matrix_build)
 
     def matrix_clear_click(self, sender, args):
@@ -1025,10 +985,86 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
                 return
             self._matches = []
             self._refresh_matches()
-            if self._matrix_built:
+            if self._matrix.built:
                 self._matrix_build()
             self._log("All matches cleared (from Matrix).")
         self._guard_map(run)
+
+    # ---- Selected Links tab: per-match Link Type/Attachment ----
+    # self._match_options holds only OVERRIDES - a match with no entry
+    # here uses the global placement_cb/attachment radio pair, resolved
+    # per-pair in _effective_link_options at Run time (mirrors
+    # DeeInitiator's own identical mechanism, via the same shared
+    # lib/dee_selected_links_ui.py).
+    def _selected_links_default_labels(self):
+        placement_labels = [label for label, _v in dms.PLACEMENT_OPTIONS]
+        idx = self.placement_cb.SelectedIndex
+        default_placement_label = placement_labels[idx] if 0 <= idx < len(placement_labels) else placement_labels[0]
+        default_attachment_label = "Attachment" if self.attachment_attachment_rb.IsChecked is True else "Overlay"
+        return default_placement_label, default_attachment_label
+
+    def _selected_links_build(self):
+        default_placement_label, default_attachment_label = self._selected_links_default_labels()
+        slui.refresh_grid(self.selected_links_grid, self._matches, self._match_options,
+                           default_placement_label, default_attachment_label)
+
+    def selected_links_row_edit_ending(self, sender, args):
+        def run():
+            slui.row_edit_committed(self.selected_links_grid, args, self._match_options,
+                                     self._refresh_matches)
+        try:
+            self.Dispatcher.BeginInvoke(Action(run))
+        except Exception:
+            run()
+
+    def bulk_placement_apply_click(self, sender, args):
+        label = self.bulk_placement_cb.SelectedItem
+        if not label:
+            forms.alert("Pick a Link Type first.")
+            return
+        count = slui.apply_to_selection(self.selected_links_grid, self._match_options,
+                                         placement_label=label, on_changed=self._selected_links_build)
+        if not count:
+            forms.alert("Select one or more rows in the grid above first.")
+        else:
+            self._log("Set Link Type '{0}' on {1} selected match(es).".format(label, count))
+
+    def bulk_attachment_apply_click(self, sender, args):
+        label = self.bulk_attachment_cb.SelectedItem
+        if not label:
+            forms.alert("Pick an Attachment value first.")
+            return
+        count = slui.apply_to_selection(self.selected_links_grid, self._match_options,
+                                         attachment_label=label, on_changed=self._selected_links_build)
+        if not count:
+            forms.alert("Select one or more rows in the grid above first.")
+        else:
+            self._log("Set Attachment '{0}' on {1} selected match(es).".format(label, count))
+
+    def _effective_link_options(self, source_name, target_name):
+        """Per-match Placement/Attachment, set via Selected Links - falls
+        back to the global placement_cb/attachment radio pair for any
+        match never individually overridden, so existing behavior is
+        unchanged unless the user actually opens Selected Links."""
+        override = self._match_options.get((source_name, target_name), {})
+
+        placement_label = override.get("placement_label")
+        if placement_label:
+            by_label = dict(dms.PLACEMENT_OPTIONS)
+            placement = by_label.get(placement_label, self._placement())
+        else:
+            placement = self._placement()
+
+        attachment_label = override.get("attachment_label")
+        if attachment_label == "Attachment":
+            attachment = AttachmentType.Attachment
+        elif attachment_label == "Overlay":
+            attachment = AttachmentType.Overlay
+        else:
+            attachment = self._attachment()
+
+        fallback = ImportPlacement.Origin if placement == ImportPlacement.Shared else None
+        return placement, attachment, fallback
 
     # ---- toolbar ----
     def map_left_search_changed(self, sender, args):
@@ -1122,18 +1158,16 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         # Same for the Matrix tab - a match added/removed from Two
         # Lists or Wire Map keeps the matrix's own tick marks current
         # without needing a full grid rebuild.
-        if getattr(self, "_matrix_ready", False) and self._matrix_built:
+        if getattr(self, "_matrix_ready", False) and self._matrix.built:
             try:
-                self._matrix_refresh_ticks()
+                mxui.refresh_ticks(self._matrix, self._matrix_is_matched)
             except Exception:
                 pass
-
-    def _matrix_refresh_ticks(self):
-        match_set = set(self._matches)
-        for pair, cell in self._matrix_cells.items():
-            ticked = pair in match_set
-            cell.Child.Text = u"✓" if ticked else ""
-            cell.Background = self._ROW_ARMED if ticked else self._ROW_BG
+        if getattr(self, "_matrix_ready", False) and self.mode_tabs.SelectedIndex == 3:
+            try:
+                self._selected_links_build()
+            except Exception:
+                pass
 
     def _open_attached(self, target_name):
         if self._source_mode() == "acc":
@@ -1200,11 +1234,6 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
                 title="DeeMAPLink - Confirm", yes=True, no=True):
             return
 
-        placement = self._placement()
-        attachment = self._attachment()
-        # Shared coordinates only mean something when the two models
-        # actually share them - fall back to origin-to-origin otherwise.
-        fallback = ImportPlacement.Origin if placement == ImportPlacement.Shared else None
         comment = self.sync_comment_tb.Text or ""
         skip_existing = (self.skip_existing_cb.IsChecked is True)
 
@@ -1256,6 +1285,7 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
                             self._progress_done_one()
                             continue
 
+                        placement, attachment, fallback = self._effective_link_options(source_name, target_name)
                         self._progress_step("Linking {0} -> {1}".format(source_name, target_name))
                         ok, link_detail = dms.link_into(
                             doc, source_name, model_path, placement, fallback,
@@ -1334,6 +1364,139 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
         html.append('<hr><b style="font-family:sans-serif;">{0} / {1} succeeded.</b>'.format(
             ok_count, len(results)))
         output.print_html("".join(html))
+
+    # ---------------- Save / Load Set (source + options + matches) ----------------
+    # New to this tool (DeeInitiator already had an equivalent for its own
+    # Delivery Party setup) - persists enough to re-resolve names on load:
+    # the ACC project or local folder gets RE-SCANNED, never assumed still
+    # accurate, since file-existence can only be confirmed live (same
+    # reasoning DeeInitiator's own Load Set uses for ACC sign-in).
+    def save_set_click(self, sender, args):
+        if not self._all_items and not self._matches:
+            forms.alert("Scan a source first - nothing to save yet.")
+            return
+        dlg = SaveFileDialog()
+        dlg.Filter = "DeeMAPLink Set (*.json)|*.json"
+        dlg.FileName = "DeeMAPLink_Set.json"
+        if dlg.ShowDialog() != DialogResult.OK:
+            return
+
+        data = {
+            "format": 1,
+            "source_mode": self._source_mode(),
+            "acc_context": {
+                "hub_id": self._hub_id or "",
+                "region": self._region or "",
+                "project_id": self._project_id or "",
+                "project_name": self._project_name or "",
+            },
+            "local_folder": self._local_folder or "",
+            "recursive": bool(self.recursive_cb.IsChecked),
+            "link_settings": {
+                "placement_index": self.placement_cb.SelectedIndex,
+                "sync_comment": self.sync_comment_tb.Text or "",
+                "attachment": "Attachment" if self.attachment_attachment_rb.IsChecked else "Overlay",
+                "skip_existing": bool(self.skip_existing_cb.IsChecked),
+                "skip_completed": bool(self.skip_completed_cb.IsChecked),
+            },
+            "matches": msio.matches_to_json(self._matches),
+            "match_options": msio.match_options_to_json(self._match_options),
+            "matrix_separators": msio.separators_to_json(self._matrix),
+        }
+        try:
+            msio.write_set(dlg.FileName, data)
+        except Exception as e:
+            forms.alert("Could not save the set: {0}".format(e))
+            return
+        self._log("Saved set ({0} match(es)) to {1}".format(len(self._matches), dlg.FileName))
+        MessageBox.Show("Set saved to:\n{0}".format(dlg.FileName), _TOOL_NAME)
+
+    def load_set_click(self, sender, args):
+        dlg = OpenFileDialog()
+        dlg.Filter = "DeeMAPLink Set (*.json)|*.json"
+        dlg.Title = "Load a saved DeeMAPLink Set"
+        if dlg.ShowDialog() != DialogResult.OK:
+            return
+
+        data, error = msio.read_set(dlg.FileName)
+        if error:
+            forms.alert(error)
+            return
+
+        if self._matches or self._all_items:
+            if not forms.alert("Loading a set rescans its source and replaces the current matches. "
+                                 "Continue?", title=_TOOL_NAME + " - confirm", yes=True, no=True):
+                return
+
+        link_settings = data.get("link_settings") or {}
+        try:
+            idx = link_settings.get("placement_index", 0)
+            self.placement_cb.SelectedIndex = (
+                idx if isinstance(idx, int) and 0 <= idx < len(dms.PLACEMENT_OPTIONS) else 0)
+        except Exception:
+            pass
+        self.sync_comment_tb.Text = link_settings.get("sync_comment") or "Synchronize"
+        if link_settings.get("attachment") == "Attachment":
+            self.attachment_attachment_rb.IsChecked = True
+        else:
+            self.attachment_overlay_rb.IsChecked = True
+        self.skip_existing_cb.IsChecked = bool(link_settings.get("skip_existing", True))
+        self.skip_completed_cb.IsChecked = bool(link_settings.get("skip_completed", True))
+
+        source_mode = data.get("source_mode") or "acc"
+        pending_matches = msio.matches_from_json(data.get("matches"))
+        pending_options = msio.match_options_from_json(data.get("match_options"))
+
+        if source_mode == "local":
+            self.source_local_rb.IsChecked = True
+            self._local_folder = data.get("local_folder") or None
+            self.folder_tb.Text = self._local_folder or "No folder selected."
+            self.recursive_cb.IsChecked = bool(data.get("recursive", False))
+            if not self._local_folder or not os.path.isdir(self._local_folder):
+                forms.alert("The saved folder no longer exists - pick a folder and scan again.")
+                return
+            self._scan_local()
+        else:
+            self.source_acc_rb.IsChecked = True
+            acc_context = data.get("acc_context") or {}
+            self._hub_id = acc_context.get("hub_id") or None
+            self._region = acc_context.get("region") or None
+            self._project_id = acc_context.get("project_id") or None
+            self._project_name = acc_context.get("project_name") or ""
+            if not self._project_id:
+                forms.alert("This set has no ACC project reference - pick a project and scan again.")
+                return
+            try:
+                self._token = acc_auth.get_access_token()
+            except Exception as e:
+                forms.alert("Authentication failed:\n{0}".format(e))
+                return
+            self.project_tb.Text = self._project_name or self._project_id
+            self._scan_acc()
+
+        # _scan_acc/_scan_local both call _after_scan(), which rebuilds
+        # self._rows1/_rows2/Wire Map/Matrix from the FRESH self._all_items
+        # - matches/options loaded above are applied against that fresh
+        # pool now, never guessed at against a stale one. A pair naming a
+        # file no longer present in the rescanned source is dropped, not
+        # silently kept pointing at nothing.
+        known = set(self._all_items.keys())
+        kept_matches = [(s, t) for s, t in pending_matches if s in known and t in known]
+        dropped = len(pending_matches) - len(kept_matches)
+        self._matches = kept_matches
+        kept_set = set(kept_matches)
+        self._match_options = dict((pair, opts) for pair, opts in pending_options.items() if pair in kept_set)
+        msio.separators_from_json(data.get("matrix_separators"), self._matrix)
+        self._matrix.built = False
+        if getattr(self, "_matrix_ready", False) and self.mode_tabs.SelectedIndex == 2:
+            self._guard_map(self._matrix_build)
+
+        self._refresh_matches()
+        summary = "Loaded {0} match(es) from {1}.".format(len(self._matches), dlg.FileName)
+        if dropped:
+            summary += " {0} match(es) dropped - their file(s) are no longer in this source.".format(dropped)
+        self._log(summary)
+        forms.alert(summary, title=_TOOL_NAME)
 
     def close_click(self, sender, args):
         self.Close()
