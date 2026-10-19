@@ -11,17 +11,18 @@
   <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; CreatePack panel</div>
   <span class="panel-chip">CreatePack</span>
   <h1 class="tool-title">DeeSheet</h1>
-  <p class="tagline">Create sheets in bulk from an Excel paste, manage every sheet in one editable table, or bulk-rename/renumber sheets with a token rule engine.</p>
+  <p class="tagline">Create sheets in bulk from an Excel paste, manage every sheet in one editable table, bulk-rename/renumber sheets with a token rule engine, or duplicate a whole classified sheet set (SmartSheet).</p>
 
   <div class="callout warn"><strong>Risk level: Medium</strong> Everything happens inside a Transaction (undoable via Ctrl+Z). Deleting a sheet, and applying the Sheet Renamer's renumbering, are both real changes once confirmed &mdash; review the grid/preview before clicking Apply.</div>
 
   <div class="card">
     <h2>What it does</h2>
-    <p>Three tabs:</p>
+    <p>Four tabs:</p>
     <ul>
       <li><strong>Normal Creation</strong> &mdash; paste the Sheet Number column from Excel into one box and the Sheet Name column into the other (line 1 in both = one sheet, line 2 = the next, and so on), pick a Title Block, and batch-create them all. Numbers that already exist are skipped. You can export the results to a themed Excel report.</li>
       <li><strong>Super Sheet</strong> &mdash; scans every Sheet already in the project into one editable grid. Edit Number/Name directly in a cell, use Move Up/Move Down to reorder rows in the view (handy for slotting a new sheet between two existing ones), Add Row for a brand-new sheet, and a Delete checkbox per row to mark a sheet for removal. Rows are color-coded by status (green = new, amber = modified, red = to delete). One Apply Changes button creates/renames/deletes everything at once. A Title Block dropdown + Apply to All Sheets button can also swap every existing sheet's title block type in one go.</li>
       <li><strong>Sheet Renamer</strong> &mdash; bulk-builds new Sheet Numbers/Names from a small token rule (e.g. <code>A-{Serial|PAD3}</code>, <code>{Parameter:Discipline|UPPER}-{SheetNumber|LAST3}</code>), a running sequence (numeric or lettered, with per-group reset), Find &amp; Replace, Add Text, and case conversion &mdash; all staged into a Preview grid with a Status column before anything touches the model. Duplicate Sheet Numbers are never silently overwritten.</li>
+      <li><strong>SmartSheet</strong> &mdash; mirrors the project's current Sheet Browser Organization (Project Browser &gt; Sheets) as a tree. Select a bottom-level folder (one holding sheets directly, e.g. a Plot Number under Villa Type &gt; Mirror) and <strong>Duplicate Group</strong> creates a whole new matching set of sheets &mdash; one per sheet in the template group &mdash; swapping the old folder's value for a new one in Sheet Number/Sheet Name (and in whichever parameter was found to drive that folder level). <strong>Add Sheet</strong> creates a single new sheet anywhere in the tree, with the selected node's folder chain pre-filled so it lands in the right group. If the project's Sheet Browser Organization has no grouping rules, the tree falls back to one flat list &mdash; Add Sheet still works, there's just nothing to Duplicate.</li>
     </ul>
   </div>
 
@@ -52,6 +53,13 @@
       <li>Click Apply Renumbering and confirm. Duplicate/Empty rows are skipped automatically, never overwritten.</li>
       <li>Save a rule as a Preset to reuse it next time (Presets group, bottom left).</li>
     </ol>
+    <p><strong>SmartSheet:</strong></p>
+    <ol>
+      <li>The tree auto-loads on open (or click Rescan Sheets). It mirrors whatever folder grouping your project's current Sheet Browser Organization already shows in the Project Browser.</li>
+      <li>To duplicate a whole plot/unit's sheet set: select the bottom-level folder (the one holding sheets directly &mdash; the Selected panel on the right says "Group (duplicable)" when you've got the right level), click Duplicate Group..., enter the new value (e.g. a new Plot Number), check the Preview list, then confirm.</li>
+      <li>To add one sheet anywhere: select any node in the tree (a folder or a sheet) and click Add Sheet... &mdash; the dialog shows the folder chain it will pre-fill, then asks for Sheet Number, Sheet Name, and Title Block.</li>
+      <li>Expand All / Collapse All just toggle the tree's own expand state, for working with large projects.</li>
+    </ol>
   </div>
 
   <div class="card">
@@ -78,6 +86,9 @@
       <li>A Duplicate status blocks that row from Apply; it never overwrites the sheet already holding that number. Fix the rule, or edit the row's New Number directly, then re-check Status before applying.</li>
       <li>An Invalid status means the New Number/New Name contains a character Revit doesn't allow (<code>\ : { } [ ] | ; &lt; &gt; ? ` ~</code>) &mdash; also blocks that row from Apply, same as Duplicate/Empty.</li>
       <li>Not built in this version (kept out to stay maintainable): Roman-numeral sequences, a parameter-name aliasing layer (use <code>{Parameter:ActualName}</code> directly), a different rule per group in one pass (filter, apply, change the filter, apply again covers this), a grid right-click menu, a standalone Parameter Inspector panel, and file-based logging (the pyRevit output window already gives a full per-row report every run).</li>
+      <li>SmartSheet only duplicates the sheet shell (Number, Name, Title Block, and the folder's own parameter) &mdash; it never copies views/content placed on the template sheets, same as a normal new sheet.</li>
+      <li>SmartSheet's Duplicate Group needs the old value to actually appear in the template sheets' Number or Name text to know what to substitute &mdash; a sheet where it doesn't appear in either is skipped and reported, not guessed at.</li>
+      <li>The parameter SmartSheet writes to on Duplicate/Add is found automatically (whichever parameter's value matches the folder's label on every sheet in that folder) &mdash; when none matches, the Selected panel shows "(not identified)" and only the Number/Name text substitution happens.</li>
     </ul>
   </div>
 

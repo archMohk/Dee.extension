@@ -1,0 +1,41 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SmartSheet - Duplicate Group"
+        ShowInTaskbar="False"
+        MinHeight="420" MinWidth="440" Height="460" Width="460"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10" FontSize="11" Foreground="#555"
+                   Text="Creates one new sheet per sheet in this group, replacing the old value below with the new one everywhere it appears in Sheet Number / Sheet Name (and in the parameter that drives this folder, when one could be identified). Nothing else about the template sheets is copied - each new sheet starts blank, same as a normal new sheet."/>
+
+        <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="110"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Group value:" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,6"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" x:Name="old_value_tb" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,0,6"/>
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Parameter:" VerticalAlignment="Center" Margin="0,0,0,6"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" x:Name="param_tb" VerticalAlignment="Center" Margin="0,0,0,6" TextWrapping="Wrap"/>
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="New value:" FontWeight="Bold" VerticalAlignment="Center"/>
+            <TextBox Grid.Row="2" Grid.Column="1" x:Name="new_value_tb" Height="24" TextChanged="new_value_changed"/>
+        </Grid>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button x:Name="cancel_b" Content="Cancel" Width="90" Height="28" Margin="0,0,8,0" Click="cancel_click"/>
+            <Button x:Name="ok_b" Content="Duplicate" Width="100" Height="28" FontWeight="Bold"
+                    Background="#1F6FB2" Foreground="White" BorderBrush="#1F6FB2" Cursor="Hand" Click="ok_click"/>
+        </StackPanel>
+
+        <TextBlock DockPanel.Dock="Top" Text="Preview:" FontWeight="Bold" Margin="0,4,0,4"/>
+        <ListBox x:Name="preview_lb"/>
+    </DockPanel>
+</Window>

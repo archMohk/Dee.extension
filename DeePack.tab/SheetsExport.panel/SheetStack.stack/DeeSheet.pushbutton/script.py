@@ -27,9 +27,25 @@ Two tabs:
    selected type (via ChangeTypeId, preserving position/overrides), or
    places one if a sheet currently has none.
 
+4. SmartSheet - mirrors the project's current Sheet Browser
+   Organization (Project Browser > Sheets) as a tree, via
+   lib/dee_smart_sheet_service.py. Select a bottom-level folder (one
+   holding sheets directly, e.g. a Plot Number under Villa Type >
+   Mirror) and Duplicate Group creates a whole new matching set of
+   sheets - one per sheet in the template group - substituting the old
+   folder's value for a new one in Sheet Number/Sheet Name (and in
+   whichever parameter was found to drive that folder level, if any).
+   Add Sheet creates a single new sheet anywhere in the tree, with the
+   clicked node's folder chain pre-filled so it lands in the right
+   group. Falls back to one flat list if the project's Sheet Browser
+   Organization has no grouping rules (or the API is unavailable) -
+   Add Sheet still works, there's just nothing to Duplicate.
+
 Needs live-Revit verification: ChangeTypeId on a placed title block
-instance, and Document.Create.NewFamilyInstance(XYZ.Zero, symbol,
-sheet) for placing a title block on a sheet that doesn't have one.
+instance, Document.Create.NewFamilyInstance(XYZ.Zero, symbol, sheet)
+for placing a title block on a sheet that doesn't have one, and
+BrowserOrganization.GetFolderItems(ElementId) (SmartSheet tab) against
+a project with multi-level Sheet Browser Organization rules configured.
 """
 import os
 import System
@@ -43,6 +59,8 @@ import xlsx_writer
 import dee_sheet_renamer_service as renamer
 import dee_rename_pipeline_dialog as rp_dialog
 from dee_rename_pipeline import DEFAULT_METHODS
+import dee_smart_sheet_service as smart_sheet
+import dee_smart_sheet_dialogs as smart_dialogs
 
 import clr
 clr.AddReference("System.Windows.Forms")
@@ -248,6 +266,8 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         self._rename_rows = []
         self._rename_view_rows = []
         self._naming_methods = DEFAULT_METHODS()
+        self._smart_root = None
+        self._smart_selected = None
 
         tb_names = [_NONE_TITLEBLOCK_LABEL] + sorted(self._titleblock_types.keys())
         self.titleblock_cb.ItemsSource = tb_names
@@ -258,6 +278,7 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         self._scan_super_sheets()
         self._init_renamer_tab()
         self._scan_renamer()
+        self._scan_smart_sheet()
 
     def _selected_titleblock_id(self, combo):
         label = combo.SelectedItem
@@ -976,6 +997,110 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         renamer.print_report(result)
         renamer.compute_statuses(self._rename_rows)
         self._refresh_rename_grid()
+        self._scan_super_sheets()
+
+    # ======================================================================
+    # Tab 4: SmartSheet
+    # ======================================================================
+    def _scan_smart_sheet(self):
+        with _SafeProgress(title="DeeSheet - scanning SmartSheet tree...", indeterminate=True):
+            self._smart_root = smart_sheet.scan_tree(self.doc)
+        self._smart_selected = None
+        self.smart_tree.ItemsSource = [self._smart_root]
+        self._update_smart_selected_panel()
+        total_sheets = smart_sheet.count_sheets(self._smart_root)
+        group_count = smart_sheet.count_groups(self._smart_root)
+        self.smart_status_tb.Text = "{0} sheet(s), {1} duplicable group(s).".format(total_sheets, group_count)
+
+    def smart_refresh_click(self, sender, args):
+        self._scan_smart_sheet()
+
+    def _walk_tree_items(self, control, visit):
+        try:
+            control.UpdateLayout()
+        except Exception:
+            pass
+        generator = control.ItemContainerGenerator
+        for item in control.Items:
+            try:
+                container = generator.ContainerFromItem(item)
+            except Exception:
+                container = None
+            if container is None:
+                continue
+            visit(container)
+            self._walk_tree_items(container, visit)
+
+    def smart_expand_all_click(self, sender, args):
+        try:
+            self._walk_tree_items(self.smart_tree, lambda c: setattr(c, "IsExpanded", True))
+        except Exception:
+            pass
+
+    def smart_collapse_all_click(self, sender, args):
+        try:
+            self._walk_tree_items(self.smart_tree, lambda c: setattr(c, "IsExpanded", False))
+        except Exception:
+            pass
+
+    def smart_tree_selection_changed(self, sender, args):
+        self._smart_selected = args.NewValue
+        self._update_smart_selected_panel()
+
+    def _update_smart_selected_panel(self):
+        node = self._smart_selected
+        if node is None:
+            self.smart_selected_name_tb.Text = "(none)"
+            self.smart_selected_kind_tb.Text = ""
+            self.smart_selected_param_tb.Text = ""
+            self.smart_selected_count_tb.Text = ""
+            return
+        self.smart_selected_name_tb.Text = node.display_name
+        if node.sheet is not None:
+            kind = "Sheet"
+        elif node.is_group:
+            kind = "Group (duplicable)"
+        else:
+            kind = "Folder"
+        self.smart_selected_kind_tb.Text = kind
+        self.smart_selected_param_tb.Text = node.classify_param or "(not identified)"
+        self.smart_selected_count_tb.Text = str(len(node.group_sheets)) if node.is_group else "-"
+
+    def smart_duplicate_click(self, sender, args):
+        node = self._smart_selected
+        if node is None:
+            forms.alert("Select a bottom-level group (one directly holding sheets, not sub-folders) in the tree first.")
+            return
+        if not node.is_group:
+            forms.alert("'{0}' isn't a bottom-level group - select a folder that holds sheets directly.".format(node.display_name))
+            return
+        new_value = smart_dialogs.show_duplicate(node)
+        if not new_value:
+            return
+        with _SafeProgress(title="DeeSheet - duplicating group...", indeterminate=True):
+            results = smart_sheet.duplicate_group(self.doc, node, new_value)
+        self._report("DeeSheet - SmartSheet Duplicate Group Results", results)
+        self._scan_smart_sheet()
+        self._scan_super_sheets()
+
+    def smart_add_sheet_click(self, sender, args):
+        node = self._smart_selected or self._smart_root
+        path = smart_sheet.find_node_path(self._smart_root, node)
+        if not path:
+            path = [self._smart_root]
+        if node.sheet is not None and len(path) >= 2:
+            path = path[:-1]
+        chain = smart_sheet.classify_chain(path)
+        tb_names = sorted(self._titleblock_types.keys())
+        result = smart_dialogs.show_add_sheet(chain, tb_names)
+        if result is None:
+            return
+        number, name, tb_label = result
+        tb_id = self._titleblock_types.get(tb_label, ElementId.InvalidElementId) if tb_label else ElementId.InvalidElementId
+        with _SafeProgress(title="DeeSheet - adding sheet...", indeterminate=True):
+            ok, label, detail = smart_sheet.add_sheet(self.doc, chain, number, name, tb_id)
+        self._report("DeeSheet - SmartSheet Add Sheet Result", [(ok, label, detail)])
+        self._scan_smart_sheet()
         self._scan_super_sheets()
 
     def close_click(self, sender, args):

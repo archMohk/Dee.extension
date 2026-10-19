@@ -351,6 +351,55 @@
                     </DockPanel>
                 </Grid>
             </TabItem>
+
+            <!-- TAB 4: SmartSheet -->
+            <TabItem Header="SmartSheet">
+                <Grid Margin="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="10"/>
+                        <ColumnDefinition Width="320"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" TextWrapping="Wrap" Margin="0,0,0,8" FontSize="12"
+                               Text="Mirrors the project's current Sheet Browser Organization (Project Browser &gt; Sheets) as a tree. Select a bottom-level folder (the one holding sheets directly, e.g. a Plot Number) and click Duplicate Group to create a whole new matching set of sheets with a new value substituted in. Add Sheet works on any node - it pre-fills that node's folder chain so the new sheet lands in the right group."/>
+
+                    <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="smart_refresh_b" Content="Rescan Sheets" Click="smart_refresh_click" Width="110" Height="26"/>
+                        <Button x:Name="smart_expand_all_b" Content="Expand All" Click="smart_expand_all_click" Width="90" Height="26" Margin="8,0,0,0"/>
+                        <Button x:Name="smart_collapse_all_b" Content="Collapse All" Click="smart_collapse_all_click" Width="90" Height="26" Margin="6,0,0,0"/>
+                        <Button x:Name="smart_duplicate_b" Content="Duplicate Group..." Click="smart_duplicate_click" Width="140" Height="26" Margin="16,0,0,0" FontWeight="Bold"/>
+                        <Button x:Name="smart_add_sheet_b" Content="Add Sheet..." Click="smart_add_sheet_click" Width="110" Height="26" Margin="8,0,0,0" FontWeight="Bold"/>
+                        <TextBlock x:Name="smart_status_tb" Text="" VerticalAlignment="Center" Margin="16,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+
+                    <TreeView Grid.Row="2" Grid.Column="0" x:Name="smart_tree" SelectedItemChanged="smart_tree_selection_changed">
+                        <TreeView.ItemTemplate>
+                            <HierarchicalDataTemplate ItemsSource="{Binding children}">
+                                <TextBlock Text="{Binding display_name}"/>
+                            </HierarchicalDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+
+                    <GroupBox Grid.Row="2" Grid.Column="2" Header="Selected">
+                        <StackPanel Margin="4">
+                            <TextBlock Text="Node:" FontWeight="Bold" Margin="0,0,0,2"/>
+                            <TextBlock x:Name="smart_selected_name_tb" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                            <TextBlock Text="Kind:" FontWeight="Bold" Margin="0,0,0,2"/>
+                            <TextBlock x:Name="smart_selected_kind_tb" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                            <TextBlock Text="Classification parameter:" FontWeight="Bold" Margin="0,0,0,2"/>
+                            <TextBlock x:Name="smart_selected_param_tb" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                            <TextBlock Text="Sheets in group:" FontWeight="Bold" Margin="0,0,0,2"/>
+                            <TextBlock x:Name="smart_selected_count_tb" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </GroupBox>
+                </Grid>
+            </TabItem>
         </TabControl>
     </DockPanel>
 </Window>
