@@ -1,14 +1,24 @@
 # -*- coding: utf-8 -*-
 """
 DeeBIMview
-For each selected cloud Revit file:
+For each selected cloud Revit file, runs up to 5 independently-toggled
+steps (only "Create/Update Views" is checked by default - everything
+else is opt-in):
   1. Open it (all worksets open)
   2. Create/reuse 3D view "BIM Coordination View" - RVT links hidden
   3. Create/reuse 3D view "BIM Exported NAVIS"    - RVT links hidden
-That's it - no Publish Settings, no Synchronize, no Close, no Publish.
-Files are left open afterward so the views can be reviewed before you
-decide to sync/publish yourself. Reuses the exact view-creation logic
-proven working in DeeCoord.
+  4. Configure cloud Publish Settings: set "BIM Coordination Set" with
+     "BIM Coordination View" active (via UI Automation - no public API
+     exists for this dialog)
+  5. Synchronize With Central
+  6. Close the file
+  7. Publish via the APS Commands API (skipped if step 4 failed)
+With every optional step left unchecked, this behaves exactly like the
+old view-only DeeBIMview: files are left open afterward so the views
+can be reviewed before you decide to sync/publish yourself. Checking
+the extra steps gives the old DeeCoord full-pipeline behavior - the two
+tools were merged into this one, with the pipeline steps exposed as
+options instead of being a separate always-on tool.
 """
 from pyrevit import forms, script
 from Autodesk.Revit.DB import (
@@ -16,9 +26,11 @@ from Autodesk.Revit.DB import (
     ModelPathUtils, FilteredElementCollector, ViewFamilyType, ViewFamily,
     View3D, BuiltInCategory, ElementId,
     Transaction, TransactionStatus,
-    IFailuresPreprocessor, FailureProcessingResult, FailureSeverity
+    TransactWithCentralOptions, SynchronizeWithCentralOptions,
+    RelinquishOptions, IFailuresPreprocessor, FailureProcessingResult,
+    FailureSeverity
 )
-from Autodesk.Revit.UI import TaskDialogResult
+from Autodesk.Revit.UI import RevitCommandId, PostableCommand, TaskDialogResult
 import System
 import threading
 try:
@@ -33,6 +45,7 @@ import datetime
 
 import acc_auth
 import acc_api
+import publish_settings_ui
 import dee_telemetry
 dee_telemetry.check_access("DeeBIMview")
 
@@ -45,8 +58,9 @@ output = script.get_output()
 DEFAULT_VIEW_TYPE = "BIM Coordination"
 DEFAULT_COORD_VIEW = "BIM Coordination View"
 DEFAULT_NAVIS_VIEW = "BIM Exported NAVIS"
+DEFAULT_COORD_SET = "BIM Coordination Set"
 
-# shared cache with DeeOpener / DeePublisher / DeeCoord
+# shared cache with DeeOpener / DeePublisher
 _CACHE_FILE = os.path.normpath(os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "..", "DeeOpener.pushbutton", ".acc_file_cache.json"
@@ -230,7 +244,7 @@ def scan_level(level, project_id, token, max_workers=8):
     return next_level, found_items
 
 
-# ── Revit-side helpers (identical to DeeCoord's fixed, working versions) ───
+# ── Revit-side helpers ────────────────────────────────────────────────────
 
 def _find_3d_view(doc, name):
     for v in FilteredElementCollector(doc).OfClass(View3D):
@@ -261,9 +275,14 @@ def _hide_links_category(doc, view):
 
 
 def _ensure_3d_view_type(doc, type_name):
-    """Returns (type_id, actual_name). Scans every 3D ViewFamilyType using
-    ONLY .ViewFamily to filter (safe), and treats each one's .Name read as
-    optional/best-effort - one bad entry can't poison the whole search."""
+    """Returns (type_id, actual_name). .ViewFamily has never been observed
+    to fail on any ViewFamilyType in this file, but .Name has - on some
+    entries, and even on Revit's own "{3D}" default view in one test file.
+    So this scans every 3D ViewFamilyType using ONLY .ViewFamily to filter
+    (safe), and treats each one's .Name read as optional/best-effort: if a
+    type is already correctly named, great; if a type's name can't be
+    read, it's simply skipped as a name-match candidate but still kept as
+    a fallback to duplicate from."""
     fallback_id = None
     for vft in FilteredElementCollector(doc).OfClass(ViewFamilyType):
         try:
@@ -298,7 +317,11 @@ def _ensure_3d_view_type(doc, type_name):
 
 def _ensure_3d_view(doc, name, type_id):
     """Returns (view, actual_name_used). Reuses an existing view with this
-    exact name as-is, otherwise creates a fresh 3D view directly."""
+    exact name as-is. Otherwise creates a fresh 3D view directly - the
+    earlier "duplicate an existing view" detour turned out unnecessary:
+    the real problem was always reading .Name during a full scan, not
+    CreateIsometric itself, and it also hit Revit's prohibited-characters
+    rule when trying to name a helper view "{3D}"."""
     view = _find_3d_view(doc, name)
     if view is not None:
         return view, name
@@ -342,7 +365,26 @@ class _CancelOnErrorPreprocessor(IFailuresPreprocessor):
         return FailureProcessingResult.Continue
 
 
+def _sync_with_central(doc):
+    relinquish = RelinquishOptions(True)
+    swc_options = SynchronizeWithCentralOptions()
+    swc_options.SetRelinquishOptions(relinquish)
+    swc_options.Comment = "Auto-sync by DeeBIMview"
+    swc_options.SaveLocalBefore = True
+    transact_options = TransactWithCentralOptions()
+    try:
+        transact_options.SetFailuresPreprocessor(_CancelOnErrorPreprocessor())
+    except Exception:
+        pass  # not supported on this API surface - falls back to old behavior
+    doc.SynchronizeWithCentral(transact_options, swc_options)
+
+
 # ── auto-handled dialogs ──────────────────────────────────────────────────
+# Revit fires DialogBoxShowing for every modal dialog it's about to display,
+# which lets us auto-answer known ones instead of the batch hanging on a
+# popup no one is watching. Only dialogs matched below are touched -
+# anything unrecognized is left alone and will still block/pause the run,
+# same as before.
 def _make_dialog_handler(log_list):
     def handler(sender, args):
         try:
@@ -375,6 +417,10 @@ def _make_dialog_handler(log_list):
                 return
 
             if "cannot be ignored" in text or "resaves the element to central" in text:
+                # Another user owns the element (worksharing checkout) - there
+                # is no safe auto-fix, just unblock the hang so the calling
+                # transaction fails normally and gets reported as a step
+                # failure instead of freezing the whole batch.
                 if hasattr(args, "OverrideResult"):
                     args.OverrideResult(int(TaskDialogResult.Cancel))
                     log_list.append((
@@ -465,7 +511,7 @@ def _create_views(doc, coord_view_name, navis_view_name, view_type_name):
         status = t.Commit()
         if status == TransactionStatus.RolledBack:
             return ("Views FAILED: element locked by another user "
-                    "(auto-cancelled, no dialog shown)", False)
+                    "(auto-cancelled, no dialog shown)", False, None)
 
         notes = []
         if actual_type != view_type_name:
@@ -475,14 +521,36 @@ def _create_views(doc, coord_view_name, navis_view_name, view_type_name):
         if actual_navis != navis_view_name:
             notes.append("navis view '{0}'->'{1}'".format(navis_view_name, actual_navis))
         note = " [{0}]".format("; ".join(notes)) if notes else ""
-        return ("Views created/updated (type: '{0}'){1}".format(actual_type, note), True)
+        return ("Views created/updated (type: '{0}'){1}".format(actual_type, note), True, actual_coord)
     except Exception as e:
         if t.GetStatus() == TransactionStatus.Started:
             t.RollBack()
-        return ("Views FAILED: {0}".format(e), False)
+        return ("Views FAILED: {0}".format(e), False, None)
 
 
-SCRIPT_VERSION = "2026-07-03-v1"
+def _configure_publish_settings(uiapp, set_name, coord_view_name):
+    try:
+        publish_settings_ui.configure_publish_settings(uiapp, set_name, coord_view_name)
+        return ("Publish Settings configured", True)
+    except Exception as e:
+        return ("Publish Settings FAILED: {0} (configure manually)".format(e), None)
+
+
+def _sync(doc):
+    try:
+        _sync_with_central(doc)
+        return ("Synchronized", True)
+    except Exception as e:
+        return ("Sync FAILED: {0}".format(e), False)
+
+
+def _publish(project_id, item_id, token, without_links):
+    ok, detail = acc_api.publish_item(project_id, item_id, without_links, token)
+    label = "Published ({0})".format(detail) if ok else "Publish FAILED: {0}".format(detail)
+    return (label, ok)
+
+
+SCRIPT_VERSION = "2026-10-19-v1-merged-coord"
 
 
 class _SafeProgress(object):
@@ -626,6 +694,29 @@ def main():
         return
     close_worksets = (open_mode == "Open with All Worksets Closed")
 
+    # ── per-step on/off toggles (only Create/Update Views is on by default -
+    # this is the difference between the old DeeBIMview and DeeCoord, now
+    # exposed as options on one tool instead of two separate buttons) ───────
+    step_choices = forms.SelectFromList.show(
+        [
+            forms.TemplateListItem("Create/Update Views", checked=True),
+            forms.TemplateListItem("Configure Publish Settings", checked=False),
+            forms.TemplateListItem("Synchronize With Central", checked=False),
+            forms.TemplateListItem("Close After Sync", checked=False),
+            forms.TemplateListItem("Publish", checked=False),
+        ],
+        title="DeeBIMview — Steps to run ({0} file(s))".format(len(selected_names)),
+        multiselect=True,
+        button_name="Continue"
+    )
+    if not step_choices:
+        return
+    do_views = "Create/Update Views" in step_choices
+    do_pubset = "Configure Publish Settings" in step_choices
+    do_sync = "Synchronize With Central" in step_choices
+    do_close = "Close After Sync" in step_choices
+    do_publish = "Publish" in step_choices
+
     # ── editable names (current defaults pre-filled) ─────────────────────────
     view_type_name = forms.ask_for_string(
         default=DEFAULT_VIEW_TYPE,
@@ -654,9 +745,32 @@ def main():
     if not navis_view_name:
         return
 
+    coord_set_name = DEFAULT_COORD_SET
+    if do_pubset:
+        coord_set_name = forms.ask_for_string(
+            default=DEFAULT_COORD_SET,
+            prompt="Publish Settings set name (its active view will be '{0}'):".format(
+                coord_view_name),
+            title="DeeBIMview — Publish Set Name"
+        )
+        if not coord_set_name:
+            return
+
+    without_links = False
+    if do_publish:
+        pub_mode = forms.CommandSwitchWindow.show(
+            ["Normal Publish", "Publish without Links"],
+            message="Select publish mode for successfully-configured files:"
+        )
+        if not pub_mode:
+            return
+        without_links = (pub_mode == "Publish without Links")
+
     uiapp = __revit__
     all_results = []
     total = len(selected_names)
+    prev_doc = None
+    prev_steps = None
 
     dismissed_log = []
     dialog_handler = _make_dialog_handler(dismissed_log)
@@ -681,14 +795,83 @@ def main():
                 steps.append(step)
                 steps.extend(dismissed_log[before_count:])
 
+                # The document that was active before this one can only be
+                # closed now that it is no longer the active document (Revit
+                # forbids Document.Close() on the active document).
+                if prev_doc is not None:
+                    if do_close:
+                        pb.title = "File {0}/{1}: closing previous file".format(i + 1, total)
+                        try:
+                            prev_doc.Close(False)
+                            prev_steps.append(("Closed", True))
+                        except Exception as e:
+                            prev_steps.append(("Close FAILED: {0}".format(e), False))
+                    else:
+                        prev_steps.append(("Left open (Close After Sync unchecked)", None))
+                    prev_doc = None
+
                 if doc is None:
                     continue
 
-                pb.title = "File {0}/{1}: {2} — Creating views".format(i + 1, total, name)
-                output.print_md("Creating views...")
-                before_count = len(dismissed_log)
-                steps.append(_create_views(doc, coord_view_name, navis_view_name, view_type_name))
-                steps.extend(dismissed_log[before_count:])
+                publish_settings_ok = True
+                actual_coord_view_name = coord_view_name
+                if do_views:
+                    pb.title = "File {0}/{1}: {2} — Creating views".format(i + 1, total, name)
+                    output.print_md("Creating views...")
+                    before_count = len(dismissed_log)
+                    label, ok, created_coord_name = _create_views(
+                        doc, coord_view_name, navis_view_name, view_type_name)
+                    steps.append((label, ok))
+                    steps.extend(dismissed_log[before_count:])
+                    if created_coord_name:
+                        actual_coord_view_name = created_coord_name
+
+                if do_pubset:
+                    pb.title = "File {0}/{1}: {2} — Publish Settings".format(i + 1, total, name)
+                    output.print_md("Configuring Publish Settings...")
+                    label, ok = _configure_publish_settings(
+                        uiapp, coord_set_name, actual_coord_view_name)
+                    steps.append((label, ok))
+                    if ok is None:
+                        publish_settings_ok = False
+                else:
+                    steps.append(("Publish Settings skipped (unchecked)", None))
+
+                if do_sync:
+                    pb.title = "File {0}/{1}: {2} — Synchronizing".format(i + 1, total, name)
+                    output.print_md("Synchronizing with central...")
+                    before_count = len(dismissed_log)
+                    steps.append(_sync(doc))
+                    steps.extend(dismissed_log[before_count:])
+
+                if do_publish:
+                    if publish_settings_ok:
+                        pb.title = "File {0}/{1}: {2} — Publishing".format(i + 1, total, name)
+                        output.print_md("Publishing...")
+                        steps.append(_publish(project_id, item_id, token, without_links))
+                    else:
+                        steps.append(("Publish skipped (Publish Settings not confirmed)", None))
+
+                prev_doc = doc
+                prev_steps = steps
+
+            # The very last file has no "next" document to activate, so it
+            # can't be closed synchronously - post the Close command instead,
+            # which Revit runs right after this script finishes.
+            if prev_doc is not None:
+                if do_close:
+                    pb.title = "Closing last file..."
+                    try:
+                        cmd_id = RevitCommandId.LookupPostableCommandId(PostableCommand.Close)
+                        if uiapp.CanPostCommand(cmd_id):
+                            uiapp.PostCommand(cmd_id)
+                            prev_steps.append(("Close requested (completes after this tool exits)", None))
+                        else:
+                            prev_steps.append(("Close FAILED: command not postable right now", False))
+                    except Exception as e:
+                        prev_steps.append(("Close FAILED: {0}".format(e), False))
+                else:
+                    prev_steps.append(("Left open (Close After Sync unchecked)", None))
     finally:
         uiapp.DialogBoxShowing -= dialog_handler
 

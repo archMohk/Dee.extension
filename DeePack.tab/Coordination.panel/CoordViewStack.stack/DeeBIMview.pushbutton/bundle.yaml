@@ -1,3 +1,3 @@
 title: DeeBIMview
-tooltip: Open Revit files and create the BIM Coordination + NAVIS 3D views (no sync, no publish)
+tooltip: Open Revit files, create BIM Coordination + NAVIS views, and optionally configure Publish Settings, Sync, Close, and Publish (each step toggled on/off, views-only by default)
 context: zero-doc
