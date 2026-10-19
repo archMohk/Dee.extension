@@ -36,12 +36,24 @@ A folder's classification parameter (the thing Duplicate/Add Sheet
 writes into) is found empirically by default - see
 _find_classifying_parameter: the parameter whose displayed value equals
 the folder's label on every sheet nested under it. This runs for EVERY
-folder level, not just the bottom-level group. It is only a best guess
-though, and it can fail in ways that are invisible until a new sheet
-shows up unclassified: a level whose value is blank for every sheet in
-a branch renders as Revit's own '???' placeholder, which cannot match
-any real parameter value, so nothing can be auto-detected there; a
-level's parameter might match ambiguously, or sit on a type rather than
+folder level, not just the bottom-level group, and it searches BOTH the
+Sheet's own instance parameters AND its placed Title Block instance's
+parameters (_iter_param_names_and_values) - plenty of projects
+carry plot/villa metadata as instance parameters on a dedicated Title
+Block placed per sheet rather than on the Sheet element itself, and
+there is no way to tell which from the tree alone, so both are always
+searched together, and writing (duplicate_group/add_sheet/
+bulk_add_sheets, via _set_param_on_sheet_or_titleblock) tries the Sheet
+first and falls back to its Title Block instance.
+
+Auto-detection is still only a best guess though, and it can fail in
+ways that are invisible until a new sheet shows up unclassified: a
+level whose value is blank for every sheet in a branch renders as
+Revit's own '???' placeholder, which cannot match any real parameter
+value, so nothing can be auto-detected there; a level's parameter might
+match ambiguously, or sit on a Title Block TYPE parameter (shared by
+every sheet using that type, and deliberately never auto-written here -
+mutating it would silently change every sibling sheet too) rather than
 an instance parameter, and so on.
 
 So auto-detection is a default, not the only option: scan_tree() takes
@@ -64,6 +76,23 @@ from Autodesk.Revit.DB import (
 )
 
 _TRAILING_DIGITS_RE = re.compile(r"^(.*?)(\d+)$")
+
+
+def _eid(element_id):
+    """Plain int from an ElementId, tolerant of both the current API
+    (.Value, a 64-bit long) and the older one (.IntegerValue) - same
+    normalization dee_transmit_service.py already relies on for safe
+    ElementId dict keys/comparisons across Revit API versions."""
+    if element_id is None:
+        return -1
+    try:
+        return int(element_id.Value)
+    except Exception:
+        pass
+    try:
+        return int(element_id.IntegerValue)
+    except Exception:
+        return -1
 
 _NOISE_PARAM_NAMES = set([
     "Sheet Number", "Sheet Name", "Sheet Issue Date", "Approved By",
@@ -116,43 +145,124 @@ def _set_param_value(param, value):
             pass
 
 
-def _existing_titleblock_type_id(doc, sheet):
+def _placed_titleblock(doc, sheet):
+    """The single Title Block instance placed on `sheet`, or None - used
+    sparingly (duplicate_group/bulk_add_sheets, once per operation) since
+    it is one collector call per sheet. Bulk detection work instead uses
+    _titleblock_instances_by_sheet, one collector call for the whole
+    project."""
     try:
         tbs = list(FilteredElementCollector(doc, sheet.Id)
                    .OfCategory(BuiltInCategory.OST_TitleBlocks)
                    .WhereElementIsNotElementType())
         if tbs:
-            return tbs[0].GetTypeId()
+            return tbs[0]
     except Exception:
         pass
     return None
 
 
-def _find_classifying_parameter(sheets, label):
-    """The instance parameter name whose displayed value equals `label`
-    on EVERY sheet in this group - intersected across all of them so a
-    parameter that only coincidentally matches on one sheet can't win."""
-    if not sheets or not label:
+def _existing_titleblock_type_id(doc, sheet):
+    tb = _placed_titleblock(doc, sheet)
+    if tb is None:
         return None
-    common = None
-    for sheet in sheets:
-        matches = set()
+    try:
+        return tb.GetTypeId()
+    except Exception:
+        return None
+
+
+def _titleblock_instances_by_sheet(doc):
+    """{_eid(sheet.Id): title_block_instance} for every sheet that has
+    one placed - a single collector call covering the whole project,
+    used by scan_tree/list_sheet_parameter_names so detecting the
+    classification parameter for hundreds of sheets doesn't cost one
+    collector call each. Keyed by plain int (_eid) rather than the
+    ElementId object itself, sidestepping any cross-API-version
+    hashing/equality quirks."""
+    result = {}
+    try:
+        for tb in (FilteredElementCollector(doc)
+                   .OfCategory(BuiltInCategory.OST_TitleBlocks)
+                   .WhereElementIsNotElementType()):
+            try:
+                owner = _eid(tb.OwnerViewId)
+                if owner >= 0 and owner not in result:
+                    result[owner] = tb
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return result
+
+
+def _iter_param_names_and_values(sheet, tb):
+    """Yields (name, value_str) for every instance parameter on `sheet`
+    and, if given, on its placed Title Block instance `tb` too -
+    Browser Organization can group sheets by a parameter that actually
+    lives on the Title Block rather than the Sheet itself, and from the
+    tree alone there's no way to tell which, so both are always
+    searched together for both detection and the Configure Parameters
+    dialog's candidate list."""
+    for source in (sheet, tb):
+        if source is None:
+            continue
         try:
-            for p in sheet.Parameters:
+            for p in source.Parameters:
                 try:
                     name = p.Definition.Name
                 except Exception:
                     continue
                 if not name or name in _NOISE_PARAM_NAMES:
                     continue
-                if _param_value_str(p) == label:
-                    matches.add(name)
+                yield name, _param_value_str(p)
         except Exception:
             continue
+
+
+def _find_classifying_parameter(sheets, label, tb_by_sheet):
+    """The parameter name (Sheet instance OR its placed Title Block
+    instance - see _iter_param_names_and_values) whose displayed value
+    equals `label` on EVERY sheet in this group - intersected across all
+    of them so a parameter that only coincidentally matches on one sheet
+    can't win. tb_by_sheet: _titleblock_instances_by_sheet(doc)'s result."""
+    if not sheets or not label:
+        return None
+    common = None
+    for sheet in sheets:
+        tb = tb_by_sheet.get(_eid(sheet.Id))
+        matches = set(name for name, value in _iter_param_names_and_values(sheet, tb) if value == label)
         common = matches if common is None else (common & matches)
         if not common:
             return None
     return sorted(common)[0] if common else None
+
+
+def _set_param_on_sheet_or_titleblock(doc, sheet, param_name, value):
+    """Sets `param_name` to `value` on `sheet` itself if it has that
+    parameter; otherwise tries its placed Title Block instance - mirrors
+    _find_classifying_parameter's search scope exactly, so whichever
+    element a value was detected (or configured) from is also where it
+    gets written on a newly created sheet. Never touches a Title Block
+    TYPE parameter - only the instance placed on this specific sheet, so
+    one sheet's values can never bleed into a sibling sheet that happens
+    to share the same Title Block type."""
+    try:
+        p = sheet.LookupParameter(param_name)
+        if p is not None and not p.IsReadOnly:
+            _set_param_value(p, value)
+            return
+    except Exception:
+        pass
+    tb = _placed_titleblock(doc, sheet)
+    if tb is None:
+        return
+    try:
+        p = tb.LookupParameter(param_name)
+        if p is not None and not p.IsReadOnly:
+            _set_param_value(p, value)
+    except Exception:
+        pass
 
 
 # --------------------------------------------------------------------------
@@ -264,7 +374,8 @@ def scan_tree(doc, param_overrides=None):
         parent.group_sheets.append(sheet)
         parent.children.append(SmartSheetNode(_sheet_name(sheet), sheet=sheet, parent=parent))
 
-    _assign_classify_params(root, 0, param_overrides or {})
+    tb_by_sheet = _titleblock_instances_by_sheet(doc)
+    _assign_classify_params(root, 0, param_overrides or {}, tb_by_sheet)
     return root
 
 
@@ -283,7 +394,7 @@ def _collect_sheets(node, out=None):
     return out
 
 
-def _assign_classify_params(node, depth, overrides):
+def _assign_classify_params(node, depth, overrides, tb_by_sheet):
     """Identifies classify_param for EVERY folder level, not just the
     bottom-level group - a new sheet needs ALL of them set (Villa Type,
     Mirror/Regular, Plot Number, ...) to land in the exact same Sheet
@@ -297,10 +408,11 @@ def _assign_classify_params(node, depth, overrides):
     auto-detection simply guessed wrong."""
     for child in node.children:
         child_depth = depth + 1 if child.is_folder else depth
-        _assign_classify_params(child, child_depth, overrides)
+        _assign_classify_params(child, child_depth, overrides, tb_by_sheet)
     if node.is_folder and node.label:
         override = overrides.get(depth)
-        node.classify_param = override if override else _find_classifying_parameter(_collect_sheets(node), node.label)
+        node.classify_param = override if override else _find_classifying_parameter(
+            _collect_sheets(node), node.label, tb_by_sheet)
 
 
 def ancestor_chain(node):
@@ -349,10 +461,15 @@ def levels_info(root):
 
 def list_sheet_parameter_names(doc, max_sheets=60):
     """Every instance parameter name found on a sample of the project's
-    real sheets (same noise-filtering as the Sheet Renamer tab's own
-    parameter picker) - the candidate list for the Configure
-    Classification Parameters dialog's dropdowns."""
+    real sheets AND their placed Title Block instances (same
+    noise-filtering as the Sheet Renamer tab's own parameter picker) -
+    the candidate list for the Configure Classification Parameters
+    dialog's dropdowns. Title Block names are included because a level's
+    actual classification parameter may live there rather than on the
+    Sheet (see the module docstring) - _set_param_on_sheet_or_titleblock
+    tries both when writing, so either kind of name works as a choice."""
     names = set()
+    tb_by_sheet = _titleblock_instances_by_sheet(doc)
     count = 0
     for sheet in FilteredElementCollector(doc).OfClass(ViewSheet):
         try:
@@ -363,16 +480,9 @@ def list_sheet_parameter_names(doc, max_sheets=60):
         count += 1
         if count > max_sheets:
             break
-        try:
-            for p in sheet.Parameters:
-                try:
-                    name = p.Definition.Name
-                except Exception:
-                    continue
-                if name and name not in _NOISE_PARAM_NAMES:
-                    names.add(name)
-        except Exception:
-            continue
+        tb = tb_by_sheet.get(_eid(sheet.Id))
+        for name, _value in _iter_param_names_and_values(sheet, tb):
+            names.add(name)
     return sorted(names)
 
 
@@ -386,6 +496,24 @@ def containing_group(node):
     if node.sheet is not None and node.parent is not None and node.parent.is_group:
         return node.parent
     return None
+
+
+def suggest_titleblock_type_id(doc, node):
+    """The ElementId of the Title Block type an existing sheet in `node`'s
+    own group (or node's nearest containing group) already uses - a
+    sensible default for the Add Sheet dialog's Title Block dropdown.
+    Any classification data that lives on the Title Block TYPE (rather
+    than an instance parameter _set_param_on_sheet_or_titleblock can
+    write) can only ever reach a new sheet by it being assigned the SAME
+    type as its siblings, since type parameters are never written here -
+    so the single-sheet Add flow needs this default just as much as
+    Duplicate Group/Add Sheet(s) to All Groups, which already reuse a
+    template sheet's Title Block automatically. Returns None if there's
+    no group context or no sheet in it has a Title Block placed."""
+    group = node if node.is_group else containing_group(node)
+    if group is None or not group.group_sheets:
+        return None
+    return _existing_titleblock_type_id(doc, group.group_sheets[-1])
 
 
 def count_sheets(node):
@@ -527,21 +655,10 @@ def duplicate_group(doc, node, new_value, ancestor_chain=None):
                 new_sheet.SheetNumber = new_number
                 new_sheet.Name = new_name
                 for label, param_name in ancestor_chain:
-                    if not param_name:
-                        continue
-                    try:
-                        p = new_sheet.LookupParameter(param_name)
-                        if p is not None and not p.IsReadOnly:
-                            _set_param_value(p, label)
-                    except Exception:
-                        pass
+                    if param_name:
+                        _set_param_on_sheet_or_titleblock(doc, new_sheet, param_name, label)
                 if node.classify_param:
-                    try:
-                        p = new_sheet.LookupParameter(node.classify_param)
-                        if p is not None and not p.IsReadOnly:
-                            _set_param_value(p, new_value)
-                    except Exception:
-                        pass
+                    _set_param_on_sheet_or_titleblock(doc, new_sheet, node.classify_param, new_value)
                 existing_numbers.add(new_number)
                 results.append((True, new_number, "Created '{0}'".format(new_name)))
             except Exception as e:
@@ -580,14 +697,8 @@ def add_sheet(doc, chain, number, name, titleblock_id):
         sheet.SheetNumber = number
         sheet.Name = name
         for label, param_name in chain:
-            if not param_name:
-                continue
-            try:
-                p = sheet.LookupParameter(param_name)
-                if p is not None and not p.IsReadOnly:
-                    _set_param_value(p, label)
-            except Exception:
-                pass
+            if param_name:
+                _set_param_on_sheet_or_titleblock(doc, sheet, param_name, label)
         t.Commit()
         return True, number, "Created '{0}'".format(name)
     except Exception as e:
@@ -640,14 +751,8 @@ def bulk_add_sheets(doc, groups, sheet_names):
                     new_sheet.SheetNumber = number
                     new_sheet.Name = name
                     for label, param_name in chain:
-                        if not param_name:
-                            continue
-                        try:
-                            p = new_sheet.LookupParameter(param_name)
-                            if p is not None and not p.IsReadOnly:
-                                _set_param_value(p, label)
-                        except Exception:
-                            pass
+                        if param_name:
+                            _set_param_on_sheet_or_titleblock(doc, new_sheet, param_name, label)
                     existing_numbers.add(number)
                     results.append((True, number, "Created '{0}' in group '{1}'".format(name, node.label)))
                 except Exception as e:

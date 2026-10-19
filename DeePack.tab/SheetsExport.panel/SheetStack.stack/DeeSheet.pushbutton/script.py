@@ -33,9 +33,15 @@ Two tabs:
    lists every level in that tree (Villa Type, Mirror/Regular, Plot
    Number, ...) and lets the user confirm or correct which parameter
    drives each one, instead of relying solely on automatic detection -
-   auto-detection guesses by matching existing values and simply cannot
-   guess a level that is blank on every sheet in a branch (shown as
-   Revit's own '???' placeholder). Select a bottom-level folder (one
+   auto-detection guesses by matching existing values (on the Sheet
+   itself AND its placed Title Block instance - plenty of projects carry
+   plot/villa metadata on the Title Block rather than the Sheet) and
+   simply cannot guess a level that is blank on every sheet in a branch
+   (shown as Revit's own '???' placeholder), or one that lives on a
+   Title Block TYPE parameter (never auto-written - it's shared by every
+   sheet using that type, so Add Sheet instead defaults its Title Block
+   picker to whichever type a sibling sheet already uses). Select a
+   bottom-level folder (one
    holding sheets directly, e.g. a Plot Number under Villa Type >
    Mirror) and Duplicate Group creates a whole new matching set of
    sheets - one per sheet in the template group - substituting the old
@@ -1124,7 +1130,14 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
             if seq:
                 suggested_number = seq[0]
         tb_names = sorted(self._titleblock_types.keys())
-        result = smart_dialogs.show_add_sheet(chain, tb_names, suggested_number)
+        suggested_tb_id = smart_sheet.suggest_titleblock_type_id(self.doc, node)
+        suggested_tb_label = None
+        if suggested_tb_id is not None:
+            for tb_name, tb_eid in self._titleblock_types.items():
+                if tb_eid == suggested_tb_id:
+                    suggested_tb_label = tb_name
+                    break
+        result = smart_dialogs.show_add_sheet(chain, tb_names, suggested_number, suggested_tb_label)
         if result is None:
             return
         number, name, tb_label = result

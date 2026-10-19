@@ -101,13 +101,16 @@ class _DuplicateDialog(dee_branding.DeeBrandedWindow):
 
 
 class _AddSheetDialog(dee_branding.DeeBrandedWindow):
-    def __init__(self, xaml_file, chain, titleblock_names, suggested_number):
+    def __init__(self, xaml_file, chain, titleblock_names, suggested_number, suggested_titleblock=None):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self._result = None
         self.chain_tb.Text = " / ".join(label for label, _param in chain) if chain else "(top level)"
         names = [_NONE_TITLEBLOCK_LABEL] + list(titleblock_names or [])
         self.titleblock_cb.ItemsSource = names
-        self.titleblock_cb.SelectedIndex = 0
+        if suggested_titleblock and suggested_titleblock in names:
+            self.titleblock_cb.SelectedItem = suggested_titleblock
+        else:
+            self.titleblock_cb.SelectedIndex = 0
         if suggested_number:
             self.number_tb.Text = suggested_number
             try:
@@ -220,15 +223,20 @@ def show_duplicate(node, ancestor_chain=None):
     return dlg._result
 
 
-def show_add_sheet(chain, titleblock_names, suggested_number=None):
+def show_add_sheet(chain, titleblock_names, suggested_number=None, suggested_titleblock=None):
     """chain: [(folder_label, classify_param_or_None), ...] from root to
     the clicked node, as returned by dee_smart_sheet_service.ancestor_chain.
     suggested_number pre-fills the Sheet Number field (editable) - pass
     the result of dee_smart_sheet_service.next_sequence_numbers for the
-    relevant group, or None when there's nothing to suggest. Returns
-    (number, name, titleblock_label_or_None) on Add Sheet, or None on
-    Cancel/close."""
-    dlg = _AddSheetDialog(_ADD_XAML, chain, titleblock_names, suggested_number)
+    relevant group, or None when there's nothing to suggest.
+    suggested_titleblock pre-selects the Title Block dropdown (a label
+    from titleblock_names) instead of defaulting to "(None)" - pass the
+    label matching dee_smart_sheet_service.suggest_titleblock_type_id's
+    result, since any classification data that lives on the Title Block
+    TYPE can only reach the new sheet by it getting the SAME type as its
+    siblings. Returns (number, name, titleblock_label_or_None) on Add
+    Sheet, or None on Cancel/close."""
+    dlg = _AddSheetDialog(_ADD_XAML, chain, titleblock_names, suggested_number, suggested_titleblock)
     dlg.ShowDialog()
     return dlg._result
 
