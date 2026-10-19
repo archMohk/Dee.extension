@@ -1080,24 +1080,20 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         if not node.is_group:
             forms.alert("'{0}' isn't a bottom-level group - select a folder that holds sheets directly.".format(node.display_name))
             return
-        new_value = smart_dialogs.show_duplicate(node)
+        ancestors = smart_sheet.ancestor_chain(node.parent) if node.parent is not None else []
+        new_value = smart_dialogs.show_duplicate(node, ancestors)
         if not new_value:
             return
         with _SafeProgress(title="DeeSheet - duplicating group...", indeterminate=True):
-            results = smart_sheet.duplicate_group(self.doc, node, new_value)
+            results = smart_sheet.duplicate_group(self.doc, node, new_value, ancestors)
         self._report("DeeSheet - SmartSheet Duplicate Group Results", results)
         self._scan_smart_sheet()
         self._scan_super_sheets()
 
     def smart_add_sheet_click(self, sender, args):
         node = self._smart_selected or self._smart_root
-        path = smart_sheet.find_node_path(self._smart_root, node)
-        if not path:
-            path = [self._smart_root]
-        if node.sheet is not None and len(path) >= 2:
-            path = path[:-1]
-        chain = smart_sheet.classify_chain(path)
-        group_node = path[-1] if path and path[-1].is_group else None
+        chain = smart_sheet.ancestor_chain(node)
+        group_node = smart_sheet.containing_group(node)
         suggested_number = None
         if group_node is not None:
             seq = smart_sheet.next_sequence_numbers(group_node, 1)
@@ -1118,8 +1114,7 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
     def smart_bulk_add_click(self, sender, args):
         node = self._smart_selected or self._smart_root
         if node.sheet is not None:
-            path = smart_sheet.find_node_path(self._smart_root, node)
-            node = path[-2] if path and len(path) >= 2 else self._smart_root
+            node = node.parent or self._smart_root
         groups = smart_sheet.all_groups(node)
         if not groups:
             forms.alert("No duplicable groups found under '{0}'.".format(node.display_name))

@@ -33,12 +33,16 @@ a single root node - SmartSheet still works for Add Sheet, there just
 are no folders to Duplicate.
 
 A folder's classification parameter (the thing Duplicate/Add Sheet
-writes the new value into) is found empirically rather than read off
-the Browser Organization's rules directly (no public API exposes those
-rules) - see _find_classifying_parameter: the parameter whose displayed
-value equals the folder's label on every sheet in that folder. When no
-single parameter matches on every sheet, classify_param stays None and
-Duplicate/Add Sheet simply skip writing a parameter for that level
+writes into) is found empirically rather than read off the Browser
+Organization's rules directly (no public API exposes those rules) - see
+_find_classifying_parameter: the parameter whose displayed value equals
+the folder's label on every sheet nested under it. This runs for EVERY
+folder level, not just the bottom-level group - a new sheet needs its
+Villa Type, Mirror/Regular AND Plot Number (or whatever levels a given
+project uses) all set, not just the deepest one, or it shows up
+unclassified ('???') in the Project Browser instead of alongside its
+siblings. When no single parameter matches on every sheet at a given
+level, that level's classify_param stays None and is simply skipped
 (the Sheet Number/Sheet Name substitution still happens).
 """
 import re
@@ -147,11 +151,14 @@ class SmartSheetNode(object):
     """One node in the SmartSheet tree. A folder node has `children` and
     `sheet is None`; a leaf node has `sheet` set and no children. `label`
     is the folder name (for folders) or the sheet's Name (for leaves) -
-    `display_name` is what the TreeView actually shows."""
+    `display_name` is what the TreeView actually shows. `parent` lets any
+    node found by the TreeView walk straight back up to the root without
+    a separate tree search - see ancestor_chain()."""
 
-    def __init__(self, label, sheet=None):
+    def __init__(self, label, sheet=None, parent=None):
         self.label = label or ""
         self.sheet = sheet
+        self.parent = parent
         self.children = []
         self.classify_param = None
         self.group_sheets = []
@@ -236,31 +243,71 @@ def scan_tree(doc):
             key = tuple(path[:depth + 1])
             node = folder_cache.get(key)
             if node is None:
-                node = SmartSheetNode(label)
+                node = SmartSheetNode(label, parent=parent)
                 parent.children.append(node)
                 folder_cache[key] = node
             parent = node
         parent.group_sheets.append(sheet)
-        parent.children.append(SmartSheetNode(_sheet_name(sheet), sheet=sheet))
+        parent.children.append(SmartSheetNode(_sheet_name(sheet), sheet=sheet, parent=parent))
 
     _assign_classify_params(root)
     return root
 
 
+def _collect_sheets(node, out=None):
+    """Every ViewSheet nested anywhere under `node` - not just its direct
+    children. A folder several levels above a group (e.g. 'Villa Type')
+    has no sheets of its own in group_sheets (only a bottom-level group
+    does), but its classification parameter still needs to be identified
+    from the full set of sheets that actually live under it."""
+    if out is None:
+        out = []
+    if node.sheet is not None:
+        out.append(node.sheet)
+    for child in node.children:
+        _collect_sheets(child, out)
+    return out
+
+
 def _assign_classify_params(node):
+    """Identifies classify_param for EVERY folder level, not just the
+    bottom-level group - a new sheet needs ALL of them set (Villa Type,
+    Mirror/Regular, Plot Number, ...) to land in the exact same Sheet
+    Browser folder as its siblings, not just the deepest one."""
     for child in node.children:
         _assign_classify_params(child)
+    if node.is_folder and node.label:
+        node.classify_param = _find_classifying_parameter(_collect_sheets(node), node.label)
+
+
+def ancestor_chain(node):
+    """[(folder_label, classify_param_or_None), ...] from the root down
+    to `node` itself (inclusive, if node is a folder) or down to its
+    parent folder (if node is a sheet leaf) - every parameter a new
+    sheet needs set to land in exactly this spot in the Sheet Browser.
+    Walks `parent` pointers rather than searching the tree, so it works
+    directly on whatever node the TreeView hands back."""
+    start = node if node.is_folder else node.parent
+    chain = []
+    n = start
+    while n is not None:
+        if n.label:
+            chain.append((n.label, n.classify_param))
+        n = n.parent
+    chain.reverse()
+    return chain
+
+
+def containing_group(node):
+    """The bottom-level group `node` itself is, or that its parent folder
+    is, or None if neither qualifies (e.g. a higher folder like 'Mirror'
+    with no sheets directly in it) - used to know whose Sheet Number
+    sequence to continue when suggesting a new number."""
     if node.is_group:
-        node.classify_param = _find_classifying_parameter(node.group_sheets, node.label)
-
-
-def classify_chain(node_path):
-    """node_path: list of SmartSheetNode from root to a target node
-    (inclusive), as collected while walking the tree to find it. Returns
-    [(folder_label, classify_param_or_None)] for every folder level in
-    the chain - used both to show the chain in the Add Sheet dialog and
-    to set those parameters on a newly created sheet."""
-    return [(n.label, n.classify_param) for n in node_path if n.is_folder and n.label]
+        return node
+    if node.sheet is not None and node.parent is not None and node.parent.is_group:
+        return node.parent
+    return None
 
 
 def count_sheets(node):
@@ -276,19 +323,6 @@ def count_groups(node):
         for child in node.children:
             total += count_groups(child)
     return total
-
-
-def find_node_path(root, target):
-    """Root-to-target list of SmartSheetNode, or None if target isn't in
-    this tree. Needed because the TreeView only hands back the clicked
-    node, not the chain of ancestors above it."""
-    if root is target:
-        return [root]
-    for child in root.children:
-        sub = find_node_path(child, target)
-        if sub is not None:
-            return [root] + sub
-    return None
 
 
 # --------------------------------------------------------------------------
@@ -365,15 +399,22 @@ def all_groups(node, out=None):
 # --------------------------------------------------------------------------
 # Duplicate Group
 # --------------------------------------------------------------------------
-def duplicate_group(doc, node, new_value):
+def duplicate_group(doc, node, new_value, ancestor_chain=None):
     """node must be a bottom-level group (node.is_group). Creates one new
     sheet per sheet in node.group_sheets, substituting node.label with
     new_value wherever it appears in Sheet Number/Sheet Name, carrying
-    over each template sheet's own Title Block, and - when
-    node.classify_param was identified - setting that parameter to
-    new_value on the new sheet. Returns a list of (ok, label, detail)
-    tuples, same shape as the rest of DeeSheet's results."""
+    over each template sheet's own Title Block, setting node.classify_param
+    (if identified) to new_value, and - crucially - also setting every
+    parameter in `ancestor_chain` (the folder levels ABOVE this group,
+    e.g. Villa Type, Mirror/Regular) to their UNCHANGED label, since a
+    freshly created sheet starts with blank parameters and would
+    otherwise show up unclassified ('???') in the Sheet Browser instead
+    of alongside the group it was duplicated from. Pass the result of
+    ancestor_chain(node.parent) (or [] if node has no parent folder).
+    Returns a list of (ok, label, detail) tuples, same shape as the rest
+    of DeeSheet's results."""
     old_value = node.label
+    ancestor_chain = ancestor_chain or []
     results = []
     if not old_value:
         return [(False, "-", "This group has no identifying value to substitute.")]
@@ -407,6 +448,15 @@ def duplicate_group(doc, node, new_value):
                 new_sheet = ViewSheet.Create(doc, tb_id if tb_id is not None else ElementId.InvalidElementId)
                 new_sheet.SheetNumber = new_number
                 new_sheet.Name = new_name
+                for label, param_name in ancestor_chain:
+                    if not param_name:
+                        continue
+                    try:
+                        p = new_sheet.LookupParameter(param_name)
+                        if p is not None and not p.IsReadOnly:
+                            _set_param_value(p, label)
+                    except Exception:
+                        pass
                 if node.classify_param:
                     try:
                         p = new_sheet.LookupParameter(node.classify_param)
@@ -429,7 +479,7 @@ def duplicate_group(doc, node, new_value):
 # Add Sheet
 # --------------------------------------------------------------------------
 def add_sheet(doc, chain, number, name, titleblock_id):
-    """chain: as returned by classify_chain() for whichever node was
+    """chain: as returned by ancestor_chain() for whichever node was
     clicked. Creates one sheet, then sets every (param_name, value) pair
     in chain that resolved to a real, writable parameter. Returns
     (ok, label, detail)."""
@@ -476,10 +526,13 @@ def bulk_add_sheets(doc, groups, sheet_names):
     independently - a group at 01..06 gets 07/08..., a different group at
     01..04 gets 05/06..., each purely from its own existing numbers (see
     next_sequence_numbers). Reuses each group's own last sheet's Title
-    Block, and sets that group's classify_param (if one was identified)
-    to the group's own label on every new sheet. A group whose sheets
-    don't share one common numbering pattern is skipped and reported,
-    never guessed at. Returns a list of (ok, label, detail) tuples."""
+    Block, and sets every classification parameter from ancestor_chain(node)
+    (the group's own level AND every folder above it - Villa Type,
+    Mirror/Regular, Plot Number, ...) so the new sheets land in exactly
+    the same Sheet Browser spot as their siblings instead of showing up
+    unclassified. A group whose sheets don't share one common numbering
+    pattern is skipped and reported, never guessed at. Returns a list of
+    (ok, label, detail) tuples."""
     results = []
     existing_numbers = set()
     for vs in FilteredElementCollector(doc).OfClass(ViewSheet):
@@ -499,6 +552,7 @@ def bulk_add_sheets(doc, groups, sheet_names):
                 continue
             template_sheet = node.group_sheets[-1] if node.group_sheets else None
             tb_id = _existing_titleblock_type_id(doc, template_sheet) if template_sheet is not None else None
+            chain = ancestor_chain(node)
             for number, name in zip(numbers, sheet_names):
                 try:
                     if number in existing_numbers:
@@ -507,11 +561,13 @@ def bulk_add_sheets(doc, groups, sheet_names):
                     new_sheet = ViewSheet.Create(doc, tb_id if tb_id is not None else ElementId.InvalidElementId)
                     new_sheet.SheetNumber = number
                     new_sheet.Name = name
-                    if node.classify_param:
+                    for label, param_name in chain:
+                        if not param_name:
+                            continue
                         try:
-                            p = new_sheet.LookupParameter(node.classify_param)
+                            p = new_sheet.LookupParameter(param_name)
                             if p is not None and not p.IsReadOnly:
-                                _set_param_value(p, node.label)
+                                _set_param_value(p, label)
                         except Exception:
                             pass
                     existing_numbers.add(number)

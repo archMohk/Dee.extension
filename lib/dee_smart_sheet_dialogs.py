@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """
 dee_smart_sheet_dialogs
-Two small modal dialogs for DeeSheet's "SmartSheet" tab:
+Three small modal dialogs for DeeSheet's "SmartSheet" tab:
 
-  show_duplicate(node) - confirms the new identifying value for a
-  Duplicate Group action and previews the resulting Sheet Number /
-  Sheet Name for every sheet in the template group before anything is
-  created. Returns the new value string on Duplicate, or None on
-  Cancel/close.
+  show_duplicate(node, ancestor_chain) - confirms the new identifying
+  value for a Duplicate Group action, shows which parent folders will be
+  carried over unchanged (so the new sheets land in the same Sheet
+  Browser branch, not show up unclassified), and previews the resulting
+  Sheet Number / Sheet Name for every sheet in the template group before
+  anything is created. Returns the new value string on Duplicate, or
+  None on Cancel/close.
 
   show_add_sheet(chain, titleblock_names, suggested_number) - collects
   Sheet Number / Sheet Name / Title Block for a single new sheet, with
@@ -39,12 +41,18 @@ _NONE_TITLEBLOCK_LABEL = "(None - no title block)"
 
 
 class _DuplicateDialog(dee_branding.DeeBrandedWindow):
-    def __init__(self, xaml_file, node):
+    def __init__(self, xaml_file, node, ancestor_chain):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self._node = node
         self._result = None
         self.old_value_tb.Text = node.label
         self.param_tb.Text = node.classify_param or "(not identified - Number/Name text only)"
+        if ancestor_chain:
+            self.ancestors_tb.Text = ", ".join(
+                "{0} ({1})".format(label, param) if param else "{0} (not identified)".format(label)
+                for label, param in ancestor_chain)
+        else:
+            self.ancestors_tb.Text = "(top level - no parent folder)"
         self._refresh_preview()
 
     def _refresh_preview(self):
@@ -147,19 +155,22 @@ class _BulkAddDialog(dee_branding.DeeBrandedWindow):
         self.Close()
 
 
-def show_duplicate(node):
-    """node: a SmartSheetNode with node.is_group True. Returns the new
-    value string the user entered, or None on Cancel/close (callers
-    should treat an empty-but-not-None result as "nothing entered" and
+def show_duplicate(node, ancestor_chain=None):
+    """node: a SmartSheetNode with node.is_group True. ancestor_chain:
+    the result of dee_smart_sheet_service.ancestor_chain(node.parent) -
+    shown read-only so the user can see which parent folders will be
+    carried over unchanged onto the new sheets. Returns the new value
+    string the user entered, or None on Cancel/close (callers should
+    treat an empty-but-not-None result as "nothing entered" and
     re-prompt/alert, same as other DeeSheet confirmation flows)."""
-    dlg = _DuplicateDialog(_DUP_XAML, node)
+    dlg = _DuplicateDialog(_DUP_XAML, node, ancestor_chain or [])
     dlg.ShowDialog()
     return dlg._result
 
 
 def show_add_sheet(chain, titleblock_names, suggested_number=None):
     """chain: [(folder_label, classify_param_or_None), ...] from root to
-    the clicked node, as returned by dee_smart_sheet_service.classify_chain.
+    the clicked node, as returned by dee_smart_sheet_service.ancestor_chain.
     suggested_number pre-fills the Sheet Number field (editable) - pass
     the result of dee_smart_sheet_service.next_sequence_numbers for the
     relevant group, or None when there's nothing to suggest. Returns
