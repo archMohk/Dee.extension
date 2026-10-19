@@ -1,0 +1,29 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SmartSheet - Add Sheet(s) to All Groups"
+        ShowInTaskbar="False"
+        MinHeight="440" MinWidth="480" Height="480" Width="500"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8" FontSize="11" Foreground="#555"
+                   Text="Appends the Sheet Name(s) below to every group in scope, one per line, in order - each group works out its OWN next Sheet Number from its own existing sheets (a group already at 01-06 gets 07/08..., a different group at 01-04 gets 05/06...). A group whose sheets don't share one common numbering pattern is skipped and reported, never guessed at."/>
+
+        <TextBlock DockPanel.Dock="Top" x:Name="scope_tb" FontWeight="Bold" Margin="0,0,0,10"/>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button x:Name="cancel_b" Content="Cancel" Width="90" Height="28" Margin="0,0,8,0" Click="cancel_click"/>
+            <Button x:Name="ok_b" Content="Add to All Groups" Width="150" Height="28" FontWeight="Bold"
+                    Background="#1F6FB2" Foreground="White" BorderBrush="#1F6FB2" Cursor="Hand" Click="ok_click"/>
+        </StackPanel>
+
+        <TextBlock DockPanel.Dock="Top" Text="New Sheet Name(s) - one per line:" FontWeight="Bold" Margin="0,0,0,4"/>
+        <TextBox DockPanel.Dock="Top" x:Name="names_tb" Height="110" AcceptsReturn="True" TextWrapping="NoWrap"
+                 VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="13" Margin="0,0,0,10"
+                 TextChanged="names_changed"/>
+
+        <TextBlock Text="Preview:" FontWeight="Bold" Margin="0,0,0,4"/>
+        <Border Background="#F5F5F5" BorderBrush="#CCCCCC" BorderThickness="1" Padding="8">
+            <TextBlock x:Name="sample_tb" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"/>
+        </Border>
+    </DockPanel>
+</Window>

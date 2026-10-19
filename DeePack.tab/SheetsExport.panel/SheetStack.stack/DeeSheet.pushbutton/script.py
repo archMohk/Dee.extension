@@ -37,9 +37,15 @@ Two tabs:
    whichever parameter was found to drive that folder level, if any).
    Add Sheet creates a single new sheet anywhere in the tree, with the
    clicked node's folder chain pre-filled so it lands in the right
-   group. Falls back to one flat list if the project's Sheet Browser
-   Organization has no grouping rules (or the API is unavailable) -
-   Add Sheet still works, there's just nothing to Duplicate.
+   group, and its Sheet Number suggested by continuing that group's own
+   numbering (01..06 -> suggests 07). Add Sheet(s) to All Groups does
+   the same across every group under the current selection (or the
+   whole tree if nothing/the root is selected) in one pass - each group
+   works out its own next number(s) from its own existing sheets, so
+   groups that already have different counts don't collide. Falls back
+   to one flat list if the project's Sheet Browser Organization has no
+   grouping rules (or the API is unavailable) - Add Sheet still works,
+   there's just nothing to Duplicate.
 
 Needs live-Revit verification: ChangeTypeId on a placed title block
 instance, Document.Create.NewFamilyInstance(XYZ.Zero, symbol, sheet)
@@ -1091,8 +1097,14 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         if node.sheet is not None and len(path) >= 2:
             path = path[:-1]
         chain = smart_sheet.classify_chain(path)
+        group_node = path[-1] if path and path[-1].is_group else None
+        suggested_number = None
+        if group_node is not None:
+            seq = smart_sheet.next_sequence_numbers(group_node, 1)
+            if seq:
+                suggested_number = seq[0]
         tb_names = sorted(self._titleblock_types.keys())
-        result = smart_dialogs.show_add_sheet(chain, tb_names)
+        result = smart_dialogs.show_add_sheet(chain, tb_names, suggested_number)
         if result is None:
             return
         number, name, tb_label = result
@@ -1100,6 +1112,29 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         with _SafeProgress(title="DeeSheet - adding sheet...", indeterminate=True):
             ok, label, detail = smart_sheet.add_sheet(self.doc, chain, number, name, tb_id)
         self._report("DeeSheet - SmartSheet Add Sheet Result", [(ok, label, detail)])
+        self._scan_smart_sheet()
+        self._scan_super_sheets()
+
+    def smart_bulk_add_click(self, sender, args):
+        node = self._smart_selected or self._smart_root
+        if node.sheet is not None:
+            path = smart_sheet.find_node_path(self._smart_root, node)
+            node = path[-2] if path and len(path) >= 2 else self._smart_root
+        groups = smart_sheet.all_groups(node)
+        if not groups:
+            forms.alert("No duplicable groups found under '{0}'.".format(node.display_name))
+            return
+        names = smart_dialogs.show_bulk_add(node.display_name, groups)
+        if not names:
+            return
+        if not forms.alert(
+                "Add {0} new sheet(s) to each of {1} group(s) ({2} sheet(s) total)?".format(
+                    len(names), len(groups), len(names) * len(groups)),
+                title="DeeSheet - Confirm", yes=True, no=True):
+            return
+        with _SafeProgress(title="DeeSheet - adding sheets to all groups...", indeterminate=True):
+            results = smart_sheet.bulk_add_sheets(self.doc, groups, names)
+        self._report("DeeSheet - SmartSheet Add Sheets to All Groups Results", results)
         self._scan_smart_sheet()
         self._scan_super_sheets()
 

@@ -15,7 +15,13 @@ into an editable tree, then lets the user:
     identified) that parameter set to the new value too.
   - Add a single new sheet anywhere in the tree, with every ancestor
     folder's classification parameter pre-filled from the node that
-    was clicked.
+    was clicked, and its Sheet Number suggested by continuing that
+    group's own numbering sequence (see next_sequence_numbers).
+  - Add the same new sheet(s) to EVERY group under a chosen scope in one
+    pass (bulk_add_sheets) - each group gets its own next number(s),
+    computed purely from its own existing sheets, so a group at 01..06
+    gets 07/08... while a different group at 01..04 gets 05/06..., with
+    no assumption that every group started at the same count.
 
 Uses Autodesk.Revit.DB.BrowserOrganization.GetFolderItems(ElementId) to
 read the ACTUAL folder path Revit itself would show that sheet under in
@@ -35,10 +41,14 @@ single parameter matches on every sheet, classify_param stays None and
 Duplicate/Add Sheet simply skip writing a parameter for that level
 (the Sheet Number/Sheet Name substitution still happens).
 """
+import re
+
 from Autodesk.Revit.DB import (
     FilteredElementCollector, BuiltInCategory, BuiltInParameter, ViewSheet,
     ElementId, StorageType, Transaction,
 )
+
+_TRAILING_DIGITS_RE = re.compile(r"^(.*?)(\d+)$")
 
 _NOISE_PARAM_NAMES = set([
     "Sheet Number", "Sheet Name", "Sheet Issue Date", "Approved By",
@@ -282,6 +292,77 @@ def find_node_path(root, target):
 
 
 # --------------------------------------------------------------------------
+# Sequence detection - generic to any numbering convention
+# --------------------------------------------------------------------------
+def _split_trailing_number(number):
+    """(prefix, digits) split on the TRAILING run of digits in a Sheet
+    Number, e.g. '6853597-01' -> ('6853597-', '01'), 'A101' -> ('A', '101').
+    None if the number has no trailing digits at all - nothing to safely
+    continue a sequence from. Deliberately generic: no assumption about a
+    dash or any other specific delimiter, so it fits any project's own
+    numbering convention."""
+    if not number:
+        return None
+    m = _TRAILING_DIGITS_RE.match(number)
+    if not m:
+        return None
+    return m.group(1), m.group(2)
+
+
+def detect_group_sequence(node):
+    """Looks at every sheet Number already in this group and finds the
+    one common prefix + zero-padded trailing number they all share, e.g.
+    '6853597-01'..'6853597-06' -> prefix '6853597-', pad width 2, next
+    sequence value 7. Returns (prefix, pad_width, next_n), or None when
+    the group has no sheets yet or their numbers don't share one common
+    prefix (nothing safe to continue)."""
+    prefixes = set()
+    max_n = 0
+    pad_width = 0
+    found_any = False
+    for sheet in node.group_sheets:
+        try:
+            number = sheet.SheetNumber or ""
+        except Exception:
+            continue
+        parsed = _split_trailing_number(number)
+        if parsed is None:
+            return None
+        prefix, digits = parsed
+        prefixes.add(prefix)
+        found_any = True
+        max_n = max(max_n, int(digits))
+        pad_width = max(pad_width, len(digits))
+    if not found_any or len(prefixes) != 1:
+        return None
+    return next(iter(prefixes)), pad_width, max_n + 1
+
+
+def next_sequence_numbers(node, count):
+    """`count` consecutive new Sheet Numbers continuing this group's own
+    detected sequence (e.g. 07, 08 after 01..06), or None if no common
+    pattern could be detected in the group's current sheets."""
+    seq = detect_group_sequence(node)
+    if seq is None:
+        return None
+    prefix, pad_width, start_n = seq
+    return [u"{0}{1}".format(prefix, str(start_n + i).zfill(pad_width)) for i in range(count)]
+
+
+def all_groups(node, out=None):
+    """Every bottom-level duplicable group under `node` (node included),
+    depth-first - the set Add Sheets to All Groups operates on."""
+    if out is None:
+        out = []
+    if node.is_group:
+        out.append(node)
+    else:
+        for child in node.children:
+            all_groups(child, out)
+    return out
+
+
+# --------------------------------------------------------------------------
 # Duplicate Group
 # --------------------------------------------------------------------------
 def duplicate_group(doc, node, new_value):
@@ -384,3 +465,61 @@ def add_sheet(doc, chain, number, name, titleblock_id):
     except Exception as e:
         t.RollBack()
         return False, number, "FAILED: {0}".format(e)
+
+
+# --------------------------------------------------------------------------
+# Add Sheet(s) to All Groups
+# --------------------------------------------------------------------------
+def bulk_add_sheets(doc, groups, sheet_names):
+    """Creates len(sheet_names) new sheets in EACH group in `groups`,
+    continuing that group's own detected Sheet Number sequence
+    independently - a group at 01..06 gets 07/08..., a different group at
+    01..04 gets 05/06..., each purely from its own existing numbers (see
+    next_sequence_numbers). Reuses each group's own last sheet's Title
+    Block, and sets that group's classify_param (if one was identified)
+    to the group's own label on every new sheet. A group whose sheets
+    don't share one common numbering pattern is skipped and reported,
+    never guessed at. Returns a list of (ok, label, detail) tuples."""
+    results = []
+    existing_numbers = set()
+    for vs in FilteredElementCollector(doc).OfClass(ViewSheet):
+        try:
+            existing_numbers.add(vs.SheetNumber)
+        except Exception:
+            continue
+
+    t = Transaction(doc, "DeeSheet - SmartSheet Add Sheets to All Groups")
+    t.Start()
+    try:
+        for node in groups:
+            numbers = next_sequence_numbers(node, len(sheet_names))
+            if numbers is None:
+                results.append((False, node.label,
+                                 "Skipped - sheets in this group don't share one common Number pattern"))
+                continue
+            template_sheet = node.group_sheets[-1] if node.group_sheets else None
+            tb_id = _existing_titleblock_type_id(doc, template_sheet) if template_sheet is not None else None
+            for number, name in zip(numbers, sheet_names):
+                try:
+                    if number in existing_numbers:
+                        results.append((False, number, "Skipped - Sheet Number already exists"))
+                        continue
+                    new_sheet = ViewSheet.Create(doc, tb_id if tb_id is not None else ElementId.InvalidElementId)
+                    new_sheet.SheetNumber = number
+                    new_sheet.Name = name
+                    if node.classify_param:
+                        try:
+                            p = new_sheet.LookupParameter(node.classify_param)
+                            if p is not None and not p.IsReadOnly:
+                                _set_param_value(p, node.label)
+                        except Exception:
+                            pass
+                    existing_numbers.add(number)
+                    results.append((True, number, "Created '{0}' in group '{1}'".format(name, node.label)))
+                except Exception as e:
+                    results.append((False, number, "FAILED: {0}".format(e)))
+        t.Commit()
+    except Exception as e:
+        t.RollBack()
+        results.append((False, "-", "Aborted: {0}".format(e)))
+    return results

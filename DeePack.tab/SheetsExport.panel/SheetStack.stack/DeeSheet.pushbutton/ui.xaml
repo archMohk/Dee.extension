@@ -375,6 +375,8 @@
                         <Button x:Name="smart_collapse_all_b" Content="Collapse All" Click="smart_collapse_all_click" Width="90" Height="26" Margin="6,0,0,0"/>
                         <Button x:Name="smart_duplicate_b" Content="Duplicate Group..." Click="smart_duplicate_click" Width="140" Height="26" Margin="16,0,0,0" FontWeight="Bold"/>
                         <Button x:Name="smart_add_sheet_b" Content="Add Sheet..." Click="smart_add_sheet_click" Width="110" Height="26" Margin="8,0,0,0" FontWeight="Bold"/>
+                        <Button x:Name="smart_bulk_add_b" Content="Add Sheet(s) to All Groups..." Click="smart_bulk_add_click" Width="200" Height="26" Margin="8,0,0,0" FontWeight="Bold"
+                                ToolTip="Appends the same new Sheet Name(s) to every group under the current selection (or the whole tree if nothing/the root is selected) - each group gets its own next Sheet Number, worked out from its own existing sheets."/>
                         <TextBlock x:Name="smart_status_tb" Text="" VerticalAlignment="Center" Margin="16,0,0,0" FontStyle="Italic"/>
                     </StackPanel>
 
