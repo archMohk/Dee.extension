@@ -178,14 +178,17 @@
             <TabItem Header="Matrix">
                 <DockPanel Margin="6">
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
-                        <TextBox x:Name="matrix_search_tb" Width="200" Height="22"
+                        <TextBox x:Name="matrix_search_tb" Width="160" Height="22"
                                  VerticalContentAlignment="Center" TextChanged="matrix_search_changed"
-                                 ToolTip="Filters both rows and columns together - they are the same file list."/>
+                                 ToolTip="Filters both rows and columns."/>
                         <Button x:Name="matrix_clear_search_b" Content="Clear" Width="46" Height="22"
                                 Margin="4,0,0,0" Click="matrix_clear_search_click"/>
-                        <TextBlock Text="Delivery Party:" VerticalAlignment="Center" Margin="14,0,4,0"/>
-                        <ComboBox x:Name="matrix_party_filter_cb" Width="160" Height="22"
-                                  SelectionChanged="matrix_party_filter_changed"/>
+                        <TextBlock Text="Rows (Y):" VerticalAlignment="Center" Margin="14,0,4,0"/>
+                        <ComboBox x:Name="matrix_row_filter_cb" Width="130" Height="22"
+                                  SelectionChanged="matrix_filter_changed"/>
+                        <TextBlock Text="Columns (X):" VerticalAlignment="Center" Margin="10,0,4,0"/>
+                        <ComboBox x:Name="matrix_col_filter_cb" Width="130" Height="22"
+                                  SelectionChanged="matrix_filter_changed"/>
                         <Button x:Name="matrix_clear_all_b" Content="Clear All" Width="80" Height="22"
                                 Margin="14,0,0,0" Click="matrix_clear_click"/>
                         <TextBlock x:Name="matrix_count_tb" VerticalAlignment="Center" Margin="14,0,0,0"
@@ -195,7 +198,7 @@
                     <Border DockPanel.Dock="Bottom" Background="#2B2B2B" BorderBrush="#555"
                             BorderThickness="1" Padding="6,4" Margin="0,6,0,0">
                         <TextBlock FontSize="11" Foreground="#CCC" TextWrapping="Wrap"
-                                   Text="Rows and columns are the SAME file list. Tick a cell to link that ROW into that COLUMN. The diagonal is disabled - a file can't be linked into itself."/>
+                                   Text="Tick a cell to link that ROW into that COLUMN - shift-click to set a whole rectangle at once. The diagonal is disabled - a file can't be linked into itself. Right-click a header to insert/remove a separator line (saved with Save Set)."/>
                     </Border>
 
                     <Border BorderBrush="#555" BorderThickness="1">
@@ -210,10 +213,46 @@
             <TabItem Header="Selected Links">
                 <DockPanel Margin="6">
                     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Every current match, with its own Link Type and Attachment. Leave a match alone to use the Link Setup defaults above - only change what you need to differ."/>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <StackPanel x:Name="selected_links_panel" Margin="4"/>
-                    </ScrollViewer>
+                               Text="Every current match, with its own Link Type and Attachment. Leave a match alone to use the Link Setup defaults above - only change what you need to differ. Select multiple rows (Ctrl/Shift-click) to bulk-apply a change below."/>
+                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBlock Text="Set Link Type for selected:" Foreground="WhiteSmoke" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="bulk_placement_cb" Width="200" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="bulk_placement_apply_b" Content="Apply" Width="70" Height="24"
+                                Margin="6,0,0,0" Click="bulk_placement_apply_click"/>
+                        <TextBlock Text="Attachment:" Foreground="WhiteSmoke" VerticalAlignment="Center" Margin="20,0,0,0"/>
+                        <ComboBox x:Name="bulk_attachment_cb" Width="120" Height="24" Margin="6,0,0,0"/>
+                        <Button x:Name="bulk_attachment_apply_b" Content="Apply" Width="70" Height="24"
+                                Margin="6,0,0,0" Click="bulk_attachment_apply_click"/>
+                    </StackPanel>
+                    <DataGrid x:Name="selected_links_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                              SelectionMode="Extended" SelectionUnit="FullRow" RowHeaderWidth="0"
+                              RowEditEnding="selected_links_row_edit_ending">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Match" Binding="{Binding match_label}" IsReadOnly="True" Width="2*">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="WhiteSmoke"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridComboBoxColumn x:Name="selected_links_placement_col" Header="Link Type"
+                                                     SelectedItemBinding="{Binding placement_label}" Width="220">
+                                <DataGridComboBoxColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="WhiteSmoke"/>
+                                    </Style>
+                                </DataGridComboBoxColumn.ElementStyle>
+                            </DataGridComboBoxColumn>
+                            <DataGridComboBoxColumn x:Name="selected_links_attachment_col" Header="Attachment"
+                                                     SelectedItemBinding="{Binding attachment_label}" Width="140">
+                                <DataGridComboBoxColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="WhiteSmoke"/>
+                                    </Style>
+                                </DataGridComboBoxColumn.ElementStyle>
+                            </DataGridComboBoxColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
                 </DockPanel>
             </TabItem>
 
