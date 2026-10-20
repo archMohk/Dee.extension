@@ -11,17 +11,22 @@ into an editable tree, then lets the user:
     Calculation set) into a brand new group - one new sheet per sheet
     in the template group, with the old group's identifying value
     swapped for a new one everywhere it appears in Sheet Number/Sheet
-    Name, and (when the parameter driving that folder level could be
-    identified) that parameter set to the new value too.
+    Name, and every OTHER writable parameter the template sheet/Title
+    Block carries cloned across too (clone_sheet_parameters) - not just
+    the one driving that folder level, but all the plot/villa metadata
+    that would otherwise start blank on a freshly created sheet.
   - Add a single new sheet anywhere in the tree, with every ancestor
-    folder's classification parameter pre-filled from the node that
-    was clicked, and its Sheet Number suggested by continuing that
-    group's own numbering sequence (see next_sequence_numbers).
+    folder's classification parameter pre-filled from the node that was
+    clicked, its Sheet Number suggested by continuing that group's own
+    numbering sequence (see next_sequence_numbers), and - when an
+    existing sheet in the same group is available as a template - every
+    other parameter that sheet carries cloned onto the new one too.
   - Add the same new sheet(s) to EVERY group under a chosen scope in one
-    pass (bulk_add_sheets) - each group gets its own next number(s),
-    computed purely from its own existing sheets, so a group at 01..06
-    gets 07/08... while a different group at 01..04 gets 05/06..., with
-    no assumption that every group started at the same count.
+    pass (bulk_add_sheets) - each group gets its own next number(s) and
+    its own full set of cloned parameters, computed purely from its own
+    existing sheets, so a group at 01..06 gets 07/08... while a
+    different group at 01..04 gets 05/06..., with no assumption that
+    every group started at the same count or carries the same metadata.
 
 Uses Autodesk.Revit.DB.BrowserOrganization.GetFolderItems(ElementId) to
 read the ACTUAL folder path Revit itself would show that sheet under in
@@ -67,6 +72,20 @@ auto-detection got every level right. When a level has neither an
 override nor a usable auto-detected guess, its classify_param stays
 None and is simply skipped (the Sheet Number/Sheet Name substitution
 still happens).
+
+classify_param only ever covers the handful of parameters driving the
+Sheet Browser hierarchy - a Title Block typically carries plenty more
+(parcel/plot IDs, areas, FAR, developer/authority fields, ...) that a
+new sheet needs too, just to be consistent with its siblings, not to
+affect where it sits in the tree. clone_sheet_parameters handles that
+separately: given a template sheet, it copies every OTHER writable
+parameter (by name, Sheet and Title Block both) onto a new sheet,
+substituting the old identifying value for the new one in any text
+field that contains it (Duplicate Group) or leaving everything as-is
+(Add Sheet/Add Sheet(s) to All Groups, where nothing should differ from
+the template). Raw typed values are copied (AsInteger/AsDouble/
+AsElementId/AsString) rather than a formatted display string, so a
+numeric/area parameter transfers correctly regardless of units.
 """
 import re
 
@@ -263,6 +282,76 @@ def _set_param_on_sheet_or_titleblock(doc, sheet, param_name, value):
             _set_param_value(p, value)
     except Exception:
         pass
+
+
+def _copy_param_typed(src_param, dst_param, old_value, new_value):
+    """Copies src_param's RAW value onto dst_param - AsInteger/AsDouble/
+    AsElementId/AsString, matched by dst_param's own StorageType, never
+    the formatted AsValueString() a numeric/area parameter would show
+    (which could carry units/thousands separators _set_param_value's
+    int()/float() can't parse back). When old_value/new_value are both
+    given and dst_param is a String holding old_value, substitutes it
+    for new_value first - the generalization of the Sheet Number/Name
+    substitution Duplicate Group already does, so a plot-identifying
+    text field (e.g. a Parcel ID matching the old Plot Number) transfers
+    as the NEW plot's value; any other text copies unchanged."""
+    try:
+        st = dst_param.StorageType
+        if st == StorageType.String:
+            value = src_param.AsString()
+            if value is None:
+                return
+            if old_value and new_value and old_value in value:
+                value = value.replace(old_value, new_value)
+            dst_param.Set(value)
+        elif st == StorageType.Integer:
+            dst_param.Set(src_param.AsInteger())
+        elif st == StorageType.Double:
+            dst_param.Set(src_param.AsDouble())
+        elif st == StorageType.ElementId:
+            dst_param.Set(src_param.AsElementId())
+    except Exception:
+        pass
+
+
+def clone_sheet_parameters(doc, template_sheet, new_sheet, old_value=None, new_value=None):
+    """Copies every writable instance parameter (matched by name) from
+    template_sheet - AND from template_sheet's own placed Title Block
+    instance onto new_sheet's - so a sheet added alongside existing ones
+    in the same group, or duplicated into a new one, starts with the
+    same plot/villa metadata its siblings already carry instead of
+    blank. This is the general case Duplicate Group/Add Sheet(s) to All
+    Groups actually need: not just the handful of parameters driving the
+    Sheet Browser hierarchy (classify_param), but everything else a
+    Title Block typically carries too (parcel/plot IDs, areas, FAR,
+    developer/authority fields, ...). Sheet Number/Name are always
+    skipped - the caller sets those itself. See _copy_param_typed for
+    how old_value/new_value substitution works (Duplicate Group only;
+    leave both None for Add Sheet/Add Sheet(s) to All Groups, where
+    nothing should change from the template)."""
+    template_tb = _placed_titleblock(doc, template_sheet)
+    new_tb = _placed_titleblock(doc, new_sheet)
+    for src_elem, dst_elem in ((template_sheet, new_sheet), (template_tb, new_tb)):
+        if src_elem is None or dst_elem is None:
+            continue
+        try:
+            src_params = list(src_elem.Parameters)
+        except Exception:
+            continue
+        for sp in src_params:
+            try:
+                name = sp.Definition.Name
+            except Exception:
+                continue
+            if not name or name in _NOISE_PARAM_NAMES:
+                continue
+            try:
+                dp = dst_elem.LookupParameter(name)
+            except Exception:
+                dp = None
+            if dp is None or dp.IsReadOnly:
+                continue
+            _copy_param_typed(sp, dp, old_value, new_value)
 
 
 # --------------------------------------------------------------------------
@@ -605,22 +694,23 @@ def all_groups(node, out=None):
 # --------------------------------------------------------------------------
 # Duplicate Group
 # --------------------------------------------------------------------------
-def duplicate_group(doc, node, new_value, ancestor_chain=None):
+def duplicate_group(doc, node, new_value):
     """node must be a bottom-level group (node.is_group). Creates one new
     sheet per sheet in node.group_sheets, substituting node.label with
     new_value wherever it appears in Sheet Number/Sheet Name, carrying
-    over each template sheet's own Title Block, setting node.classify_param
-    (if identified) to new_value, and - crucially - also setting every
-    parameter in `ancestor_chain` (the folder levels ABOVE this group,
-    e.g. Villa Type, Mirror/Regular) to their UNCHANGED label, since a
-    freshly created sheet starts with blank parameters and would
-    otherwise show up unclassified ('???') in the Sheet Browser instead
-    of alongside the group it was duplicated from. Pass the result of
-    ancestor_chain(node.parent) (or [] if node has no parent folder).
-    Returns a list of (ok, label, detail) tuples, same shape as the rest
-    of DeeSheet's results."""
+    over each template sheet's own Title Block, then cloning EVERY other
+    writable parameter from the template sheet (clone_sheet_parameters) -
+    not just node.classify_param, but every other instance parameter the
+    Sheet/Title Block carries (parcel/plot IDs, areas, FAR, developer/
+    authority fields, ...). Any text parameter whose value contains
+    old_value gets new_value substituted in (same as Sheet Number/Name);
+    everything else copies unchanged - so a new sheet in the duplicated
+    group lands in the same Sheet Browser branch AND carries the same
+    plot metadata as its template, correctly updated for the new plot's
+    identifying value, instead of starting blank. Returns a list of
+    (ok, label, detail) tuples, same shape as the rest of DeeSheet's
+    results."""
     old_value = node.label
-    ancestor_chain = ancestor_chain or []
     results = []
     if not old_value:
         return [(False, "-", "This group has no identifying value to substitute.")]
@@ -654,10 +744,11 @@ def duplicate_group(doc, node, new_value, ancestor_chain=None):
                 new_sheet = ViewSheet.Create(doc, tb_id if tb_id is not None else ElementId.InvalidElementId)
                 new_sheet.SheetNumber = new_number
                 new_sheet.Name = new_name
-                for label, param_name in ancestor_chain:
-                    if param_name:
-                        _set_param_on_sheet_or_titleblock(doc, new_sheet, param_name, label)
+                clone_sheet_parameters(doc, sheet, new_sheet, old_value, new_value)
                 if node.classify_param:
+                    # Guaranteed-correct regardless of storage type, even
+                    # if the generic clone above couldn't substitute it
+                    # (e.g. it's an Integer/ElementId rather than text).
                     _set_param_on_sheet_or_titleblock(doc, new_sheet, node.classify_param, new_value)
                 existing_numbers.add(new_number)
                 results.append((True, new_number, "Created '{0}'".format(new_name)))
@@ -673,11 +764,15 @@ def duplicate_group(doc, node, new_value, ancestor_chain=None):
 # --------------------------------------------------------------------------
 # Add Sheet
 # --------------------------------------------------------------------------
-def add_sheet(doc, chain, number, name, titleblock_id):
+def add_sheet(doc, chain, number, name, titleblock_id, template_sheet=None):
     """chain: as returned by ancestor_chain() for whichever node was
-    clicked. Creates one sheet, then sets every (param_name, value) pair
-    in chain that resolved to a real, writable parameter. Returns
-    (ok, label, detail)."""
+    clicked - applied first, so every known classification level is set
+    even with no template_sheet available (e.g. adding the first sheet
+    into a branch that has none yet). template_sheet, when given (an
+    existing sheet from the same group - see containing_group), additionally
+    clones every other writable parameter from it (clone_sheet_parameters)
+    so the new sheet carries the same plot/villa metadata as its siblings
+    instead of just the hierarchy levels. Returns (ok, label, detail)."""
     number = (number or "").strip()
     name = (name or "").strip()
     if not number or not name:
@@ -699,6 +794,8 @@ def add_sheet(doc, chain, number, name, titleblock_id):
         for label, param_name in chain:
             if param_name:
                 _set_param_on_sheet_or_titleblock(doc, sheet, param_name, label)
+        if template_sheet is not None:
+            clone_sheet_parameters(doc, template_sheet, sheet)
         t.Commit()
         return True, number, "Created '{0}'".format(name)
     except Exception as e:
@@ -715,13 +812,16 @@ def bulk_add_sheets(doc, groups, sheet_names):
     independently - a group at 01..06 gets 07/08..., a different group at
     01..04 gets 05/06..., each purely from its own existing numbers (see
     next_sequence_numbers). Reuses each group's own last sheet's Title
-    Block, and sets every classification parameter from ancestor_chain(node)
-    (the group's own level AND every folder above it - Villa Type,
-    Mirror/Regular, Plot Number, ...) so the new sheets land in exactly
-    the same Sheet Browser spot as their siblings instead of showing up
-    unclassified. A group whose sheets don't share one common numbering
-    pattern is skipped and reported, never guessed at. Returns a list of
-    (ok, label, detail) tuples."""
+    Block, and clones every writable parameter from that same template
+    sheet (clone_sheet_parameters) - not just the classification levels
+    (Villa Type, Mirror/Regular, Plot Number, ...), but every other
+    instance parameter the Sheet/Title Block carries too (parcel/plot
+    IDs, areas, FAR, developer/authority fields, ...) - so the new
+    sheets land in exactly the same Sheet Browser spot AND carry the
+    same plot metadata as their siblings, instead of showing up
+    unclassified or blank. A group whose sheets don't share one common
+    numbering pattern is skipped and reported, never guessed at. Returns
+    a list of (ok, label, detail) tuples."""
     results = []
     existing_numbers = set()
     for vs in FilteredElementCollector(doc).OfClass(ViewSheet):
@@ -753,6 +853,8 @@ def bulk_add_sheets(doc, groups, sheet_names):
                     for label, param_name in chain:
                         if param_name:
                             _set_param_on_sheet_or_titleblock(doc, new_sheet, param_name, label)
+                    if template_sheet is not None:
+                        clone_sheet_parameters(doc, template_sheet, new_sheet)
                     existing_numbers.add(number)
                     results.append((True, number, "Created '{0}' in group '{1}'".format(name, node.label)))
                 except Exception as e:

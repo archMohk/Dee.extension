@@ -45,21 +45,27 @@ Two tabs:
    holding sheets directly, e.g. a Plot Number under Villa Type >
    Mirror) and Duplicate Group creates a whole new matching set of
    sheets - one per sheet in the template group - substituting the old
-   folder's value for a new one in Sheet Number/Sheet Name and in every
-   configured/identified parameter down the whole chain (not just the
-   deepest level), so the new sheets land in the same Sheet Browser
-   branch instead of showing up unclassified. Add Sheet creates a single
-   new sheet anywhere in the tree, with the clicked node's folder chain
-   pre-filled so it lands in the right group, and its Sheet Number
-   suggested by continuing that group's own numbering (01..06 ->
-   suggests 07). Add Sheet(s) to All Groups does the same across every
+   folder's value for a new one in Sheet Number/Sheet Name, AND cloning
+   every other writable parameter the template sheet/Title Block carries
+   (parcel/plot IDs, areas, FAR, developer/authority fields, ...), not
+   just the hierarchy levels - any text field containing the old value
+   gets the new one substituted in, everything else copies unchanged -
+   so the new sheets land in the same Sheet Browser branch AND carry the
+   same plot metadata as their template. Add Sheet creates a single new
+   sheet anywhere in the tree, with the clicked node's folder chain
+   pre-filled so it lands in the right group, its Sheet Number suggested
+   by continuing that group's own numbering (01..06 -> suggests 07),
+   and - when an existing sheet in the same group is available as a
+   template - every other parameter that sheet carries cloned onto the
+   new one too. Add Sheet(s) to All Groups does the same across every
    group under the current selection (or the whole tree if nothing/the
    root is selected) in one pass - each group works out its own next
-   number(s) from its own existing sheets, so groups that already have
-   different counts don't collide. Falls back to one flat list if the
-   project's Sheet Browser Organization has no grouping rules (or the
-   API is unavailable) - Add Sheet still works, there's just nothing to
-   Duplicate.
+   number(s) AND clones its own template sheet's parameters
+   independently, so groups that already have different counts or
+   different metadata don't collide or bleed into each other. Falls
+   back to one flat list if the project's Sheet Browser Organization has
+   no grouping rules (or the API is unavailable) - Add Sheet still
+   works, there's just nothing to Duplicate.
 
 Needs live-Revit verification: ChangeTypeId on a placed title block
 instance, Document.Create.NewFamilyInstance(XYZ.Zero, symbol, sheet)
@@ -1115,7 +1121,7 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
         if not new_value:
             return
         with _SafeProgress(title="DeeSheet - duplicating group...", indeterminate=True):
-            results = smart_sheet.duplicate_group(self.doc, node, new_value, ancestors)
+            results = smart_sheet.duplicate_group(self.doc, node, new_value)
         self._report("DeeSheet - SmartSheet Duplicate Group Results", results)
         self._scan_smart_sheet()
         self._scan_super_sheets()
@@ -1142,8 +1148,9 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
             return
         number, name, tb_label = result
         tb_id = self._titleblock_types.get(tb_label, ElementId.InvalidElementId) if tb_label else ElementId.InvalidElementId
+        template_sheet = group_node.group_sheets[-1] if group_node is not None and group_node.group_sheets else None
         with _SafeProgress(title="DeeSheet - adding sheet...", indeterminate=True):
-            ok, label, detail = smart_sheet.add_sheet(self.doc, chain, number, name, tb_id)
+            ok, label, detail = smart_sheet.add_sheet(self.doc, chain, number, name, tb_id, template_sheet)
         self._report("DeeSheet - SmartSheet Add Sheet Result", [(ok, label, detail)])
         self._scan_smart_sheet()
         self._scan_super_sheets()
