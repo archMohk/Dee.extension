@@ -55,7 +55,7 @@ clr.AddReference("PresentationFramework")
 from pyrevit import forms, script
 import dee_branding
 from Autodesk.Revit.DB import (
-    FilteredElementCollector, View, ViewType, RevitLinkInstance,
+    FilteredElementCollector, View, ViewType, RevitLinkInstance, Element,
     Transaction, ElementId, ViewDuplicateOption, ModelPathUtils,
 )
 from System.Collections.Generic import List
@@ -106,7 +106,14 @@ def view_label(view):
 # duplicates the same helper rather than importing the much larger
 # dee_link_dist_service.py for one pure function).
 # ==========================================================================
-def _link_display_name(link_type):
+def _link_type_display_name(link_type):
+    """File-reference based name for the link TYPE. Returns None (never
+    the final sentinel) when not resolvable, so callers can still fall
+    back further - this chain alone has been observed, on a real
+    project, to fail for every link in a view (GetExternalFileReference
+    and link_type.Name both coming back empty, e.g. for cloud/ACC-hosted
+    link types), which is exactly why _element_name() below exists as a
+    second, independent fallback rather than being treated as optional."""
     try:
         ref = link_type.GetExternalFileReference()
         if ref is not None:
@@ -122,7 +129,7 @@ def _link_display_name(link_type):
             return link_type.Name
     except Exception:
         pass
-    return "(unnamed link)"
+    return None
 
 
 def _link_file_path(link_type):
@@ -139,13 +146,42 @@ def _link_file_path(link_type):
     return ""
 
 
+def _element_name(element):
+    """Element.Name sometimes fails to resolve on a RevitLinkInstance
+    under IronPython's interop (a known ambiguity between the instance
+    property and an interface member of the same name) -
+    Element.Name.GetValue(element) is the documented workaround, already
+    proven in lib/dee_3d_export_service.py's own element_name(). Used
+    here as the fallback when the link TYPE's own name can't be
+    resolved - Revit almost always auto-populates a link INSTANCE's name
+    from its source file even when the type-level lookup comes up empty."""
+    if element is None:
+        return None
+    try:
+        n = element.Name
+        if n:
+            return n
+    except Exception:
+        pass
+    try:
+        n = Element.Name.GetValue(element)
+        if n:
+            return n
+    except Exception:
+        pass
+    return None
+
+
 class LinkRow(object):
     def __init__(self, instance, link_type):
         self.instance = instance
         self.id = instance.Id
         self.selected = False
-        self.name = _link_display_name(link_type) if link_type is not None else "(unknown link)"
         self.file_path = _link_file_path(link_type) if link_type is not None else ""
+        name = _link_type_display_name(link_type) if link_type is not None else None
+        if not name:
+            name = _element_name(instance)
+        self.name = name or "(unnamed link)"
 
 
 def scan_links(doc, view):
