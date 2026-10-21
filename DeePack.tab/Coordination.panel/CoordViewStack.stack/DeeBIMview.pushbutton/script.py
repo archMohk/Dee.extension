@@ -1,6 +1,21 @@
 # -*- coding: utf-8 -*-
 """
 DeeBIMview
+Two ways to choose the models (asked first when the button is clicked):
+  - ACC project: browse hub -> project, tick any number of cloud files,
+    each is opened in turn and processed (the original flow, below).
+  - Opened Revit session: tick any of the project documents ALREADY open
+    in this Revit - nothing is opened or closed. Create/Update Views,
+    Configure Publish Settings and Synchronize With Central are offered;
+    Open, Close and Publish are not (the files are already open and stay
+    open, and Publish needs each model's cloud item id, which an open
+    document does not expose). Views and Sync are done through the API on
+    each document directly; Configure Publish Settings drives Revit's own
+    dialog, which only exists for the ACTIVE document, so each document is
+    switched to first (best effort - NEEDS LIVE-REVIT VERIFICATION that
+    OpenAndActivateDocument just activates an already-open model) and the
+    document that was active at the start is restored at the end.
+
 For each selected cloud Revit file, runs up to 5 independently-toggled
 steps (only "Create/Update Views" is checked by default - everything
 else is opt-in):
@@ -550,7 +565,7 @@ def _publish(project_id, item_id, token, without_links):
     return (label, ok)
 
 
-SCRIPT_VERSION = "2026-10-19-v1-merged-coord"
+SCRIPT_VERSION = "2026-10-22-v2-open-session"
 
 
 class _SafeProgress(object):
@@ -592,7 +607,7 @@ class _SafeProgress(object):
         pass
 
 
-def main():
+def _run_acc():
     try:
         token = acc_auth.get_access_token()
     except Exception as e:
@@ -875,10 +890,16 @@ def main():
     finally:
         uiapp.DialogBoxShowing -= dialog_handler
 
-    # ── coloured HTML results ──────────────────────────────────────────────────
-    # Version banner moved here (from the very top of main(), before any
-    # ProgressBar or Transaction ran) - it must only show up alongside the
-    # real results, once the run has actually finished, not before.
+    _print_results(all_results)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Opened Revit session mode
+# ══════════════════════════════════════════════════════════════════════════
+def _print_results(all_results):
+    """Coloured HTML results, shared by the ACC and the open-session paths.
+    The version banner only shows up alongside the real results, once the
+    run has actually finished, not before."""
     html = ('<h2 style="font-family:sans-serif;color:#ddd;">DeeBIMview Results</h2>'
             '<p style="font-family:sans-serif;color:#888;font-size:11px;">Script version: {0}</p>').format(
         SCRIPT_VERSION)
@@ -904,6 +925,241 @@ def main():
                 '</div>'.format(bg, icon, label)
             )
     output.print_html(html)
+
+
+def _same_document(a, b):
+    """Two Document wrappers for the same open model - compared by title
+    and path rather than object identity, which is not reliable across
+    separately-obtained wrappers."""
+    try:
+        return a.Title == b.Title and a.PathName == b.PathName
+    except Exception:
+        return False
+
+
+def _open_project_documents(uiapp):
+    """Every document currently open in this Revit session that is a
+    real project: linked-model copies and family documents are skipped."""
+    docs = []
+    for d in uiapp.Application.Documents:
+        try:
+            if d.IsLinked or d.IsFamilyDocument:
+                continue
+        except Exception:
+            continue
+        docs.append(d)
+    return docs
+
+
+def _document_label(doc, active_doc):
+    try:
+        if doc.IsModelInCloud:
+            kind = "Cloud"
+        elif doc.IsWorkshared:
+            kind = "Workshared"
+        else:
+            kind = "Local"
+    except Exception:
+        kind = "?"
+    label = "{0}  [{1}]".format(doc.Title, kind)
+    if active_doc is not None and _same_document(doc, active_doc):
+        label += "  (active)"
+    return label
+
+
+def _activate_document(uiapp, doc):
+    """Best effort: make doc the active document. Needed only for the
+    Publish Settings step, which drives Revit's own dialog for the ACTIVE
+    document (no public API exists for it). Returns True if doc is active
+    afterwards. NEEDS LIVE-REVIT VERIFICATION: relies on
+    OpenAndActivateDocument simply activating a model that is already
+    open rather than reopening it."""
+    try:
+        active = uiapp.ActiveUIDocument
+        if active is not None and _same_document(active.Document, doc):
+            return True
+    except Exception:
+        pass
+    try:
+        if doc.IsModelInCloud:
+            path = doc.GetCloudModelPath()
+        else:
+            if not doc.PathName:
+                return False
+            path = ModelPathUtils.ConvertUserVisiblePathToModelPath(doc.PathName)
+        uiapp.OpenAndActivateDocument(path, OpenOptions(), False)
+    except Exception:
+        return False
+    try:
+        return _same_document(uiapp.ActiveUIDocument.Document, doc)
+    except Exception:
+        return False
+
+
+def _run_session(uiapp):
+    docs = _open_project_documents(uiapp)
+    if not docs:
+        forms.alert("No project documents are open in this Revit session.")
+        return
+    try:
+        active_doc = uiapp.ActiveUIDocument.Document
+    except Exception:
+        active_doc = None
+
+    # ── pick the open documents ───────────────────────────────────────────────
+    label_to_doc = {}
+    items = []
+    for d in docs:
+        label = _document_label(d, active_doc)
+        if label in label_to_doc:
+            label = "{0} #{1}".format(label, len(label_to_doc) + 1)
+        label_to_doc[label] = d
+        items.append(forms.TemplateListItem(
+            label, checked=(active_doc is not None and _same_document(d, active_doc))))
+    picked = forms.SelectFromList.show(
+        items,
+        title="DeeBIMview — Open documents to process ({0} open)".format(len(docs)),
+        multiselect=True,
+        button_name="Process Selected"
+    )
+    if not picked:
+        return
+    targets = [(label, label_to_doc[label]) for label in picked if label in label_to_doc]
+    if not targets:
+        return
+
+    # ── steps - Open, Close and Publish are not offered here: the files are
+    # already open and are left open, and Publish needs the cloud item id
+    # of each model, which an open document does not expose. ───────────────
+    step_choices = forms.SelectFromList.show(
+        [
+            forms.TemplateListItem("Create/Update Views", checked=True),
+            forms.TemplateListItem("Configure Publish Settings", checked=False),
+            forms.TemplateListItem("Synchronize With Central", checked=False),
+        ],
+        title="DeeBIMview — Steps to run ({0} open document(s))".format(len(targets)),
+        multiselect=True,
+        button_name="Continue"
+    )
+    if not step_choices:
+        return
+    do_views = "Create/Update Views" in step_choices
+    do_pubset = "Configure Publish Settings" in step_choices
+    do_sync = "Synchronize With Central" in step_choices
+
+    view_type_name = forms.ask_for_string(
+        default=DEFAULT_VIEW_TYPE,
+        prompt="3D View Type name (the group both views appear under in "
+               "the Project Browser, e.g. '3D Views ({0})'). Created by "
+               "duplicating an existing 3D View Type if it doesn't already "
+               "exist:".format(DEFAULT_VIEW_TYPE),
+        title="DeeBIMview — 3D View Type Name"
+    )
+    if not view_type_name:
+        return
+    coord_view_name = forms.ask_for_string(
+        default=DEFAULT_COORD_VIEW,
+        prompt="3D view name for the coordination view (no links):",
+        title="DeeBIMview — Coordination View Name"
+    )
+    if not coord_view_name:
+        return
+    navis_view_name = forms.ask_for_string(
+        default=DEFAULT_NAVIS_VIEW,
+        prompt="3D view name for the NAVIS export view (no links):",
+        title="DeeBIMview — NAVIS View Name"
+    )
+    if not navis_view_name:
+        return
+    coord_set_name = DEFAULT_COORD_SET
+    if do_pubset:
+        coord_set_name = forms.ask_for_string(
+            default=DEFAULT_COORD_SET,
+            prompt="Publish Settings set name (its active view will be '{0}'):".format(coord_view_name),
+            title="DeeBIMview — Publish Set Name"
+        )
+        if not coord_set_name:
+            return
+
+    all_results = []
+    total = len(targets)
+    dismissed_log = []
+    dialog_handler = _make_dialog_handler(dismissed_log)
+    uiapp.DialogBoxShowing += dialog_handler
+    try:
+        with _SafeProgress(title="DeeBIMview — starting...", cancellable=True) as pb:
+            for i, (label, doc) in enumerate(targets):
+                if pb.cancelled:
+                    all_results.append((label, [("Cancelled", None)]))
+                    break
+                steps = []
+                all_results.append((label, steps))
+                pb.update_progress(i, total)
+                output.print_md("**Document {0}/{1}: {2}**".format(i + 1, total, label))
+
+                actual_coord_view_name = coord_view_name
+                if do_views:
+                    pb.title = "Document {0}/{1}: {2} — Creating views".format(i + 1, total, doc.Title)
+                    before_count = len(dismissed_log)
+                    view_label_text, ok, created_coord_name = _create_views(
+                        doc, coord_view_name, navis_view_name, view_type_name)
+                    steps.append((view_label_text, ok))
+                    steps.extend(dismissed_log[before_count:])
+                    if created_coord_name:
+                        actual_coord_view_name = created_coord_name
+
+                if do_pubset:
+                    pb.title = "Document {0}/{1}: {2} — Publish Settings".format(i + 1, total, doc.Title)
+                    if _activate_document(uiapp, doc):
+                        steps.append(_configure_publish_settings(uiapp, coord_set_name, actual_coord_view_name))
+                    else:
+                        steps.append(("Publish Settings skipped - could not switch to this document "
+                                      "(activate it and configure manually)", None))
+                else:
+                    steps.append(("Publish Settings skipped (unchecked)", None))
+
+                if do_sync:
+                    try:
+                        workshared = doc.IsWorkshared
+                    except Exception:
+                        workshared = False
+                    if not workshared:
+                        steps.append(("Sync skipped - not a workshared model", None))
+                    else:
+                        pb.title = "Document {0}/{1}: {2} — Synchronizing".format(i + 1, total, doc.Title)
+                        before_count = len(dismissed_log)
+                        steps.append(_sync(doc))
+                        steps.extend(dismissed_log[before_count:])
+
+                steps.append(("Left open (already open in this session)", None))
+    finally:
+        uiapp.DialogBoxShowing -= dialog_handler
+        # The Publish Settings step may have switched the active document -
+        # put the user back where they started (best effort).
+        if active_doc is not None:
+            _activate_document(uiapp, active_doc)
+
+    _print_results(all_results)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Entry point - where are the models?
+# ══════════════════════════════════════════════════════════════════════════
+SOURCE_ACC = "ACC project - open cloud files in batch"
+SOURCE_SESSION = "Opened Revit session - documents already open"
+
+
+def main():
+    source = forms.CommandSwitchWindow.show(
+        [SOURCE_ACC, SOURCE_SESSION],
+        message="DeeBIMview — where are the models?"
+    )
+    if not source:
+        return
+    if source == SOURCE_SESSION:
+        _run_session(__revit__)
+    else:
+        _run_acc()
 
 
 main()

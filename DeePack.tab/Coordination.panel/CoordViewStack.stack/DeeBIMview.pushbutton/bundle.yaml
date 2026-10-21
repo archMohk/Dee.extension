@@ -1,3 +1,3 @@
 title: DeeBIMview
-tooltip: Open Revit files, create BIM Coordination + NAVIS views, and optionally configure Publish Settings, Sync, Close, and Publish (each step toggled on/off, views-only by default)
+tooltip: Create the BIM Coordination + NAVIS views (RVT links hidden) in batch - either on ACC cloud files (each is opened for you) or on the documents already open in your Revit session. Optionally also configure Publish Settings and Synchronize With Central; on ACC files you can additionally Close and Publish. Views-only by default.
 context: zero-doc
