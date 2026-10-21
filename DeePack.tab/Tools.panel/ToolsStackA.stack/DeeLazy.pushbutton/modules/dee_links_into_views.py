@@ -80,6 +80,11 @@ NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct)
 - GetLinkOverrides/SetLinkOverrides member list was reflected directly
   off Revit 2026's installed RevitAPI.dll on this machine (not web-
   guessed), but the actual runtime COPY has not been exercised live yet.
+- ModelPath.CloudPath/GetProjectGUID()/GetModelGUID() (used by
+  _link_identity() for By Link Type grouping) were reflected the same
+  way, off the same installed RevitAPI.dll - the member list is
+  confirmed real, but grouping real ACC-hosted links by the resulting
+  GUID pair has not yet been exercised live.
 
 --------------------------------------------------------------------
 Live-reported bug fixed here: prohibited characters in link names
@@ -99,6 +104,26 @@ name instead of being cleaned up. Fixed by (1) stripping the
 ever assigning a view name, and (2) deleting the duplicated view if
 the rename still fails for any other reason, so a failed row never
 leaves orphan "Copy N" views behind.
+
+--------------------------------------------------------------------
+Live-reported bug fixed here: By Link Type undercounted (29 -> 21, not 7)
+--------------------------------------------------------------------
+Grouping by RevitLinkType.Id did not collapse every placement of the
+same file into one row - on the real project, Revit's own Project
+Browser confirmed only 7 distinct link files exist, but grouping by
+Type.Id produced 21 rows. A follow-up fix that grouped by the resolved
+file NAME (stripping the per-instance copy suffix) only reached 28,
+barely better - because for these cloud/ACC-hosted links, the human-
+readable path/name resolution chain (GetExternalFileReference ->
+ConvertModelPathToUserVisiblePath) was ALSO failing, same root cause as
+the earlier name-resolution bug. Fixed by _link_identity(): for a cloud
+path, ModelPath.GetProjectGUID()/GetModelGUID() give the model's own
+GUID identity straight from the path's serialized data - no network
+call or string conversion involved - so it stays available exactly
+when the human-readable path does not. That is now the PRIMARY grouping
+key, with the file path and then the stripped name kept only as
+fallbacks for non-cloud links or a reference that cannot be read at
+all.
 """
 import os
 import re
@@ -163,6 +188,27 @@ def view_label(view):
 # duplicates the same helper rather than importing the much larger
 # dee_link_dist_service.py for one pure function).
 # ==========================================================================
+def _link_model_path(link_type):
+    """The ModelPath behind a link TYPE's external file reference, trying
+    GetAbsolutePath() (the resolved path) before the raw GetPath() - for
+    a cloud/ACC-hosted reference the absolute form has been observed to
+    resolve more often. Returns None if no reference/path exists at all."""
+    try:
+        ref = link_type.GetExternalFileReference()
+    except Exception:
+        return None
+    if ref is None:
+        return None
+    for getter_name in ("GetAbsolutePath", "GetPath"):
+        try:
+            model_path = getattr(ref, getter_name)()
+            if model_path is not None:
+                return model_path
+        except Exception:
+            continue
+    return None
+
+
 def _link_type_display_name(link_type):
     """File-reference based name for the link TYPE. Returns None (never
     the final sentinel) when not resolvable, so callers can still fall
@@ -171,16 +217,14 @@ def _link_type_display_name(link_type):
     and link_type.Name both coming back empty, e.g. for cloud/ACC-hosted
     link types), which is exactly why _element_name() below exists as a
     second, independent fallback rather than being treated as optional."""
-    try:
-        ref = link_type.GetExternalFileReference()
-        if ref is not None:
-            model_path = ref.GetPath()
-            if model_path is not None:
-                visible_path = ModelPathUtils.ConvertModelPathToUserVisiblePath(model_path)
-                if visible_path:
-                    return os.path.basename(visible_path)
-    except Exception:
-        pass
+    model_path = _link_model_path(link_type)
+    if model_path is not None:
+        try:
+            visible_path = ModelPathUtils.ConvertModelPathToUserVisiblePath(model_path)
+            if visible_path:
+                return os.path.basename(visible_path)
+        except Exception:
+            pass
     try:
         if link_type.Name:
             return link_type.Name
@@ -190,17 +234,48 @@ def _link_type_display_name(link_type):
 
 
 def _link_file_path(link_type):
+    model_path = _link_model_path(link_type)
+    if model_path is None:
+        return ""
     try:
-        ref = link_type.GetExternalFileReference()
-        if ref is not None:
-            model_path = ref.GetPath()
-            if model_path is not None:
-                visible_path = ModelPathUtils.ConvertModelPathToUserVisiblePath(model_path)
-                if visible_path:
-                    return visible_path
+        visible_path = ModelPathUtils.ConvertModelPathToUserVisiblePath(model_path)
+        if visible_path:
+            return visible_path
     except Exception:
         pass
     return ""
+
+
+def _link_identity(link_type):
+    """A robust identity for "the same linked FILE", independent of how
+    many separate RevitLinkType elements Revit may have created for it -
+    live-reported: a cloud/ACC-hosted file linked multiple times ended up
+    split across several RevitLinkType elements even though every one
+    points at the exact same model, so grouping on Type.Id (and later,
+    the human-readable path/name, which was ALSO failing to resolve for
+    these links) both under-collapsed. ModelPath.GetProjectGUID()/
+    GetModelGUID() are embedded directly in the path's own serialized
+    data - no network call or user-visible-path conversion needed - so
+    they stay available even when ConvertModelPathToUserVisiblePath
+    comes back empty for a cloud path. Confirmed via .NET reflection
+    against the installed RevitAPI.dll (Revit 2026): ModelPath exposes
+    CloudPath (bool), GetProjectGUID() and GetModelGUID(). Returns None
+    if no identity could be resolved at all (caller falls back further)."""
+    model_path = _link_model_path(link_type)
+    if model_path is None:
+        return None
+    try:
+        if model_path.CloudPath:
+            return ("cloud", str(model_path.GetProjectGUID()), str(model_path.GetModelGUID()))
+    except Exception:
+        pass
+    try:
+        visible_path = ModelPathUtils.ConvertModelPathToUserVisiblePath(model_path)
+        if visible_path:
+            return ("path", visible_path)
+    except Exception:
+        pass
+    return None
 
 
 def _element_name(element):
@@ -297,22 +372,23 @@ def scan_raw_links(doc, view):
     return raw
 
 
-def _link_group_key(name, file_path):
+def _link_group_key(link_type, name, file_path):
     """Identifies "the same linked file" for grouping purposes. NOT the
     link TYPE's ElementId - live-reported: Revit can create a SEPARATE
     RevitLinkType per link operation even when every one of them points
     at the exact same file (e.g. the same villa/unit linked in 29 times
-    across a masterplan), so grouping by Type.Id under-collapsed (29
-    instances -> 21 "types" instead of the real number of distinct
-    files). The resolved FILE PATH is the one identity that stays the
-    same across separate Type elements for the same file; when that
-    isn't resolvable (the same cloud/ACC-hosted case that made the link
-    NAME fall back to the per-instance "File.rvt : N" format), strip
-    that per-instance copy-number suffix from the name instead so every
-    placement of the same file still collapses to one group."""
+    across a masterplan), so grouping by Type.Id under-collapsed.
+    Prefers _link_identity()'s cloud-GUID/path identity (robust even when
+    the human-readable path can't be resolved); when THAT also fails
+    (no external file reference at all), falls back to the resolved file
+    path string, then to the name with its per-instance copy-number
+    suffix stripped, so every placement still collapses to one group."""
+    identity = _link_identity(link_type) if link_type is not None else None
+    if identity is not None:
+        return identity
     if file_path:
-        return file_path
-    return _INSTANCE_COPY_SUFFIX_RE.sub("", name).strip() or name
+        return ("path", file_path)
+    return ("name", _INSTANCE_COPY_SUFFIX_RE.sub("", name).strip() or name)
 
 
 def build_rows(raw_instances, group_by_type):
@@ -330,7 +406,7 @@ def build_rows(raw_instances, group_by_type):
         for inst, link_type in raw_instances:
             name = _resolve_link_name(inst, link_type)
             file_path = _link_file_path(link_type) if link_type is not None else ""
-            key = _link_group_key(name, file_path)
+            key = _link_group_key(link_type, name, file_path)
             if key not in groups:
                 groups[key] = {"ids": [], "name": name, "file_path": file_path}
                 order.append(key)
