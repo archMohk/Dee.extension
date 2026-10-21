@@ -2,11 +2,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeLinkManagement"
         ShowInTaskbar="False"
-        MinHeight="560" MinWidth="960" Height="660" Width="1040"
+        MinHeight="640" MinWidth="1000" Height="760" Width="1100"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Every Revit link in the open file is listed below (nested 'layer 2' links are not - they follow their parent link). Tick links to change their Reference Type (Overlay / Attachment) or to reload them, or reload every link at once."/>
+                   Text="Every Revit link in the open file is listed below (nested 'layer 2' links are not - they follow their parent link). Tick links to change their Reference Type (Overlay / Attachment) or to reload them, reload every link at once, or add new links in batch from ACC or from files."/>
 
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem>
@@ -24,6 +24,16 @@
             </StackPanel>
 
             <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                <GroupBox Header="Add Links (batch)" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal" Margin="6">
+                        <TextBlock Text="Positioning:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="placement_cb" Width="320" Height="26"/>
+                        <TextBlock Text="Reference Type:" VerticalAlignment="Center" Margin="14,0,8,0"/>
+                        <ComboBox x:Name="new_reference_cb" Width="120" Height="26"/>
+                        <Button x:Name="add_acc_b" Content="Add from ACC..." Click="add_acc_click" Width="140" Height="26" Margin="14,0,0,0"/>
+                        <Button x:Name="add_files_b" Content="Add from Files..." Click="add_files_click" Width="140" Height="26" Margin="6,0,0,0"/>
+                    </StackPanel>
+                </GroupBox>
                 <GroupBox Header="Reference Type" Margin="0,0,0,8">
                     <StackPanel Orientation="Horizontal" Margin="6">
                         <TextBlock Text="Set ticked links to:" VerticalAlignment="Center" Margin="0,0,8,0"/>

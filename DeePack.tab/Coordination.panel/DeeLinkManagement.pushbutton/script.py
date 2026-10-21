@@ -6,7 +6,15 @@ link: its Reference Type (Overlay / Attachment), load status, source
 (local file / Revit Server / cloud), path type, and how many instances
 are placed. From that list the user can:
 - switch the Reference Type of the ticked links (Overlay <-> Attachment)
-- Reload the ticked links, or Reload All links in one click.
+- Reload the ticked links, or Reload All links in one click
+- batch ADD new links: from ACC (hub -> project -> tick any number of
+  models) or from local .rvt files, with a chosen positioning method and
+  Reference Type, each file linked in its own Transaction. The hub /
+  project / file pickers and the progress/result output reuse the same
+  shared ACC browser (lib/acc_file_browser.py) and link-create service
+  (lib/dee_link_create_service.py) as DeeLINK. Those pickers open their
+  own dialogs, so Add closes this window, runs, and reopens it (rescanned)
+  rather than nesting dialogs inside a modal window.
 Nested ("layer 2") links - links living inside another linked model -
 are not listed; they follow their parent link (same rule as
 DeeLazy's Links Into Views).
@@ -50,20 +58,34 @@ clr.AddReference("WindowsBase")
 clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
 
-from pyrevit import forms
+from pyrevit import forms, script
 import dee_branding
 import dee_telemetry
 dee_telemetry.check_access("DeeLinkManagement")
 
+import acc_auth
+import acc_file_browser as afb
+import dee_link_create_service as lcs
+
 from Autodesk.Revit.DB import (
     FilteredElementCollector, RevitLinkType, RevitLinkInstance, AttachmentType,
-    Transaction, LinkLoadResultType, Element,
+    Transaction, LinkLoadResultType, Element, ModelPathUtils, ImportPlacement,
 )
+
+output = script.get_output()
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
+_CACHE_FILE = os.path.join(_THIS_DIR, ".acc_file_cache.json")
 
 REFERENCE_CHOICES = [("Overlay", AttachmentType.Overlay), ("Attachment", AttachmentType.Attachment)]
+
+PLACEMENT_CHOICES = [
+    ("Auto - Center to Center",                         ImportPlacement.Centered),
+    ("Auto - Internal Origin to Internal Origin",       ImportPlacement.Origin),
+    ("Auto - By Shared Coordinates",                    ImportPlacement.Shared),
+    ("Auto - Project Base Point to Project Base Point", ImportPlacement.Site),
+]
 
 
 # ==========================================================================
@@ -250,6 +272,122 @@ def reload_link(row):
 
 
 # ==========================================================================
+# Batch add links
+# ==========================================================================
+def _link_one(doc, name, model_path, placement, attachment):
+    """One link per Transaction, so a file Revit refuses (already the host,
+    unreachable, ...) rolls back alone and never blocks the rest of the
+    batch. The create-type / set-AttachmentType / create-instance sequence
+    is lib/dee_link_create_service.py, shared with DeeLINK, DeeSuperLINK
+    and DeeMAPLink. Returns (ok, detail)."""
+    t = Transaction(doc, "DeeLinkManagement - Link: {0}".format(name))
+    t.Start()
+    try:
+        ok, detail, _instance = lcs.create_link(doc, model_path, placement, attachment)
+        if not ok:
+            t.RollBack()
+            return False, detail
+        t.Commit()
+        return True, detail
+    except Exception as e:
+        try:
+            if t.HasStarted() and not t.HasEnded():
+                t.RollBack()
+        except Exception:
+            pass
+        return False, str(e)
+
+
+def _acc_model_paths():
+    """Hub -> project -> file picker, using the same shared ACC browser
+    every other Dee link tool uses. Returns [(display_name, ModelPath or
+    error string, is_error)] for the files the user ticked, or None if
+    they cancelled or nothing could be listed."""
+    try:
+        token = acc_auth.get_access_token()
+    except Exception as e:
+        forms.alert("Authentication failed:\n{0}".format(e))
+        return None
+    hub = afb.pick_hub(token)
+    if not hub:
+        return None
+    hub_id, region, _hub_name = hub
+    project = afb.pick_project(hub_id, token)
+    if not project:
+        return None
+    project_id, _project_name = project
+    all_items = afb.list_project_files(hub_id, project_id, token, _CACHE_FILE)
+    if not all_items:
+        return None
+    picked = afb.pick_files_to_open(
+        all_items, title="Add Links - select files to link  ({0} available)".format(len(all_items)),
+        button_name="Link Selected")
+    if not picked:
+        return None
+    entries = []
+    for name in picked:
+        try:
+            proj_guid, model_guid, _src = afb.get_cloud_path_guids(project_id, all_items[name], token)
+            entries.append((name, ModelPathUtils.ConvertCloudGUIDsToCloudPath(region, proj_guid, model_guid), False))
+        except Exception as e:
+            entries.append((name, str(e), True))
+    return entries
+
+
+def _file_model_paths():
+    paths = forms.pick_file(file_ext="rvt", multi_file=True, title="Select Revit files to link")
+    if not paths:
+        return None
+    entries = []
+    for path in paths:
+        name = os.path.basename(path)
+        try:
+            entries.append((name, ModelPathUtils.ConvertUserVisiblePathToModelPath(path), False))
+        except Exception as e:
+            entries.append((name, str(e), True))
+    return entries
+
+
+def add_links(doc, source, placement_label, placement, attachment_label, attachment):
+    """Picks files (source "acc" or "files") and links each one into the
+    open project. Runs with no Dee window open (see main()), so the
+    pickers' own dialogs are never nested inside another modal window.
+    Prints a result row per file."""
+    entries = _acc_model_paths() if source == "acc" else _file_model_paths()
+    if not entries:
+        return
+    results = []
+    total = len(entries)
+    with afb._SafeProgress(title="Linking 0 / {0}...".format(total), cancellable=True) as pb:
+        for i, (name, model_path, is_error) in enumerate(entries):
+            if pb.cancelled:
+                results.append((None, name, "Cancelled - {0} of {1} done".format(i, total)))
+                break
+            pb.title = "Linking {0} / {1}  -  {2}".format(i + 1, total, name)
+            pb.update_progress(i + 1, total)
+            if is_error:
+                results.append((False, name, "FAILED: {0}".format(model_path)))
+                continue
+            ok, detail = _link_one(doc, name, model_path, placement, attachment)
+            if ok:
+                results.append((True, name, "Linked ({0}, {1})".format(placement_label, attachment_label)))
+            else:
+                results.append((False, name, "FAILED: {0}".format(detail)))
+
+    ok_count = sum(1 for r in results if r[0])
+    html = ['<h2 style="font-family:sans-serif;color:#ddd;">DeeLinkManagement - Add Links</h2>',
+            '<p style="color:#ddd;">{0} of {1} file(s) linked.</p>'.format(ok_count, total)]
+    for ok, name, detail in results:
+        bg = "#1b5e20" if ok else ("#37474f" if ok is None else "#b71c1c")
+        icon = "&#10003;" if ok else ("&#9888;" if ok is None else "&#10007;")
+        html.append(
+            '<div style="padding:6px 12px;margin:3px 0;background:{0};color:#fff;border-radius:4px;'
+            'font-family:monospace;font-size:13px;"><b>{1}</b>&nbsp; {2} &mdash; {3}</div>'.format(
+                bg, icon, name, detail))
+    output.print_html("".join(html))
+
+
+# ==========================================================================
 # Window
 # ==========================================================================
 class DeeLinkManagementWindow(dee_branding.DeeBrandedWindow):
@@ -258,9 +396,14 @@ class DeeLinkManagementWindow(dee_branding.DeeBrandedWindow):
         self.doc = doc
         self._all_rows = []
         self._nested = 0
+        self.pending_request = None
 
         self.reference_cb.ItemsSource = [label for label, _ in REFERENCE_CHOICES]
         self.reference_cb.SelectedIndex = 0
+        self.placement_cb.ItemsSource = [label for label, _ in PLACEMENT_CHOICES]
+        self.placement_cb.SelectedIndex = 0
+        self.new_reference_cb.ItemsSource = [label for label, _ in REFERENCE_CHOICES]
+        self.new_reference_cb.SelectedIndex = 0
         self._scan()
 
     def _log(self, message):
@@ -354,6 +497,27 @@ class DeeLinkManagementWindow(dee_branding.DeeBrandedWindow):
             return
         self._reload(list(self._all_rows), "Reload All")
 
+    def _request_add(self, source):
+        """The pickers used to add links open their own dialogs, so they
+        must not run from inside this still-open modal window (the same
+        rule DeeLazy's launcher follows). Record what was asked for and
+        close; main() runs the add and then reopens this window."""
+        p_idx = self.placement_cb.SelectedIndex
+        r_idx = self.new_reference_cb.SelectedIndex
+        if p_idx < 0 or p_idx >= len(PLACEMENT_CHOICES) or r_idx < 0 or r_idx >= len(REFERENCE_CHOICES):
+            forms.alert("Pick the positioning method and the Reference Type for the new links first.")
+            return
+        placement_label, placement = PLACEMENT_CHOICES[p_idx]
+        attachment_label, attachment = REFERENCE_CHOICES[r_idx]
+        self.pending_request = (source, placement_label, placement, attachment_label, attachment)
+        self.Close()
+
+    def add_acc_click(self, sender, args):
+        self._request_add("acc")
+
+    def add_files_click(self, sender, args):
+        self._request_add("files")
+
     def close_click(self, sender, args):
         self.Close()
 
@@ -364,8 +528,17 @@ def main():
     if uidoc is None:
         forms.alert("Open a Revit project first.")
         return
-    window = DeeLinkManagementWindow(_XAML_FILE, uidoc.Document)
-    window.ShowDialog()
+    doc = uidoc.Document
+    if doc.IsFamilyDocument:
+        forms.alert("Please open a project document first.")
+        return
+    while True:
+        window = DeeLinkManagementWindow(_XAML_FILE, doc)
+        window.ShowDialog()
+        request = window.pending_request
+        if request is None:
+            break
+        add_links(doc, *request)
 
 
 main()

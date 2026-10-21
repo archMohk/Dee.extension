@@ -1,2 +1,2 @@
 title: DeeLinkManagement
-tooltip: Scans every Revit link in the open file and lists its Reference Type (Overlay / Attachment), load status, source and how many times it is placed. Tick links and switch their Reference Type in one go, and Reload Selected or Reload All Links. Nested (layer 2) links are not listed - they follow their parent link.
+tooltip: Manage the Revit links in the open file. Lists every link with its Reference Type (Overlay / Attachment), load status, source and how many times it is placed. Tick links to switch their Reference Type, Reload Selected or Reload All Links, and batch-add new links from ACC (any models you have access to) or from local files. Nested (layer 2) links are not listed - they follow their parent link.
