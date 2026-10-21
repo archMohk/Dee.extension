@@ -13,11 +13,11 @@ Models (pick the source with the radio buttons):
 
 Steps (tick any combination; only "Create/Update Views" is on by default):
   - Create/Update Views: 3D views "BIM Coordination View" and "BIM Exported
-    NAVIS" with RVT links hidden, under a 3D view type (all names editable
-    in the window)
-  - Configure Publish Settings: set "BIM Coordination Set" with the
-    coordination view active (via UI Automation - no public API exists
-    for this dialog)
+    NAVIS" under a 3D view type (all names editable in the window). The
+    Revit Links category is HIDDEN in them by default - these views exist to
+    publish / export the model on its own, without linked content - and a
+    checkbox turns that off to show the links instead. The visibility is set
+    explicitly both ways, so a view reused from an earlier run is corrected.
   - Synchronize With Central
   - Close After Sync   (ACC only - open-session files are left open)
   - Publish via the APS Commands API   (ACC only - it needs each model's
@@ -25,18 +25,20 @@ Steps (tick any combination; only "Create/Update Views" is on by default):
 ACC-only options (open with all worksets closed, publish without links)
 are disabled while the source is the open session.
 
+There is deliberately NO "Configure Publish Settings" step any more. It drove
+Revit's Publish Settings dialog through UI Automation, starting with a
+simulated ribbon click that was never verified to work and failed on every
+run ("Target element cannot receive focus"). Revit does have a postable
+PublishSettings command, but a posted command only runs after the script
+ends, so the dialog could not be driven file by file inside a batch. Publish
+therefore uses whatever publish settings each model already has. (The old
+automation is still in lib/publish_settings_ui.py for DeeCoord.)
+
 The window only COLLECTS the choices; when Run is pressed it closes and the
 batch then runs with a progress bar and the coloured results page - the
-same way DeeLazy launches its modules, because opening files, switching the
-active document and driving Revit's own Publish Settings dialog are not
-safe to do from inside a still-open modal window.
-
-Open-session notes: Create Views and Sync run through the API directly on
-each document. Configure Publish Settings drives Revit's own dialog, which
-only exists for the ACTIVE document, so each document is switched to first
-(best effort - NEEDS LIVE-REVIT VERIFICATION that OpenAndActivateDocument
-just activates an already-open model) and the document that was active at
-the start is restored at the end.
+same way DeeLazy launches its modules, because opening files and switching
+the active document are not safe to do from inside a still-open modal
+window.
 
 ACC files are opened with a cross-project-safe GUID lookup shared with every
 other Dee cloud tool (lib/acc_file_browser.py).
@@ -68,7 +70,6 @@ import dee_branding
 import acc_auth
 import acc_api
 import acc_file_browser as afb
-import publish_settings_ui
 import dee_telemetry
 dee_telemetry.check_access("DeeBIMview")
 
@@ -88,7 +89,6 @@ _CACHE_FILE = os.path.join(_THIS_DIR, ".acc_file_cache.json")
 DEFAULT_VIEW_TYPE = "BIM Coordination"
 DEFAULT_COORD_VIEW = "BIM Coordination View"
 DEFAULT_NAVIS_VIEW = "BIM Exported NAVIS"
-DEFAULT_COORD_SET = "BIM Coordination Set"
 
 def _find_3d_view(doc, name):
     for v in FilteredElementCollector(doc).OfClass(View3D):
@@ -112,10 +112,13 @@ def _as_element_id(value):
     return value
 
 
-def _hide_links_category(doc, view):
+def _set_links_hidden(doc, view, hidden):
+    """Hides or shows the Revit Links category in a view. Setting it
+    explicitly both ways matters: a reused view that was hidden on an
+    earlier run must be shown again when the option is turned off."""
     cat = doc.Settings.Categories.get_Item(BuiltInCategory.OST_RvtLinks)
     if cat is not None and view.CanCategoryBeHidden(cat.Id):
-        view.SetCategoryHidden(cat.Id, True)
+        view.SetCategoryHidden(cat.Id, hidden)
 
 
 def _ensure_3d_view_type(doc, type_name):
@@ -320,7 +323,7 @@ def _open_file(uiapp, region, project_id, name, item_id, token, close_worksets):
         return None, ("Open FAILED: {0}".format(e), False)
 
 
-def _create_views(doc, coord_view_name, navis_view_name, view_type_name):
+def _create_views(doc, coord_view_name, navis_view_name, view_type_name, hide_links=True):
     t = Transaction(doc, "DeeBIMview - Create Coordination Views")
     fho = t.GetFailureHandlingOptions()
     fho.SetFailuresPreprocessor(_CancelOnErrorPreprocessor())
@@ -338,9 +341,9 @@ def _create_views(doc, coord_view_name, navis_view_name, view_type_name):
             raise Exception("[coord view] {0}".format(e))
 
         try:
-            _hide_links_category(doc, coord_view)
+            _set_links_hidden(doc, coord_view, hide_links)
         except Exception as e:
-            raise Exception("[hide links on coord view] {0}".format(e))
+            raise Exception("[links visibility on coord view] {0}".format(e))
 
         try:
             navis_view, actual_navis = _ensure_3d_view(doc, navis_view_name, type_id)
@@ -348,9 +351,9 @@ def _create_views(doc, coord_view_name, navis_view_name, view_type_name):
             raise Exception("[navis view] {0}".format(e))
 
         try:
-            _hide_links_category(doc, navis_view)
+            _set_links_hidden(doc, navis_view, hide_links)
         except Exception as e:
-            raise Exception("[hide links on navis view] {0}".format(e))
+            raise Exception("[links visibility on navis view] {0}".format(e))
 
         status = t.Commit()
         if status == TransactionStatus.RolledBack:
@@ -365,19 +368,12 @@ def _create_views(doc, coord_view_name, navis_view_name, view_type_name):
         if actual_navis != navis_view_name:
             notes.append("navis view '{0}'->'{1}'".format(navis_view_name, actual_navis))
         note = " [{0}]".format("; ".join(notes)) if notes else ""
-        return ("Views created/updated (type: '{0}'){1}".format(actual_type, note), True, actual_coord)
+        links_note = "links hidden" if hide_links else "links shown"
+        return ("Views created/updated (type: '{0}', {1}){2}".format(actual_type, links_note, note), True, actual_coord)
     except Exception as e:
         if t.GetStatus() == TransactionStatus.Started:
             t.RollBack()
         return ("Views FAILED: {0}".format(e), False, None)
-
-
-def _configure_publish_settings(uiapp, set_name, coord_view_name):
-    try:
-        publish_settings_ui.configure_publish_settings(uiapp, set_name, coord_view_name)
-        return ("Publish Settings configured", True)
-    except Exception as e:
-        return ("Publish Settings FAILED: {0} (configure manually)".format(e), None)
 
 
 def _sync(doc):
@@ -494,50 +490,6 @@ def _open_project_documents(uiapp):
     return docs
 
 
-def _document_label(doc, active_doc):
-    try:
-        if doc.IsModelInCloud:
-            kind = "Cloud"
-        elif doc.IsWorkshared:
-            kind = "Workshared"
-        else:
-            kind = "Local"
-    except Exception:
-        kind = "?"
-    label = "{0}  [{1}]".format(doc.Title, kind)
-    if active_doc is not None and _same_document(doc, active_doc):
-        label += "  (active)"
-    return label
-
-
-def _activate_document(uiapp, doc):
-    """Best effort: make doc the active document. Needed only for the
-    Publish Settings step, which drives Revit's own dialog for the ACTIVE
-    document (no public API exists for it). Returns True if doc is active
-    afterwards. NEEDS LIVE-REVIT VERIFICATION: relies on
-    OpenAndActivateDocument simply activating a model that is already
-    open rather than reopening it."""
-    try:
-        active = uiapp.ActiveUIDocument
-        if active is not None and _same_document(active.Document, doc):
-            return True
-    except Exception:
-        pass
-    try:
-        if doc.IsModelInCloud:
-            path = doc.GetCloudModelPath()
-        else:
-            if not doc.PathName:
-                return False
-            path = ModelPathUtils.ConvertUserVisiblePathToModelPath(doc.PathName)
-        uiapp.OpenAndActivateDocument(path, OpenOptions(), False)
-    except Exception:
-        return False
-    try:
-        return _same_document(uiapp.ActiveUIDocument.Document, doc)
-    except Exception:
-        return False
-
 
 # ══════════════════════════════════════════════════════════════════════════
 # The window - collects every choice, then closes and the batch runs
@@ -576,7 +528,6 @@ class DeeBIMviewWindow(dee_branding.DeeBrandedWindow):
         self.viewtype_tb.Text = DEFAULT_VIEW_TYPE
         self.coord_tb.Text = DEFAULT_COORD_VIEW
         self.navis_tb.Text = DEFAULT_NAVIS_VIEW
-        self.pubset_tb.Text = DEFAULT_COORD_SET
 
         # Radio buttons are set in code, not XAML: both have a wired Checked
         # handler, and XAML-declared IsChecked fires it before this window
@@ -634,7 +585,6 @@ class DeeBIMviewWindow(dee_branding.DeeBrandedWindow):
 
     def _update_enables(self):
         is_acc = (self._source() == _ACC)
-        self.pubset_tb.IsEnabled = bool(self.step_pubset_cb.IsChecked)
         publish_on = is_acc and bool(self.step_publish_cb.IsChecked)
         self.publish_normal_rb.IsEnabled = publish_on
         self.publish_nolinks_rb.IsEnabled = publish_on
@@ -825,26 +775,21 @@ class DeeBIMviewWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Tick at least one model to process.", title="DeeBIMview")
             return
         do_views = bool(self.step_views_cb.IsChecked)
-        do_pubset = bool(self.step_pubset_cb.IsChecked)
         do_sync = bool(self.step_sync_cb.IsChecked)
         do_close = bool(self.step_close_cb.IsChecked) and source == _ACC
         do_publish = bool(self.step_publish_cb.IsChecked) and source == _ACC
-        if not (do_views or do_pubset or do_sync or do_close or do_publish):
+        if not (do_views or do_sync or do_close or do_publish):
             forms.alert("Tick at least one step to run.", title="DeeBIMview")
             return
 
         view_type_name = (self.viewtype_tb.Text or "").strip()
         coord_view_name = (self.coord_tb.Text or "").strip()
         navis_view_name = (self.navis_tb.Text or "").strip()
-        coord_set_name = (self.pubset_tb.Text or "").strip()
-        if (do_views or do_pubset) and not coord_view_name:
+        if do_views and not coord_view_name:
             forms.alert("Enter the coordination view name.", title="DeeBIMview")
             return
         if do_views and (not view_type_name or not navis_view_name):
             forms.alert("Enter the 3D view type name and the NAVIS view name.", title="DeeBIMview")
-            return
-        if do_pubset and not coord_set_name:
-            forms.alert("Enter the Publish Settings set name.", title="DeeBIMview")
             return
         if source == _ACC and (self._token is None or self._project is None or self._hub is None):
             forms.alert("Connect to ACC and choose a hub and a project first.", title="DeeBIMview")
@@ -858,14 +803,13 @@ class DeeBIMviewWindow(dee_branding.DeeBrandedWindow):
             "token": self._token,
             "close_worksets": bool(self.open_closed_rb.IsChecked),
             "do_views": do_views,
-            "do_pubset": do_pubset,
+            "hide_links": bool(self.hide_links_cb.IsChecked),
             "do_sync": do_sync,
             "do_close": do_close,
             "do_publish": do_publish,
             "view_type_name": view_type_name,
             "coord_view_name": coord_view_name,
             "navis_view_name": navis_view_name,
-            "coord_set_name": coord_set_name,
             "without_links": bool(self.publish_nolinks_rb.IsChecked),
         }
         self.Close()
@@ -883,7 +827,6 @@ def _process_acc(uiapp, req):
     project_id = req["project_id"]
     token = req["token"]
     do_views = req["do_views"]
-    do_pubset = req["do_pubset"]
     do_sync = req["do_sync"]
     do_close = req["do_close"]
     do_publish = req["do_publish"]
@@ -933,29 +876,15 @@ def _process_acc(uiapp, req):
                 if doc is None:
                     continue
 
-                publish_settings_ok = True
-                actual_coord_view_name = req["coord_view_name"]
                 if do_views:
                     pb.title = "File {0}/{1}: {2} — Creating views".format(i + 1, total, name)
                     output.print_md("Creating views...")
                     before_count = len(dismissed_log)
-                    label, ok, created_coord_name = _create_views(
-                        doc, req["coord_view_name"], req["navis_view_name"], req["view_type_name"])
+                    label, ok, _created_coord_name = _create_views(
+                        doc, req["coord_view_name"], req["navis_view_name"], req["view_type_name"],
+                        req["hide_links"])
                     steps.append((label, ok))
                     steps.extend(dismissed_log[before_count:])
-                    if created_coord_name:
-                        actual_coord_view_name = created_coord_name
-
-                if do_pubset:
-                    pb.title = "File {0}/{1}: {2} — Publish Settings".format(i + 1, total, name)
-                    output.print_md("Configuring Publish Settings...")
-                    label, ok = _configure_publish_settings(
-                        uiapp, req["coord_set_name"], actual_coord_view_name)
-                    steps.append((label, ok))
-                    if ok is None:
-                        publish_settings_ok = False
-                else:
-                    steps.append(("Publish Settings skipped (unchecked)", None))
 
                 if do_sync:
                     pb.title = "File {0}/{1}: {2} — Synchronizing".format(i + 1, total, name)
@@ -965,12 +894,9 @@ def _process_acc(uiapp, req):
                     steps.extend(dismissed_log[before_count:])
 
                 if do_publish:
-                    if publish_settings_ok:
-                        pb.title = "File {0}/{1}: {2} — Publishing".format(i + 1, total, name)
-                        output.print_md("Publishing...")
-                        steps.append(_publish(project_id, item_id, token, req["without_links"]))
-                    else:
-                        steps.append(("Publish skipped (Publish Settings not confirmed)", None))
+                    pb.title = "File {0}/{1}: {2} — Publishing".format(i + 1, total, name)
+                    output.print_md("Publishing...")
+                    steps.append(_publish(project_id, item_id, token, req["without_links"]))
 
                 prev_doc = doc
                 prev_steps = steps
@@ -1001,13 +927,7 @@ def _process_acc(uiapp, req):
 def _process_session(uiapp, req):
     targets = req["targets"]
     do_views = req["do_views"]
-    do_pubset = req["do_pubset"]
     do_sync = req["do_sync"]
-
-    try:
-        active_doc = uiapp.ActiveUIDocument.Document
-    except Exception:
-        active_doc = None
 
     all_results = []
     total = len(targets)
@@ -1025,27 +945,14 @@ def _process_session(uiapp, req):
                 pb.update_progress(i, total)
                 output.print_md("**Document {0}/{1}: {2}**".format(i + 1, total, label))
 
-                actual_coord_view_name = req["coord_view_name"]
                 if do_views:
                     pb.title = "Document {0}/{1}: {2} — Creating views".format(i + 1, total, doc.Title)
                     before_count = len(dismissed_log)
-                    view_label_text, ok, created_coord_name = _create_views(
-                        doc, req["coord_view_name"], req["navis_view_name"], req["view_type_name"])
+                    view_label_text, ok, _created_coord_name = _create_views(
+                        doc, req["coord_view_name"], req["navis_view_name"], req["view_type_name"],
+                        req["hide_links"])
                     steps.append((view_label_text, ok))
                     steps.extend(dismissed_log[before_count:])
-                    if created_coord_name:
-                        actual_coord_view_name = created_coord_name
-
-                if do_pubset:
-                    pb.title = "Document {0}/{1}: {2} — Publish Settings".format(i + 1, total, doc.Title)
-                    if _activate_document(uiapp, doc):
-                        steps.append(_configure_publish_settings(
-                            uiapp, req["coord_set_name"], actual_coord_view_name))
-                    else:
-                        steps.append(("Publish Settings skipped - could not switch to this document "
-                                      "(activate it and configure manually)", None))
-                else:
-                    steps.append(("Publish Settings skipped (unchecked)", None))
 
                 if do_sync:
                     try:
@@ -1063,10 +970,6 @@ def _process_session(uiapp, req):
                 steps.append(("Left open (already open in this session)", None))
     finally:
         uiapp.DialogBoxShowing -= dialog_handler
-        # The Publish Settings step may have switched the active document -
-        # put the user back where they started (best effort).
-        if active_doc is not None:
-            _activate_document(uiapp, active_doc)
 
     _print_results(all_results)
 

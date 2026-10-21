@@ -1,3 +1,3 @@
 title: DeeBIMview
-tooltip: Create the BIM Coordination + NAVIS views (RVT links hidden) in batch from one window - either on ACC cloud files (pick hub, project and files; each is opened for you) or on the documents already open in your Revit session. Tick the steps to run (views only by default; optionally Publish Settings, Sync, and on ACC files Close and Publish) and edit the view and set names right in the window.
+tooltip: Create the BIM Coordination + NAVIS views in batch from one window - either on ACC cloud files (pick hub, project and files; each is opened for you) or on the documents already open in your Revit session. Revit Links are hidden in the new views by default (untick to show them). Optionally also Synchronize With Central; on ACC files you can additionally Close and Publish. Views-only by default.
 context: zero-doc
