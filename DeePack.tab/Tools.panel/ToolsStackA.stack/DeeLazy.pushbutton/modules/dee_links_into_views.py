@@ -252,6 +252,8 @@ class LinkRow(object):
             name = _element_name(instance)
         self.name = name or "(unnamed link)"
         self.safe_name = _sanitize_view_name(self.name)
+        self.preview_name = self.safe_name
+        self.validation = ""
 
 
 def scan_links(doc, view):
@@ -329,6 +331,30 @@ def build_view_base_name(template, view_name, link_safe_name, prefix, suffix):
         body = link_safe_name
     base = u"{0}{1}{2}".format(prefix or "", body, suffix or "")
     return _sanitize_view_name(base)
+
+
+def compute_preview(rows, view_name, template, prefix, suffix, existing_names):
+    """Pure, read-only preview of the final view name + a validation note
+    for each row, given the CURRENT naming pattern/prefix/suffix -
+    mutates each row's preview_name/validation in place, no Revit calls.
+    Mirrors build_view_base_name/_resolve_unique_name exactly, claiming
+    names in the same sequential order create_isolated_view_for_link
+    will use at run time, so a collision between two of THESE rows shows
+    up here too, not just against already-existing views."""
+    taken = set(existing_names)
+    for row in rows:
+        notes = []
+        if row.name in ("(unnamed link)", "(unknown link)"):
+            notes.append("Unnamed link")
+        if row.safe_name != row.name:
+            notes.append("Name sanitized")
+        base_name = build_view_base_name(template, view_name, row.safe_name, prefix, suffix)
+        final_name = _resolve_unique_name(base_name, taken)
+        if final_name != base_name:
+            notes.append("Duplicate - will suffix")
+        taken.add(final_name)
+        row.preview_name = final_name
+        row.validation = "; ".join(notes) if notes else "OK"
 
 
 class ProcessResult(object):
@@ -471,6 +497,30 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
             return None
         return self._views[idx]
 
+    # ---------------- naming preview ----------------
+    def _refresh_preview(self):
+        """Recomputes preview_name/validation for every scanned link row
+        against the CURRENT pattern/prefix/suffix - pure string work, no
+        Revit calls, safe to run on every keystroke. A no-op until a view
+        has actually been scanned."""
+        if self._view is None or not self._link_rows:
+            return
+        template = pattern_template(self.pattern_cb.SelectedIndex)
+        prefix = self.prefix_tb.Text or ""
+        suffix = self.suffix_tb.Text or ""
+        existing_names = _all_taken_view_names(self.doc)
+        compute_preview(self._link_rows, view_label(self._view), template, prefix, suffix, existing_names)
+        self.links_grid.Items.Refresh()
+
+    def pattern_changed(self, sender, args):
+        self._refresh_preview()
+
+    def prefix_changed(self, sender, args):
+        self._refresh_preview()
+
+    def suffix_changed(self, sender, args):
+        self._refresh_preview()
+
     # ---------------- scan ----------------
     def scan_click(self, sender, args):
         view = self._selected_view()
@@ -487,6 +537,7 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
             forms.alert("No Revit Links found in '{0}'.".format(view_label(view)))
             self._log("0 links found in '{0}'.".format(view_label(view)))
             return
+        self._refresh_preview()
         self._log("{0} link(s) found in '{1}'. Tick the ones to isolate, then click "
                    "'Create Isolated Views'.".format(len(self._link_rows), view_label(view)))
 
