@@ -106,7 +106,22 @@ the rename still fails for any other reason, so a failed row never
 leaves orphan "Copy N" views behind.
 
 --------------------------------------------------------------------
-Live-reported bug fixed here: By Link Type undercounted (29 -> 21, not 7)
+Root cause of the 29-vs-7 count: NESTED ("layer 2") links
+--------------------------------------------------------------------
+The real explanation was not grouping at all. A diagnostic column plus
+the Project Browser names of the views already generated showed that
+the 29 RevitLinkInstance elements in the view were 7 top-level links
+plus 22 NESTED links living inside those 7 (instance names are a chain:
+"Top.rvt : Nested.rvt : 47 : location <Not Shared>"). Only top-level
+links are listed now (RevitLinkType.IsNestedLink, confirmed by
+reflection); each nested instance is matched to its root link by the
+first segment of its instance name and rides along in that row's ids,
+so isolating one link keeps ITS nested content and hides everyone
+else's. The grouping work below (cloud GUID identity etc.) is still
+used by By Link Type but was not the cause.
+
+--------------------------------------------------------------------
+Earlier attempts at the count: By Link Type grouping (29 -> 21 -> 28)
 --------------------------------------------------------------------
 Grouping by RevitLinkType.Id did not collapse every placement of the
 same file into one row - on the real project, Revit's own Project
@@ -327,11 +342,36 @@ def _sanitize_view_name(name):
     return cleaned or "Link"
 
 
+def _instance_root_name(instance):
+    """First segment of a link INSTANCE's own name. Live data from a real
+    project shows instance names are a path-like chain:
+    "Top.rvt : Nested.rvt : 47 : location <Not Shared>" for a nested
+    link and "Top.rvt : 21 : location <Not Shared>" for a top-level one -
+    so the first " : " segment is always the ROOT (top-level) file."""
+    name = _element_name(instance) or ""
+    return name.split(" : ")[0].strip()
+
+
 def _resolve_link_name(instance, link_type):
     name = _link_type_display_name(link_type) if link_type is not None else None
     if not name:
-        name = _element_name(instance)
+        name = _instance_root_name(instance)
     return name or "(unnamed link)"
+
+
+def _is_nested_link(instance, link_type):
+    """True for a "layer 2" link - a link that lives INSIDE another linked
+    model. RevitLinkType.IsNestedLink is the real property (confirmed via
+    .NET reflection against the installed RevitAPI.dll); when the type is
+    unavailable, falls back to the instance-name chain containing more
+    than one .rvt segment (see _instance_root_name)."""
+    try:
+        if link_type is not None:
+            return bool(link_type.IsNestedLink)
+    except Exception:
+        pass
+    name = _element_name(instance) or ""
+    return len([s for s in name.split(" : ") if s.strip().lower().endswith(".rvt")]) > 1
 
 
 class LinkRow(object):
@@ -341,16 +381,15 @@ class LinkRow(object):
     "every other row" and copying link-display-overrides both work
     identically in either mode by just iterating ids."""
 
-    def __init__(self, ids, name, file_path, debug_key=""):
+    def __init__(self, ids, name, file_path, count=None):
         self.ids = ids
-        self.count = len(ids)
+        self.count = count if count is not None else len(ids)
         self.selected = False
         self.file_path = file_path or ""
         self.name = name
         self.safe_name = _sanitize_view_name(self.name)
         self.preview_name = self.safe_name
         self.validation = ""
-        self.debug_key = debug_key
 
 
 def scan_raw_links(doc, view):
@@ -392,38 +431,66 @@ def _link_group_key(link_type, name, file_path):
     return ("name", _INSTANCE_COPY_SUFFIX_RE.sub("", name).strip() or name)
 
 
+def count_nested(raw_instances):
+    return sum(1 for inst, link_type in raw_instances if _is_nested_link(inst, link_type))
+
+
 def build_rows(raw_instances, group_by_type):
-    """Turns scan_raw_links()'s output into LinkRow objects - one per
-    instance (group_by_type=False), or one per distinct linked FILE with
-    every one of its instances' ids folded in (group_by_type=True), per
-    _link_group_key()'s identity rather than the link Type element.
-    debug_key is never user-facing logic - it is shown in a grid column
-    purely as a diagnostic (see "Grouping debug column" below) so a
-    grouping mismatch on a real project can be read directly off a
-    screenshot instead of guessed at blind."""
+    """Turns scan_raw_links()'s output into LinkRow objects.
+
+    Only TOP-LEVEL links get a row - nested ("layer 2") links, i.e. links
+    living inside another linked model, are not listed (live-reported:
+    a view showed 29 link instances where Revit's own Project Browser and
+    Properties palette count only 7 - the other 22 were nested links
+    inside those 7). Each nested instance is still folded into its ROOT
+    link's row ids (matched by the first segment of its instance name,
+    see _instance_root_name), so hiding "every other row" also hides a
+    different link's nested content, while the chosen link keeps its own.
+
+    One row per top-level instance (group_by_type=False), or one per
+    distinct linked FILE with all its top-level instances folded in
+    (group_by_type=True), per _link_group_key()'s identity rather than
+    the link Type element. count is the number of TOP-LEVEL instances a
+    row stands for (nested ids ride along in ids but are not counted)."""
+    nested_ids_by_root = {}
+    top_level = []
+    for inst, link_type in raw_instances:
+        if _is_nested_link(inst, link_type):
+            nested_ids_by_root.setdefault(_instance_root_name(inst).lower(), []).append(inst.Id)
+        else:
+            top_level.append((inst, link_type))
+
+    def _nested_for(inst):
+        return nested_ids_by_root.get(_instance_root_name(inst).lower(), [])
+
     if not group_by_type:
-        rows = [LinkRow([inst.Id], _resolve_link_name(inst, link_type),
-                         _link_file_path(link_type) if link_type is not None else "")
-                for inst, link_type in raw_instances]
+        rows = []
+        for inst, link_type in top_level:
+            ids = [inst.Id] + list(_nested_for(inst))
+            rows.append(LinkRow(ids, _resolve_link_name(inst, link_type),
+                                 _link_file_path(link_type) if link_type is not None else "", count=1))
     else:
         groups = {}
         order = []
-        for inst, link_type in raw_instances:
+        for inst, link_type in top_level:
             name = _resolve_link_name(inst, link_type)
             file_path = _link_file_path(link_type) if link_type is not None else ""
-            type_id_text = str(link_type.Id.IntegerValue) if link_type is not None else "None"
             try:
                 key = _link_group_key(link_type, name, file_path)
-                key_text = "type={0} key={1}".format(type_id_text, key)
-            except Exception as e:
+            except Exception:
                 key = ("error", inst.Id.IntegerValue)
-                key_text = "type={0} ERROR: {1}".format(type_id_text, e)
             if key not in groups:
-                groups[key] = {"ids": [], "name": name, "file_path": file_path, "debug_key": key_text}
+                groups[key] = {"ids": [], "count": 0, "name": name, "file_path": file_path, "roots": set()}
                 order.append(key)
-            groups[key]["ids"].append(inst.Id)
-        rows = [LinkRow(groups[key]["ids"], groups[key]["name"], groups[key]["file_path"], groups[key]["debug_key"])
-                for key in order]
+            group = groups[key]
+            group["ids"].append(inst.Id)
+            group["count"] += 1
+            root = _instance_root_name(inst).lower()
+            if root not in group["roots"]:
+                group["roots"].add(root)
+                group["ids"].extend(_nested_for(inst))
+        rows = [LinkRow(groups[key]["ids"], groups[key]["name"], groups[key]["file_path"],
+                         count=groups[key]["count"]) for key in order]
     rows.sort(key=lambda r: r.name.lower())
     return rows
 
@@ -543,7 +610,17 @@ def create_isolated_view_for_link(doc, original_view, chosen_row, all_rows, take
         return ProcessResult(chosen_row.name, False, "Could not rename (duplicate removed): {0}".format(e))
     taken_names.add(final_name)
 
-    other_ids = [i for r in all_rows if r is not chosen_row for i in r.ids]
+    chosen_keys = set(i.IntegerValue for i in chosen_row.ids)
+    other_ids = []
+    seen = set()
+    for r in all_rows:
+        if r is chosen_row:
+            continue
+        for i in r.ids:
+            if i.IntegerValue in chosen_keys or i.IntegerValue in seen:
+                continue
+            seen.add(i.IntegerValue)
+            other_ids.append(i)
     if other_ids:
         try:
             new_view.HideElements(List[ElementId](other_ids))
@@ -722,10 +799,10 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
             self._log("0 links found in '{0}'.".format(view_label(view)))
             return
         self._rebuild_rows()
-        instance_count = len(self._raw_instances)
-        self._log("{0} link instance(s) found in '{1}' ({2} row(s) shown). Tick the ones to isolate, "
-                   "then click 'Create Isolated Views'.".format(
-                       instance_count, view_label(view), len(self._link_rows)))
+        nested_count = count_nested(self._raw_instances)
+        self._log("{0} link(s) found in '{1}' ({2} nested link instance(s) kept with their parent, not "
+                   "listed). Tick the ones to isolate, then click 'Create Isolated Views'.".format(
+                       len(self._link_rows), view_label(view), nested_count))
 
     def select_all_click(self, sender, args):
         for r in self._link_rows:
