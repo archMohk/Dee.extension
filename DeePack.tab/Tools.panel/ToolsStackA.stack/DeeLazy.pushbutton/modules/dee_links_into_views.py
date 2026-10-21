@@ -12,6 +12,17 @@ changes. The new view's name is built from a chosen naming pattern
 optional user prefix/suffix, sanitized against Revit's prohibited
 name characters, and collision-safe suffixed if that name is taken.
 
+Each created view is also set to Detail Level Fine with all annotation
+categories hidden (both optional, on by default). A view template can then
+be applied to the created views - an existing one picked from a list, or a
+NEW one created from the first created view (so it carries Fine detail and
+hidden annotations) with the Revit Links settings (V/G Overrides RVT Links)
+excluded from what it controls, then applied to every created view. A
+template that gets applied controls its own settings, so it can override
+Fine / hidden annotations. Note View.Duplicate keeps the SOURCE view's own
+template; if that template controls Detail Level or annotations, Revit
+refuses those two defaults and the row says so.
+
 Two grouping modes, switchable without re-scanning (live-reported need:
 the same link FILE is often placed many times across a project - e.g.
 one villa/unit type repeated across a masterplan - so "link count"
@@ -154,6 +165,7 @@ import dee_branding
 from Autodesk.Revit.DB import (
     FilteredElementCollector, View, ViewType, RevitLinkInstance, Element,
     Transaction, ElementId, ViewDuplicateOption, ModelPathUtils,
+    ViewDetailLevel, ViewSchedule, BuiltInParameter,
 )
 from System.Collections.Generic import List
 
@@ -605,10 +617,143 @@ class ProcessResult(object):
         self.detail = detail
         self.new_view_name = new_view_name
         self.source_view = ""
+        self.new_view = None
+        self.is_summary = False
+
+
+TEMPLATE_NONE = "none"
+TEMPLATE_APPLY = "apply"
+TEMPLATE_CREATE = "create"
+
+
+class RunOptions(object):
+    """What to do to each created view beyond isolating its link."""
+
+    def __init__(self, fine=True, hide_annotations=True, template_mode=TEMPLATE_NONE,
+                 template_id=None, new_template_name=""):
+        self.fine = fine
+        self.hide_annotations = hide_annotations
+        self.template_mode = template_mode
+        self.template_id = template_id
+        self.new_template_name = new_template_name
+
+
+def list_view_templates(doc):
+    """[(name, ElementId)] of every view template that can be applied to a
+    model view (schedule templates are left out), name-sorted."""
+    out = []
+    for v in FilteredElementCollector(doc).OfClass(View):
+        try:
+            if not v.IsTemplate or isinstance(v, ViewSchedule):
+                continue
+            out.append((utils.read_name(v) or "(unnamed template)", v.Id))
+        except Exception:
+            continue
+    out.sort(key=lambda t: t[0].lower())
+    return out
+
+
+def _has_template(view):
+    try:
+        return utils.id_value(view.ViewTemplateId) > 0
+    except Exception:
+        return False
+
+
+def _apply_view_defaults(view, options):
+    """Detail Level Fine and all annotation categories hidden. These are
+    controlled by a view template when one is applied (and View.Duplicate
+    keeps the SOURCE view's template), in which case Revit refuses the
+    change - reported as a note instead of failing the view."""
+    notes = []
+    if options.fine:
+        try:
+            view.DetailLevel = ViewDetailLevel.Fine
+        except Exception as e:
+            notes.append("detail level not set ({0})".format(
+                "controlled by the view template it inherited" if _has_template(view) else e))
+    if options.hide_annotations:
+        try:
+            view.AreAnnotationCategoriesHidden = True
+        except Exception as e:
+            notes.append("annotations not hidden ({0})".format(
+                "controlled by the view template it inherited" if _has_template(view) else e))
+    return notes
+
+
+def _exclude_links_from_template(template):
+    """Stops the template controlling the Revit Links (V/G Overrides RVT
+    Links) settings, so applying it never overwrites a view's per-link
+    display settings. Returns a short text for the report."""
+    param_id = ElementId(BuiltInParameter.VIS_GRAPHICS_RVT_LINKS)
+    key = utils.id_value(param_id)
+    try:
+        if not any(utils.id_value(i) == key for i in template.GetTemplateParameterIds()):
+            return "Revit Links setting does not apply to this template type"
+    except Exception:
+        pass
+    non_controlled = list(template.GetNonControlledTemplateParameterIds())
+    if not any(utils.id_value(i) == key for i in non_controlled):
+        non_controlled.append(param_id)
+        template.SetNonControlledTemplateParameterIds(List[ElementId](non_controlled))
+    return "Revit Links settings excluded from the template"
+
+
+def _run_template_step(doc, results, options, taken_names):
+    """After every view exists: apply an existing template, or create a new
+    one FROM THE FIRST created view (so it carries Fine detail and hidden
+    annotations), exclude the Revit Links settings from it, and apply it to
+    every created view. A template problem is appended to that row's detail;
+    it never turns a successfully created view into a failure."""
+    if options.template_mode == TEMPLATE_NONE:
+        return
+    created = [r for r in results if r.ok and r.new_view is not None]
+    if not created:
+        return
+
+    template = None
+    if options.template_mode == TEMPLATE_APPLY:
+        template = doc.GetElement(options.template_id) if options.template_id is not None else None
+        if template is None:
+            for r in created:
+                r.detail += " | template not found"
+            return
+    else:
+        source = created[0].new_view
+        try:
+            if not source.IsViewValidForTemplateCreation():
+                raise Exception("this view type cannot be used to create a template")
+            template = source.CreateViewTemplate()
+            wanted = _sanitize_view_name(options.new_template_name) or "Links Into Views"
+            name = _resolve_unique_name(wanted, taken_names)
+            template.Name = name
+            taken_names.add(name)
+            links_note = _exclude_links_from_template(template)
+            summary = ProcessResult("(view template)", True,
+                                    "Created view template '{0}' from '{1}' - {2}".format(
+                                        name, created[0].new_view_name, links_note), name)
+            summary.source_view = created[0].source_view
+            summary.is_summary = True
+            results.append(summary)
+        except Exception as e:
+            for r in created:
+                r.detail += " | new view template FAILED: {0}".format(e)
+            return
+
+    template_name = utils.read_name(template) or "template"
+    for r in created:
+        try:
+            if not r.new_view.IsValidViewTemplate(template.Id):
+                r.detail += " | template '{0}' is not valid for this view type".format(template_name)
+                continue
+            r.new_view.ViewTemplateId = template.Id
+            r.detail += " | template '{0}' applied".format(template_name)
+        except Exception as e:
+            r.detail += " | template not applied ({0})".format(e)
 
 
 def create_isolated_view_for_link(doc, original_view, chosen_row, all_rows, taken_names,
-                                   template, prefix, suffix):
+                                   template, prefix, suffix, options):
     """One link -> one new view. Mutates taken_names (claims the name it
     just used) so later rows in the same batch don't collide with each
     other, not just with pre-existing views. Never raises - any failure
@@ -659,12 +804,17 @@ def create_isolated_view_for_link(doc, original_view, chosen_row, all_rows, take
                 new_view.SetLinkOverrides(link_id, overrides)
         except Exception:
             override_failures += 1
-    warning = " ({0} link display setting(s) not copied)".format(override_failures) if override_failures else ""
+    notes = _apply_view_defaults(new_view, options)
+    if override_failures:
+        notes.append("{0} link display setting(s) not copied".format(override_failures))
+    warning = " ({0})".format("; ".join(notes)) if notes else ""
 
-    return ProcessResult(chosen_row.name, True, "Created '{0}'{1}".format(final_name, warning), final_name)
+    result = ProcessResult(chosen_row.name, True, "Created '{0}'{1}".format(final_name, warning), final_name)
+    result.new_view = new_view
+    return result
 
 
-def run_batch(doc, all_rows, checked_rows, template, prefix, suffix):
+def run_batch(doc, all_rows, checked_rows, template, prefix, suffix, options):
     """One Transaction for the whole batch - per-row failures are caught
     inside create_isolated_view_for_link and recorded, never raised, so
     the transaction always commits and successful rows are never lost
@@ -686,11 +836,15 @@ def run_batch(doc, all_rows, checked_rows, template, prefix, suffix):
             try:
                 result = create_isolated_view_for_link(
                     doc, row.view, row, rows_by_view.get(utils.id_value(row.view.Id), [row]),
-                    taken_names, template, prefix, suffix)
+                    taken_names, template, prefix, suffix, options)
             except Exception as e:
                 result = ProcessResult(row.name, False, str(e))
             result.source_view = row.view_name
             results.append(result)
+        try:
+            _run_template_step(doc, results, options, taken_names)
+        except Exception as e:
+            results.append(ProcessResult("(view template)", False, "Template step failed: {0}".format(e)))
     finally:
         t.Commit()
     return results
@@ -700,12 +854,13 @@ def run_batch(doc, all_rows, checked_rows, template, prefix, suffix):
 # Report
 # ==========================================================================
 def _report_html(results, elapsed_seconds):
-    ok_count = sum(1 for r in results if r.ok)
-    fail_count = len(results) - ok_count
+    view_results = [r for r in results if not r.is_summary]
+    ok_count = sum(1 for r in view_results if r.ok)
+    fail_count = len(view_results) - ok_count
     html = [
         '<h2 style="font-family:sans-serif;color:#ddd;">DeeLazy - Links Into Views</h2>',
         '<p style="color:#ddd;">{0} link(s) processed - {1} view(s) created, {2} skipped/failed - {3:.1f}s.</p>'.format(
-            len(results), ok_count, fail_count, elapsed_seconds),
+            len(view_results), ok_count, fail_count, elapsed_seconds),
     ]
     for r in results:
         bg = "#2e7d32" if r.ok else "#c62828"
@@ -748,6 +903,27 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
 
         self.pattern_cb.ItemsSource = pattern_labels()
         self.pattern_cb.SelectedIndex = 0
+
+        self._templates = list_view_templates(self.doc)
+        self.template_cb.ItemsSource = [name for name, _id in self._templates]
+        if self._templates:
+            self.template_cb.SelectedIndex = 0
+        self.template_name_tb.Text = "Exported View Template"
+        # Set in code (not XAML): the radios have a Checked handler, and an
+        # XAML-declared IsChecked would fire it before this window is ready.
+        self.template_none_rb.IsChecked = True
+        self._template_ui_ready = True
+        self._update_template_enables()
+
+    def _update_template_enables(self):
+        self.template_apply_rb.IsEnabled = bool(self._templates)
+        self.template_cb.IsEnabled = bool(self.template_apply_rb.IsChecked) and bool(self._templates)
+        self.template_name_tb.IsEnabled = bool(self.template_create_rb.IsChecked)
+
+    def template_mode_changed(self, sender, args):
+        if not getattr(self, "_template_ui_ready", False):
+            return
+        self._update_template_enables()
 
     # ---------------- logging/status ----------------
     def _log(self, message):
@@ -875,6 +1051,28 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
         if not checked:
             forms.alert("Tick at least one link first.")
             return
+        template_mode = TEMPLATE_NONE
+        template_id = None
+        new_template_name = ""
+        if bool(self.template_apply_rb.IsChecked):
+            idx = self.template_cb.SelectedIndex
+            if idx < 0 or idx >= len(self._templates):
+                forms.alert("Pick the view template to apply, or choose 'None'.")
+                return
+            template_mode = TEMPLATE_APPLY
+            template_id = self._templates[idx][1]
+        elif bool(self.template_create_rb.IsChecked):
+            new_template_name = (self.template_name_tb.Text or "").strip()
+            if not new_template_name:
+                forms.alert("Enter a name for the new view template, or choose 'None'.")
+                return
+            template_mode = TEMPLATE_CREATE
+        options = RunOptions(
+            fine=bool(self.fine_cb.IsChecked),
+            hide_annotations=bool(self.annot_cb.IsChecked),
+            template_mode=template_mode, template_id=template_id,
+            new_template_name=new_template_name)
+
         source_count = len(set(utils.id_value(r.view.Id) for r in checked))
         if not forms.alert(
                 "Create {0} isolated view(s) from {1} source view(s)?".format(len(checked), source_count),
@@ -886,16 +1084,17 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
         suffix = self.suffix_tb.Text or ""
 
         start = time.time()
-        results = run_batch(self.doc, self._link_rows, checked, template, prefix, suffix)
+        results = run_batch(self.doc, self._link_rows, checked, template, prefix, suffix, options)
         elapsed = time.time() - start
 
         self._results = results
         self.report_grid.ItemsSource = None
         self.report_grid.ItemsSource = results
         _report_html(results, elapsed)
-        ok_count = sum(1 for r in results if r.ok)
+        view_results = [r for r in results if not r.is_summary]
+        ok_count = sum(1 for r in view_results if r.ok)
         self._log("{0} of {1} isolated view(s) created - {2:.1f}s. See the report.".format(
-            ok_count, len(results), elapsed))
+            ok_count, len(view_results), elapsed))
 
     def close_click(self, sender, args):
         self.Close()

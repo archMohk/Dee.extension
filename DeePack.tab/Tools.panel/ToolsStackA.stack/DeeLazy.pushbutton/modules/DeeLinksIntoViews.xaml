@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeLazy — Links Into Views"
         ShowInTaskbar="False"
-        MinHeight="720" MinWidth="1000" Height="880" Width="1100"
+        MinHeight="760" MinWidth="1000" Height="930" Width="1100"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
@@ -50,13 +50,35 @@
                              VerticalAlignment="Center" Checked="group_mode_changed"/>
             </StackPanel>
 
+            <GroupBox DockPanel.Dock="Top" Header="Created views" Margin="0,0,0,8">
+                <StackPanel Margin="6">
+                    <StackPanel Orientation="Horizontal">
+                        <CheckBox x:Name="fine_cb" Content="Detail Level: Fine" IsChecked="True" Margin="0,0,28,0"/>
+                        <CheckBox x:Name="annot_cb" Content="Hide all annotation categories" IsChecked="True"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBlock Text="View template:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <RadioButton x:Name="template_none_rb" GroupName="template_mode" Content="None"
+                                     VerticalAlignment="Center" Margin="0,0,18,0" Checked="template_mode_changed"/>
+                        <RadioButton x:Name="template_apply_rb" GroupName="template_mode" Content="Apply existing:"
+                                     VerticalAlignment="Center" Checked="template_mode_changed"/>
+                        <ComboBox x:Name="template_cb" Width="250" Height="24" Margin="6,0,18,0"/>
+                        <RadioButton x:Name="template_create_rb" GroupName="template_mode" Content="Create a new one named:"
+                                     VerticalAlignment="Center" Checked="template_mode_changed"/>
+                        <TextBox x:Name="template_name_tb" Width="190" Height="24" Margin="6,0,0,0" VerticalContentAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock TextWrapping="Wrap" FontStyle="Italic" Margin="0,6,0,0"
+                               Text="A new template is made from the first created view (so it carries Fine detail and the hidden annotations), does NOT control the Revit Links settings, and is applied to every created view. A template that is applied controls its own settings, so it can override the two defaults above."/>
+                </StackPanel>
+            </GroupBox>
+
             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
                 <TextBlock Text="Links found in the scanned views:" VerticalAlignment="Center" Margin="0,0,10,0"/>
                 <Button x:Name="select_all_b" Content="Select All" Click="select_all_click" Width="90" Height="24"/>
                 <Button x:Name="select_none_b" Content="Select None" Click="select_none_click" Width="90" Height="24" Margin="6,0,0,0"/>
             </StackPanel>
 
-            <DataGrid x:Name="links_grid" DockPanel.Dock="Top" Height="200" AutoGenerateColumns="False" CanUserAddRows="False"
+            <DataGrid x:Name="links_grid" DockPanel.Dock="Top" Height="150" AutoGenerateColumns="False" CanUserAddRows="False"
                       CanUserSortColumns="True" RowHeaderWidth="0" Margin="0,0,0,10">
                 <DataGrid.Columns>
                     <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
@@ -74,7 +96,7 @@
             <GroupBox DockPanel.Dock="Top" Header="Report">
                 <DockPanel Margin="6">
                     <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click" Height="26" Margin="0,6,0,0"/>
-                    <DataGrid x:Name="report_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" RowHeaderWidth="0" Height="160">
+                    <DataGrid x:Name="report_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" RowHeaderWidth="0" Height="120">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Source View" Binding="{Binding source_view}" Width="*"/>
                             <DataGridTextColumn Header="Link" Binding="{Binding link_name}" Width="*"/>
