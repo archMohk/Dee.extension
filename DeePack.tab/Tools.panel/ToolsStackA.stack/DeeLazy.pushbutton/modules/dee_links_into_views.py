@@ -1,0 +1,395 @@
+# -*- coding: utf-8 -*-
+"""
+DeeLazy - Links Into Views module
+Pick a view that contains Revit Links, scan it, tick the links to
+process, then create one isolated duplicate view per ticked link: a
+copy of the original view (same type/scale/crop/view-range/template -
+whatever View.Duplicate() natively carries over) with every OTHER link
+found in the scan hidden, so the copy ends up dedicated to that one
+link. Host-model elements are never touched - only link visibility
+changes. The new view's name combines the original view's name and the
+link's own name.
+
+--------------------------------------------------------------------
+Revit API facts relied on here (matched against real precedent already
+proven elsewhere in this codebase, not guessed)
+--------------------------------------------------------------------
+- FilteredElementCollector(doc, view.Id).OfClass(RevitLinkInstance) -
+  scopes the collector to links actually present in ONE view, same
+  pattern as lib/dee_3d_export_service.py's collect_link_sources.
+- RevitLinkType.Name alone is known-unreliable (frequently blank on a
+  real project - documented in lib/dee_link_dist_service.py). The
+  reliable name is the linked FILE's own name, via
+  RevitLinkType.GetExternalFileReference() -> ExternalFileReference.
+  GetPath() -> ModelPathUtils.ConvertModelPathToUserVisiblePath() ->
+  os.path.basename(). This works whether or not the link is currently
+  loaded - it does not require RevitLinkInstance.GetLinkDocument(), so
+  an unloaded link is still fully processable here.
+- View.Duplicate(ViewDuplicateOption.Duplicate) -> ElementId, then
+  doc.GetElement(new_id) for the new View - precedent in
+  DeeVSDupl.pushbutton/script.py and DeeView.pushbutton/script.py.
+- View.HideElements(ICollection<ElementId>) - a PERMANENT per-element
+  hide saved with the view (distinct from the temporary isolate/hide
+  API family used elsewhere in this codebase) - sole existing
+  precedent: DeeRehoster.pushbutton/script.py. Batched into one call
+  per new view here (not per-element) since every "other link" id is
+  known upfront and homogeneous.
+
+--------------------------------------------------------------------
+NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct)
+--------------------------------------------------------------------
+- Whether every supported ViewType (FloorPlan, CeilingPlan, Elevation,
+  Section, ThreeD, AreaPlan, EngineeringPlan) behaves identically for
+  Duplicate()+HideElements() in every Revit version - each step is
+  wrapped in its own try/except and reported per-row rather than
+  assumed, but not yet exercised live for every type.
+"""
+import os
+import time
+
+import clr
+clr.AddReference("WindowsBase")
+clr.AddReference("PresentationCore")
+clr.AddReference("PresentationFramework")
+
+from pyrevit import forms, script
+import dee_branding
+from Autodesk.Revit.DB import (
+    FilteredElementCollector, View, ViewType, RevitLinkInstance,
+    Transaction, ElementId, ViewDuplicateOption, ModelPathUtils,
+)
+from System.Collections.Generic import List
+
+import utils
+
+output = script.get_output()
+
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_XAML_FILE = os.path.join(_THIS_DIR, "DeeLinksIntoViews.xaml")
+
+_ALLOWED_VIEW_TYPES = set([
+    ViewType.FloorPlan, ViewType.CeilingPlan, ViewType.Elevation, ViewType.Section,
+    ViewType.ThreeD, ViewType.AreaPlan, ViewType.EngineeringPlan,
+])
+
+
+# ==========================================================================
+# View scanning - eligible views (real model-space views where links get
+# placed and where Duplicate()+HideElements() make sense)
+# ==========================================================================
+def _is_eligible_view(view):
+    try:
+        if view is None or not isinstance(view, View):
+            return False
+        if view.IsTemplate:
+            return False
+        if view.ViewType not in _ALLOWED_VIEW_TYPES:
+            return False
+    except Exception:
+        return False
+    return True
+
+
+def eligible_views(doc):
+    views = [v for v in FilteredElementCollector(doc).OfClass(View) if _is_eligible_view(v)]
+    views.sort(key=lambda v: (utils.read_name(v) or "").lower())
+    return views
+
+
+def view_label(view):
+    return utils.read_name(view) or "(unnamed view)"
+
+
+# ==========================================================================
+# Link scanning (view-scoped) - local name-resolution copy, matching this
+# codebase's own established precedent (dee_sheet_links_service.py
+# duplicates the same helper rather than importing the much larger
+# dee_link_dist_service.py for one pure function).
+# ==========================================================================
+def _link_display_name(link_type):
+    try:
+        ref = link_type.GetExternalFileReference()
+        if ref is not None:
+            model_path = ref.GetPath()
+            if model_path is not None:
+                visible_path = ModelPathUtils.ConvertModelPathToUserVisiblePath(model_path)
+                if visible_path:
+                    return os.path.basename(visible_path)
+    except Exception:
+        pass
+    try:
+        if link_type.Name:
+            return link_type.Name
+    except Exception:
+        pass
+    return "(unnamed link)"
+
+
+def _link_file_path(link_type):
+    try:
+        ref = link_type.GetExternalFileReference()
+        if ref is not None:
+            model_path = ref.GetPath()
+            if model_path is not None:
+                visible_path = ModelPathUtils.ConvertModelPathToUserVisiblePath(model_path)
+                if visible_path:
+                    return visible_path
+    except Exception:
+        pass
+    return ""
+
+
+class LinkRow(object):
+    def __init__(self, instance, link_type):
+        self.instance = instance
+        self.id = instance.Id
+        self.selected = False
+        self.name = _link_display_name(link_type) if link_type is not None else "(unknown link)"
+        self.file_path = _link_file_path(link_type) if link_type is not None else ""
+
+
+def scan_links(doc, view):
+    """Links actually placed in THIS view, not the whole document - top
+    level only, no nested-link recursion (only links directly visible
+    in the picked view matter here)."""
+    rows = []
+    try:
+        collector = FilteredElementCollector(doc, view.Id).OfClass(RevitLinkInstance)
+    except Exception:
+        return rows
+    for inst in collector:
+        try:
+            link_type = doc.GetElement(inst.GetTypeId())
+        except Exception:
+            link_type = None
+        rows.append(LinkRow(inst, link_type))
+    rows.sort(key=lambda r: r.name.lower())
+    return rows
+
+
+# ==========================================================================
+# View duplication + collision-safe naming
+# ==========================================================================
+def _all_taken_view_names(doc):
+    names = set()
+    for v in FilteredElementCollector(doc).OfClass(View):
+        try:
+            n = utils.read_name(v)
+            if n:
+                names.add(n)
+        except Exception:
+            continue
+    return names
+
+
+def _resolve_unique_name(base_name, taken_names):
+    if base_name not in taken_names:
+        return base_name
+    n = 2
+    while True:
+        candidate = "{0} ({1})".format(base_name, n)
+        if candidate not in taken_names:
+            return candidate
+        n += 1
+
+
+class ProcessResult(object):
+    def __init__(self, link_name, ok, detail, new_view_name=""):
+        self.link_name = link_name
+        self.ok = ok
+        self.result = "OK" if ok else "Skipped/Failed"
+        self.detail = detail
+        self.new_view_name = new_view_name
+
+
+def create_isolated_view_for_link(doc, original_view, chosen_row, all_rows, taken_names):
+    """One link -> one new view. Mutates taken_names (claims the name it
+    just used) so later rows in the same batch don't collide with each
+    other, not just with pre-existing views. Never raises - any failure
+    is returned as a failed ProcessResult so the batch loop can continue."""
+    try:
+        new_id = original_view.Duplicate(ViewDuplicateOption.Duplicate)
+        new_view = doc.GetElement(new_id)
+    except Exception as e:
+        return ProcessResult(chosen_row.name, False, "Could not duplicate view: {0}".format(e))
+
+    base_name = u"{0} - {1}".format(utils.read_name(original_view) or "View", chosen_row.name)
+    final_name = _resolve_unique_name(base_name, taken_names)
+    try:
+        new_view.Name = final_name
+    except Exception as e:
+        return ProcessResult(chosen_row.name, False, "Duplicated but could not rename: {0}".format(e), final_name)
+    taken_names.add(final_name)
+
+    other_ids = [r.id for r in all_rows if r.id != chosen_row.id]
+    if other_ids:
+        try:
+            new_view.HideElements(List[ElementId](other_ids))
+        except Exception as e:
+            return ProcessResult(
+                chosen_row.name, False,
+                "Created '{0}' but could not hide other links: {1}".format(final_name, e), final_name)
+
+    return ProcessResult(chosen_row.name, True, "Created '{0}'".format(final_name), final_name)
+
+
+def run_batch(doc, original_view, all_rows, checked_rows):
+    """One Transaction for the whole batch - per-row failures are caught
+    inside create_isolated_view_for_link and recorded, never raised, so
+    the transaction always commits and successful rows are never lost
+    to one bad row (same house style as view_cropping.py's _run_action)."""
+    taken_names = _all_taken_view_names(doc)
+    results = []
+    t = Transaction(doc, "DeeLazy - Links Into Views")
+    t.Start()
+    try:
+        for row in checked_rows:
+            try:
+                result = create_isolated_view_for_link(doc, original_view, row, all_rows, taken_names)
+            except Exception as e:
+                result = ProcessResult(row.name, False, str(e))
+            results.append(result)
+    finally:
+        t.Commit()
+    return results
+
+
+# ==========================================================================
+# Report
+# ==========================================================================
+def _report_html(results, elapsed_seconds):
+    ok_count = sum(1 for r in results if r.ok)
+    fail_count = len(results) - ok_count
+    html = [
+        '<h2 style="font-family:sans-serif;color:#ddd;">DeeLazy - Links Into Views</h2>',
+        '<p style="color:#ddd;">{0} link(s) processed - {1} view(s) created, {2} skipped/failed - {3:.1f}s.</p>'.format(
+            len(results), ok_count, fail_count, elapsed_seconds),
+    ]
+    for r in results:
+        bg = "#2e7d32" if r.ok else "#c62828"
+        icon = "&#10003;" if r.ok else "&#10007;"
+        html.append(
+            '<div style="padding:4px 10px;margin:2px 0;background:{0};color:#fff;'
+            'border-radius:4px;font-family:monospace;font-size:12px;">'
+            '{1}&nbsp; <b>{2}</b> &mdash; {3}</div>'.format(bg, icon, r.link_name, r.detail))
+    output.print_html("".join(html))
+
+
+# ==========================================================================
+# Window - UI wiring only; all real work happens in the plain functions
+# above (same separation as view_cropping.py)
+# ==========================================================================
+class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
+    def __init__(self, xaml_file, uiapp):
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        self.uiapp = uiapp
+        self.uidoc = uiapp.ActiveUIDocument
+        self.doc = self.uidoc.Document
+        self._view = None
+        self._link_rows = []
+        self._results = []
+
+        self._views = eligible_views(self.doc)
+        labels = [view_label(v) for v in self._views]
+        self.view_cb.ItemsSource = labels
+        if labels:
+            default_index = 0
+            active = self.doc.ActiveView
+            if active is not None:
+                for i, v in enumerate(self._views):
+                    if v.Id == active.Id:
+                        default_index = i
+                        break
+            self.view_cb.SelectedIndex = default_index
+            self._log("Pick a view, then click 'Scan for Links'.")
+        else:
+            self._log("No eligible views (Floor Plan/Ceiling Plan/Elevation/Section/3D/"
+                       "Area Plan/Engineering Plan) found in this project.")
+
+    # ---------------- logging/status ----------------
+    def _log(self, message):
+        self.status_tb.Text = message
+
+    def _selected_view(self):
+        idx = self.view_cb.SelectedIndex
+        if idx is None or idx < 0 or idx >= len(self._views):
+            return None
+        return self._views[idx]
+
+    # ---------------- scan ----------------
+    def scan_click(self, sender, args):
+        view = self._selected_view()
+        if view is None:
+            forms.alert("Pick a view first.")
+            return
+        self._view = view
+        self._link_rows = scan_links(self.doc, view)
+        self._results = []
+        self.report_grid.ItemsSource = None
+        self.links_grid.ItemsSource = None
+        self.links_grid.ItemsSource = self._link_rows
+        if not self._link_rows:
+            forms.alert("No Revit Links found in '{0}'.".format(view_label(view)))
+            self._log("0 links found in '{0}'.".format(view_label(view)))
+            return
+        self._log("{0} link(s) found in '{1}'. Tick the ones to isolate, then click "
+                   "'Create Isolated Views'.".format(len(self._link_rows), view_label(view)))
+
+    def select_all_click(self, sender, args):
+        for r in self._link_rows:
+            r.selected = True
+        self.links_grid.Items.Refresh()
+
+    def select_none_click(self, sender, args):
+        for r in self._link_rows:
+            r.selected = False
+        self.links_grid.Items.Refresh()
+
+    # ---------------- run ----------------
+    def run_click(self, sender, args):
+        if self._view is None:
+            forms.alert("Scan a view first.")
+            return
+        checked = [r for r in self._link_rows if r.selected]
+        if not checked:
+            forms.alert("Tick at least one link first.")
+            return
+        if not forms.alert(
+                "Create {0} isolated view(s) from '{1}'?".format(len(checked), view_label(self._view)),
+                yes=True, no=True):
+            return
+
+        start = time.time()
+        results = run_batch(self.doc, self._view, self._link_rows, checked)
+        elapsed = time.time() - start
+
+        self._results = results
+        self.report_grid.ItemsSource = None
+        self.report_grid.ItemsSource = results
+        _report_html(results, elapsed)
+        ok_count = sum(1 for r in results if r.ok)
+        self._log("{0} of {1} isolated view(s) created - {2:.1f}s. See the report.".format(
+            ok_count, len(results), elapsed))
+
+    def close_click(self, sender, args):
+        self.Close()
+
+
+# ==========================================================================
+# Launch entry point (called by the DeeLazy home window)
+# ==========================================================================
+def launch(uiapp):
+    if uiapp.ActiveUIDocument is None:
+        forms.alert("Open a Revit project first.")
+        return
+    window = DeeLinksIntoViewsWindow(_XAML_FILE, uiapp)
+    window.ShowDialog()
+
+
+TOOL_INFO = {
+    "id": "links_into_views",
+    "title": "Links Into Views",
+    "description": "Pick a view with Revit Links, then create one isolated duplicate view per selected link (same view properties, only that link visible).",
+    "icon": u"\U0001F517",  # link emoji
+    "launch": launch,
+}
