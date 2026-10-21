@@ -6,7 +6,7 @@
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Choose where the models are, tick the ones to process, tick the steps to run, set the names, then press Run. Views-only is the default - Sync, Close and Publish are opt-in. By default the Revit Links are hidden in the new views; untick that option to show them."/>
+                   Text="Choose where the models are, tick the ones to process, tick the steps to run, set the names, then press Run. Views-only is the default - Sync, Close and Publish are opt-in. By default the Revit Links are hidden in both new views; untick the option for either view to show its links."/>
 
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem>
@@ -30,9 +30,12 @@
             <GroupBox Grid.Column="0" Header="3. Steps to run" Margin="0,0,8,0">
                 <StackPanel Margin="8">
                     <CheckBox x:Name="step_views_cb" Content="Create / Update Views" IsChecked="True" Margin="0,2,0,2" Click="step_changed"/>
-                    <CheckBox x:Name="hide_links_cb" Content="Hide Revit Links in the new views" IsChecked="True"
+                    <CheckBox x:Name="hide_links_coord_cb" Content="Hide Revit Links in the Coordination view" IsChecked="True"
+                              Margin="22,0,0,2"
+                              ToolTip="Ticked: the Revit Links category is hidden in the Coordination view (the model on its own). Unticked: links are shown."/>
+                    <CheckBox x:Name="hide_links_navis_cb" Content="Hide Revit Links in the NAVIS view" IsChecked="True"
                               Margin="22,0,0,4"
-                              ToolTip="Ticked: the Revit Links category is hidden in both views (the model on its own). Unticked: links are shown."/>
+                              ToolTip="Ticked: the Revit Links category is hidden in the NAVIS view (the model on its own). Unticked: links are shown."/>
                     <CheckBox x:Name="step_sync_cb" Content="Synchronize With Central" Margin="0,2,0,2" Click="step_changed"/>
                     <CheckBox x:Name="step_close_cb" Content="Close After Sync  (ACC only)" Margin="0,2,0,2" Click="step_changed"/>
                     <CheckBox x:Name="step_publish_cb" Content="Publish  (ACC only)" Margin="0,2,0,2" Click="step_changed"/>

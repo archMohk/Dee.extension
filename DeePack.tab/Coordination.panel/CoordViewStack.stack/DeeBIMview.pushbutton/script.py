@@ -15,9 +15,10 @@ Steps (tick any combination; only "Create/Update Views" is on by default):
   - Create/Update Views: 3D views "BIM Coordination View" and "BIM Exported
     NAVIS" under a 3D view type (all names editable in the window). The
     Revit Links category is HIDDEN in them by default - these views exist to
-    publish / export the model on its own, without linked content - and a
-    checkbox turns that off to show the links instead. The visibility is set
-    explicitly both ways, so a view reused from an earlier run is corrected.
+    publish / export the model on its own, without linked content - and one
+    checkbox PER VIEW (Coordination / NAVIS) turns that off to show the links
+    instead. The visibility is set explicitly both ways, so a view reused
+    from an earlier run is corrected.
   - Synchronize With Central
   - Close After Sync   (ACC only - open-session files are left open)
   - Publish via the APS Commands API   (ACC only - it needs each model's
@@ -323,7 +324,8 @@ def _open_file(uiapp, region, project_id, name, item_id, token, close_worksets):
         return None, ("Open FAILED: {0}".format(e), False)
 
 
-def _create_views(doc, coord_view_name, navis_view_name, view_type_name, hide_links=True):
+def _create_views(doc, coord_view_name, navis_view_name, view_type_name,
+                  hide_links_coord=True, hide_links_navis=True):
     t = Transaction(doc, "DeeBIMview - Create Coordination Views")
     fho = t.GetFailureHandlingOptions()
     fho.SetFailuresPreprocessor(_CancelOnErrorPreprocessor())
@@ -341,7 +343,7 @@ def _create_views(doc, coord_view_name, navis_view_name, view_type_name, hide_li
             raise Exception("[coord view] {0}".format(e))
 
         try:
-            _set_links_hidden(doc, coord_view, hide_links)
+            _set_links_hidden(doc, coord_view, hide_links_coord)
         except Exception as e:
             raise Exception("[links visibility on coord view] {0}".format(e))
 
@@ -351,7 +353,7 @@ def _create_views(doc, coord_view_name, navis_view_name, view_type_name, hide_li
             raise Exception("[navis view] {0}".format(e))
 
         try:
-            _set_links_hidden(doc, navis_view, hide_links)
+            _set_links_hidden(doc, navis_view, hide_links_navis)
         except Exception as e:
             raise Exception("[links visibility on navis view] {0}".format(e))
 
@@ -368,7 +370,8 @@ def _create_views(doc, coord_view_name, navis_view_name, view_type_name, hide_li
         if actual_navis != navis_view_name:
             notes.append("navis view '{0}'->'{1}'".format(navis_view_name, actual_navis))
         note = " [{0}]".format("; ".join(notes)) if notes else ""
-        links_note = "links hidden" if hide_links else "links shown"
+        links_note = "coordination links {0}, NAVIS links {1}".format(
+            "hidden" if hide_links_coord else "shown", "hidden" if hide_links_navis else "shown")
         return ("Views created/updated (type: '{0}', {1}){2}".format(actual_type, links_note, note), True, actual_coord)
     except Exception as e:
         if t.GetStatus() == TransactionStatus.Started:
@@ -803,7 +806,8 @@ class DeeBIMviewWindow(dee_branding.DeeBrandedWindow):
             "token": self._token,
             "close_worksets": bool(self.open_closed_rb.IsChecked),
             "do_views": do_views,
-            "hide_links": bool(self.hide_links_cb.IsChecked),
+            "hide_links_coord": bool(self.hide_links_coord_cb.IsChecked),
+            "hide_links_navis": bool(self.hide_links_navis_cb.IsChecked),
             "do_sync": do_sync,
             "do_close": do_close,
             "do_publish": do_publish,
@@ -882,7 +886,7 @@ def _process_acc(uiapp, req):
                     before_count = len(dismissed_log)
                     label, ok, _created_coord_name = _create_views(
                         doc, req["coord_view_name"], req["navis_view_name"], req["view_type_name"],
-                        req["hide_links"])
+                        req["hide_links_coord"], req["hide_links_navis"])
                     steps.append((label, ok))
                     steps.extend(dismissed_log[before_count:])
 
@@ -950,7 +954,7 @@ def _process_session(uiapp, req):
                     before_count = len(dismissed_log)
                     view_label_text, ok, _created_coord_name = _create_views(
                         doc, req["coord_view_name"], req["navis_view_name"], req["view_type_name"],
-                        req["hide_links"])
+                        req["hide_links_coord"], req["hide_links_navis"])
                     steps.append((view_label_text, ok))
                     steps.extend(dismissed_log[before_count:])
 
