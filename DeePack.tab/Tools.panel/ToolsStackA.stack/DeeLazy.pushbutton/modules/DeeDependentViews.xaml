@@ -6,7 +6,7 @@
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Every view in the project is scanned and classified. Tick the DEPENDENT views you want to detach, then convert: each is replaced by an independent copy with the same name, and if it was on a sheet the copy takes its place on that sheet in the same position. Annotations that belong to the parent view do not come across - only the dependent view's own."/>
+                   Text="Every view in the project is scanned and classified. Tick the DEPENDENT views you want to detach, choose what happens to the original (delete it, keep it, or just duplicate), then convert: the independent copy takes the original's name and, if it was on a sheet, its place on that sheet in the same position. Annotations that belong to the parent view do not come across - only the dependent view's own."/>
 
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem>
@@ -26,6 +26,10 @@
             </StackPanel>
 
             <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Text="Original dependent view:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="mode_cb" Width="620" Height="26"/>
+                </StackPanel>
                 <CheckBox x:Name="copy_detailing_cb" IsChecked="True" Margin="0,0,0,8"
                           Content="Copy detailing (the dependent view's own annotations, detail lines and text)"/>
                 <Button x:Name="convert_b" Content="Make Selected Views Independent" Click="convert_click" Height="30" Margin="0,0,0,8"/>

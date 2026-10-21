@@ -24,9 +24,13 @@ TransactionGroup so the whole batch is a single undo step)
    recreated on the same sheet at the same box center with its type,
    rotation, label offset and detail number copied across (same calls
    as DeeVSDupl.pushbutton / DeeView.pushbutton already use).
-3. The original dependent view D is deleted and the copy takes D's name.
-A view that is the ACTIVE view cannot be deleted - it is skipped with a
-clear message (switch to another view and rerun).
+3. What happens to the original D is the user's choice (three modes):
+   Replace (D is deleted, the copy takes D's name and sheet spot),
+   Swap and keep (copy takes the name and sheet spot, D is kept renamed
+   "<name> (dependent)" off the sheet), or Duplicate only (D is untouched
+   and stays on its sheet; the copy is "<name> (independent)", unplaced).
+A view that is the ACTIVE view cannot be deleted - in Replace mode it is
+skipped with a clear message (switch to another view and rerun).
 
 --------------------------------------------------------------------
 Revit API facts relied on (members confirmed by .NET reflection against
@@ -227,20 +231,57 @@ def _recreate_viewport(doc, vp, new_view_id):
             pass
 
 
-def make_independent(doc, row, copy_detailing):
-    """One dependent view -> one independent view with the same name, on
-    the same sheet in the same position. Never raises; any failure rolls
-    back just this view's changes and is returned as a failed Result."""
+MODE_REPLACE = 0
+MODE_SWAP_KEEP = 1
+MODE_DUPLICATE = 2
+MODE_CHOICES = [
+    "Replace - swap onto the sheet and DELETE the original dependent view",
+    "Swap onto the sheet and KEEP the original dependent view (renamed, off the sheet)",
+    "Duplicate only - keep the original where it is, make an independent copy off the sheet",
+]
+
+
+def _unique_view_name(doc, base_name):
+    taken = set()
+    for v in FilteredElementCollector(doc).OfClass(View):
+        try:
+            n = utils.read_name(v)
+            if n:
+                taken.add(n)
+        except Exception:
+            continue
+    if base_name not in taken:
+        return base_name
+    n = 2
+    while True:
+        candidate = "{0} ({1})".format(base_name, n)
+        if candidate not in taken:
+            return candidate
+        n += 1
+
+
+def make_independent(doc, row, copy_detailing, mode=MODE_REPLACE):
+    """One dependent view -> one independent view. Never raises; any
+    failure rolls back just this view's changes and is returned as a
+    failed Result. What happens to the original depends on mode:
+    - MODE_REPLACE: the copy takes the original's name AND sheet position,
+      and the original is deleted.
+    - MODE_SWAP_KEEP: the copy takes the name and sheet position, and the
+      original is kept, renamed "<name> (dependent)", off the sheet.
+    - MODE_DUPLICATE: nothing is moved or deleted; the copy is created as
+      "<name> (independent)" and is not placed on any sheet (a plan-type
+      view can only be on one sheet, and the original keeps it)."""
     view = row.view
     name = row.name
 
-    try:
-        active = doc.ActiveView
-        if active is not None and active.Id == view.Id:
-            return Result(name, False, "This is the active view and cannot be deleted - "
-                                       "switch to another view and run again.", row.sheet_text)
-    except Exception:
-        pass
+    if mode == MODE_REPLACE:
+        try:
+            active = doc.ActiveView
+            if active is not None and active.Id == view.Id:
+                return Result(name, False, "This is the active view and cannot be deleted - "
+                                           "switch to another view and run again.", row.sheet_text)
+        except Exception:
+            pass
 
     t = Transaction(doc, "DeeLazy - Make View Independent")
     t.Start()
@@ -257,18 +298,28 @@ def make_independent(doc, row, copy_detailing):
             raise Exception("Revit created the copy as a dependent view again.")
 
         placed_on = []
-        for vp in _viewports_showing(doc, view.Id):
-            placed_on.append(utils.sheet_label(doc.GetElement(vp.SheetId)))
-            try:
-                vp.ViewId = new_view.Id
-            except Exception:
-                _recreate_viewport(doc, vp, new_view.Id)
+        if mode != MODE_DUPLICATE:
+            for vp in _viewports_showing(doc, view.Id):
+                placed_on.append(utils.sheet_label(doc.GetElement(vp.SheetId)))
+                try:
+                    vp.ViewId = new_view.Id
+                except Exception:
+                    _recreate_viewport(doc, vp, new_view.Id)
 
-        if _viewports_showing(doc, view.Id):
-            raise Exception("the view is still placed on a sheet after the swap.")
+            if _viewports_showing(doc, view.Id):
+                raise Exception("the view is still placed on a sheet after the swap.")
 
-        doc.Delete(view.Id)
-        new_view.Name = name
+        kept_as = ""
+        if mode == MODE_REPLACE:
+            doc.Delete(view.Id)
+            new_view.Name = name
+        elif mode == MODE_SWAP_KEEP:
+            kept_as = _unique_view_name(doc, name + " (dependent)")
+            view.Name = kept_as
+            new_view.Name = name
+        else:
+            kept_as = _unique_view_name(doc, name + " (independent)")
+            new_view.Name = kept_as
         t.Commit()
     except Exception as e:
         try:
@@ -277,14 +328,21 @@ def make_independent(doc, row, copy_detailing):
             pass
         return Result(name, False, "Not changed: {0}".format(e), row.sheet_text)
 
-    if placed_on:
-        detail = "Now independent, placed on {0} in the same position.".format(", ".join(placed_on))
+    sheets_text = ", ".join(placed_on)
+    if mode == MODE_DUPLICATE:
+        detail = ("Created independent copy '{0}' (not on a sheet - the original dependent view "
+                  "is untouched).").format(kept_as)
+    elif mode == MODE_SWAP_KEEP:
+        where = "placed on {0} in the same position".format(sheets_text) if placed_on else "it was not on a sheet"
+        detail = "Now independent ({0}); the original dependent view was kept as '{1}'.".format(where, kept_as)
+    elif placed_on:
+        detail = "Now independent, placed on {0} in the same position.".format(sheets_text)
     else:
         detail = "Now independent (it was not on a sheet)."
-    return Result(name, True, detail, ", ".join(placed_on))
+    return Result(name, True, detail, sheets_text)
 
 
-def run_batch(doc, rows, copy_detailing):
+def run_batch(doc, rows, copy_detailing, mode=MODE_REPLACE):
     """Every view is its own Transaction (one bad view never undoes the
     others); the TransactionGroup only makes the whole batch ONE undo
     step in Revit."""
@@ -294,7 +352,7 @@ def run_batch(doc, rows, copy_detailing):
     try:
         for row in rows:
             try:
-                results.append(make_independent(doc, row, copy_detailing))
+                results.append(make_independent(doc, row, copy_detailing, mode))
             except Exception as e:
                 results.append(Result(row.name, False, str(e), row.sheet_text))
     finally:
@@ -334,6 +392,8 @@ class DeeDependentViewsWindow(dee_branding.DeeBrandedWindow):
         self._all_rows = []
         self._results = []
 
+        self.mode_cb.ItemsSource = MODE_CHOICES
+        self.mode_cb.SelectedIndex = MODE_REPLACE
         self.filter_cb.ItemsSource = FILTER_CHOICES
         self.filter_cb.SelectedIndex = 0
         self._scan()
@@ -405,10 +465,21 @@ class DeeDependentViewsWindow(dee_branding.DeeBrandedWindow):
             return
         ignored = len(ticked) - len(targets)
         on_sheet = sum(1 for r in targets if r.sheet is not None)
-        message = ("Make {0} dependent view(s) independent?\n\n"
-                   "Each one is replaced by an independent copy with the same name; the {1} that are on a "
-                   "sheet keep their sheet and position. The original dependent views are deleted. "
-                   "This is a single undo step (Ctrl+Z).").format(len(targets), on_sheet)
+        mode = self.mode_cb.SelectedIndex
+        if mode not in (MODE_REPLACE, MODE_SWAP_KEEP, MODE_DUPLICATE):
+            mode = MODE_REPLACE
+        if mode == MODE_REPLACE:
+            what = ("Each one is replaced by an independent copy with the same name; the {1} that are "
+                    "on a sheet keep their sheet and position. The original dependent views are DELETED.")
+        elif mode == MODE_SWAP_KEEP:
+            what = ("Each gets an independent copy with the same name; the {1} that are on a sheet "
+                    "move to the copy in the same position. The original dependent views are KEPT, "
+                    "renamed '<name> (dependent)', off the sheet.")
+        else:
+            what = ("Each gets an independent copy named '<name> (independent)', NOT placed on a sheet. "
+                    "The original dependent views (and their {1} sheet placement(s)) are not touched.")
+        message = ("Make {0} dependent view(s) independent?\n\n" + what +
+                   " This is a single undo step (Ctrl+Z).").format(len(targets), on_sheet)
         if ignored:
             message += "\n\n({0} ticked non-dependent view(s) will be ignored.)".format(ignored)
         if not forms.alert(message, yes=True, no=True):
@@ -416,7 +487,7 @@ class DeeDependentViewsWindow(dee_branding.DeeBrandedWindow):
 
         copy_detailing = bool(self.copy_detailing_cb.IsChecked)
         start = time.time()
-        results = run_batch(self.doc, targets, copy_detailing)
+        results = run_batch(self.doc, targets, copy_detailing, mode)
         elapsed = time.time() - start
 
         self._results = results
