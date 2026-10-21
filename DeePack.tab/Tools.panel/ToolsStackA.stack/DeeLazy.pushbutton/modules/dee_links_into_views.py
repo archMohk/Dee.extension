@@ -297,13 +297,29 @@ def scan_raw_links(doc, view):
     return raw
 
 
+def _link_group_key(name, file_path):
+    """Identifies "the same linked file" for grouping purposes. NOT the
+    link TYPE's ElementId - live-reported: Revit can create a SEPARATE
+    RevitLinkType per link operation even when every one of them points
+    at the exact same file (e.g. the same villa/unit linked in 29 times
+    across a masterplan), so grouping by Type.Id under-collapsed (29
+    instances -> 21 "types" instead of the real number of distinct
+    files). The resolved FILE PATH is the one identity that stays the
+    same across separate Type elements for the same file; when that
+    isn't resolvable (the same cloud/ACC-hosted case that made the link
+    NAME fall back to the per-instance "File.rvt : N" format), strip
+    that per-instance copy-number suffix from the name instead so every
+    placement of the same file still collapses to one group."""
+    if file_path:
+        return file_path
+    return _INSTANCE_COPY_SUFFIX_RE.sub("", name).strip() or name
+
+
 def build_rows(raw_instances, group_by_type):
     """Turns scan_raw_links()'s output into LinkRow objects - one per
-    instance (group_by_type=False), or one per distinct link TYPE with
-    every one of its instances' ids folded in (group_by_type=True).
-    Grouping key is the link type's ElementId when available, else the
-    resolved name (so an unresolvable/typeless instance still groups
-    sensibly with others sharing the same fallback name)."""
+    instance (group_by_type=False), or one per distinct linked FILE with
+    every one of its instances' ids folded in (group_by_type=True), per
+    _link_group_key()'s identity rather than the link Type element."""
     if not group_by_type:
         rows = [LinkRow([inst.Id], _resolve_link_name(inst, link_type),
                          _link_file_path(link_type) if link_type is not None else "")
@@ -313,13 +329,10 @@ def build_rows(raw_instances, group_by_type):
         order = []
         for inst, link_type in raw_instances:
             name = _resolve_link_name(inst, link_type)
-            key = link_type.Id.IntegerValue if link_type is not None else ("name", name)
+            file_path = _link_file_path(link_type) if link_type is not None else ""
+            key = _link_group_key(name, file_path)
             if key not in groups:
-                groups[key] = {
-                    "ids": [],
-                    "name": name,
-                    "file_path": _link_file_path(link_type) if link_type is not None else "",
-                }
+                groups[key] = {"ids": [], "name": name, "file_path": file_path}
                 order.append(key)
             groups[key]["ids"].append(inst.Id)
         rows = [LinkRow(groups[key]["ids"], groups[key]["name"], groups[key]["file_path"]) for key in order]
