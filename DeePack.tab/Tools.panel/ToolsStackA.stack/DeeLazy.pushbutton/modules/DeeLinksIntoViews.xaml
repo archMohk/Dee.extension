@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeLazy — Links Into Views"
         ShowInTaskbar="False"
-        MinHeight="560" MinWidth="820" Height="660" Width="900"
+        MinHeight="560" MinWidth="960" Height="660" Width="1020"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
@@ -19,6 +19,15 @@
                 <TextBlock Text="View:" VerticalAlignment="Center" Margin="0,0,6,0"/>
                 <ComboBox x:Name="view_cb" Width="420" Height="26"/>
                 <Button x:Name="scan_b" Content="Scan for Links" Click="scan_click" Width="130" Height="26" Margin="10,0,0,0"/>
+            </StackPanel>
+
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+                <TextBlock Text="New view name:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <ComboBox x:Name="pattern_cb" Width="220" Height="26"/>
+                <TextBlock Text="Prefix:" VerticalAlignment="Center" Margin="16,0,6,0"/>
+                <TextBox x:Name="prefix_tb" Width="100" Height="24" VerticalContentAlignment="Center"/>
+                <TextBlock Text="Suffix:" VerticalAlignment="Center" Margin="16,0,6,0"/>
+                <TextBox x:Name="suffix_tb" Width="100" Height="24" VerticalContentAlignment="Center"/>
             </StackPanel>
 
             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">

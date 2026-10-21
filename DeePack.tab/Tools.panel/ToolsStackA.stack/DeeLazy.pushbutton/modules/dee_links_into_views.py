@@ -7,8 +7,10 @@ copy of the original view (same type/scale/crop/view-range/template -
 whatever View.Duplicate() natively carries over) with every OTHER link
 found in the scan hidden, so the copy ends up dedicated to that one
 link. Host-model elements are never touched - only link visibility
-changes. The new view's name matches the link's own name (collision-
-safe suffixed if a view with that name already exists).
+changes. The new view's name is built from a chosen naming pattern
+(link name alone, or combined with the original view's name) plus an
+optional user prefix/suffix, sanitized against Revit's prohibited
+name characters, and collision-safe suffixed if that name is taken.
 
 --------------------------------------------------------------------
 Revit API facts relied on here (matched against real precedent already
@@ -67,8 +69,28 @@ NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct)
 - GetLinkOverrides/SetLinkOverrides member list was reflected directly
   off Revit 2026's installed RevitAPI.dll on this machine (not web-
   guessed), but the actual runtime COPY has not been exercised live yet.
+
+--------------------------------------------------------------------
+Live-reported bug fixed here: prohibited characters in link names
+--------------------------------------------------------------------
+On a real project, RevitLinkType.GetExternalFileReference()/Name both
+came back empty for every link in a view (cloud/ACC-hosted link
+types), so every link fell back to RevitLinkInstance's own Name -
+which Revit auto-generates as "LinkedFile.rvt : <copy number>" when a
+link is placed more than once. The colon in that string is one of
+Revit's prohibited element-name characters (\\:{}[]|;<>?`~), so
+new_view.Name = that string raised "Name cannot include prohibited
+characters" - and because View.Duplicate() had already succeeded
+before the rename was attempted, the failed rows were left behind in
+the project under Revit's own auto-generated "<Original View> Copy N"
+name instead of being cleaned up. Fixed by (1) stripping the
+" : <number>" copy suffix and any other prohibited character before
+ever assigning a view name, and (2) deleting the duplicated view if
+the rename still fails for any other reason, so a failed row never
+leaves orphan "Copy N" views behind.
 """
 import os
+import re
 import time
 
 import clr
@@ -196,6 +218,29 @@ def _element_name(element):
     return None
 
 
+_INSTANCE_COPY_SUFFIX_RE = re.compile(r"\s*:\s*\d+\s*$")
+_PROHIBITED_NAME_CHARS_RE = re.compile(r"[\\:{}\[\]|;<>?`~]")
+_COLLAPSE_DASHES_RE = re.compile(r"\s*-\s*-\s*")
+
+
+def _sanitize_view_name(name):
+    """Revit view/element names cannot contain \\:{}[]|;<>?`~ - a real,
+    live-reported failure: a RevitLinkInstance's own Name often carries a
+    Revit-generated " : <copy number>" suffix (e.g. "File.rvt : 24")
+    whose colon alone is enough to make View.Name raise "Name cannot
+    include prohibited characters." Strips that suffix first (cosmetic
+    noise, not meaningful in a view name), then replaces any other
+    prohibited character defensively, and finally collapses/trims stray
+    separators left behind so the result still reads cleanly."""
+    if not name:
+        return name
+    cleaned = _INSTANCE_COPY_SUFFIX_RE.sub("", name)
+    cleaned = _PROHIBITED_NAME_CHARS_RE.sub("-", cleaned)
+    cleaned = _COLLAPSE_DASHES_RE.sub(" - ", cleaned)
+    cleaned = cleaned.strip(" -")
+    return cleaned or "Link"
+
+
 class LinkRow(object):
     def __init__(self, instance, link_type):
         self.instance = instance
@@ -206,6 +251,7 @@ class LinkRow(object):
         if not name:
             name = _element_name(instance)
         self.name = name or "(unnamed link)"
+        self.safe_name = _sanitize_view_name(self.name)
 
 
 def scan_links(doc, view):
@@ -253,6 +299,38 @@ def _resolve_unique_name(base_name, taken_names):
         n += 1
 
 
+# ==========================================================================
+# Naming presets - pattern + optional prefix/suffix, all sanitized
+# together into a final Revit-safe view name.
+# ==========================================================================
+NAME_PATTERNS = [
+    ("Link name only", u"{link}"),
+    ("Original View - Link", u"{view} - {link}"),
+    ("Link - Original View", u"{link} - {view}"),
+    ("Original View_Link", u"{view}_{link}"),
+    ("Link_Original View", u"{link}_{view}"),
+]
+
+
+def pattern_labels():
+    return [label for label, _ in NAME_PATTERNS]
+
+
+def pattern_template(index):
+    if index is None or index < 0 or index >= len(NAME_PATTERNS):
+        return NAME_PATTERNS[0][1]
+    return NAME_PATTERNS[index][1]
+
+
+def build_view_base_name(template, view_name, link_safe_name, prefix, suffix):
+    try:
+        body = template.format(view=view_name, link=link_safe_name)
+    except Exception:
+        body = link_safe_name
+    base = u"{0}{1}{2}".format(prefix or "", body, suffix or "")
+    return _sanitize_view_name(base)
+
+
 class ProcessResult(object):
     def __init__(self, link_name, ok, detail, new_view_name=""):
         self.link_name = link_name
@@ -262,7 +340,8 @@ class ProcessResult(object):
         self.new_view_name = new_view_name
 
 
-def create_isolated_view_for_link(doc, original_view, chosen_row, all_rows, taken_names):
+def create_isolated_view_for_link(doc, original_view, chosen_row, all_rows, taken_names,
+                                   template, prefix, suffix):
     """One link -> one new view. Mutates taken_names (claims the name it
     just used) so later rows in the same batch don't collide with each
     other, not just with pre-existing views. Never raises - any failure
@@ -273,11 +352,16 @@ def create_isolated_view_for_link(doc, original_view, chosen_row, all_rows, take
     except Exception as e:
         return ProcessResult(chosen_row.name, False, "Could not duplicate view: {0}".format(e))
 
-    final_name = _resolve_unique_name(chosen_row.name, taken_names)
+    base_name = build_view_base_name(template, view_label(original_view), chosen_row.safe_name, prefix, suffix)
+    final_name = _resolve_unique_name(base_name, taken_names)
     try:
         new_view.Name = final_name
     except Exception as e:
-        return ProcessResult(chosen_row.name, False, "Duplicated but could not rename: {0}".format(e), final_name)
+        try:
+            doc.Delete(new_view.Id)
+        except Exception:
+            pass
+        return ProcessResult(chosen_row.name, False, "Could not rename (duplicate removed): {0}".format(e))
     taken_names.add(final_name)
 
     other_ids = [r.id for r in all_rows if r.id != chosen_row.id]
@@ -300,7 +384,7 @@ def create_isolated_view_for_link(doc, original_view, chosen_row, all_rows, take
     return ProcessResult(chosen_row.name, True, "Created '{0}'{1}".format(final_name, warning), final_name)
 
 
-def run_batch(doc, original_view, all_rows, checked_rows):
+def run_batch(doc, original_view, all_rows, checked_rows, template, prefix, suffix):
     """One Transaction for the whole batch - per-row failures are caught
     inside create_isolated_view_for_link and recorded, never raised, so
     the transaction always commits and successful rows are never lost
@@ -312,7 +396,8 @@ def run_batch(doc, original_view, all_rows, checked_rows):
     try:
         for row in checked_rows:
             try:
-                result = create_isolated_view_for_link(doc, original_view, row, all_rows, taken_names)
+                result = create_isolated_view_for_link(
+                    doc, original_view, row, all_rows, taken_names, template, prefix, suffix)
             except Exception as e:
                 result = ProcessResult(row.name, False, str(e))
             results.append(result)
@@ -373,6 +458,9 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
             self._log("No eligible views (Floor Plan/Ceiling Plan/Elevation/Section/3D/"
                        "Area Plan/Engineering Plan) found in this project.")
 
+        self.pattern_cb.ItemsSource = pattern_labels()
+        self.pattern_cb.SelectedIndex = 0
+
     # ---------------- logging/status ----------------
     def _log(self, message):
         self.status_tb.Text = message
@@ -426,8 +514,12 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
                 yes=True, no=True):
             return
 
+        template = pattern_template(self.pattern_cb.SelectedIndex)
+        prefix = self.prefix_tb.Text or ""
+        suffix = self.suffix_tb.Text or ""
+
         start = time.time()
-        results = run_batch(self.doc, self._view, self._link_rows, checked)
+        results = run_batch(self.doc, self._view, self._link_rows, checked, template, prefix, suffix)
         elapsed = time.time() - start
 
         self._results = results
