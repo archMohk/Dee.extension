@@ -12,6 +12,17 @@ changes. The new view's name is built from a chosen naming pattern
 optional user prefix/suffix, sanitized against Revit's prohibited
 name characters, and collision-safe suffixed if that name is taken.
 
+Two grouping modes, switchable without re-scanning (live-reported need:
+the same link FILE is often placed many times across a project - e.g.
+one villa/unit type repeated across a masterplan - so "link count"
+genuinely means two different things depending on the task):
+- By Instance (default): one isolated view per PLACEMENT - if a file is
+  linked 29 times, that is 29 views.
+- By Link Type: one isolated view per distinct linked FILE - every
+  placement of that file is kept visible together, only OTHER files'
+  placements are hidden - so 29 placements across 7 distinct files
+  becomes 7 views.
+
 --------------------------------------------------------------------
 Revit API facts relied on here (matched against real precedent already
 proven elsewhere in this codebase, not guessed)
@@ -241,36 +252,77 @@ def _sanitize_view_name(name):
     return cleaned or "Link"
 
 
+def _resolve_link_name(instance, link_type):
+    name = _link_type_display_name(link_type) if link_type is not None else None
+    if not name:
+        name = _element_name(instance)
+    return name or "(unnamed link)"
+
+
 class LinkRow(object):
-    def __init__(self, instance, link_type):
-        self.instance = instance
-        self.id = instance.Id
+    """Represents either ONE link instance (By Instance mode) or EVERY
+    instance of the same link TYPE placed in the view (By Link Type
+    mode) - ids holds every ElementId this row stands for, so hiding
+    "every other row" and copying link-display-overrides both work
+    identically in either mode by just iterating ids."""
+
+    def __init__(self, ids, name, file_path):
+        self.ids = ids
+        self.count = len(ids)
         self.selected = False
-        self.file_path = _link_file_path(link_type) if link_type is not None else ""
-        name = _link_type_display_name(link_type) if link_type is not None else None
-        if not name:
-            name = _element_name(instance)
-        self.name = name or "(unnamed link)"
+        self.file_path = file_path or ""
+        self.name = name
         self.safe_name = _sanitize_view_name(self.name)
         self.preview_name = self.safe_name
         self.validation = ""
 
 
-def scan_links(doc, view):
+def scan_raw_links(doc, view):
     """Links actually placed in THIS view, not the whole document - top
     level only, no nested-link recursion (only links directly visible
-    in the picked view matter here)."""
-    rows = []
+    in the picked view matter here). Returns [(RevitLinkInstance,
+    RevitLinkType_or_None), ...] so the caller can group them (by
+    instance or by type) without re-querying Revit."""
+    raw = []
     try:
         collector = FilteredElementCollector(doc, view.Id).OfClass(RevitLinkInstance)
     except Exception:
-        return rows
+        return raw
     for inst in collector:
         try:
             link_type = doc.GetElement(inst.GetTypeId())
         except Exception:
             link_type = None
-        rows.append(LinkRow(inst, link_type))
+        raw.append((inst, link_type))
+    return raw
+
+
+def build_rows(raw_instances, group_by_type):
+    """Turns scan_raw_links()'s output into LinkRow objects - one per
+    instance (group_by_type=False), or one per distinct link TYPE with
+    every one of its instances' ids folded in (group_by_type=True).
+    Grouping key is the link type's ElementId when available, else the
+    resolved name (so an unresolvable/typeless instance still groups
+    sensibly with others sharing the same fallback name)."""
+    if not group_by_type:
+        rows = [LinkRow([inst.Id], _resolve_link_name(inst, link_type),
+                         _link_file_path(link_type) if link_type is not None else "")
+                for inst, link_type in raw_instances]
+    else:
+        groups = {}
+        order = []
+        for inst, link_type in raw_instances:
+            name = _resolve_link_name(inst, link_type)
+            key = link_type.Id.IntegerValue if link_type is not None else ("name", name)
+            if key not in groups:
+                groups[key] = {
+                    "ids": [],
+                    "name": name,
+                    "file_path": _link_file_path(link_type) if link_type is not None else "",
+                }
+                order.append(key)
+            groups[key]["ids"].append(inst.Id)
+        rows = [LinkRow(groups[key]["ids"], groups[key]["name"], groups[key]["file_path"]) for key in order]
     rows.sort(key=lambda r: r.name.lower())
     return rows
 
@@ -390,7 +442,7 @@ def create_isolated_view_for_link(doc, original_view, chosen_row, all_rows, take
         return ProcessResult(chosen_row.name, False, "Could not rename (duplicate removed): {0}".format(e))
     taken_names.add(final_name)
 
-    other_ids = [r.id for r in all_rows if r.id != chosen_row.id]
+    other_ids = [i for r in all_rows if r is not chosen_row for i in r.ids]
     if other_ids:
         try:
             new_view.HideElements(List[ElementId](other_ids))
@@ -399,13 +451,15 @@ def create_isolated_view_for_link(doc, original_view, chosen_row, all_rows, take
                 chosen_row.name, False,
                 "Created '{0}' but could not hide other links: {1}".format(final_name, e), final_name)
 
-    warning = ""
-    try:
-        overrides = original_view.GetLinkOverrides(chosen_row.id)
-        if overrides is not None:
-            new_view.SetLinkOverrides(chosen_row.id, overrides)
-    except Exception as e:
-        warning = " (link display settings not copied: {0})".format(e)
+    override_failures = 0
+    for link_id in chosen_row.ids:
+        try:
+            overrides = original_view.GetLinkOverrides(link_id)
+            if overrides is not None:
+                new_view.SetLinkOverrides(link_id, overrides)
+        except Exception:
+            override_failures += 1
+    warning = " ({0} link display setting(s) not copied)".format(override_failures) if override_failures else ""
 
     return ProcessResult(chosen_row.name, True, "Created '{0}'{1}".format(final_name, warning), final_name)
 
@@ -464,6 +518,7 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
         self.uidoc = uiapp.ActiveUIDocument
         self.doc = self.uidoc.Document
         self._view = None
+        self._raw_instances = []
         self._link_rows = []
         self._results = []
 
@@ -522,24 +577,54 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
         self._refresh_preview()
 
     # ---------------- scan ----------------
+    def _group_by_type(self):
+        try:
+            return bool(self.group_by_type_rb.IsChecked)
+        except Exception:
+            return False
+
+    def _rebuild_rows(self):
+        """Regroups the already-scanned instances (no Revit re-query) per
+        the current By Instance / By Link Type toggle - lets the toggle
+        switch instantly without a fresh scan."""
+        self._link_rows = build_rows(self._raw_instances, self._group_by_type())
+        self._results = []
+        self.report_grid.ItemsSource = None
+        self.links_grid.ItemsSource = None
+        self.links_grid.ItemsSource = self._link_rows
+        self._refresh_preview()
+
+    def group_mode_changed(self, sender, args):
+        """The RadioButton's XAML-declared IsChecked="True" fires this
+        Checked event during window load, BEFORE __init__'s own body has
+        run (a known hazard, already documented in dee_bulk_rename.py) -
+        getattr(..., None) avoids an AttributeError on self._raw_instances
+        in that case rather than relying on it already existing."""
+        if not getattr(self, "_raw_instances", None):
+            return
+        self._rebuild_rows()
+        mode = "link type" if self._group_by_type() else "instance"
+        self._log("Grouped by {0} - {1} row(s).".format(mode, len(self._link_rows)))
+
     def scan_click(self, sender, args):
         view = self._selected_view()
         if view is None:
             forms.alert("Pick a view first.")
             return
         self._view = view
-        self._link_rows = scan_links(self.doc, view)
-        self._results = []
-        self.report_grid.ItemsSource = None
-        self.links_grid.ItemsSource = None
-        self.links_grid.ItemsSource = self._link_rows
-        if not self._link_rows:
+        self._raw_instances = scan_raw_links(self.doc, view)
+        if not self._raw_instances:
+            self._link_rows = []
+            self.report_grid.ItemsSource = None
+            self.links_grid.ItemsSource = None
             forms.alert("No Revit Links found in '{0}'.".format(view_label(view)))
             self._log("0 links found in '{0}'.".format(view_label(view)))
             return
-        self._refresh_preview()
-        self._log("{0} link(s) found in '{1}'. Tick the ones to isolate, then click "
-                   "'Create Isolated Views'.".format(len(self._link_rows), view_label(view)))
+        self._rebuild_rows()
+        instance_count = len(self._raw_instances)
+        self._log("{0} link instance(s) found in '{1}' ({2} row(s) shown). Tick the ones to isolate, "
+                   "then click 'Create Isolated Views'.".format(
+                       instance_count, view_label(view), len(self._link_rows)))
 
     def select_all_click(self, sender, args):
         for r in self._link_rows:

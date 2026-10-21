@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeLazy — Links Into Views"
         ShowInTaskbar="False"
-        MinHeight="560" MinWidth="960" Height="660" Width="1020"
+        MinHeight="580" MinWidth="1000" Height="700" Width="1060"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
@@ -30,6 +30,14 @@
                 <TextBox x:Name="suffix_tb" Width="100" Height="24" VerticalContentAlignment="Center" TextChanged="suffix_changed"/>
             </StackPanel>
 
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+                <TextBlock Text="Isolate by:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <RadioButton x:Name="group_by_instance_rb" Content="Instance (every placement)" GroupName="group_mode"
+                             IsChecked="True" VerticalAlignment="Center" Margin="0,0,16,0" Checked="group_mode_changed"/>
+                <RadioButton x:Name="group_by_type_rb" Content="Link Type (every placement of the same file together)" GroupName="group_mode"
+                             VerticalAlignment="Center" Checked="group_mode_changed"/>
+            </StackPanel>
+
             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
                 <TextBlock Text="Links found in the selected view:" VerticalAlignment="Center" Margin="0,0,10,0"/>
                 <Button x:Name="select_all_b" Content="Select All" Click="select_all_click" Width="90" Height="24"/>
@@ -41,7 +49,8 @@
                 <DataGrid.Columns>
                     <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
                     <DataGridTextColumn Header="Link Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
-                    <DataGridTextColumn Header="Linked File Path" Binding="{Binding file_path}" Width="1.6*" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Count" Binding="{Binding count}" Width="55" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Linked File Path" Binding="{Binding file_path}" Width="1.4*" IsReadOnly="True"/>
                     <DataGridTextColumn Header="New View Name" Binding="{Binding preview_name}" Width="*" IsReadOnly="True"/>
                     <DataGridTextColumn Header="Validation" Binding="{Binding validation}" Width="140" IsReadOnly="True"/>
                 </DataGrid.Columns>
