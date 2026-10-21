@@ -1,0 +1,62 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeLazy — Dependent / Non-Dependent Views"
+        ShowInTaskbar="False"
+        MinHeight="640" MinWidth="980" Height="780" Width="1100"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                   Text="Every view in the project is scanned and classified. Tick the DEPENDENT views you want to detach, then convert: each is replaced by an independent copy with the same name, and if it was on a sheet the copy takes its place on that sheet in the same position. Annotations that belong to the parent view do not come across - only the dependent view's own."/>
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="status_tb" Text="Ready."/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBlock Text="Show:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <ComboBox x:Name="filter_cb" Width="170" Height="26" SelectionChanged="filter_changed"/>
+                <TextBlock Text="Search:" VerticalAlignment="Center" Margin="16,0,6,0"/>
+                <TextBox x:Name="search_tb" Width="220" Height="24" VerticalContentAlignment="Center" TextChanged="search_changed"/>
+                <Button x:Name="select_all_b" Content="Select All Dependent" Click="select_all_click" Width="150" Height="24" Margin="16,0,0,0"/>
+                <Button x:Name="select_none_b" Content="Select None" Click="select_none_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                <Button x:Name="rescan_b" Content="Rescan" Click="rescan_click" Width="80" Height="24" Margin="6,0,0,0"/>
+            </StackPanel>
+
+            <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                <CheckBox x:Name="copy_detailing_cb" IsChecked="True" Margin="0,0,0,8"
+                          Content="Copy detailing (the dependent view's own annotations, detail lines and text)"/>
+                <Button x:Name="convert_b" Content="Make Selected Views Independent" Click="convert_click" Height="30" Margin="0,0,0,8"/>
+                <GroupBox Header="Report">
+                    <DockPanel Margin="6">
+                        <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click" Height="26" Margin="0,6,0,0"/>
+                        <DataGrid x:Name="report_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
+                                  RowHeaderWidth="0" Height="140">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="View" Binding="{Binding view_name}" Width="*"/>
+                                <DataGridTextColumn Header="Sheet" Binding="{Binding sheet_text}" Width="*"/>
+                                <DataGridTextColumn Header="Result" Binding="{Binding result}" Width="100"/>
+                                <DataGridTextColumn Header="Detail" Binding="{Binding detail}" Width="2*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </GroupBox>
+            </StackPanel>
+
+            <DataGrid x:Name="views_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                      CanUserSortColumns="True" RowHeaderWidth="0">
+                <DataGrid.Columns>
+                    <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
+                    <DataGridTextColumn Header="View Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Kind" Binding="{Binding kind}" Width="100" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Parent / Dependents" Binding="{Binding related}" Width="1.2*" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Sheet" Binding="{Binding sheet_text}" Width="1.2*" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Type" Binding="{Binding view_type}" Width="100" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Scale" Binding="{Binding scale}" Width="70" IsReadOnly="True"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </DockPanel>
+    </DockPanel>
+</Window>

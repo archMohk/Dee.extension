@@ -39,6 +39,7 @@ from modules import dee_bulk_rename
 from modules import dee_vtemp
 from modules import dee_para_value
 from modules import dee_links_into_views
+from modules import dee_dependent_views
 
 REGISTERED_MODULES = [
     view_cropping.TOOL_INFO,
@@ -54,4 +55,5 @@ REGISTERED_MODULES = [
     dee_vtemp.TOOL_INFO,
     dee_para_value.TOOL_INFO,
     dee_links_into_views.TOOL_INFO,
+    dee_dependent_views.TOOL_INFO,
 ]
