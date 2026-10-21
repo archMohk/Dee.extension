@@ -7,8 +7,8 @@ copy of the original view (same type/scale/crop/view-range/template -
 whatever View.Duplicate() natively carries over) with every OTHER link
 found in the scan hidden, so the copy ends up dedicated to that one
 link. Host-model elements are never touched - only link visibility
-changes. The new view's name combines the original view's name and the
-link's own name.
+changes. The new view's name matches the link's own name (collision-
+safe suffixed if a view with that name already exists).
 
 --------------------------------------------------------------------
 Revit API facts relied on here (matched against real precedent already
@@ -34,6 +34,27 @@ proven elsewhere in this codebase, not guessed)
   precedent: DeeRehoster.pushbutton/script.py. Batched into one call
   per new view here (not per-element) since every "other link" id is
   known upfront and homogeneous.
+- A link's "Design Option" (RevitLinkType.DesignOption / RevitLinkInstance
+  .DesignOption) is a READ-ONLY, project-wide property of the link
+  element ITSELF (confirmed by direct .NET reflection against the
+  installed RevitAPI.dll - Revit 2026 - same verification method already
+  used for RevitLinkGraphicsSettings in modules/dee_vtemp.py and
+  lib/dee_mcp_tools.py). Since View.Duplicate() creates a new VIEW, not a
+  new copy of the link element, the new view points at the exact same
+  RevitLinkInstance - its Design Option membership is therefore already
+  identical to the original ("father") view by construction; there is
+  nothing to copy for this specific property.
+- What IS real and per-VIEW (not per-element) is View.GetLinkOverrides
+  (ElementId linkId) / View.SetLinkOverrides(ElementId, RevitLinkGraphics
+  Settings) - confirmed, via the same reflection pass, to cover Phase,
+  Phase Filter, Visibility Type (By Host View/By Linked View/Custom),
+  Linked View, View Detail Level, Discipline, Nested Links, Object
+  Styles, Color Fill, and View Range - NOT Design Option (that member
+  does not exist on RevitLinkGraphicsSettings in this Revit version).
+  Explicitly copied here, from the original view onto the new view, for
+  the one link being kept - so every per-link display setting Revit
+  actually exposes matches the father view, not just whatever
+  View.Duplicate() happens to carry over on its own.
 
 --------------------------------------------------------------------
 NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct)
@@ -43,6 +64,9 @@ NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct)
   Duplicate()+HideElements() in every Revit version - each step is
   wrapped in its own try/except and reported per-row rather than
   assumed, but not yet exercised live for every type.
+- GetLinkOverrides/SetLinkOverrides member list was reflected directly
+  off Revit 2026's installed RevitAPI.dll on this machine (not web-
+  guessed), but the actual runtime COPY has not been exercised live yet.
 """
 import os
 import time
@@ -249,8 +273,7 @@ def create_isolated_view_for_link(doc, original_view, chosen_row, all_rows, take
     except Exception as e:
         return ProcessResult(chosen_row.name, False, "Could not duplicate view: {0}".format(e))
 
-    base_name = u"{0} - {1}".format(utils.read_name(original_view) or "View", chosen_row.name)
-    final_name = _resolve_unique_name(base_name, taken_names)
+    final_name = _resolve_unique_name(chosen_row.name, taken_names)
     try:
         new_view.Name = final_name
     except Exception as e:
@@ -266,7 +289,15 @@ def create_isolated_view_for_link(doc, original_view, chosen_row, all_rows, take
                 chosen_row.name, False,
                 "Created '{0}' but could not hide other links: {1}".format(final_name, e), final_name)
 
-    return ProcessResult(chosen_row.name, True, "Created '{0}'".format(final_name), final_name)
+    warning = ""
+    try:
+        overrides = original_view.GetLinkOverrides(chosen_row.id)
+        if overrides is not None:
+            new_view.SetLinkOverrides(chosen_row.id, overrides)
+    except Exception as e:
+        warning = " (link display settings not copied: {0})".format(e)
+
+    return ProcessResult(chosen_row.name, True, "Created '{0}'{1}".format(final_name, warning), final_name)
 
 
 def run_batch(doc, original_view, all_rows, checked_rows):
