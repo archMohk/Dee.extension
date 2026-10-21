@@ -2,11 +2,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeLazy — Links Into Views"
         ShowInTaskbar="False"
-        MinHeight="580" MinWidth="1000" Height="700" Width="1060"
+        MinHeight="720" MinWidth="1000" Height="880" Width="1100"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Pick a view that contains Revit Links, scan it, tick the links you want isolated, then create one duplicate view per link - each duplicate keeps the original view's own properties and shows only that one link (every other link found is hidden in the copy)."/>
+                   Text="Tick one or more views that contain Revit Links and scan them, tick the links you want isolated, then create one duplicate view per link - each duplicate keeps its source view's own properties and shows only that one link (every other link found in that same view is hidden in the copy)."/>
 
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem>
@@ -15,11 +15,23 @@
         </StatusBar>
 
         <DockPanel>
-            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
-                <TextBlock Text="View:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                <ComboBox x:Name="view_cb" Width="420" Height="26"/>
-                <Button x:Name="scan_b" Content="Scan for Links" Click="scan_click" Width="130" Height="26" Margin="10,0,0,0"/>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBlock Text="Source views - search:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <TextBox x:Name="view_search_tb" Width="220" Height="24" VerticalContentAlignment="Center"
+                         TextChanged="view_search_changed"/>
+                <Button x:Name="view_select_all_b" Content="Select All" Click="view_select_all_click" Width="90" Height="24" Margin="14,0,0,0"/>
+                <Button x:Name="view_select_none_b" Content="Select None" Click="view_select_none_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                <Button x:Name="scan_b" Content="Scan Selected Views" Click="scan_click" Width="170" Height="26" Margin="14,0,0,0"/>
             </StackPanel>
+
+            <DataGrid x:Name="views_grid" DockPanel.Dock="Top" Height="150" AutoGenerateColumns="False" CanUserAddRows="False"
+                      CanUserSortColumns="True" RowHeaderWidth="0" Margin="0,0,0,10">
+                <DataGrid.Columns>
+                    <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
+                    <DataGridTextColumn Header="View Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Type" Binding="{Binding view_type}" Width="130" IsReadOnly="True"/>
+                </DataGrid.Columns>
+            </DataGrid>
 
             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
                 <TextBlock Text="New view name:" VerticalAlignment="Center" Margin="0,0,6,0"/>
@@ -39,7 +51,7 @@
             </StackPanel>
 
             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
-                <TextBlock Text="Links found in the selected view:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <TextBlock Text="Links found in the scanned views:" VerticalAlignment="Center" Margin="0,0,10,0"/>
                 <Button x:Name="select_all_b" Content="Select All" Click="select_all_click" Width="90" Height="24"/>
                 <Button x:Name="select_none_b" Content="Select None" Click="select_none_click" Width="90" Height="24" Margin="6,0,0,0"/>
             </StackPanel>
@@ -48,9 +60,10 @@
                       CanUserSortColumns="True" RowHeaderWidth="0" Margin="0,0,0,10">
                 <DataGrid.Columns>
                     <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
+                    <DataGridTextColumn Header="Source View" Binding="{Binding view_name}" Width="*" IsReadOnly="True"/>
                     <DataGridTextColumn Header="Link Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
                     <DataGridTextColumn Header="Count" Binding="{Binding count}" Width="55" IsReadOnly="True"/>
-                    <DataGridTextColumn Header="Linked File Path" Binding="{Binding file_path}" Width="1.4*" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Linked File Path" Binding="{Binding file_path}" Width="1.1*" IsReadOnly="True"/>
                     <DataGridTextColumn Header="New View Name" Binding="{Binding preview_name}" Width="*" IsReadOnly="True"/>
                     <DataGridTextColumn Header="Validation" Binding="{Binding validation}" Width="140" IsReadOnly="True"/>
                 </DataGrid.Columns>
@@ -63,8 +76,9 @@
                     <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click" Height="26" Margin="0,6,0,0"/>
                     <DataGrid x:Name="report_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" RowHeaderWidth="0" Height="160">
                         <DataGrid.Columns>
+                            <DataGridTextColumn Header="Source View" Binding="{Binding source_view}" Width="*"/>
                             <DataGridTextColumn Header="Link" Binding="{Binding link_name}" Width="*"/>
-                            <DataGridTextColumn Header="New View" Binding="{Binding new_view_name}" Width="2*"/>
+                            <DataGridTextColumn Header="New View" Binding="{Binding new_view_name}" Width="1.5*"/>
                             <DataGridTextColumn Header="Result" Binding="{Binding result}" Width="90"/>
                         </DataGrid.Columns>
                     </DataGrid>

@@ -197,6 +197,19 @@ def view_label(view):
     return utils.read_name(view) or "(unnamed view)"
 
 
+class ViewRow(object):
+    """One tickable source view in the view picker."""
+
+    def __init__(self, view):
+        self.view = view
+        self.selected = False
+        self.name = view_label(view)
+        try:
+            self.view_type = str(view.ViewType)
+        except Exception:
+            self.view_type = ""
+
+
 # ==========================================================================
 # Link scanning (view-scoped) - local name-resolution copy, matching this
 # codebase's own established precedent (dee_sheet_links_service.py
@@ -381,7 +394,9 @@ class LinkRow(object):
     "every other row" and copying link-display-overrides both work
     identically in either mode by just iterating ids."""
 
-    def __init__(self, ids, name, file_path, count=None):
+    def __init__(self, ids, name, file_path, count=None, view=None):
+        self.view = view
+        self.view_name = view_label(view) if view is not None else ""
         self.ids = ids
         self.count = count if count is not None else len(ids)
         self.selected = False
@@ -435,8 +450,10 @@ def count_nested(raw_instances):
     return sum(1 for inst, link_type in raw_instances if _is_nested_link(inst, link_type))
 
 
-def build_rows(raw_instances, group_by_type):
-    """Turns scan_raw_links()'s output into LinkRow objects.
+def build_rows(raw_instances, group_by_type, view=None):
+    """Turns ONE view's scan_raw_links() output into LinkRow objects, each
+    remembering its source view (several views can be scanned at once;
+    the caller concatenates the per-view results).
 
     Only TOP-LEVEL links get a row - nested ("layer 2") links, i.e. links
     living inside another linked model, are not listed (live-reported:
@@ -468,7 +485,8 @@ def build_rows(raw_instances, group_by_type):
         for inst, link_type in top_level:
             ids = [inst.Id] + list(_nested_for(inst))
             rows.append(LinkRow(ids, _resolve_link_name(inst, link_type),
-                                 _link_file_path(link_type) if link_type is not None else "", count=1))
+                                 _link_file_path(link_type) if link_type is not None else "",
+                                 count=1, view=view))
     else:
         groups = {}
         order = []
@@ -490,7 +508,7 @@ def build_rows(raw_instances, group_by_type):
                 group["roots"].add(root)
                 group["ids"].extend(_nested_for(inst))
         rows = [LinkRow(groups[key]["ids"], groups[key]["name"], groups[key]["file_path"],
-                         count=groups[key]["count"]) for key in order]
+                         count=groups[key]["count"], view=view) for key in order]
     rows.sort(key=lambda r: r.name.lower())
     return rows
 
@@ -553,14 +571,16 @@ def build_view_base_name(template, view_name, link_safe_name, prefix, suffix):
     return _sanitize_view_name(base)
 
 
-def compute_preview(rows, view_name, template, prefix, suffix, existing_names):
+def compute_preview(rows, template, prefix, suffix, existing_names):
     """Pure, read-only preview of the final view name + a validation note
     for each row, given the CURRENT naming pattern/prefix/suffix -
     mutates each row's preview_name/validation in place, no Revit calls.
-    Mirrors build_view_base_name/_resolve_unique_name exactly, claiming
-    names in the same sequential order create_isolated_view_for_link
-    will use at run time, so a collision between two of THESE rows shows
-    up here too, not just against already-existing views."""
+    Each row uses its OWN source view's name for the {view} placeholder
+    (rows can come from several scanned views). Mirrors
+    build_view_base_name/_resolve_unique_name exactly, claiming names in
+    the same sequential order run_batch will use, so a collision between
+    two of THESE rows shows up here too (e.g. "Link name only" for the
+    same link in two source views), not just against existing views."""
     taken = set(existing_names)
     for row in rows:
         notes = []
@@ -568,7 +588,7 @@ def compute_preview(rows, view_name, template, prefix, suffix, existing_names):
             notes.append("Unnamed link")
         if row.safe_name != row.name:
             notes.append("Name sanitized")
-        base_name = build_view_base_name(template, view_name, row.safe_name, prefix, suffix)
+        base_name = build_view_base_name(template, row.view_name, row.safe_name, prefix, suffix)
         final_name = _resolve_unique_name(base_name, taken)
         if final_name != base_name:
             notes.append("Duplicate - will suffix")
@@ -584,6 +604,7 @@ class ProcessResult(object):
         self.result = "OK" if ok else "Skipped/Failed"
         self.detail = detail
         self.new_view_name = new_view_name
+        self.source_view = ""
 
 
 def create_isolated_view_for_link(doc, original_view, chosen_row, all_rows, taken_names,
@@ -642,11 +663,19 @@ def create_isolated_view_for_link(doc, original_view, chosen_row, all_rows, take
     return ProcessResult(chosen_row.name, True, "Created '{0}'{1}".format(final_name, warning), final_name)
 
 
-def run_batch(doc, original_view, all_rows, checked_rows, template, prefix, suffix):
+def run_batch(doc, all_rows, checked_rows, template, prefix, suffix):
     """One Transaction for the whole batch - per-row failures are caught
     inside create_isolated_view_for_link and recorded, never raised, so
     the transaction always commits and successful rows are never lost
-    to one bad row (same house style as view_cropping.py's _run_action)."""
+    to one bad row (same house style as view_cropping.py's _run_action).
+
+    all_rows spans EVERY scanned source view; each checked row is
+    isolated against the rows of its OWN source view only - "every other
+    link" means every other link in that same view, never links that
+    only exist in a different one."""
+    rows_by_view = {}
+    for r in all_rows:
+        rows_by_view.setdefault(r.view.Id.IntegerValue, []).append(r)
     taken_names = _all_taken_view_names(doc)
     results = []
     t = Transaction(doc, "DeeLazy - Links Into Views")
@@ -655,9 +684,11 @@ def run_batch(doc, original_view, all_rows, checked_rows, template, prefix, suff
         for row in checked_rows:
             try:
                 result = create_isolated_view_for_link(
-                    doc, original_view, row, all_rows, taken_names, template, prefix, suffix)
+                    doc, row.view, row, rows_by_view.get(row.view.Id.IntegerValue, [row]),
+                    taken_names, template, prefix, suffix)
             except Exception as e:
                 result = ProcessResult(row.name, False, str(e))
+            result.source_view = row.view_name
             results.append(result)
     finally:
         t.Commit()
@@ -681,7 +712,8 @@ def _report_html(results, elapsed_seconds):
         html.append(
             '<div style="padding:4px 10px;margin:2px 0;background:{0};color:#fff;'
             'border-radius:4px;font-family:monospace;font-size:12px;">'
-            '{1}&nbsp; <b>{2}</b> &mdash; {3}</div>'.format(bg, icon, r.link_name, r.detail))
+            '{1}&nbsp; <b>{2}</b> (from {3}) &mdash; {4}</div>'.format(
+                bg, icon, r.link_name, r.source_view, r.detail))
     output.print_html("".join(html))
 
 
@@ -695,24 +727,20 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
         self.uiapp = uiapp
         self.uidoc = uiapp.ActiveUIDocument
         self.doc = self.uidoc.Document
-        self._view = None
-        self._raw_instances = []
+        self._scans = []
         self._link_rows = []
         self._results = []
 
-        self._views = eligible_views(self.doc)
-        labels = [view_label(v) for v in self._views]
-        self.view_cb.ItemsSource = labels
-        if labels:
-            default_index = 0
-            active = self.doc.ActiveView
-            if active is not None:
-                for i, v in enumerate(self._views):
-                    if v.Id == active.Id:
-                        default_index = i
-                        break
-            self.view_cb.SelectedIndex = default_index
-            self._log("Pick a view, then click 'Scan for Links'.")
+        self._view_rows = [ViewRow(v) for v in eligible_views(self.doc)]
+        active = self.doc.ActiveView
+        if active is not None:
+            for vr in self._view_rows:
+                if vr.view.Id == active.Id:
+                    vr.selected = True
+                    break
+        self.views_grid.ItemsSource = self._view_rows
+        if self._view_rows:
+            self._log("Tick one or more views, then click 'Scan Selected Views'.")
         else:
             self._log("No eligible views (Floor Plan/Ceiling Plan/Elevation/Section/3D/"
                        "Area Plan/Engineering Plan) found in this project.")
@@ -724,25 +752,42 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
     def _log(self, message):
         self.status_tb.Text = message
 
-    def _selected_view(self):
-        idx = self.view_cb.SelectedIndex
-        if idx is None or idx < 0 or idx >= len(self._views):
-            return None
-        return self._views[idx]
+    # ---------------- view picker ----------------
+    def _visible_view_rows(self):
+        text = ((self.view_search_tb.Text or "") if hasattr(self, "view_search_tb") else "").strip().lower()
+        if not text:
+            return self._view_rows
+        return [r for r in self._view_rows if text in r.name.lower()]
+
+    def view_search_changed(self, sender, args):
+        if not getattr(self, "_view_rows", None):
+            return
+        self.views_grid.ItemsSource = None
+        self.views_grid.ItemsSource = self._visible_view_rows()
+
+    def view_select_all_click(self, sender, args):
+        for r in self._visible_view_rows():
+            r.selected = True
+        self.views_grid.Items.Refresh()
+
+    def view_select_none_click(self, sender, args):
+        for r in self._visible_view_rows():
+            r.selected = False
+        self.views_grid.Items.Refresh()
 
     # ---------------- naming preview ----------------
     def _refresh_preview(self):
         """Recomputes preview_name/validation for every scanned link row
         against the CURRENT pattern/prefix/suffix - pure string work, no
-        Revit calls, safe to run on every keystroke. A no-op until a view
-        has actually been scanned."""
-        if self._view is None or not self._link_rows:
+        Revit calls, safe to run on every keystroke. A no-op until views
+        have actually been scanned."""
+        if not self._link_rows:
             return
         template = pattern_template(self.pattern_cb.SelectedIndex)
         prefix = self.prefix_tb.Text or ""
         suffix = self.suffix_tb.Text or ""
         existing_names = _all_taken_view_names(self.doc)
-        compute_preview(self._link_rows, view_label(self._view), template, prefix, suffix, existing_names)
+        compute_preview(self._link_rows, template, prefix, suffix, existing_names)
         self.links_grid.Items.Refresh()
 
     def pattern_changed(self, sender, args):
@@ -765,7 +810,11 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
         """Regroups the already-scanned instances (no Revit re-query) per
         the current By Instance / By Link Type toggle - lets the toggle
         switch instantly without a fresh scan."""
-        self._link_rows = build_rows(self._raw_instances, self._group_by_type())
+        group = self._group_by_type()
+        rows = []
+        for view, raw in self._scans:
+            rows.extend(build_rows(raw, group, view))
+        self._link_rows = rows
         self._results = []
         self.report_grid.ItemsSource = None
         self.links_grid.ItemsSource = None
@@ -776,33 +825,35 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
         """The RadioButton's XAML-declared IsChecked="True" fires this
         Checked event during window load, BEFORE __init__'s own body has
         run (a known hazard, already documented in dee_bulk_rename.py) -
-        getattr(..., None) avoids an AttributeError on self._raw_instances
-        in that case rather than relying on it already existing."""
-        if not getattr(self, "_raw_instances", None):
+        getattr(..., None) avoids an AttributeError on self._scans in that
+        case rather than relying on it already existing."""
+        if not getattr(self, "_scans", None):
             return
         self._rebuild_rows()
         mode = "link type" if self._group_by_type() else "instance"
         self._log("Grouped by {0} - {1} row(s).".format(mode, len(self._link_rows)))
 
     def scan_click(self, sender, args):
-        view = self._selected_view()
-        if view is None:
-            forms.alert("Pick a view first.")
+        ticked = [r for r in self._view_rows if r.selected]
+        if not ticked:
+            forms.alert("Tick at least one view first.")
             return
-        self._view = view
-        self._raw_instances = scan_raw_links(self.doc, view)
-        if not self._raw_instances:
+        self._scans = [(r.view, scan_raw_links(self.doc, r.view)) for r in ticked]
+        if not any(raw for _, raw in self._scans):
+            self._scans = []
             self._link_rows = []
             self.report_grid.ItemsSource = None
             self.links_grid.ItemsSource = None
-            forms.alert("No Revit Links found in '{0}'.".format(view_label(view)))
-            self._log("0 links found in '{0}'.".format(view_label(view)))
+            forms.alert("No Revit Links found in the {0} selected view(s).".format(len(ticked)))
+            self._log("0 links found in {0} view(s).".format(len(ticked)))
             return
         self._rebuild_rows()
-        nested_count = count_nested(self._raw_instances)
-        self._log("{0} link(s) found in '{1}' ({2} nested link instance(s) kept with their parent, not "
-                   "listed). Tick the ones to isolate, then click 'Create Isolated Views'.".format(
-                       len(self._link_rows), view_label(view), nested_count))
+        nested_count = sum(count_nested(raw) for _, raw in self._scans)
+        views_with_links = sum(1 for _, raw in self._scans if raw)
+        self._log("{0} link row(s) found across {1} of {2} scanned view(s) ({3} nested link instance(s) "
+                   "kept with their parent, not listed). Tick the ones to isolate, then click "
+                   "'Create Isolated Views'.".format(
+                       len(self._link_rows), views_with_links, len(ticked), nested_count))
 
     def select_all_click(self, sender, args):
         for r in self._link_rows:
@@ -816,15 +867,16 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
 
     # ---------------- run ----------------
     def run_click(self, sender, args):
-        if self._view is None:
-            forms.alert("Scan a view first.")
+        if not self._link_rows:
+            forms.alert("Scan one or more views first.")
             return
         checked = [r for r in self._link_rows if r.selected]
         if not checked:
             forms.alert("Tick at least one link first.")
             return
+        source_count = len(set(r.view.Id.IntegerValue for r in checked))
         if not forms.alert(
-                "Create {0} isolated view(s) from '{1}'?".format(len(checked), view_label(self._view)),
+                "Create {0} isolated view(s) from {1} source view(s)?".format(len(checked), source_count),
                 yes=True, no=True):
             return
 
@@ -833,7 +885,7 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
         suffix = self.suffix_tb.Text or ""
 
         start = time.time()
-        results = run_batch(self.doc, self._view, self._link_rows, checked, template, prefix, suffix)
+        results = run_batch(self.doc, self._link_rows, checked, template, prefix, suffix)
         elapsed = time.time() - start
 
         self._results = results
