@@ -368,6 +368,20 @@ def _load_cache(cache_file, project_id):
     return None, None, set()
 
 
+def cache_info(cache_file, project_id):
+    """(saved_at_text, file_count) for a project's cached file list, or
+    None if there is none - lets a window show "cached list: N files,
+    saved <date>" without any prompt."""
+    ts, files, _pub = _load_cache(cache_file, project_id)
+    if files is None:
+        return None
+    try:
+        saved = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        saved = "?"
+    return saved, len(files)
+
+
 def _save_cache(cache_file, project_id, files, published_ids=None):
     try:
         try:
@@ -655,10 +669,16 @@ def _scan_one_folder(project_id, folder_id, token, recursive, cache_file):
     return items
 
 
-def list_project_files(hub_id, project_id, token, cache_file):
+def list_project_files(hub_id, project_id, token, cache_file, cache_mode=None):
     """Full 'use cache or rescan' flow (same prompts/behavior as DeeOpener).
     Returns a dict {display_name: item_id}, or None if the user cancelled or
     nothing was found.
+
+    cache_mode (optional) lets a caller that already has its own window
+    decide up front instead of getting the popup: "cache" uses the cached
+    list when one exists, "rescan" ignores any cached list. Left as None
+    (the default), behavior is exactly as before - a cached list triggers
+    the "Use Cached List / Rescan Project" prompt.
 
     Sets the module-level last_scan_warnings to [] (cached path, or a
     clean fresh scan) or [(folder_name, error), ...] (a fresh scan where
@@ -671,7 +691,11 @@ def list_project_files(hub_id, project_id, token, cache_file):
     last_scan_warnings = []
     cache_ts, cached_files, _cached_pub_ids = _load_cache(cache_file, project_id)
     all_items = None
-    if cached_files is not None:
+    if cached_files is not None and cache_mode == "cache":
+        all_items = {str(k): str(v) for k, v in cached_files.items()}
+    elif cached_files is not None and cache_mode == "rescan":
+        cached_files = None
+    elif cached_files is not None:
         age_str = datetime.datetime.fromtimestamp(cache_ts).strftime("%Y-%m-%d %H:%M")
         choice = forms.CommandSwitchWindow.show(
             ["Use Cached List ({0} files, saved {1})".format(len(cached_files), age_str),

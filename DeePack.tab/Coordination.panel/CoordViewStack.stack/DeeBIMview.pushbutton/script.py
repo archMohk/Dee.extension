@@ -1,40 +1,57 @@
 # -*- coding: utf-8 -*-
 """
 DeeBIMview
-Two ways to choose the models (asked first when the button is clicked):
-  - ACC project: browse hub -> project, tick any number of cloud files,
-    each is opened in turn and processed (the original flow, below).
-  - Opened Revit session: tick any of the project documents ALREADY open
-    in this Revit - nothing is opened or closed. Create/Update Views,
-    Configure Publish Settings and Synchronize With Central are offered;
-    Open, Close and Publish are not (the files are already open and stay
-    open, and Publish needs each model's cloud item id, which an open
-    document does not expose). Views and Sync are done through the API on
-    each document directly; Configure Publish Settings drives Revit's own
-    dialog, which only exists for the ACTIVE document, so each document is
-    switched to first (best effort - NEEDS LIVE-REVIT VERIFICATION that
-    OpenAndActivateDocument just activates an already-open model) and the
-    document that was active at the start is restored at the end.
+One window with every option on screen - no chain of popup prompts.
 
-For each selected cloud Revit file, runs up to 5 independently-toggled
-steps (only "Create/Update Views" is checked by default - everything
-else is opt-in):
-  1. Open it (all worksets open)
-  2. Create/reuse 3D view "BIM Coordination View" - RVT links hidden
-  3. Create/reuse 3D view "BIM Exported NAVIS"    - RVT links hidden
-  4. Configure cloud Publish Settings: set "BIM Coordination Set" with
-     "BIM Coordination View" active (via UI Automation - no public API
-     exists for this dialog)
-  5. Synchronize With Central
-  6. Close the file
-  7. Publish via the APS Commands API (skipped if step 4 failed)
-With every optional step left unchecked, this behaves exactly like the
-old view-only DeeBIMview: files are left open afterward so the views
-can be reviewed before you decide to sync/publish yourself. Checking
-the extra steps gives the old DeeCoord full-pipeline behavior - the two
-tools were merged into this one, with the pipeline steps exposed as
-options instead of being a separate always-on tool.
+Models (pick the source with the radio buttons):
+  - ACC project: Connect, choose Hub and Project from the dropdowns, Load
+    Files (a cached file list is used unless "Rescan" is ticked), tick any
+    number of cloud files. Each is opened in turn and processed.
+  - Opened Revit session: the project documents ALREADY open in this Revit
+    are listed (linked copies and family documents are skipped); tick any
+    number. Nothing is opened or closed.
+
+Steps (tick any combination; only "Create/Update Views" is on by default):
+  - Create/Update Views: 3D views "BIM Coordination View" and "BIM Exported
+    NAVIS" with RVT links hidden, under a 3D view type (all names editable
+    in the window)
+  - Configure Publish Settings: set "BIM Coordination Set" with the
+    coordination view active (via UI Automation - no public API exists
+    for this dialog)
+  - Synchronize With Central
+  - Close After Sync   (ACC only - open-session files are left open)
+  - Publish via the APS Commands API   (ACC only - it needs each model's
+    cloud item id, which an open document does not expose)
+ACC-only options (open with all worksets closed, publish without links)
+are disabled while the source is the open session.
+
+The window only COLLECTS the choices; when Run is pressed it closes and the
+batch then runs with a progress bar and the coloured results page - the
+same way DeeLazy launches its modules, because opening files, switching the
+active document and driving Revit's own Publish Settings dialog are not
+safe to do from inside a still-open modal window.
+
+Open-session notes: Create Views and Sync run through the API directly on
+each document. Configure Publish Settings drives Revit's own dialog, which
+only exists for the ACTIVE document, so each document is switched to first
+(best effort - NEEDS LIVE-REVIT VERIFICATION that OpenAndActivateDocument
+just activates an already-open model) and the document that was active at
+the start is restored at the end.
+
+ACC files are opened with a cross-project-safe GUID lookup shared with every
+other Dee cloud tool (lib/acc_file_browser.py).
 """
+import os
+
+import clr
+clr.AddReference("WindowsBase")
+clr.AddReference("PresentationCore")
+clr.AddReference("PresentationFramework")
+
+from System import Action
+from System.Windows import Visibility
+from System.Windows.Threading import Dispatcher, DispatcherFrame, DispatcherPriority
+
 from pyrevit import forms, script
 from Autodesk.Revit.DB import (
     OpenOptions, WorksetConfigurationOption, WorksetConfiguration,
@@ -46,20 +63,11 @@ from Autodesk.Revit.DB import (
     FailureSeverity
 )
 from Autodesk.Revit.UI import RevitCommandId, PostableCommand, TaskDialogResult
-import System
-import threading
-try:
-    import Queue as queue
-except ImportError:
-    import queue
-import json
-import os
-import base64
-import time
-import datetime
 
+import dee_branding
 import acc_auth
 import acc_api
+import acc_file_browser as afb
 import publish_settings_ui
 import dee_telemetry
 dee_telemetry.check_access("DeeBIMview")
@@ -67,199 +75,20 @@ dee_telemetry.check_access("DeeBIMview")
 
 output = script.get_output()
 
-# Defaults - editable per run via the name prompts in main(). The view TYPE
-# name (Project Browser grouping) must differ from the view instance names -
-# Revit does not allow a View Type and a View to share the exact same name.
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
+# Per-tool ACC file-list cache (gitignored), same convention as the other
+# Dee cloud tools - NOT shared with DeeOpener any more, since the shared
+# lister takes the cache path as an argument.
+_CACHE_FILE = os.path.join(_THIS_DIR, ".acc_file_cache.json")
+
+# Defaults - editable in the window. The view TYPE name (Project Browser
+# grouping) must differ from the view instance names - Revit does not allow
+# a View Type and a View to share the exact same name.
 DEFAULT_VIEW_TYPE = "BIM Coordination"
 DEFAULT_COORD_VIEW = "BIM Coordination View"
 DEFAULT_NAVIS_VIEW = "BIM Exported NAVIS"
 DEFAULT_COORD_SET = "BIM Coordination Set"
-
-# shared cache with DeeOpener / DeePublisher
-_CACHE_FILE = os.path.normpath(os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..", "DeeOpener.pushbutton", ".acc_file_cache.json"
-))
-
-
-def _load_cache(project_id):
-    try:
-        with open(_CACHE_FILE, "r") as fh:
-            cache = json.load(fh)
-        entry = cache.get(project_id)
-        if entry and isinstance(entry.get("files"), dict):
-            return entry["ts"], entry["files"]
-    except Exception:
-        pass
-    return None, None
-
-
-def _save_cache(project_id, files, published_ids=None):
-    try:
-        try:
-            with open(_CACHE_FILE, "r") as fh:
-                cache = json.load(fh)
-        except Exception:
-            cache = {}
-        cache[project_id] = {
-            "ts": time.time(),
-            "files": files,
-            "published_ids": list(published_ids or []),
-        }
-        with open(_CACHE_FILE, "w") as fh:
-            json.dump(cache, fh)
-    except Exception:
-        pass
-
-
-def to_guid(aps_id):
-    return System.Guid(aps_id.split(".")[-1])
-
-
-def _lineage_to_guid_hexstr(item_id):
-    encoded = item_id.split(":")[-1]
-    padded = encoded + "=" * (-len(encoded) % 4)
-    raw = bytearray(base64.urlsafe_b64decode(padded))
-    h = ''.join('{0:02x}'.format(b) for b in raw)
-    return System.Guid('{0}-{1}-{2}-{3}-{4}'.format(
-        h[0:8], h[8:12], h[12:16], h[16:20], h[20:32]
-    ))
-
-
-def get_cloud_path_guids(browsing_project_id, item_id, token):
-    """Same cross-project-safe GUID resolution used by DeeOpener."""
-    PROJ_FIELDS = ("projectGuid", "projectId", "project_guid")
-    MODEL_FIELDS = ("modelId", "modelGuid", "c4rModelId", "model_id")
-
-    def _extract(ext_data, label):
-        mguid = None
-        for f in MODEL_FIELDS:
-            v = ext_data.get(f)
-            if v and isinstance(v, str) and '-' in v:
-                try:
-                    mguid = System.Guid(v)
-                    break
-                except Exception:
-                    pass
-        if mguid is None:
-            return None
-        for f in PROJ_FIELDS:
-            v = ext_data.get(f)
-            if v and isinstance(v, str) and '-' in v:
-                try:
-                    return System.Guid(v), mguid, label + "+" + f
-                except Exception:
-                    pass
-        return to_guid(browsing_project_id), mguid, label + "+browsing-proj"
-
-    try:
-        resp = acc_api._get(
-            acc_api.BASE_URL + "/data/v1/projects/{0}/items/{1}".format(
-                browsing_project_id, item_id),
-            token
-        )
-        ext = (resp.get("data", {})
-                   .get("attributes", {})
-                   .get("extension", {})
-                   .get("data", {}))
-        result = _extract(ext, "item.ext")
-        if result:
-            return result
-    except Exception:
-        pass
-
-    try:
-        tip = acc_api._get(
-            acc_api.BASE_URL + "/data/v1/projects/{0}/items/{1}/tip".format(
-                browsing_project_id, item_id),
-            token
-        )
-        tip_d = tip.get("data", {})
-        tip_ext = tip_d.get("attributes", {}).get("extension", {}).get("data", {})
-        result = _extract(tip_ext, "tip.ext")
-        if result:
-            return result
-
-        tip_id = tip_d.get("id", "")
-        if "vf." in tip_id:
-            vf = tip_id.split("vf.")[-1].split("?")[0]
-            enc = vf + "=" * (-len(vf) % 4)
-            raw = bytearray(base64.urlsafe_b64decode(enc))
-            h = ''.join('{0:02x}'.format(b) for b in raw)
-            return (
-                to_guid(browsing_project_id),
-                System.Guid('{0}-{1}-{2}-{3}-{4}'.format(
-                    h[0:8], h[8:12], h[12:16], h[16:20], h[20:32])),
-                "vf-urn"
-            )
-    except Exception:
-        pass
-
-    return to_guid(browsing_project_id), _lineage_to_guid_hexstr(item_id), "lineage"
-
-
-# 2026-09-10: a folder that failed all its retry attempts was silently
-# dropped (and everything nested under it with it) - live-reported
-# against DeeS.Publish's own copy of this exact logic as "it dosnt grap
-# all the revit files", root-caused to APS's documented 429 rate limit
-# (aps.autodesk.com/en/docs/data/v2/developers_guide/rate-limiting) under
-# 8 concurrent scan workers. More attempts + exponential backoff
-# specifically for a 429 response, matching the fix already made to
-# DeeS.Publish/acc_file_browser.py/acc_api.py. The return shape here is
-# left unchanged (still (next_level, found_items)) - only the retry
-# robustness is improved, not the failure-reporting UI those two also
-# got, so no caller-side change is needed.
-_SCAN_MAX_ATTEMPTS = 5
-
-
-def _retry_delay_seconds(attempt, error_text):
-    if "TooManyRequests" in error_text or "429" in error_text:
-        return min(30, 4 * (2 ** attempt))
-    return 2 * (attempt + 1)
-
-
-def scan_level(level, project_id, token, max_workers=8):
-    next_level = []
-    found_items = []
-    lock = threading.Lock()
-    q = queue.Queue()
-    for fid in level:
-        q.put(fid)
-
-    def worker():
-        while True:
-            try:
-                fid = q.get_nowait()
-            except queue.Empty:
-                return
-            try:
-                for attempt in range(_SCAN_MAX_ATTEMPTS):
-                    try:
-                        subfolders, items = acc_api.list_folder_contents(project_id, fid, token)
-                        with lock:
-                            for sfid, _n in subfolders:
-                                next_level.append(sfid)
-                            for iid, iname in items:
-                                found_items.append((iid, iname))
-                        break
-                    except Exception as e:
-                        if attempt < _SCAN_MAX_ATTEMPTS - 1:
-                            time.sleep(_retry_delay_seconds(attempt, str(e)))
-            finally:
-                q.task_done()
-
-    workers = []
-    for _ in range(min(max_workers, max(1, len(level)))):
-        t = threading.Thread(target=worker)
-        t.daemon = True
-        t.start()
-        workers.append(t)
-    for t in workers:
-        t.join()
-    return next_level, found_items
-
-
-# ── Revit-side helpers ────────────────────────────────────────────────────
 
 def _find_3d_view(doc, name):
     for v in FilteredElementCollector(doc).OfClass(View3D):
@@ -479,7 +308,7 @@ def _make_dialog_handler(log_list):
 def _open_file(uiapp, region, project_id, name, item_id, token, close_worksets):
     """Returns (doc, step). doc is None on failure."""
     try:
-        proj_guid, model_guid, _src = get_cloud_path_guids(project_id, item_id, token)
+        proj_guid, model_guid, _src = afb.get_cloud_path_guids(project_id, item_id, token)
         cloud_path = ModelPathUtils.ConvertCloudGUIDsToCloudPath(region, proj_guid, model_guid)
         wc_option = (WorksetConfigurationOption.CloseAllWorksets if close_worksets
                      else WorksetConfigurationOption.OpenAllWorksets)
@@ -565,7 +394,7 @@ def _publish(project_id, item_id, token, without_links):
     return (label, ok)
 
 
-SCRIPT_VERSION = "2026-10-22-v2-open-session"
+SCRIPT_VERSION = "2026-10-22-v3-window"
 
 
 class _SafeProgress(object):
@@ -605,292 +434,6 @@ class _SafeProgress(object):
 
     def update_progress(self, i, total):
         pass
-
-
-def _run_acc():
-    try:
-        token = acc_auth.get_access_token()
-    except Exception as e:
-        forms.alert("Authentication failed:\n{0}".format(e))
-        return
-
-    hubs = acc_api.list_hubs(token)
-    if not hubs:
-        forms.alert("No ACC/BIM360 hubs found.")
-        return
-    hub_lookup = {name: (hub_id, region) for hub_id, name, region in hubs}
-    hub_name = forms.SelectFromList.show(
-        sorted(hub_lookup.keys()), title="DeeBIMview — Select Hub")
-    if not hub_name:
-        return
-    hub_id, region = hub_lookup[hub_name]
-
-    projects = acc_api.list_projects(hub_id, token)
-    if not projects:
-        forms.alert("No projects found in that hub.")
-        return
-    project_lookup = {name: proj_id for proj_id, name in projects}
-    project_name = forms.SelectFromList.show(
-        sorted(project_lookup.keys()), title="DeeBIMview — Select Project")
-    if not project_name:
-        return
-    project_id = project_lookup[project_name]
-
-    # ── load or build file list ───────────────────────────────────────────────
-    cache_ts, cached_files = _load_cache(project_id)
-    all_items = None
-    if cached_files is not None:
-        age_str = datetime.datetime.fromtimestamp(cache_ts).strftime("%Y-%m-%d %H:%M")
-        choice = forms.CommandSwitchWindow.show(
-            ["Use Cached List ({0} files, saved {1})".format(
-                len(cached_files), age_str),
-             "Rescan Project (may take several minutes)"],
-            message="A cached file list exists for this project."
-        )
-        if not choice:
-            return
-        if "Use Cached" in choice:
-            all_items = {str(k): str(v) for k, v in cached_files.items()}
-
-    if all_items is None:
-        all_items = {}
-        native_ids = set()
-
-        def _add(iid, iname):
-            key = iname
-            if key in all_items and all_items[key] != iid:
-                key = "{0}  [{1}]".format(iname, iid.split(":")[-1][:8])
-            all_items[key] = iid
-
-        with _SafeProgress(title="Scanning project for Revit files...",
-                               cancellable=True, indeterminate=True) as pb:
-            pb.title = "Step 1/2 — Searching native cloud models..."
-            for iid, iname in acc_api.search_cloud_models(project_id, token):
-                native_ids.add(iid)
-                _add(iid, iname)
-
-            pb.title = "Step 2/2 — BFS folder scan..."
-            top_folders = acc_api.get_top_folders(hub_id, project_id, token)
-            level = [fid for fid, _ in top_folders]
-            done = 0
-            while level:
-                if pb.cancelled:
-                    forms.alert("Scan cancelled.")
-                    return
-                next_level, found_items = scan_level(level, project_id, token)
-                for iid, iname in found_items:
-                    _add(iid, iname)
-                done += len(level)
-                level = next_level
-                pb.title = "Step 2/2 — Scanning ({0} done, {1} found)...".format(
-                    done, len(all_items))
-
-        if not all_items:
-            forms.alert("No Revit files found in that project.")
-            return
-        _save_cache(project_id, all_items, set(all_items.values()) - native_ids)
-
-    # ── select files ──────────────────────────────────────────────────────────
-    selected_names = forms.SelectFromList.show(
-        sorted(all_items.keys()),
-        title="DeeBIMview — Select files to process ({0} available)".format(len(all_items)),
-        multiselect=True,
-        button_name="Process Selected"
-    )
-    if not selected_names:
-        return
-
-    # ── open mode ─────────────────────────────────────────────────────────────
-    open_mode = forms.CommandSwitchWindow.show(
-        ["Regular Open", "Open with All Worksets Closed"],
-        message="How should each selected file be opened?"
-    )
-    if not open_mode:
-        return
-    close_worksets = (open_mode == "Open with All Worksets Closed")
-
-    # ── per-step on/off toggles (only Create/Update Views is on by default -
-    # this is the difference between the old DeeBIMview and DeeCoord, now
-    # exposed as options on one tool instead of two separate buttons) ───────
-    step_choices = forms.SelectFromList.show(
-        [
-            forms.TemplateListItem("Create/Update Views", checked=True),
-            forms.TemplateListItem("Configure Publish Settings", checked=False),
-            forms.TemplateListItem("Synchronize With Central", checked=False),
-            forms.TemplateListItem("Close After Sync", checked=False),
-            forms.TemplateListItem("Publish", checked=False),
-        ],
-        title="DeeBIMview — Steps to run ({0} file(s))".format(len(selected_names)),
-        multiselect=True,
-        button_name="Continue"
-    )
-    if not step_choices:
-        return
-    do_views = "Create/Update Views" in step_choices
-    do_pubset = "Configure Publish Settings" in step_choices
-    do_sync = "Synchronize With Central" in step_choices
-    do_close = "Close After Sync" in step_choices
-    do_publish = "Publish" in step_choices
-
-    # ── editable names (current defaults pre-filled) ─────────────────────────
-    view_type_name = forms.ask_for_string(
-        default=DEFAULT_VIEW_TYPE,
-        prompt="3D View Type name (the group both views appear under in "
-               "the Project Browser, e.g. '3D Views ({0})'). Created by "
-               "duplicating an existing 3D View Type if it doesn't already "
-               "exist:".format(DEFAULT_VIEW_TYPE),
-        title="DeeBIMview — 3D View Type Name"
-    )
-    if not view_type_name:
-        return
-
-    coord_view_name = forms.ask_for_string(
-        default=DEFAULT_COORD_VIEW,
-        prompt="3D view name for the coordination view (no links):",
-        title="DeeBIMview — Coordination View Name"
-    )
-    if not coord_view_name:
-        return
-
-    navis_view_name = forms.ask_for_string(
-        default=DEFAULT_NAVIS_VIEW,
-        prompt="3D view name for the NAVIS export view (no links):",
-        title="DeeBIMview — NAVIS View Name"
-    )
-    if not navis_view_name:
-        return
-
-    coord_set_name = DEFAULT_COORD_SET
-    if do_pubset:
-        coord_set_name = forms.ask_for_string(
-            default=DEFAULT_COORD_SET,
-            prompt="Publish Settings set name (its active view will be '{0}'):".format(
-                coord_view_name),
-            title="DeeBIMview — Publish Set Name"
-        )
-        if not coord_set_name:
-            return
-
-    without_links = False
-    if do_publish:
-        pub_mode = forms.CommandSwitchWindow.show(
-            ["Normal Publish", "Publish without Links"],
-            message="Select publish mode for successfully-configured files:"
-        )
-        if not pub_mode:
-            return
-        without_links = (pub_mode == "Publish without Links")
-
-    uiapp = __revit__
-    all_results = []
-    total = len(selected_names)
-    prev_doc = None
-    prev_steps = None
-
-    dismissed_log = []
-    dialog_handler = _make_dialog_handler(dismissed_log)
-    uiapp.DialogBoxShowing += dialog_handler
-
-    try:
-        with _SafeProgress(title="DeeBIMview — starting...", cancellable=True) as pb:
-            for i, name in enumerate(selected_names):
-                if pb.cancelled:
-                    all_results.append((name, [("Cancelled", None)]))
-                    break
-
-                steps = []
-                all_results.append((name, steps))
-                item_id = all_items[name]
-                pb.update_progress(i, total)
-
-                pb.title = "File {0}/{1}: {2} — Opening".format(i + 1, total, name)
-                output.print_md("**File {0}/{1}: {2} — Opening**".format(i + 1, total, name))
-                before_count = len(dismissed_log)
-                doc, step = _open_file(uiapp, region, project_id, name, item_id, token, close_worksets)
-                steps.append(step)
-                steps.extend(dismissed_log[before_count:])
-
-                # The document that was active before this one can only be
-                # closed now that it is no longer the active document (Revit
-                # forbids Document.Close() on the active document).
-                if prev_doc is not None:
-                    if do_close:
-                        pb.title = "File {0}/{1}: closing previous file".format(i + 1, total)
-                        try:
-                            prev_doc.Close(False)
-                            prev_steps.append(("Closed", True))
-                        except Exception as e:
-                            prev_steps.append(("Close FAILED: {0}".format(e), False))
-                    else:
-                        prev_steps.append(("Left open (Close After Sync unchecked)", None))
-                    prev_doc = None
-
-                if doc is None:
-                    continue
-
-                publish_settings_ok = True
-                actual_coord_view_name = coord_view_name
-                if do_views:
-                    pb.title = "File {0}/{1}: {2} — Creating views".format(i + 1, total, name)
-                    output.print_md("Creating views...")
-                    before_count = len(dismissed_log)
-                    label, ok, created_coord_name = _create_views(
-                        doc, coord_view_name, navis_view_name, view_type_name)
-                    steps.append((label, ok))
-                    steps.extend(dismissed_log[before_count:])
-                    if created_coord_name:
-                        actual_coord_view_name = created_coord_name
-
-                if do_pubset:
-                    pb.title = "File {0}/{1}: {2} — Publish Settings".format(i + 1, total, name)
-                    output.print_md("Configuring Publish Settings...")
-                    label, ok = _configure_publish_settings(
-                        uiapp, coord_set_name, actual_coord_view_name)
-                    steps.append((label, ok))
-                    if ok is None:
-                        publish_settings_ok = False
-                else:
-                    steps.append(("Publish Settings skipped (unchecked)", None))
-
-                if do_sync:
-                    pb.title = "File {0}/{1}: {2} — Synchronizing".format(i + 1, total, name)
-                    output.print_md("Synchronizing with central...")
-                    before_count = len(dismissed_log)
-                    steps.append(_sync(doc))
-                    steps.extend(dismissed_log[before_count:])
-
-                if do_publish:
-                    if publish_settings_ok:
-                        pb.title = "File {0}/{1}: {2} — Publishing".format(i + 1, total, name)
-                        output.print_md("Publishing...")
-                        steps.append(_publish(project_id, item_id, token, without_links))
-                    else:
-                        steps.append(("Publish skipped (Publish Settings not confirmed)", None))
-
-                prev_doc = doc
-                prev_steps = steps
-
-            # The very last file has no "next" document to activate, so it
-            # can't be closed synchronously - post the Close command instead,
-            # which Revit runs right after this script finishes.
-            if prev_doc is not None:
-                if do_close:
-                    pb.title = "Closing last file..."
-                    try:
-                        cmd_id = RevitCommandId.LookupPostableCommandId(PostableCommand.Close)
-                        if uiapp.CanPostCommand(cmd_id):
-                            uiapp.PostCommand(cmd_id)
-                            prev_steps.append(("Close requested (completes after this tool exits)", None))
-                        else:
-                            prev_steps.append(("Close FAILED: command not postable right now", False))
-                    except Exception as e:
-                        prev_steps.append(("Close FAILED: {0}".format(e), False))
-                else:
-                    prev_steps.append(("Left open (Close After Sync unchecked)", None))
-    finally:
-        uiapp.DialogBoxShowing -= dialog_handler
-
-    _print_results(all_results)
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -996,90 +539,475 @@ def _activate_document(uiapp, doc):
         return False
 
 
-def _run_session(uiapp):
-    docs = _open_project_documents(uiapp)
-    if not docs:
-        forms.alert("No project documents are open in this Revit session.")
-        return
+# ══════════════════════════════════════════════════════════════════════════
+# The window - collects every choice, then closes and the batch runs
+# ══════════════════════════════════════════════════════════════════════════
+_ACC = "acc"
+_SESSION = "session"
+
+
+class FileRow(object):
+    """One tickable model: ref is the ACC item id (ACC source) or the open
+    Document (session source)."""
+
+    def __init__(self, name, kind, note, ref):
+        self.name = name
+        self.kind = kind
+        self.note = note
+        self.ref = ref
+        self.selected = False
+
+
+class DeeBIMviewWindow(dee_branding.DeeBrandedWindow):
+    def __init__(self, xaml_file, uiapp):
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        self.uiapp = uiapp
+        self.request = None
+        self._ready = False
+        self._suppress = False
+        self._token = None
+        self._hubs = []
+        self._hub = None
+        self._projects = []
+        self._project = None
+        self._acc_rows = []
+        self._session_rows = []
+
+        self.viewtype_tb.Text = DEFAULT_VIEW_TYPE
+        self.coord_tb.Text = DEFAULT_COORD_VIEW
+        self.navis_tb.Text = DEFAULT_NAVIS_VIEW
+        self.pubset_tb.Text = DEFAULT_COORD_SET
+
+        # Radio buttons are set in code, not XAML: both have a wired Checked
+        # handler, and XAML-declared IsChecked fires it before this window
+        # is ready (a known hazard in this extension).
+        has_open_docs = bool(_open_project_documents(uiapp))
+        self.source_session_rb.IsChecked = has_open_docs
+        self.source_acc_rb.IsChecked = not has_open_docs
+        self._ready = True
+        self._apply_source()
+
+    # ---------------- small helpers ----------------
+    def _status(self, message):
+        self.status_tb.Text = message
+
+    def _pump(self):
+        """Let WPF repaint before a long blocking call (status text etc.)."""
+        try:
+            frame = DispatcherFrame()
+
+            def _stop():
+                frame.Continue = False
+
+            self.Dispatcher.BeginInvoke(DispatcherPriority.Background, Action(_stop))
+            Dispatcher.PushFrame(frame)
+        except Exception:
+            pass
+
+    def _guard(self, fn):
+        try:
+            fn()
+        except Exception as e:
+            self._status("ERROR: {0}".format(e))
+            forms.alert("DeeBIMview hit an error:\n\n{0}".format(e), title="DeeBIMview")
+
+    def _source(self):
+        return _SESSION if bool(self.source_session_rb.IsChecked) else _ACC
+
+    def _rows(self):
+        return self._session_rows if self._source() == _SESSION else self._acc_rows
+
+    # ---------------- source / enabling ----------------
+    def _apply_source(self):
+        is_acc = (self._source() == _ACC)
+        self.acc_panel.Visibility = Visibility.Visible if is_acc else Visibility.Collapsed
+        self.session_panel.Visibility = Visibility.Collapsed if is_acc else Visibility.Visible
+        for ctl in (self.step_close_cb, self.step_publish_cb, self.open_regular_rb, self.open_closed_rb):
+            ctl.IsEnabled = is_acc
+        if not is_acc:
+            self.step_close_cb.IsChecked = False
+            self.step_publish_cb.IsChecked = False
+            if not self._session_rows:
+                self._load_session()
+        self._update_enables()
+        self._refresh_grid()
+
+    def _update_enables(self):
+        is_acc = (self._source() == _ACC)
+        self.pubset_tb.IsEnabled = bool(self.step_pubset_cb.IsChecked)
+        publish_on = is_acc and bool(self.step_publish_cb.IsChecked)
+        self.publish_normal_rb.IsEnabled = publish_on
+        self.publish_nolinks_rb.IsEnabled = publish_on
+
+    def source_changed(self, sender, args):
+        if not self._ready:
+            return
+        self._apply_source()
+
+    def step_changed(self, sender, args):
+        if not self._ready:
+            return
+        self._update_enables()
+
+    # ---------------- session documents ----------------
+    def _load_session(self):
+        try:
+            active = self.uiapp.ActiveUIDocument.Document
+        except Exception:
+            active = None
+        rows = []
+        for d in _open_project_documents(self.uiapp):
+            is_active = active is not None and _same_document(d, active)
+            try:
+                if d.IsModelInCloud:
+                    kind = "Cloud"
+                elif d.IsWorkshared:
+                    kind = "Workshared"
+                else:
+                    kind = "Local"
+            except Exception:
+                kind = "?"
+            row = FileRow(d.Title, kind, "(active)" if is_active else "", d)
+            row.selected = is_active
+            rows.append(row)
+        self._session_rows = rows
+
+    def refresh_docs_click(self, sender, args):
+        self._load_session()
+        self._refresh_grid()
+
+    # ---------------- ACC: hubs / projects / files ----------------
+    def connect_click(self, sender, args):
+        self._guard(self._connect)
+
+    def _connect(self):
+        self._status("Signing in / loading hubs...")
+        self._pump()
+        try:
+            self._token = acc_auth.get_access_token()
+        except Exception as e:
+            self._status("Authentication failed.")
+            forms.alert("Authentication failed:\n{0}".format(e), title="DeeBIMview")
+            return
+        hubs = acc_api.list_hubs(self._token)
+        if not hubs:
+            self._status("No ACC/BIM360 hubs found.")
+            forms.alert("No ACC/BIM360 hubs found for this account.", title="DeeBIMview")
+            return
+        self._hubs = sorted(hubs, key=lambda h: (h[1] or "").lower())
+        self._suppress = True
+        try:
+            self.hub_cb.ItemsSource = ["{0}  [{1}]".format(name, region or "?") for _id, name, region in self._hubs]
+            self.project_cb.ItemsSource = None
+        finally:
+            self._suppress = False
+        self._hub = None
+        self._project = None
+        self._projects = []
+        self._acc_rows = []
+        self._refresh_grid()
+        self._status("{0} hub(s) loaded - choose a hub.".format(len(self._hubs)))
+        if len(self._hubs) == 1:
+            self.hub_cb.SelectedIndex = 0
+
+    def hub_changed(self, sender, args):
+        if not self._ready or self._suppress:
+            return
+        idx = self.hub_cb.SelectedIndex
+        if idx < 0 or idx >= len(self._hubs):
+            return
+        self._guard(lambda: self._load_projects(self._hubs[idx]))
+
+    def _load_projects(self, hub):
+        self._hub = hub
+        self._status("Loading projects in '{0}'...".format(hub[1]))
+        self._pump()
+        projects = acc_api.list_projects(hub[0], self._token)
+        self._project = None
+        self._acc_rows = []
+        self.cache_tb.Text = ""
+        if not projects:
+            self._projects = []
+            self._suppress = True
+            try:
+                self.project_cb.ItemsSource = None
+            finally:
+                self._suppress = False
+            self._refresh_grid()
+            self._status("No projects found in that hub.")
+            return
+        self._projects = sorted(projects, key=lambda p: (p[1] or "").lower())
+        self._suppress = True
+        try:
+            self.project_cb.ItemsSource = [name for _pid, name in self._projects]
+        finally:
+            self._suppress = False
+        self._refresh_grid()
+        self._status("{0} project(s) - choose a project.".format(len(self._projects)))
+
+    def project_changed(self, sender, args):
+        if not self._ready or self._suppress:
+            return
+        idx = self.project_cb.SelectedIndex
+        if idx < 0 or idx >= len(self._projects):
+            return
+        self._project = self._projects[idx]
+        self._acc_rows = []
+        self._refresh_grid()
+        self._show_cache_info()
+        self._status("Project '{0}' selected - press Load Files.".format(self._project[1]))
+
+    def _show_cache_info(self):
+        if self._project is None:
+            self.cache_tb.Text = ""
+            return
+        info = afb.cache_info(_CACHE_FILE, self._project[0])
+        if info:
+            self.cache_tb.Text = "Cached list: {0} files, saved {1}.".format(info[1], info[0])
+        else:
+            self.cache_tb.Text = "No cached list yet - the first load scans the whole project (can take minutes)."
+
+    def load_files_click(self, sender, args):
+        self._guard(self._load_files)
+
+    def _load_files(self):
+        if self._token is None or self._hub is None or self._project is None:
+            forms.alert("Connect to ACC and choose a hub and a project first.", title="DeeBIMview")
+            return
+        cache_mode = "rescan" if bool(self.rescan_cb.IsChecked) else "cache"
+        self._status("Loading Revit files from '{0}'...".format(self._project[1]))
+        self._pump()
+        items = afb.list_project_files(self._hub[0], self._project[0], self._token, _CACHE_FILE, cache_mode)
+        if not items:
+            self._status("No Revit files were loaded (cancelled, or none found).")
+            return
+        self._acc_rows = [FileRow(n, "ACC cloud model", "", items[n]) for n in sorted(items, key=lambda n: n.lower())]
+        self.rescan_cb.IsChecked = False
+        self._show_cache_info()
+        self._refresh_grid()
+        warnings = getattr(afb, "last_scan_warnings", None)
+        extra = "  ({0} folder(s) could not be read)".format(len(warnings)) if warnings else ""
+        self._status("{0} file(s) loaded - tick the ones to process.{1}".format(len(self._acc_rows), extra))
+
+    # ---------------- file grid ----------------
+    def _visible_rows(self):
+        rows = self._rows()
+        text = (self.search_tb.Text or "").strip().lower()
+        if not text:
+            return rows
+        words = text.split()
+        return [r for r in rows if all(w in r.name.lower() for w in words)]
+
+    def _refresh_grid(self):
+        self.files_grid.ItemsSource = None
+        self.files_grid.ItemsSource = self._visible_rows()
+
+    def search_changed(self, sender, args):
+        if not self._ready:
+            return
+        self._refresh_grid()
+
+    def select_all_click(self, sender, args):
+        for r in self._visible_rows():
+            r.selected = True
+        self.files_grid.Items.Refresh()
+
+    def select_none_click(self, sender, args):
+        for r in self._visible_rows():
+            r.selected = False
+        self.files_grid.Items.Refresh()
+
+    # ---------------- run / close ----------------
+    def run_click(self, sender, args):
+        source = self._source()
+        rows = [r for r in self._rows() if r.selected]
+        if not rows:
+            forms.alert("Tick at least one model to process.", title="DeeBIMview")
+            return
+        do_views = bool(self.step_views_cb.IsChecked)
+        do_pubset = bool(self.step_pubset_cb.IsChecked)
+        do_sync = bool(self.step_sync_cb.IsChecked)
+        do_close = bool(self.step_close_cb.IsChecked) and source == _ACC
+        do_publish = bool(self.step_publish_cb.IsChecked) and source == _ACC
+        if not (do_views or do_pubset or do_sync or do_close or do_publish):
+            forms.alert("Tick at least one step to run.", title="DeeBIMview")
+            return
+
+        view_type_name = (self.viewtype_tb.Text or "").strip()
+        coord_view_name = (self.coord_tb.Text or "").strip()
+        navis_view_name = (self.navis_tb.Text or "").strip()
+        coord_set_name = (self.pubset_tb.Text or "").strip()
+        if (do_views or do_pubset) and not coord_view_name:
+            forms.alert("Enter the coordination view name.", title="DeeBIMview")
+            return
+        if do_views and (not view_type_name or not navis_view_name):
+            forms.alert("Enter the 3D view type name and the NAVIS view name.", title="DeeBIMview")
+            return
+        if do_pubset and not coord_set_name:
+            forms.alert("Enter the Publish Settings set name.", title="DeeBIMview")
+            return
+        if source == _ACC and (self._token is None or self._project is None or self._hub is None):
+            forms.alert("Connect to ACC and choose a hub and a project first.", title="DeeBIMview")
+            return
+
+        self.request = {
+            "source": source,
+            "targets": [(r.name, r.ref) for r in rows],
+            "region": self._hub[2] if self._hub else None,
+            "project_id": self._project[0] if self._project else None,
+            "token": self._token,
+            "close_worksets": bool(self.open_closed_rb.IsChecked),
+            "do_views": do_views,
+            "do_pubset": do_pubset,
+            "do_sync": do_sync,
+            "do_close": do_close,
+            "do_publish": do_publish,
+            "view_type_name": view_type_name,
+            "coord_view_name": coord_view_name,
+            "navis_view_name": navis_view_name,
+            "coord_set_name": coord_set_name,
+            "without_links": bool(self.publish_nolinks_rb.IsChecked),
+        }
+        self.Close()
+
+    def close_click(self, sender, args):
+        self.Close()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Running the batch (after the window has closed)
+# ══════════════════════════════════════════════════════════════════════════
+def _process_acc(uiapp, req):
+    targets = req["targets"]
+    region = req["region"]
+    project_id = req["project_id"]
+    token = req["token"]
+    do_views = req["do_views"]
+    do_pubset = req["do_pubset"]
+    do_sync = req["do_sync"]
+    do_close = req["do_close"]
+    do_publish = req["do_publish"]
+
+    all_results = []
+    total = len(targets)
+    prev_doc = None
+    prev_steps = None
+
+    dismissed_log = []
+    dialog_handler = _make_dialog_handler(dismissed_log)
+    uiapp.DialogBoxShowing += dialog_handler
+
+    try:
+        with _SafeProgress(title="DeeBIMview — starting...", cancellable=True) as pb:
+            for i, (name, item_id) in enumerate(targets):
+                if pb.cancelled:
+                    all_results.append((name, [("Cancelled", None)]))
+                    break
+
+                steps = []
+                all_results.append((name, steps))
+                pb.update_progress(i, total)
+
+                pb.title = "File {0}/{1}: {2} — Opening".format(i + 1, total, name)
+                output.print_md("**File {0}/{1}: {2} — Opening**".format(i + 1, total, name))
+                before_count = len(dismissed_log)
+                doc, step = _open_file(uiapp, region, project_id, name, item_id, token, req["close_worksets"])
+                steps.append(step)
+                steps.extend(dismissed_log[before_count:])
+
+                # The document that was active before this one can only be
+                # closed now that it is no longer the active document (Revit
+                # forbids Document.Close() on the active document).
+                if prev_doc is not None:
+                    if do_close:
+                        pb.title = "File {0}/{1}: closing previous file".format(i + 1, total)
+                        try:
+                            prev_doc.Close(False)
+                            prev_steps.append(("Closed", True))
+                        except Exception as e:
+                            prev_steps.append(("Close FAILED: {0}".format(e), False))
+                    else:
+                        prev_steps.append(("Left open (Close After Sync unchecked)", None))
+                    prev_doc = None
+
+                if doc is None:
+                    continue
+
+                publish_settings_ok = True
+                actual_coord_view_name = req["coord_view_name"]
+                if do_views:
+                    pb.title = "File {0}/{1}: {2} — Creating views".format(i + 1, total, name)
+                    output.print_md("Creating views...")
+                    before_count = len(dismissed_log)
+                    label, ok, created_coord_name = _create_views(
+                        doc, req["coord_view_name"], req["navis_view_name"], req["view_type_name"])
+                    steps.append((label, ok))
+                    steps.extend(dismissed_log[before_count:])
+                    if created_coord_name:
+                        actual_coord_view_name = created_coord_name
+
+                if do_pubset:
+                    pb.title = "File {0}/{1}: {2} — Publish Settings".format(i + 1, total, name)
+                    output.print_md("Configuring Publish Settings...")
+                    label, ok = _configure_publish_settings(
+                        uiapp, req["coord_set_name"], actual_coord_view_name)
+                    steps.append((label, ok))
+                    if ok is None:
+                        publish_settings_ok = False
+                else:
+                    steps.append(("Publish Settings skipped (unchecked)", None))
+
+                if do_sync:
+                    pb.title = "File {0}/{1}: {2} — Synchronizing".format(i + 1, total, name)
+                    output.print_md("Synchronizing with central...")
+                    before_count = len(dismissed_log)
+                    steps.append(_sync(doc))
+                    steps.extend(dismissed_log[before_count:])
+
+                if do_publish:
+                    if publish_settings_ok:
+                        pb.title = "File {0}/{1}: {2} — Publishing".format(i + 1, total, name)
+                        output.print_md("Publishing...")
+                        steps.append(_publish(project_id, item_id, token, req["without_links"]))
+                    else:
+                        steps.append(("Publish skipped (Publish Settings not confirmed)", None))
+
+                prev_doc = doc
+                prev_steps = steps
+
+            # The very last file has no "next" document to activate, so it
+            # can't be closed synchronously - post the Close command instead,
+            # which Revit runs right after this script finishes.
+            if prev_doc is not None:
+                if do_close:
+                    pb.title = "Closing last file..."
+                    try:
+                        cmd_id = RevitCommandId.LookupPostableCommandId(PostableCommand.Close)
+                        if uiapp.CanPostCommand(cmd_id):
+                            uiapp.PostCommand(cmd_id)
+                            prev_steps.append(("Close requested (completes after this tool exits)", None))
+                        else:
+                            prev_steps.append(("Close FAILED: command not postable right now", False))
+                    except Exception as e:
+                        prev_steps.append(("Close FAILED: {0}".format(e), False))
+                else:
+                    prev_steps.append(("Left open (Close After Sync unchecked)", None))
+    finally:
+        uiapp.DialogBoxShowing -= dialog_handler
+
+    _print_results(all_results)
+
+
+def _process_session(uiapp, req):
+    targets = req["targets"]
+    do_views = req["do_views"]
+    do_pubset = req["do_pubset"]
+    do_sync = req["do_sync"]
+
     try:
         active_doc = uiapp.ActiveUIDocument.Document
     except Exception:
         active_doc = None
-
-    # ── pick the open documents ───────────────────────────────────────────────
-    label_to_doc = {}
-    items = []
-    for d in docs:
-        label = _document_label(d, active_doc)
-        if label in label_to_doc:
-            label = "{0} #{1}".format(label, len(label_to_doc) + 1)
-        label_to_doc[label] = d
-        items.append(forms.TemplateListItem(
-            label, checked=(active_doc is not None and _same_document(d, active_doc))))
-    picked = forms.SelectFromList.show(
-        items,
-        title="DeeBIMview — Open documents to process ({0} open)".format(len(docs)),
-        multiselect=True,
-        button_name="Process Selected"
-    )
-    if not picked:
-        return
-    targets = [(label, label_to_doc[label]) for label in picked if label in label_to_doc]
-    if not targets:
-        return
-
-    # ── steps - Open, Close and Publish are not offered here: the files are
-    # already open and are left open, and Publish needs the cloud item id
-    # of each model, which an open document does not expose. ───────────────
-    step_choices = forms.SelectFromList.show(
-        [
-            forms.TemplateListItem("Create/Update Views", checked=True),
-            forms.TemplateListItem("Configure Publish Settings", checked=False),
-            forms.TemplateListItem("Synchronize With Central", checked=False),
-        ],
-        title="DeeBIMview — Steps to run ({0} open document(s))".format(len(targets)),
-        multiselect=True,
-        button_name="Continue"
-    )
-    if not step_choices:
-        return
-    do_views = "Create/Update Views" in step_choices
-    do_pubset = "Configure Publish Settings" in step_choices
-    do_sync = "Synchronize With Central" in step_choices
-
-    view_type_name = forms.ask_for_string(
-        default=DEFAULT_VIEW_TYPE,
-        prompt="3D View Type name (the group both views appear under in "
-               "the Project Browser, e.g. '3D Views ({0})'). Created by "
-               "duplicating an existing 3D View Type if it doesn't already "
-               "exist:".format(DEFAULT_VIEW_TYPE),
-        title="DeeBIMview — 3D View Type Name"
-    )
-    if not view_type_name:
-        return
-    coord_view_name = forms.ask_for_string(
-        default=DEFAULT_COORD_VIEW,
-        prompt="3D view name for the coordination view (no links):",
-        title="DeeBIMview — Coordination View Name"
-    )
-    if not coord_view_name:
-        return
-    navis_view_name = forms.ask_for_string(
-        default=DEFAULT_NAVIS_VIEW,
-        prompt="3D view name for the NAVIS export view (no links):",
-        title="DeeBIMview — NAVIS View Name"
-    )
-    if not navis_view_name:
-        return
-    coord_set_name = DEFAULT_COORD_SET
-    if do_pubset:
-        coord_set_name = forms.ask_for_string(
-            default=DEFAULT_COORD_SET,
-            prompt="Publish Settings set name (its active view will be '{0}'):".format(coord_view_name),
-            title="DeeBIMview — Publish Set Name"
-        )
-        if not coord_set_name:
-            return
 
     all_results = []
     total = len(targets)
@@ -1097,12 +1025,12 @@ def _run_session(uiapp):
                 pb.update_progress(i, total)
                 output.print_md("**Document {0}/{1}: {2}**".format(i + 1, total, label))
 
-                actual_coord_view_name = coord_view_name
+                actual_coord_view_name = req["coord_view_name"]
                 if do_views:
                     pb.title = "Document {0}/{1}: {2} — Creating views".format(i + 1, total, doc.Title)
                     before_count = len(dismissed_log)
                     view_label_text, ok, created_coord_name = _create_views(
-                        doc, coord_view_name, navis_view_name, view_type_name)
+                        doc, req["coord_view_name"], req["navis_view_name"], req["view_type_name"])
                     steps.append((view_label_text, ok))
                     steps.extend(dismissed_log[before_count:])
                     if created_coord_name:
@@ -1111,7 +1039,8 @@ def _run_session(uiapp):
                 if do_pubset:
                     pb.title = "Document {0}/{1}: {2} — Publish Settings".format(i + 1, total, doc.Title)
                     if _activate_document(uiapp, doc):
-                        steps.append(_configure_publish_settings(uiapp, coord_set_name, actual_coord_view_name))
+                        steps.append(_configure_publish_settings(
+                            uiapp, req["coord_set_name"], actual_coord_view_name))
                     else:
                         steps.append(("Publish Settings skipped - could not switch to this document "
                                       "(activate it and configure manually)", None))
@@ -1143,23 +1072,19 @@ def _run_session(uiapp):
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Entry point - where are the models?
+# Entry point
 # ══════════════════════════════════════════════════════════════════════════
-SOURCE_ACC = "ACC project - open cloud files in batch"
-SOURCE_SESSION = "Opened Revit session - documents already open"
-
-
 def main():
-    source = forms.CommandSwitchWindow.show(
-        [SOURCE_ACC, SOURCE_SESSION],
-        message="DeeBIMview — where are the models?"
-    )
-    if not source:
+    uiapp = __revit__
+    window = DeeBIMviewWindow(_XAML_FILE, uiapp)
+    window.ShowDialog()
+    req = window.request
+    if req is None:
         return
-    if source == SOURCE_SESSION:
-        _run_session(__revit__)
+    if req["source"] == _SESSION:
+        _process_session(uiapp, req)
     else:
-        _run_acc()
+        _process_acc(uiapp, req)
 
 
 main()
