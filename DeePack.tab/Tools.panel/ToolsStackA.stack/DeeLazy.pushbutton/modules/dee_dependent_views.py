@@ -143,7 +143,7 @@ def scan_all_views(doc):
     for view in FilteredElementCollector(doc).OfClass(View):
         if not _is_candidate(view):
             continue
-        rows.append(ViewRow(doc, view, view_to_sheet.get(view.Id.IntegerValue)))
+        rows.append(ViewRow(doc, view, view_to_sheet.get(utils.id_value(view.Id))))
     rows.sort(key=lambda r: (r.name.lower(), r.view_type))
     return rows
 

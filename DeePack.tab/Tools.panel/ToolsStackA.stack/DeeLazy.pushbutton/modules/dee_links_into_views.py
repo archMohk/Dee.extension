@@ -496,7 +496,7 @@ def build_rows(raw_instances, group_by_type, view=None):
             try:
                 key = _link_group_key(link_type, name, file_path)
             except Exception:
-                key = ("error", inst.Id.IntegerValue)
+                key = ("error", utils.id_value(inst.Id))
             if key not in groups:
                 groups[key] = {"ids": [], "count": 0, "name": name, "file_path": file_path, "roots": set()}
                 order.append(key)
@@ -631,16 +631,17 @@ def create_isolated_view_for_link(doc, original_view, chosen_row, all_rows, take
         return ProcessResult(chosen_row.name, False, "Could not rename (duplicate removed): {0}".format(e))
     taken_names.add(final_name)
 
-    chosen_keys = set(i.IntegerValue for i in chosen_row.ids)
+    chosen_keys = set(utils.id_value(i) for i in chosen_row.ids)
     other_ids = []
     seen = set()
     for r in all_rows:
         if r is chosen_row:
             continue
         for i in r.ids:
-            if i.IntegerValue in chosen_keys or i.IntegerValue in seen:
+            key = utils.id_value(i)
+            if key in chosen_keys or key in seen:
                 continue
-            seen.add(i.IntegerValue)
+            seen.add(key)
             other_ids.append(i)
     if other_ids:
         try:
@@ -675,7 +676,7 @@ def run_batch(doc, all_rows, checked_rows, template, prefix, suffix):
     only exist in a different one."""
     rows_by_view = {}
     for r in all_rows:
-        rows_by_view.setdefault(r.view.Id.IntegerValue, []).append(r)
+        rows_by_view.setdefault(utils.id_value(r.view.Id), []).append(r)
     taken_names = _all_taken_view_names(doc)
     results = []
     t = Transaction(doc, "DeeLazy - Links Into Views")
@@ -684,7 +685,7 @@ def run_batch(doc, all_rows, checked_rows, template, prefix, suffix):
         for row in checked_rows:
             try:
                 result = create_isolated_view_for_link(
-                    doc, row.view, row, rows_by_view.get(row.view.Id.IntegerValue, [row]),
+                    doc, row.view, row, rows_by_view.get(utils.id_value(row.view.Id), [row]),
                     taken_names, template, prefix, suffix)
             except Exception as e:
                 result = ProcessResult(row.name, False, str(e))
@@ -874,7 +875,7 @@ class DeeLinksIntoViewsWindow(dee_branding.DeeBrandedWindow):
         if not checked:
             forms.alert("Tick at least one link first.")
             return
-        source_count = len(set(r.view.Id.IntegerValue for r in checked))
+        source_count = len(set(utils.id_value(r.view.Id) for r in checked))
         if not forms.alert(
                 "Create {0} isolated view(s) from {1} source view(s)?".format(len(checked), source_count),
                 yes=True, no=True):

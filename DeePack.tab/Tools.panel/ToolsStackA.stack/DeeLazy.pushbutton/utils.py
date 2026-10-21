@@ -17,6 +17,18 @@ from Autodesk.Revit.DB import (
 )
 
 
+def id_value(element_id):
+    """Integer value of an ElementId on any Revit version. ElementId
+    .IntegerValue was deprecated in Revit 2024 and removed in 2026
+    (live-reported: "'ElementId' object has no attribute 'IntegerValue'"),
+    where .Value (a 64-bit integer) replaces it - so try the old name
+    first and fall back to the new one."""
+    try:
+        return element_id.IntegerValue
+    except AttributeError:
+        return element_id.Value
+
+
 # ==========================================================================
 # Units (same pattern already proven in DeeAligner/DeeReLevel)
 # ==========================================================================
@@ -160,7 +172,7 @@ def build_view_to_sheet_map(doc):
             try:
                 sheet = doc.GetElement(vp.SheetId)
                 if sheet is not None:
-                    mapping[vp.ViewId.IntegerValue] = sheet
+                    mapping[id_value(vp.ViewId)] = sheet
             except Exception:
                 continue
     except Exception:
@@ -170,7 +182,7 @@ def build_view_to_sheet_map(doc):
             try:
                 sheet = doc.GetElement(ssi.SheetId)
                 if sheet is not None:
-                    mapping[ssi.ScheduleId.IntegerValue] = sheet
+                    mapping[id_value(ssi.ScheduleId)] = sheet
             except Exception:
                 continue
     except Exception:
@@ -196,7 +208,7 @@ def build_view_to_sheets_map(doc):
     def add(view_id, sheet):
         if sheet is None:
             return
-        key = view_id.IntegerValue
+        key = id_value(view_id)
         bucket = mapping.setdefault(key, [])
         # A view can be placed twice on the SAME sheet; that is still
         # one sheet for our purposes.
@@ -254,7 +266,7 @@ def get_primary_view_id(view):
     ElementId.InvalidElementId for a non-dependent view."""
     try:
         pid = view.GetPrimaryViewId()
-        if pid is not None and pid.IntegerValue > 0:
+        if pid is not None and id_value(pid) > 0:
             return pid
     except Exception:
         pass
