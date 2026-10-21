@@ -50,9 +50,10 @@
                     <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
                     <DataGridTextColumn Header="Link Name" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
                     <DataGridTextColumn Header="Count" Binding="{Binding count}" Width="55" IsReadOnly="True"/>
-                    <DataGridTextColumn Header="Linked File Path" Binding="{Binding file_path}" Width="1.4*" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Linked File Path" Binding="{Binding file_path}" Width="1.1*" IsReadOnly="True"/>
                     <DataGridTextColumn Header="New View Name" Binding="{Binding preview_name}" Width="*" IsReadOnly="True"/>
                     <DataGridTextColumn Header="Validation" Binding="{Binding validation}" Width="140" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Grouping Debug" Binding="{Binding debug_key}" Width="1.2*" IsReadOnly="True"/>
                 </DataGrid.Columns>
             </DataGrid>
 

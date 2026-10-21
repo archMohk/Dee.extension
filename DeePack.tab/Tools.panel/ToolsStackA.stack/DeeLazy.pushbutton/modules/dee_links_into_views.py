@@ -341,7 +341,7 @@ class LinkRow(object):
     "every other row" and copying link-display-overrides both work
     identically in either mode by just iterating ids."""
 
-    def __init__(self, ids, name, file_path):
+    def __init__(self, ids, name, file_path, debug_key=""):
         self.ids = ids
         self.count = len(ids)
         self.selected = False
@@ -350,6 +350,7 @@ class LinkRow(object):
         self.safe_name = _sanitize_view_name(self.name)
         self.preview_name = self.safe_name
         self.validation = ""
+        self.debug_key = debug_key
 
 
 def scan_raw_links(doc, view):
@@ -395,7 +396,11 @@ def build_rows(raw_instances, group_by_type):
     """Turns scan_raw_links()'s output into LinkRow objects - one per
     instance (group_by_type=False), or one per distinct linked FILE with
     every one of its instances' ids folded in (group_by_type=True), per
-    _link_group_key()'s identity rather than the link Type element."""
+    _link_group_key()'s identity rather than the link Type element.
+    debug_key is never user-facing logic - it is shown in a grid column
+    purely as a diagnostic (see "Grouping debug column" below) so a
+    grouping mismatch on a real project can be read directly off a
+    screenshot instead of guessed at blind."""
     if not group_by_type:
         rows = [LinkRow([inst.Id], _resolve_link_name(inst, link_type),
                          _link_file_path(link_type) if link_type is not None else "")
@@ -406,12 +411,19 @@ def build_rows(raw_instances, group_by_type):
         for inst, link_type in raw_instances:
             name = _resolve_link_name(inst, link_type)
             file_path = _link_file_path(link_type) if link_type is not None else ""
-            key = _link_group_key(link_type, name, file_path)
+            type_id_text = str(link_type.Id.IntegerValue) if link_type is not None else "None"
+            try:
+                key = _link_group_key(link_type, name, file_path)
+                key_text = "type={0} key={1}".format(type_id_text, key)
+            except Exception as e:
+                key = ("error", inst.Id.IntegerValue)
+                key_text = "type={0} ERROR: {1}".format(type_id_text, e)
             if key not in groups:
-                groups[key] = {"ids": [], "name": name, "file_path": file_path}
+                groups[key] = {"ids": [], "name": name, "file_path": file_path, "debug_key": key_text}
                 order.append(key)
             groups[key]["ids"].append(inst.Id)
-        rows = [LinkRow(groups[key]["ids"], groups[key]["name"], groups[key]["file_path"]) for key in order]
+        rows = [LinkRow(groups[key]["ids"], groups[key]["name"], groups[key]["file_path"], groups[key]["debug_key"])
+                for key in order]
     rows.sort(key=lambda r: r.name.lower())
     return rows
 
