@@ -1,0 +1,58 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeLinkManagement"
+        ShowInTaskbar="False"
+        MinHeight="560" MinWidth="960" Height="660" Width="1040"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                   Text="Every Revit link in the open file is listed below (nested 'layer 2' links are not - they follow their parent link). Tick links to change their Reference Type (Overlay / Attachment) or to reload them, or reload every link at once."/>
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="status_tb" Text="Ready."/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <TextBox x:Name="search_tb" Width="240" Height="24" VerticalContentAlignment="Center" TextChanged="search_changed"/>
+                <Button x:Name="select_all_b" Content="Select All" Click="select_all_click" Width="90" Height="24" Margin="14,0,0,0"/>
+                <Button x:Name="select_none_b" Content="Select None" Click="select_none_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                <Button x:Name="rescan_b" Content="Rescan" Click="rescan_click" Width="80" Height="24" Margin="6,0,0,0"/>
+            </StackPanel>
+
+            <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                <GroupBox Header="Reference Type" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal" Margin="6">
+                        <TextBlock Text="Set ticked links to:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="reference_cb" Width="160" Height="26"/>
+                        <Button x:Name="apply_reference_b" Content="Apply to Selected" Click="apply_reference_click" Width="150" Height="26" Margin="10,0,0,0"/>
+                    </StackPanel>
+                </GroupBox>
+                <GroupBox Header="Reload" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal" Margin="6">
+                        <Button x:Name="reload_selected_b" Content="Reload Selected" Click="reload_selected_click" Width="150" Height="26"/>
+                        <Button x:Name="reload_all_b" Content="Reload All Links" Click="reload_all_click" Width="150" Height="26" Margin="10,0,0,0"/>
+                    </StackPanel>
+                </GroupBox>
+                <Button x:Name="close_b" Content="Close" Click="close_click" Height="26"/>
+            </StackPanel>
+
+            <DataGrid x:Name="links_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                      CanUserSortColumns="True" RowHeaderWidth="0">
+                <DataGrid.Columns>
+                    <DataGridCheckBoxColumn Header="Select" Binding="{Binding selected, Mode=TwoWay}" Width="55"/>
+                    <DataGridTextColumn Header="Link Name" Binding="{Binding name}" Width="2*" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Reference Type" Binding="{Binding reference_type}" Width="110" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="110" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Placed" Binding="{Binding instance_count}" Width="60" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Source" Binding="{Binding source}" Width="100" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Path Type" Binding="{Binding path_type}" Width="80" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Last Result" Binding="{Binding last_result}" Width="2*" IsReadOnly="True"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </DockPanel>
+    </DockPanel>
+</Window>

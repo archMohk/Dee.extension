@@ -1,5 +1,6 @@
 title: "Coordination"
 layout:
   - DeeLinkMAP
+  - DeeLinkManagement
   - CoordViewStack
   - LinkStack
