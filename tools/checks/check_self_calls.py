@@ -25,7 +25,7 @@ base class, *args or **kwargs in the def, a name assigned dynamically -
 is left alone rather than guessed at. A checker that reports things that
 are fine gets ignored, and an ignored checker is worse than none.
 
-    python tools/check_self_calls.py
+    python tools/checks/check_self_calls.py
 
 Exits non-zero if a call cannot possibly work.
 """
@@ -35,7 +35,7 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+ROOT = os.path.dirname(os.path.dirname(HERE))
 
 
 def python_files(root):

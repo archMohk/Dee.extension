@@ -15,7 +15,7 @@ too - a forgotten entry silently means that tool can never be
 individually restricted from the dashboard, which is easy to not notice
 for months. This makes the gap loud instead.
 
-    python tools/check_tool_categories.py
+    python tools/checks/check_tool_categories.py
 
 Exits non-zero if any check_access("X") call site's X is not a key in
 TOOL_CATEGORIES. Present with value None (explicitly excluded, e.g.
@@ -28,7 +28,7 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+ROOT = os.path.dirname(os.path.dirname(HERE))
 TELEMETRY = os.path.join(ROOT, "lib", "dee_telemetry.py")
 TAB = os.path.join(ROOT, "DeePack.tab")
 

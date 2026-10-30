@@ -17,14 +17,14 @@ two things that have actually gone wrong:
   2. begin/end balance per routine, which is what a sliced-out block
      leaves behind and what the eye is worst at.
 
-    python tools/check_iss.py
+    python tools/checks/check_iss.py
 """
 import io
 import os
 import re
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # `function Name(params): Type;` / `procedure Name(params);`
 ROUTINE = re.compile(r"^\s*(function|procedure)\s+(\w+)", re.IGNORECASE)

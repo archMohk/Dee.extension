@@ -19,7 +19,7 @@ things prose contains naturally:
 
 Run this after editing any bundle.yaml:
 
-    python tools/check_bundles.py
+    python tools/checks/check_bundles.py
 
 Exit code is non-zero if anything is broken, so it can gate a commit.
 """
@@ -34,7 +34,7 @@ except ImportError:
     sys.exit(2)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+ROOT = os.path.dirname(os.path.dirname(HERE))
 
 # Not errors, just the shapes most likely to become one after an edit.
 RISKY_KEYS = ("tooltip", "title", "description")

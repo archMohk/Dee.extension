@@ -66,3 +66,11 @@ tools/.supabase_publish.json
 # and the record that lets an update delete only its own files rather
 # than anything it does not recognise.
 lib/.dee_mirror_manifest.json
+
+# Per-machine / per-user runtime state - not source.
+.codex/
+dee_control_panel.json
+.deeparavalue_acc_cache.json
+__pycache__/
+*.pyc
+*.log

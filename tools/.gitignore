@@ -1,4 +1,7 @@
+__pycache__/
+icon_*.png
+icon_crosscheck.png
 icon_preview.png
 icon_sizes.png
 icon_weights.png
-icon_crosscheck.png
+icons/icon_*.png

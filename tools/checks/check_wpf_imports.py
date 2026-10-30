@@ -29,7 +29,7 @@ System.Windows.Forms and the other System.Windows.* families are listed
 as deliberately-not-checked rather than guessed at, because a checker
 that cries wolf gets ignored, and an ignored checker is worse than none.
 
-    python tools/check_wpf_imports.py
+    python tools/checks/check_wpf_imports.py
 
 Exits non-zero only for a name that is genuinely in the wrong WPF
 namespace.
@@ -40,7 +40,7 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+ROOT = os.path.dirname(os.path.dirname(HERE))
 
 # namespace -> the type names it declares (the ones this codebase uses)
 VALID = {}

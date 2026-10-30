@@ -95,7 +95,7 @@ CATEGORY_NAMES = {
 # passes) -> category code, or None for a tool that is DELIBERATELY never
 # category-gated (About.panel's meta/admin tools). None as an explicit
 # value - rather than simply leaving the tool out of this dict - lets
-# tools/check_tool_categories.py tell "excluded on purpose" apart from
+# tools/checks/check_tool_categories.py tell "excluded on purpose" apart from
 # "developer forgot to categorize this", which a bare KeyError could not.
 # A tool_name genuinely ABSENT from this dict behaves identically to None
 # at runtime (see check_access() below) - a gap here fails safe for the

@@ -7,9 +7,9 @@ Generates every DeePack ribbon icon from one shared visual language, so all
 Run it with plain CPython 3 + Pillow (NOT inside Revit - this is a build
 tool, not a pyRevit script):
 
-    python tools/dee_icons.py              # write all icons
-    python tools/dee_icons.py --sheet      # also write a contact sheet
-    python tools/dee_icons.py --check      # report coverage, write nothing
+    python tools/icons/dee_icons.py              # write all icons
+    python tools/icons/dee_icons.py --sheet      # also write a contact sheet
+    python tools/icons/dee_icons.py --check      # report coverage, write nothing
 
 --------------------------------------------------------------------
 The visual language
@@ -102,7 +102,7 @@ MARGIN = 4.0
 #   makes them all optically the same weight AND makes clipping impossible.
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TAB_ROOT = os.path.join(os.path.dirname(HERE), "DeePack.tab")
+TAB_ROOT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "DeePack.tab")
 
 
 # ==========================================================================
