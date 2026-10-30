@@ -214,13 +214,23 @@ def check_movable(doc, element):
     return True, None
 
 
+def _eid(element):
+    """Integer id of an element. Revit 2024+ renamed ElementId.IntegerValue to Value
+    (IntegerValue is gone in 2026), so try the new name first."""
+    eid = element.Id
+    try:
+        return eid.Value
+    except AttributeError:
+        return eid.IntegerValue
+
+
 def element_label(element):
     try:
         cat_name = element.Category.Name if element.Category is not None else "Unknown Category"
     except Exception:
         cat_name = "Unknown Category"
     try:
-        eid = element.Id.IntegerValue
+        eid = _eid(element)
     except Exception:
         eid = "?"
     name = None
@@ -304,7 +314,7 @@ def _collect_valid(doc, sel_ids, result):
         if bbox is None:
             result.add_skip(element_label(el), "Missing bounding box")
             continue
-        bbox_cache[el.Id.IntegerValue] = bbox
+        bbox_cache[_eid(el)] = bbox
         valid.append(el)
     return valid, bbox_cache
 
@@ -354,7 +364,7 @@ def align_elements(doc, uidoc, action_title, mode, reference_strategy="first"):
 
     reference = pick_reference(valid, bbox_cache, reference_strategy)
     result.reference_label = element_label(reference)
-    ref_bbox = bbox_cache[reference.Id.IntegerValue]
+    ref_bbox = bbox_cache[_eid(reference)]
     target_value = _bbox_metric(ref_bbox, mode)
     axis = _ALIGN_AXIS[mode]
 
@@ -368,7 +378,7 @@ def align_elements(doc, uidoc, action_title, mode, reference_strategy="first"):
         t.Start()
         try:
             for el in movers:
-                bbox = bbox_cache[el.Id.IntegerValue]
+                bbox = bbox_cache[_eid(el)]
                 delta = target_value - _bbox_metric(bbox, mode)
                 try:
                     if abs(delta) > _EPSILON:
@@ -410,10 +420,10 @@ def distribute_elements(doc, uidoc, action_title, axis):
         result.elapsed_seconds = time.time() - start
         return result
 
-    valid.sort(key=lambda el: _center(bbox_cache[el.Id.IntegerValue], axis))
+    valid.sort(key=lambda el: _center(bbox_cache[_eid(el)], axis))
     n = len(valid)
-    first_center = _center(bbox_cache[valid[0].Id.IntegerValue], axis)
-    last_center = _center(bbox_cache[valid[-1].Id.IntegerValue], axis)
+    first_center = _center(bbox_cache[_eid(valid[0])], axis)
+    last_center = _center(bbox_cache[valid[-1]._id_placeholder], axis)
     spacing = (last_center - first_center) / float(n - 1)
 
     result.reference_label = "{0} (fixed) .. {1} (fixed)".format(
@@ -426,7 +436,7 @@ def distribute_elements(doc, uidoc, action_title, axis):
             for i in range(1, n - 1):
                 el = valid[i]
                 target = first_center + i * spacing
-                delta = target - _center(bbox_cache[el.Id.IntegerValue], axis)
+                delta = target - _center(bbox_cache[_eid(el)], axis)
                 try:
                     if abs(delta) > _EPSILON:
                         translation = XYZ(delta, 0, 0) if axis == "x" else XYZ(0, delta, 0)
