@@ -526,12 +526,18 @@ class DeeFUpdateWindow(dee_branding.DeeBrandedWindow):
             "auto_resolve_dialogs": bool(self.auto_resolve_dialogs_cb.IsChecked),
         }
 
+        # Always attached: with "Automatically Resolve Dialogs" off, it still
+        # answers the shared must-handle dialogs (Copied Central Model, ...
+        # see lib/dee_known_dialogs.py) and leaves every other dialog to the
+        # user - otherwise a single-button notice stalls the whole batch.
         if options["auto_resolve_dialogs"]:
             self._dialog_handler = ffh.make_dialog_handler(self.logger)
-            try:
-                self.uiapp.DialogBoxShowing += self._dialog_handler
-            except Exception as e:
-                self.logger.exception("Could not attach dialog handler", e)
+        else:
+            self._dialog_handler = ffh.make_known_dialogs_handler(self.logger)
+        try:
+            self.uiapp.DialogBoxShowing += self._dialog_handler
+        except Exception as e:
+            self.logger.exception("Could not attach dialog handler", e)
 
         pipeline = FUpdatePipeline(self.application, rfa_path, family_display_name, options, self.logger)
 
