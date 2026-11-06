@@ -280,39 +280,9 @@ def _revit_version_text(app):
         return "Unknown"
 
 
-class _SafeProgress(object):
-    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
-    window - throws NotImplementedException under Remote Desktop/no
-    taskbar (live-confirmed in DeeSheetLinks). Falls back to no progress
-    UI at all rather than crashing."""
-    def __init__(self, **kwargs):
-        self._kwargs = kwargs
-        self._real = None
-
-    def __enter__(self):
-        try:
-            self._real = forms.ProgressBar(**self._kwargs)
-            return self._real.__enter__()
-        except Exception:
-            self._real = None
-            return self
-
-    def __exit__(self, exc_type, exc_value, tb):
-        if self._real is not None:
-            return self._real.__exit__(exc_type, exc_value, tb)
-        return False
-
-    @property
-    def cancelled(self):
-        return False
-
-    def update_progress(self, i, total):
-        pass
+from dee_ui import SafeProgress as _SafeProgress
 
 
-# ==========================================================================
-# Pure discovery/read/write functions - no WPF, testable independent of it
-# ==========================================================================
 def is_shared_definition(definition):
     """True for a SHARED parameter's Definition (ExternalDefinition),
     False for an ordinary PROJECT/system parameter's (InternalDefinition)

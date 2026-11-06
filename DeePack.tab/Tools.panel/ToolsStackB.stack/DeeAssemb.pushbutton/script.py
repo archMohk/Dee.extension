@@ -46,6 +46,7 @@ import dee_assembly_service as core
 import dee_rename_pipeline_dialog as rp_dialog
 from dee_rename_pipeline import apply_methods, DEFAULT_METHODS
 import dee_telemetry
+import dee_ui
 dee_telemetry.check_access("DeeAssemb")
 
 
@@ -85,43 +86,7 @@ def matches_search(row, query):
     return all(term in haystack for term in query.lower().split())
 
 
-class _SafeProgress(object):
-    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
-    window - a genuine WPF-level bug (not this extension's code):
-    Window.TaskbarItemInfo throws NotImplementedException whenever the
-    underlying ITaskbarList::HrInit COM call fails, which is documented
-    to happen specifically under Remote Desktop/Terminal Services or a
-    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
-
-    Wraps the real forms.ProgressBar and falls back to running with NO
-    progress UI at all if entering it fails, so the tool degrades
-    gracefully under RDP instead of crashing - everyone else still gets
-    the real progress bar exactly as before. `pb.update_progress(...)`/
-    `pb.cancelled` are safe no-ops in the fallback case, so callers never
-    need an extra branch."""
-    def __init__(self, **kwargs):
-        self._kwargs = kwargs
-        self._real = None
-
-    def __enter__(self):
-        try:
-            self._real = forms.ProgressBar(**self._kwargs)
-            return self._real.__enter__()
-        except Exception:
-            self._real = None
-            return self
-
-    def __exit__(self, exc_type, exc_value, tb):
-        if self._real is not None:
-            return self._real.__exit__(exc_type, exc_value, tb)
-        return False
-
-    @property
-    def cancelled(self):
-        return False
-
-    def update_progress(self, i, total):
-        pass
+from dee_ui import SafeProgress as _SafeProgress
 
 
 class _PipedNamingRule(object):
@@ -715,16 +680,7 @@ class DeeAssembWindow(dee_branding.DeeBrandedWindow):
     # animate. Same implementation as DeeSuperLINK's, which is confirmed
     # working live.
     def _pump(self):
-        try:
-            frame = DispatcherFrame()
-
-            def _stop():
-                frame.Continue = False
-
-            self.Dispatcher.BeginInvoke(DispatcherPriority.Background, Action(_stop))
-            Dispatcher.PushFrame(frame)
-        except Exception:
-            pass
+        dee_ui.pump(self)
 
     def _progress_begin(self, total_steps):
         self._prog_total = max(1, total_steps)

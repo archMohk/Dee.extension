@@ -78,6 +78,7 @@ no-op, so there's no need to coordinate who "owns" the cleanup.
 """
 import datetime
 import json
+import threading
 
 import clr
 clr.AddReference("System")
@@ -102,9 +103,13 @@ _CHECK_INTERVAL = datetime.timedelta(seconds=60)
 _ACCENT = Color.FromRgb(0x4A, 0x90, 0xE2)
 
 _client = HttpClient()
-_client.Timeout = TimeSpan.FromSeconds(8)
+_client.Timeout = TimeSpan.FromSeconds(5)
 
-_state = {"last_check": None}
+# The Idling handler runs on Revit's UI thread, so the HTTP calls below
+# moved to a worker thread: the handler only starts a fetch (if none is
+# in flight), adopts its result on a later tick, and shows the toasts.
+# The settings file is read/written on the UI thread only.
+_state = {"last_check": None, "fetching": False, "fetched": None}
 
 
 def send_message(sender_email, message_text, requires_ack=False, image_base64=None,
@@ -180,15 +185,10 @@ def list_recipients(admin_email):
         return False, [], str(e)
 
 
-def _cleanup_old_images():
-    """Best-effort, throttled to once/day per PC via its own settings
-    key (separate from last_seen_id, so a cleanup failure never blocks
-    message delivery). Harmless if several PCs' watchers all call this
-    the same day - see module docstring. Never raises."""
-    settings = deew_settings.load(TOOL_NAME, {"last_seen_id": 0})
-    today_str = datetime.date.today().isoformat()
-    if settings.get("last_cleanup_date") == today_str:
-        return
+def _cleanup_old_images_request():
+    """The network half of the once-a-day image cleanup (worker thread).
+    Harmless if several PCs' watchers all call this the same day - see
+    module docstring. Never raises."""
     try:
         url = "{0}/rest/v1/rpc/cleanup_old_broadcast_images".format(
             dee_telemetry.SUPABASE_URL.rstrip("/"))
@@ -201,8 +201,14 @@ def _cleanup_old_images():
         _client.SendAsync(request).Result
     except Exception:
         pass
-    settings["last_cleanup_date"] = today_str
-    deew_settings.save(TOOL_NAME, settings)
+
+
+def _fetch_worker(since_id, do_cleanup):
+    if do_cleanup:
+        _cleanup_old_images_request()
+    rows = _fetch_new_messages(since_id)
+    _state["fetched"] = (since_id, rows or [], do_cleanup)
+    _state["fetching"] = False
 
 
 def _fetch_new_messages(since_id):
@@ -225,19 +231,47 @@ def _fetch_new_messages(since_id):
 
 
 def _check_and_notify():
+    # 1. A finished background fetch waiting to be shown? Do that first,
+    #    on this (UI) thread, regardless of the throttle.
+    fetched = _state.get("fetched")
+    if fetched is not None:
+        _state["fetched"] = None
+        _deliver(*fetched)
+
     now = datetime.datetime.now()
     last = _state["last_check"]
     if last is not None and (now - last) < _CHECK_INTERVAL:
         return
     _state["last_check"] = now
 
-    _cleanup_old_images()
-
+    # 2. Kick off the next fetch on a worker thread (never two at once).
+    if _state["fetching"]:
+        return
     settings = deew_settings.load(TOOL_NAME, {"last_seen_id": 0})
     since_id = settings.get("last_seen_id", 0)
+    today_str = datetime.date.today().isoformat()
+    do_cleanup = settings.get("last_cleanup_date") != today_str
+    _state["fetching"] = True
+    t = threading.Thread(target=_fetch_worker, args=(since_id, do_cleanup))
+    t.daemon = True
+    t.start()
 
-    rows = _fetch_new_messages(since_id)
+
+def _deliver(since_id, rows, cleanup_done):
+    """UI thread: show the toasts for `rows` and advance the local
+    high-water mark / cleanup stamp in the settings file."""
+    settings = deew_settings.load(TOOL_NAME, {"last_seen_id": 0})
+    changed = False
+    if cleanup_done:
+        settings["last_cleanup_date"] = datetime.date.today().isoformat()
+        changed = True
+    # Another tick may have advanced last_seen_id meanwhile - never go
+    # backwards and never re-show a row already seen.
+    since_id = max(since_id, settings.get("last_seen_id", 0))
+    rows = [r for r in (rows or []) if isinstance(r.get("id"), (int, float)) and r.get("id") > since_id]
     if not rows:
+        if changed:
+            deew_settings.save(TOOL_NAME, settings)
         return
 
     max_id = since_id
@@ -264,6 +298,8 @@ def _check_and_notify():
 
     if max_id != since_id:
         settings["last_seen_id"] = max_id
+        changed = True
+    if changed:
         deew_settings.save(TOOL_NAME, settings)
 
 

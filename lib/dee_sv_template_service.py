@@ -93,6 +93,7 @@ would have silently cross-contaminated.
 """
 import deew_settings
 import dee_mono_service as mono
+from dee_ui import eid_int
 
 _USER_PRESETS_TOOL_NAME = "dee_sv_template_presets"
 
@@ -582,7 +583,7 @@ def export_preview_image(doc, view):
         from Autodesk.Revit.DB import (
             ImageExportOptions, ExportRange, ZoomFitType, ImageResolution, ImageFileType)
         folder = tempfile.gettempdir()
-        base = os.path.join(folder, "DeeSVTemplate_Preview_{0}".format(view.Id.IntegerValue))
+        base = os.path.join(folder, "DeeSVTemplate_Preview_{0}".format(eid_int(view.Id)))
         options = ImageExportOptions()
         options.ZoomType = ZoomFitType.FitToPage
         options.PixelSize = 900

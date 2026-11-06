@@ -70,6 +70,7 @@ calling Revit API - not plain HTTP - off the main thread).
 """
 import datetime
 import json
+import threading
 
 import clr
 clr.AddReference("System")
@@ -145,10 +146,50 @@ _TZ_TABLE = {
 }
 
 _client = HttpClient()
-_client.Timeout = TimeSpan.FromSeconds(8)
+_client.Timeout = TimeSpan.FromSeconds(5)
 
 _state = {"last_check": None, "date": None, "times": None,
-          "notified": set(), "reminded": set()}
+          "notified": set(), "reminded": set(),
+          # Background fetch plumbing - see _ensure_today_cached_async.
+          "fetching": False, "fetched": None}
+
+
+def _fetch_worker(loc, today_str):
+    """Runs on a worker thread: ONLY the network call, no UI, no shared
+    settings file. Hands the answer back as one atomic tuple that the
+    Idling handler adopts on its next tick."""
+    tz_name, lat, lon, _city = loc
+    try:
+        times = _fetch_today_times(lat, lon, tz_name)
+    except Exception:
+        times = None
+    _state["fetched"] = (today_str, times)
+    _state["fetching"] = False
+
+
+def _ensure_today_cached_async(loc):
+    """Idling-side twin of _ensure_today_cached(): never blocks the UI
+    thread. Adopts a finished background fetch if one is waiting, starts
+    one if today's times are not cached yet, and returns today's times
+    or None while the fetch is still in flight."""
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+    fetched = _state.get("fetched")
+    if fetched is not None:
+        _state["fetched"] = None
+        f_date, f_times = fetched
+        if f_date == today_str:
+            _state["date"] = today_str
+            _state["times"] = f_times
+            _state["notified"] = set()
+            _state["reminded"] = set()
+    if _state["date"] == today_str and _state["times"]:
+        return _state["times"]
+    if not _state["fetching"]:
+        _state["fetching"] = True
+        t = threading.Thread(target=_fetch_worker, args=(loc, today_str))
+        t.daemon = True
+        t.start()
+    return None
 
 
 def load_settings():
@@ -270,7 +311,7 @@ def _check_and_notify():
     if loc is None:
         return
 
-    times = _ensure_today_cached(loc)
+    times = _ensure_today_cached_async(loc)
     if not times:
         return
 

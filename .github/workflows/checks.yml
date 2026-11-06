@@ -1,0 +1,43 @@
+# Repo health checks on every push and pull request.
+#
+# These are the same scripts README.md asks you to run "before you push"
+# (tools/checks/*). Until now nothing ran them automatically, so a
+# bundle.yaml that fails to parse - which silently drops its button from
+# the ribbon - could reach master and be mirrored to every user's PC.
+# mirror.yml now waits for this job (see its `needs:`).
+
+name: Checks
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install check dependencies
+        run: pip install pyyaml
+
+      - name: bundle.yaml parse
+        run: python tools/checks/check_bundles.py
+
+      - name: Installer script
+        run: python tools/checks/check_iss.py
+
+      - name: Self-calls in window classes
+        run: python tools/checks/check_self_calls.py
+
+      - name: Every tool has an access category
+        run: python tools/checks/check_tool_categories.py
+
+      - name: WPF import namespaces
+        run: python tools/checks/check_wpf_imports.py

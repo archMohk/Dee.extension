@@ -52,10 +52,12 @@ import json
 import os
 import sys
 import threading
+import time
 
 import clr
 clr.AddReference("System")
 clr.AddReference("System.Net.Http")
+from System import TimeSpan
 from System.Net.Http import HttpClient, HttpRequestMessage, HttpMethod, StringContent
 from System.Net.Http.Headers import MediaTypeHeaderValue
 
@@ -133,6 +135,8 @@ TOOL_CATEGORIES = {
     "DeeWSync": "cloud",
     "DeeWTransfer": "cloud",
     "DeeWTransmit": "cloud",
+    "DeeDropToSurface": "productivity",
+    "DeeSVTemplate": "views_sheets",
     # Views, Sheets & Documentation (15 tools)
     "Dee3D": "views_sheets",
     "DeeAligner": "views_sheets",
@@ -193,6 +197,42 @@ _IDENTITY_PATH = os.path.join(_THIS_DIR, ".dee_identity.json")
 _STATUS_PATH = os.path.join(_THIS_DIR, ".dee_access_status.json")
 
 _client = HttpClient()
+# Every check_access() call used to wait on this client with the .NET
+# default timeout (100 s) ON THE UI THREAD - a flaky connection meant a
+# frozen Revit for well over a minute before the "could not verify"
+# alert. 5 s is plenty for one small RPC; a slow network falls through
+# to the cached answer below instead.
+_client.Timeout = TimeSpan.FromSeconds(5)
+
+# A fresh "allowed" answer is reused for this long without a round-trip
+# (so a user clicking ten tools in a row pays for one check, not ten).
+# Denials are never cached - enabling a user on the dashboard takes
+# effect on their very next click.
+_ACCESS_CACHE_TTL_SECONDS = 6 * 60 * 60
+# When Supabase cannot be reached at all, the last "allowed" answer is
+# trusted for this long so a flight / site visit / outage does not lock
+# a paying user out of every tool. After that, fail closed as before.
+_OFFLINE_GRACE_SECONDS = 7 * 24 * 60 * 60
+
+
+def _fresh_cached_allowed(email, category, max_age_seconds):
+    """The cached check_access() result if it is an ALLOWED answer for
+    this same email + category and younger than max_age_seconds, else
+    None. Never raises."""
+    try:
+        status = load_cached_status()
+        if not status or not status.get("allowed"):
+            return None
+        if (status.get("email") or "") != (email or ""):
+            return None
+        if (status.get("category") or None) != (category or None):
+            return None
+        checked_at = float(status.get("checked_at") or 0)
+        if checked_at <= 0 or (time.time() - checked_at) > max_age_seconds:
+            return None
+        return status
+    except Exception:
+        return None
 
 
 def clear_identity():
@@ -213,15 +253,21 @@ def get_cached_identity():
     return _load_identity()
 
 
-def _save_status(result):
-    """Best-effort local cache of the last check_access() result, so
-    something purely DISPLAY-oriented (the branding bar) can show the
-    current standing without a second network round-trip on every
-    window open. Never raises - losing this is harmless, the bar just
-    shows nothing until the next successful check."""
+def _save_status(result, email=None, category=None):
+    """Best-effort local cache of the last check_access() result - used
+    for display (the branding bar) and, when stamped with email /
+    category / checked_at, as the short-TTL and offline-grace cache
+    check_access() consults (see _fresh_cached_allowed). Never raises -
+    losing this is harmless, the next click simply does a live check."""
     try:
+        data = dict(result)
+        data["checked_at"] = time.time()
+        if email:
+            data["email"] = email
+        if category:
+            data["category"] = category
         with open(_STATUS_PATH, "w") as f:
-            json.dump(result, f)
+            json.dump(data, f)
     except Exception:
         pass
 
@@ -506,7 +552,7 @@ def refresh_status(email, tool_category=None):
     than any one tool) needs no change and always sees the true global
     status, never a stale category-specific denial."""
     result = _check_user_access_sync(email, tool_category=tool_category)
-    _save_status(result)
+    _save_status(result, email=email, category=tool_category)
     return result
 
 
@@ -537,15 +583,25 @@ def check_access(tool_name):
     # direction for a gap to fail in.
     category = TOOL_CATEGORIES.get(tool_name)
 
-    try:
-        result = refresh_status(email, tool_category=category)
-    except Exception:
-        forms.alert(
-            "Could not verify access to this tool - check your internet "
-            "connection and try again.",
-            title="Dee.extension - Access Check Failed")
-        sys.exit()
-        return
+    from_cache = False
+    result = _fresh_cached_allowed(email, category, _ACCESS_CACHE_TTL_SECONDS)
+    if result is not None:
+        from_cache = True
+    else:
+        try:
+            result = refresh_status(email, tool_category=category)
+        except Exception:
+            # Server unreachable / slow: honour the last allowed answer
+            # for a while rather than locking the user out on the spot.
+            result = _fresh_cached_allowed(email, category, _OFFLINE_GRACE_SECONDS)
+            if result is None:
+                forms.alert(
+                    "Could not verify access to this tool - check your internet "
+                    "connection and try again.",
+                    title="Dee.extension - Access Check Failed")
+                sys.exit()
+                return
+            from_cache = True
 
     if not result.get("allowed"):
         reason = result.get("reason")
@@ -564,7 +620,9 @@ def check_access(tool_name):
         sys.exit()
         return
 
-    warning = result.get("warning")
+    # Reminders and admin notices only on a LIVE check - a cached answer
+    # would otherwise repeat the same popup on every click for hours.
+    warning = None if from_cache else result.get("warning")
     if warning:
         forms.alert(warning, title="Dee.extension - Subscription Reminder")
 
@@ -572,7 +630,7 @@ def check_access(tool_name):
     # (allowed_users.is_admin) - check_user_access() stamps notified_at on
     # the rows it returns here in the same call, so this fires exactly
     # once per new pending user, not on every subsequent click.
-    pending = result.get("pending_new_users")
+    pending = None if from_cache else result.get("pending_new_users")
     if pending:
         lines = "\n".join(
             u"- {0} (first seen {1})".format(p.get("email"), p.get("first_seen"))

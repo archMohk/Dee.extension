@@ -106,6 +106,7 @@ import deew_failure_handler as ffh
 import deew_logger
 import dee_linkmap_service as svc
 import dee_telemetry
+import dee_ui
 dee_telemetry.check_access("DeeLinkMAP")
 
 
@@ -191,16 +192,7 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
 
     # ---------------- in-window progress bar (copied from DeeMAPLink) ----------------
     def _pump(self):
-        try:
-            frame = DispatcherFrame()
-
-            def _stop():
-                frame.Continue = False
-
-            self.Dispatcher.BeginInvoke(DispatcherPriority.Background, Action(_stop))
-            Dispatcher.PushFrame(frame)
-        except Exception:
-            pass
+        dee_ui.pump(self)
 
     def _progress_begin(self, total_steps, indeterminate=False):
         self._prog_total = max(1, total_steps)

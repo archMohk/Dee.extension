@@ -51,6 +51,7 @@ NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct):
     is wrapped so a collision keeps Revit's own number instead of
     failing the whole assembly).
 """
+from dee_ui import eid_int
 from Autodesk.Revit.DB import (
     FilteredElementCollector, BuiltInCategory, ElementId, XYZ,
     Transaction, View, ViewSheet, ViewSchedule, Viewport, ScheduleSheetInstance,
@@ -316,7 +317,7 @@ def index_assembly_views(doc):
             continue
         if aid is None or aid == ElementId.InvalidElementId:
             continue
-        key = aid.IntegerValue
+        key = eid_int(aid)
         if isinstance(v, ViewSheet):
             sheets_by_assembly.setdefault(key, []).append(v.Id)
         else:
@@ -347,7 +348,7 @@ def collect_assemblies(doc, progress_cb=None):
         if not isinstance(el, AssemblyInstance):
             continue
         try:
-            key = el.Id.IntegerValue
+            key = eid_int(el.Id)
             try:
                 type_name = el.AssemblyTypeName or ""
             except Exception:

@@ -62,6 +62,7 @@ from Autodesk.Revit.DB import (
 )
 
 import deew_settings
+from dee_ui import eid_int
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "LineTag.xaml")
@@ -278,7 +279,7 @@ def _collect_tag_candidates(doc, sheet):
     for fi in FilteredElementCollector(doc, sheet.Id).OfClass(FamilyInstance):
         try:
             cat = fi.Category
-            if cat is None or cat.Id.IntegerValue not in _TAG_CATEGORY_IDS:
+            if cat is None or eid_int(cat.Id) not in _TAG_CATEGORY_IDS:
                 continue
             bbox = fi.get_BoundingBox(sheet)
             if bbox is None:
@@ -427,34 +428,7 @@ def apply_group(doc, group):
         return False, str(e)
 
 
-class _SafeProgress(object):
-    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
-    window - throws NotImplementedException under Remote Desktop/no
-    taskbar (live-confirmed in DeeSheetLinks). Falls back to no progress
-    UI at all rather than crashing."""
-    def __init__(self, **kwargs):
-        self._kwargs = kwargs
-        self._real = None
-
-    def __enter__(self):
-        try:
-            self._real = forms.ProgressBar(**self._kwargs)
-            return self._real.__enter__()
-        except Exception:
-            self._real = None
-            return self
-
-    def __exit__(self, exc_type, exc_value, tb):
-        if self._real is not None:
-            return self._real.__exit__(exc_type, exc_value, tb)
-        return False
-
-    @property
-    def cancelled(self):
-        return False
-
-    def update_progress(self, i, total):
-        pass
+from dee_ui import SafeProgress as _SafeProgress
 
 
 def _matches(row, query):

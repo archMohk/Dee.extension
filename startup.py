@@ -4,45 +4,73 @@ Extension startup script - pyRevit runs this automatically every time it
 loads this extension (every Revit launch, and every manual Reload),
 BEFORE it builds the ribbon from what is on disk.
 
-For installs done via 'pyrevit extend' (colleagues who installed the
-public GitHub copy), this silently runs 'pyrevit extensions update
---all' to git-pull the latest code first, so already-pulled script.py
-changes take effect immediately in this same session - no manual
-"Update" click needed. New/renamed buttons, panels, or tabs are
-structural changes and still need one more Reload (or Revit restart)
-after the pull to actually appear - same pyRevit limitation as always.
+1. Self-update for 'pyrevit extend' installs
+   For colleagues who installed the public GitHub copy, this runs
+   'pyrevit extensions update --all' so already-pulled script.py changes
+   take effect in this same session. New/renamed buttons still need one
+   more Reload (pyRevit limitation).
 
-On the developer's own PC (plain OneDrive-synced folder, not a
-'pyrevit extend' clone) this is a harmless no-op. Runs silently and
-must never raise or hang - a failed/offline pull should never block
-Revit startup.
+   It used to run SYNCHRONOUSLY and wait up to 15 s on EVERY launch -
+   the single biggest startup cost of the extension, paid even when
+   nothing changed. Now it runs on a background thread (Revit never
+   waits) and at most once per calendar day per PC (stamp in
+   lib/.deew_settings via deew_settings). On the developer's own PC
+   (plain OneDrive folder, not a 'pyrevit extend' clone) the CLI call is
+   a harmless no-op either way. Never raises, never blocks.
 
-Also starts three background watchers, each wrapped in its own
-try/except so a failure in any one must never break the ribbon, Revit
-startup, or the others: lib/dee_prayer_service.py (prayer-time toasts)
-and lib/dee_broadcast_service.py (DeeCall admin broadcasts), both their
-own UIApplication.Idling subscription, plus lib/dee_icon_service.py
-(DeeIcon's real-file-thumbnail branding), ControlledApplication.
-DocumentOpened and DocumentSaved subscriptions instead - see that
-module's own docstring for why those events fit there and the same
-still-to-be-live-tested risk (whether a subscription made here
-genuinely survives a whole session).
+2. Background watchers, each in its own try/except so a failure in one
+   can never break the ribbon, Revit startup, or the others:
+   lib/dee_prayer_service.py (prayer-time toasts) and
+   lib/dee_broadcast_service.py (DeeCall admin broadcasts) on
+   UIApplication.Idling - both do their network calls on a worker
+   thread and only touch the UI from Idling; lib/dee_icon_service.py
+   (DeeIcon's real-file-thumbnail branding) on DocumentOpened/Saved.
 """
+import datetime
+import threading
+
 import clr
 clr.AddReference("System")
 from System.Diagnostics import Process, ProcessStartInfo
 
+_UPDATE_TOOL = "DeeStartupUpdate"
+
+
+def _already_pulled_today():
+    try:
+        import deew_settings
+        data = deew_settings.load(_UPDATE_TOOL, {"last_pull_date": ""})
+        today = datetime.date.today().isoformat()
+        if data.get("last_pull_date") == today:
+            return True
+        data["last_pull_date"] = today
+        deew_settings.save(_UPDATE_TOOL, data)
+    except Exception:
+        pass
+    return False
+
+
+def _pull_in_background():
+    try:
+        psi = ProcessStartInfo()
+        psi.FileName = "pyrevit"
+        psi.Arguments = "extensions update --all"
+        psi.UseShellExecute = False
+        psi.RedirectStandardOutput = True
+        psi.RedirectStandardError = True
+        psi.CreateNoWindow = True
+        proc = Process.Start(psi)
+        if not proc.WaitForExit(120000):
+            proc.Kill()
+    except Exception:
+        pass
+
+
 try:
-    psi = ProcessStartInfo()
-    psi.FileName = "pyrevit"
-    psi.Arguments = "extensions update --all"
-    psi.UseShellExecute = False
-    psi.RedirectStandardOutput = True
-    psi.RedirectStandardError = True
-    psi.CreateNoWindow = True
-    proc = Process.Start(psi)
-    if not proc.WaitForExit(15000):
-        proc.Kill()
+    if not _already_pulled_today():
+        _t = threading.Thread(target=_pull_in_background)
+        _t.daemon = True
+        _t.start()
 except Exception:
     pass
 

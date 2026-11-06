@@ -67,6 +67,7 @@ import acc_auth
 import acc_file_browser as afb
 import dee_link_create_service as lcs
 
+from dee_ui import eid_int
 from Autodesk.Revit.DB import (
     FilteredElementCollector, RevitLinkType, RevitLinkInstance, AttachmentType,
     Transaction, LinkLoadResultType, Element, ModelPathUtils, ImportPlacement,

@@ -70,6 +70,7 @@ reflection pass, and BindingMap.Insert/ReInsert both have a matching
 import os
 import tempfile
 
+from dee_ui import eid_int
 from Autodesk.Revit.DB import (
     Transaction, ExternalDefinitionCreationOptions, SpecTypeId,
     GroupTypeId,
@@ -115,7 +116,7 @@ def _ensure_shared_param_file(app, doc):
 
 def _same_category(cat_a, cat_b):
     try:
-        return cat_a.Id.IntegerValue == cat_b.Id.IntegerValue
+        return eid_int(cat_a.Id) == eid_int(cat_b.Id)
     except Exception:
         return cat_a == cat_b
 

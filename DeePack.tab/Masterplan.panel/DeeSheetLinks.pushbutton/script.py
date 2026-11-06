@@ -48,6 +48,7 @@ from pyrevit import forms, script
 import dee_branding
 import dee_sheet_links_service as core
 import dee_telemetry
+import dee_ui
 dee_telemetry.check_access("DeeSheetLinks")
 
 
@@ -141,11 +142,7 @@ class _InlineProgress(object):
         self._pump()
 
     def _pump(self):
-        try:
-            self._window.Dispatcher.Invoke(
-                System.Action(lambda: None), DispatcherPriority.Background)
-        except Exception:
-            pass
+        dee_ui.pump(self._window)
 
     def __enter__(self):
         return self

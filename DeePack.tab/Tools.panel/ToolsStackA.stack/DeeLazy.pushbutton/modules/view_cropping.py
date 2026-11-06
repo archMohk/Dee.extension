@@ -88,6 +88,7 @@ from System.Windows.Forms import SaveFileDialog, DialogResult, MessageBox
 import utils
 import deew_progress_service as progsvc
 import xlsx_writer
+from dee_ui import eid_int
 
 output = script.get_output()
 
@@ -140,7 +141,7 @@ def _discipline_text(view):
 def _view_template_name(doc, view):
     try:
         tid = view.ViewTemplateId
-        if tid is not None and tid.IntegerValue > 0:
+        if tid is not None and eid_int(tid) > 0:
             t = doc.GetElement(tid)
             return utils.read_name(t) or "(unnamed template)"
     except Exception:
@@ -211,7 +212,7 @@ def scan_entire_project(doc):
     for view in FilteredElementCollector(doc).OfClass(View):
         if not _is_supported_candidate(view):
             continue
-        sheet = view_to_sheet.get(view.Id.IntegerValue)
+        sheet = view_to_sheet.get(eid_int(view.Id))
         rows.append(ViewRow(doc, view, sheet))
     return rows
 
@@ -228,10 +229,10 @@ def scan_views(doc, views):
     for view in views:
         if not _is_supported_candidate(view):
             continue
-        if view.Id.IntegerValue in seen_ids:
+        if eid_int(view.Id) in seen_ids:
             continue
-        seen_ids.add(view.Id.IntegerValue)
-        sheet = view_to_sheet.get(view.Id.IntegerValue)
+        seen_ids.add(eid_int(view.Id))
+        sheet = view_to_sheet.get(eid_int(view.Id))
         rows.append(ViewRow(doc, view, sheet))
     return rows
 
@@ -381,49 +382,9 @@ def export_report(path, title, rows):
     xlsx_writer.write_themed_xlsx(path, title, _REPORT_HEADERS, _REPORT_COL_WIDTHS, xlsx_rows)
 
 
-class _SafeProgress(object):
-    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
-    window - a genuine WPF-level bug (not this extension's code):
-    Window.TaskbarItemInfo throws NotImplementedException whenever the
-    underlying ITaskbarList::HrInit COM call fails, which is documented
-    to happen specifically under Remote Desktop/Terminal Services or a
-    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
-
-    Wraps the real forms.ProgressBar and falls back to running with NO
-    progress UI at all if entering it fails, so the tool degrades
-    gracefully under RDP instead of crashing - everyone else still gets
-    the real progress bar exactly as before. `pb.update_progress(...)`/
-    `pb.cancelled` are safe no-ops in the fallback case, so callers never
-    need an extra branch."""
-    def __init__(self, **kwargs):
-        self._kwargs = kwargs
-        self._real = None
-
-    def __enter__(self):
-        try:
-            self._real = forms.ProgressBar(**self._kwargs)
-            return self._real.__enter__()
-        except Exception:
-            self._real = None
-            return self
-
-    def __exit__(self, exc_type, exc_value, tb):
-        if self._real is not None:
-            return self._real.__exit__(exc_type, exc_value, tb)
-        return False
-
-    @property
-    def cancelled(self):
-        return False
-
-    def update_progress(self, i, total):
-        pass
+from dee_ui import SafeProgress as _SafeProgress
 
 
-# ==========================================================================
-# Window - UI wiring only; all real work happens in the plain functions
-# above (separate business logic from UI, per spec's code requirements)
-# ==========================================================================
 class ViewCroppingWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, uiapp):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)

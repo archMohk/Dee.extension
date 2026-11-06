@@ -44,6 +44,7 @@ from Autodesk.Revit.DB.Architecture import Room
 
 from System.Collections.Generic import List
 import dee_telemetry
+from dee_ui import eid_int
 dee_telemetry.check_access("DeeCleaner")
 
 
@@ -384,7 +385,7 @@ def _room_bbox_key(room):
     if bbox is None:
         return None
     try:
-        level_id = room.LevelId.IntegerValue
+        level_id = eid_int(room.LevelId)
     except Exception:
         level_id = -1
     try:
@@ -422,7 +423,7 @@ def _scan_duplicate_rooms(doc):
         group_size = len(rooms_in_group)
         # Lowest Element Id first within a group, so "Select All But
         # First in Each Group" deterministically keeps the oldest one.
-        rooms_in_group.sort(key=lambda rm: rm.Id.IntegerValue)
+        rooms_in_group.sort(key=lambda rm: eid_int(rm.Id))
         for r in rooms_in_group:
             rows.append(DuplicateRoomRow(r, doc, group_index, group_size))
     rows.sort(key=lambda row: (row.group_index, row.element_id_int))
@@ -496,7 +497,7 @@ class DuplicateRoomRow(object):
     def __init__(self, room, doc, group_index, group_size):
         self.room = room
         self.selected = False
-        self.element_id_int = room.Id.IntegerValue
+        self.element_id_int = eid_int(room.Id)
         self.group_index = group_index
         self.group_size = group_size
         self.number = _read_room_number(room)
@@ -514,48 +515,9 @@ class DuplicateRoomRow(object):
         return "Group {0} ({1} rooms)".format(self.group_index, self.group_size)
 
 
-class _SafeProgress(object):
-    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
-    window - a genuine WPF-level bug (not this extension's code):
-    Window.TaskbarItemInfo throws NotImplementedException whenever the
-    underlying ITaskbarList::HrInit COM call fails, which is documented
-    to happen specifically under Remote Desktop/Terminal Services or a
-    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
-
-    Wraps the real forms.ProgressBar and falls back to running with NO
-    progress UI at all if entering it fails, so the tool degrades
-    gracefully under RDP instead of crashing - everyone else still gets
-    the real progress bar exactly as before. `pb.update_progress(...)`/
-    `pb.cancelled` are safe no-ops in the fallback case, so callers never
-    need an extra branch."""
-    def __init__(self, **kwargs):
-        self._kwargs = kwargs
-        self._real = None
-
-    def __enter__(self):
-        try:
-            self._real = forms.ProgressBar(**self._kwargs)
-            return self._real.__enter__()
-        except Exception:
-            self._real = None
-            return self
-
-    def __exit__(self, exc_type, exc_value, tb):
-        if self._real is not None:
-            return self._real.__exit__(exc_type, exc_value, tb)
-        return False
-
-    @property
-    def cancelled(self):
-        return False
-
-    def update_progress(self, i, total):
-        pass
+from dee_ui import SafeProgress as _SafeProgress
 
 
-# --------------------------------------------------------------------------
-# Window
-# --------------------------------------------------------------------------
 class DeeCleanerWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)

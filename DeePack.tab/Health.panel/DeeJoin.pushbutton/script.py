@@ -66,36 +66,8 @@ _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 _BBOX_PAD = 0.05
 
 
-class _SafeProgress(object):
-    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
-    window - throws NotImplementedException under Remote Desktop/no
-    taskbar (see feedback_progressbar_before_window_shown memory).
-    Copied verbatim from DeeHealth.pushbutton/script.py, the same
-    already-fixed template every batch tool in this repo uses - falls
-    back to running with no progress UI instead of crashing under RDP."""
-    def __init__(self, **kwargs):
-        self._kwargs = kwargs
-        self._real = None
-
-    def __enter__(self):
-        try:
-            self._real = forms.ProgressBar(**self._kwargs)
-            return self._real.__enter__()
-        except Exception:
-            self._real = None
-            return self
-
-    def __exit__(self, exc_type, exc_value, tb):
-        if self._real is not None:
-            return self._real.__exit__(exc_type, exc_value, tb)
-        return False
-
-    @property
-    def cancelled(self):
-        return False
-
-    def update_progress(self, i, total):
-        pass
+from dee_ui import SafeProgress as _SafeProgress
+from dee_ui import eid_int
 
 
 def _bbox_outline(elem):
@@ -157,11 +129,11 @@ def _find_candidate_pairs(doc, group_a_ids, group_b_ids, same_group, pb=None):
             if b_id == a_id:
                 continue
             if same_group:
-                if a_id.IntegerValue < b_id.IntegerValue:
+                if eid_int(a_id) < eid_int(b_id):
                     lo, hi = a_id, b_id
                 else:
                     lo, hi = b_id, a_id
-                key = (lo.IntegerValue, hi.IntegerValue)
+                key = (eid_int(lo), eid_int(hi))
                 if key in seen:
                     continue
                 seen.add(key)

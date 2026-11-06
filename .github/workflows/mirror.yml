@@ -43,7 +43,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Never publish a commit the repo checks reject (checks.yml runs the
+  # same scripts on every branch; this re-runs them inline so the gate
+  # cannot be skipped by a direct push to master).
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install pyyaml
+      - run: python tools/checks/check_bundles.py
+      - run: python tools/checks/check_iss.py
+      - run: python tools/checks/check_self_calls.py
+      - run: python tools/checks/check_tool_categories.py
+      - run: python tools/checks/check_wpf_imports.py
+
   mirror:
+    needs: checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

@@ -82,6 +82,7 @@ from Autodesk.Revit.DB import (
     GroupTypeId, ElementId, StorageType,
 )
 from System.Collections.Generic import List
+from dee_ui import eid_int
 
 output = script.get_output()
 
@@ -158,7 +159,7 @@ def scan_placed_views(doc):
                 continue
             if isinstance(view, ViewSheet):
                 continue
-            sheets = view_to_sheets.get(view.Id.IntegerValue)
+            sheets = view_to_sheets.get(eid_int(view.Id))
             if not sheets:
                 continue
             rows.append(ViewRow(view, sheets))
@@ -344,11 +345,11 @@ def template_controls_param(template, param_id):
     if template is None or param_id is None:
         return False
     try:
-        controllable = [i.IntegerValue for i in template.GetTemplateParameterIds()]
-        if param_id.IntegerValue not in controllable:
+        controllable = [eid_int(i) for i in template.GetTemplateParameterIds()]
+        if eid_int(param_id) not in controllable:
             return False
-        excluded = [i.IntegerValue for i in template.GetNonControlledTemplateParameterIds()]
-        return param_id.IntegerValue not in excluded
+        excluded = [eid_int(i) for i in template.GetNonControlledTemplateParameterIds()]
+        return eid_int(param_id) not in excluded
     except Exception:
         return False
 
@@ -371,12 +372,12 @@ def exclude_param_from_templates(doc, template_ids, param_id):
                 continue
             name = utils.read_name(template) or "(unnamed template)"
             try:
-                controllable = [i.IntegerValue for i in template.GetTemplateParameterIds()]
-                if param_id.IntegerValue not in controllable:
+                controllable = [eid_int(i) for i in template.GetTemplateParameterIds()]
+                if eid_int(param_id) not in controllable:
                     notes.append("{0}: template cannot control this parameter - nothing to do".format(name))
                     continue
                 existing = list(template.GetNonControlledTemplateParameterIds())
-                if any(i.IntegerValue == param_id.IntegerValue for i in existing):
+                if any(eid_int(i) == eid_int(param_id) for i in existing):
                     notes.append("{0}: already excluded".format(name))
                     continue
                 # Rebuild the FULL excluded set - Set() replaces it.
@@ -406,7 +407,7 @@ def templates_used_by(doc, rows):
         try:
             tid = view.ViewTemplateId
             if tid is not None and tid != ElementId.InvalidElementId:
-                seen[tid.IntegerValue] = tid
+                seen[eid_int(tid)] = tid
         except Exception:
             continue
     return list(seen.values())
@@ -490,48 +491,9 @@ def print_report(result):
     output.print_html("".join(html))
 
 
-class _SafeProgress(object):
-    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
-    window - a genuine WPF-level bug (not this extension's code):
-    Window.TaskbarItemInfo throws NotImplementedException whenever the
-    underlying ITaskbarList::HrInit COM call fails, which is documented
-    to happen specifically under Remote Desktop/Terminal Services or a
-    custom shell without a taskbar (live-confirmed in DeeSheetLinks).
-
-    Wraps the real forms.ProgressBar and falls back to running with NO
-    progress UI at all if entering it fails, so the tool degrades
-    gracefully under RDP instead of crashing - everyone else still gets
-    the real progress bar exactly as before. `pb.update_progress(...)`/
-    `pb.cancelled` are safe no-ops in the fallback case, so callers never
-    need an extra branch."""
-    def __init__(self, **kwargs):
-        self._kwargs = kwargs
-        self._real = None
-
-    def __enter__(self):
-        try:
-            self._real = forms.ProgressBar(**self._kwargs)
-            return self._real.__enter__()
-        except Exception:
-            self._real = None
-            return self
-
-    def __exit__(self, exc_type, exc_value, tb):
-        if self._real is not None:
-            return self._real.__exit__(exc_type, exc_value, tb)
-        return False
-
-    @property
-    def cancelled(self):
-        return False
-
-    def update_progress(self, i, total):
-        pass
+from dee_ui import SafeProgress as _SafeProgress
 
 
-# ==========================================================================
-# Window
-# ==========================================================================
 class DeeViewsheetWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, uiapp):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
@@ -583,7 +545,7 @@ class DeeViewsheetWindow(dee_branding.DeeBrandedWindow):
             if row.template_id is not None:
                 template = self.doc.GetElement(row.template_id)
                 row.template_name = utils.read_name(template) or ""
-                key = row.template_id.IntegerValue
+                key = eid_int(row.template_id)
                 if key not in lock_cache:
                     lock_cache[key] = template_controls_param(template, param_id)
                 row.locked = lock_cache[key]

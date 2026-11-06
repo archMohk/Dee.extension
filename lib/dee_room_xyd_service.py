@@ -93,6 +93,7 @@ from Autodesk.Revit.DB import (
 from pyrevit import script
 
 import xlsx_writer
+from dee_ui import eid_int
 
 output = script.get_output()
 
@@ -374,7 +375,7 @@ def _get_element_vertical_faces(doc, element_id, cache):
     """Returns a list of the element's vertical PlanarFaces that have a
     valid Reference - cached per element_id since the same wall can
     bound more than one room's edge in a single batch."""
-    key = element_id.IntegerValue
+    key = eid_int(element_id)
     if key in cache:
         return cache[key]
 

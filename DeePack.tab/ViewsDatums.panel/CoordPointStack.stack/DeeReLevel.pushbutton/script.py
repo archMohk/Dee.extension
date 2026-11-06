@@ -190,6 +190,7 @@ _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 # Units (same pattern as DeeCordiPoint/DeeGrid - internal feet <-> display)
 # ==========================================================================
 from Autodesk.Revit.DB import UnitUtils, UnitTypeId, SpecTypeId
+from dee_ui import eid_int
 
 
 def _length_unit_type_id(doc):
@@ -616,17 +617,17 @@ def build_relationship_index(doc, active_design_option_id, progress=None):
                     top_lvl_id = _param_level_id(el, rule.top_level_bip, rule.top_level_name)
 
             same_level = (base_lvl_id is not None and top_lvl_id is not None
-                          and base_lvl_id.IntegerValue == top_lvl_id.IntegerValue)
+                          and eid_int(base_lvl_id) == eid_int(top_lvl_id))
             if base_lvl_id is not None:
-                index.setdefault(base_lvl_id.IntegerValue, []).append(
+                index.setdefault(eid_int(base_lvl_id), []).append(
                     (el, rule, True, bool(same_level)))
             if top_lvl_id is not None and not same_level:
-                index.setdefault(top_lvl_id.IntegerValue, []).append((el, rule, False, True))
+                index.setdefault(eid_int(top_lvl_id), []).append((el, rule, False, True))
     return index
 
 
 def scan_related_elements(level, index):
-    return index.get(level.Id.IntegerValue, [])
+    return index.get(eid_int(level.Id), [])
 
 
 def count_hosted_elements(level, index):
@@ -670,8 +671,8 @@ def _get_connected_neighbor_ids(element):
             for ref in c.AllRefs:
                 try:
                     owner = ref.Owner
-                    if owner is not None and owner.Id.IntegerValue != element.Id.IntegerValue:
-                        neighbor_ids.add(owner.Id.IntegerValue)
+                    if owner is not None and eid_int(owner.Id) != eid_int(element.Id):
+                        neighbor_ids.add(eid_int(owner.Id))
                 except Exception:
                     continue
         except Exception:
@@ -807,10 +808,10 @@ class ValidationEngine(object):
             except Exception:
                 errors.append("'{0}': '{1}' is not a valid number.".format(row.name, row.new_elevation_text))
 
-        selected_ids = set(r.element_id.IntegerValue for r in selected_rows)
+        selected_ids = set(eid_int(r.element_id) for r in selected_rows)
         proposed = []
         for row in all_level_rows:
-            if row.element_id.IntegerValue in selected_ids:
+            if eid_int(row.element_id) in selected_ids:
                 proposed.append((row.name, row.new_elev_internal()))
             else:
                 proposed.append((row.name, row.current_elev_internal))
@@ -990,7 +991,7 @@ class LevelUpdater(object):
 
         related = scan_related_elements(row.level, index)
         moving_ids = set(
-            element.Id.IntegerValue for element, rule, base_hit, top_hit in related
+            eid_int(element.Id) for element, rule, base_hit, top_hit in related
             if not rule.report_only)
         calc = OffsetCalculator(self.doc, level_name, delta, self.pinned_mode, moving_ids)
 
@@ -1275,7 +1276,7 @@ class DeeReLevelWindow(dee_branding.DeeBrandedWindow):
                 related = scan_related_elements(row.level, index)
                 row.hosted_count = len(related)
                 moving_ids = set(
-                    el.Id.IntegerValue for el, rl, bh, th in related if not rl.report_only)
+                    eid_int(el.Id) for el, rl, bh, th in related if not rl.report_only)
                 for element, rule, base_hit, top_hit in related:
                     if rule.report_only:
                         status, note, param_name = "skipped", "Report-only category - not modified", ""

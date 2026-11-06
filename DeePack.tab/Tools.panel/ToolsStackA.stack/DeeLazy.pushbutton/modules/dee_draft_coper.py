@@ -79,6 +79,8 @@ from Autodesk.Revit.DB import (
 )
 
 import utils
+import dee_ui
+from dee_ui import eid_int
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "DeeDraftCoper.xaml")
@@ -164,7 +166,7 @@ def _category_id(element):
     try:
         cat = element.Category
         if cat is not None:
-            return cat.Id.IntegerValue
+            return eid_int(cat.Id)
     except Exception:
         pass
     return None
@@ -194,7 +196,7 @@ def _describe(doc, element):
     except Exception:
         pass
     try:
-        return "id {0}".format(element.Id.IntegerValue)
+        return "id {0}".format(eid_int(element.Id))
     except Exception:
         return "(element)"
 
@@ -230,7 +232,7 @@ def analyse_selection(doc, selected_ids):
         if not isinstance(owner, ViewSheet):
             non_sheet += 1
             continue
-        owners.setdefault(owner_id.IntegerValue, []).append(eid)
+        owners.setdefault(eid_int(owner_id), []).append(eid)
 
     if not owners:
         return None, [], (
@@ -457,16 +459,7 @@ class DeeDraftCoperWindow(dee_branding.DeeBrandedWindow):
     # _pump() drains pending render work at Background priority - the same
     # DoEvents pattern already confirmed working live in DeeSuperLINK.
     def _pump(self):
-        try:
-            frame = DispatcherFrame()
-
-            def _stop():
-                frame.Continue = False
-
-            self.Dispatcher.BeginInvoke(DispatcherPriority.Background, Action(_stop))
-            Dispatcher.PushFrame(frame)
-        except Exception:
-            pass
+        dee_ui.pump(self)
 
     def _progress_begin(self, total):
         self._prog_total = max(1, total)

@@ -86,6 +86,7 @@ import dee_matchset_ui as mxui
 import dee_selected_links_ui as slui
 import dee_matchset_io as msio
 import dee_telemetry
+import dee_ui
 dee_telemetry.check_access("DeeMAPLink")
 
 
@@ -165,7 +166,8 @@ class MatchRow(object):
 
 class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, uiapp):
-        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        # theme=False: dark window, the shared light theme does not fit it.
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file, theme=False)
         self.uiapp = uiapp
         self.application = uiapp.Application
         self.logger = deew_logger.DeeWLogger(_TOOL_NAME)
@@ -265,16 +267,7 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
     # extended with an indeterminate mode + _progress_set_total so the
     # SAME bar also covers the scan step, not just the run.
     def _pump(self):
-        try:
-            frame = DispatcherFrame()
-
-            def _stop():
-                frame.Continue = False
-
-            self.Dispatcher.BeginInvoke(DispatcherPriority.Background, Action(_stop))
-            Dispatcher.PushFrame(frame)
-        except Exception:
-            pass
+        dee_ui.pump(self)
 
     def _progress_begin(self, total_steps, indeterminate=False):
         self._prog_total = max(1, total_steps)

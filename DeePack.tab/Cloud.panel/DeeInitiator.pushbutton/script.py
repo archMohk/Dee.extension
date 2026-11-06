@@ -295,6 +295,7 @@ import dee_matchset_io as msio
 import acc_api
 
 import dee_telemetry
+import dee_ui
 dee_telemetry.check_access("DeeInitiator")
 
 
@@ -640,7 +641,8 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
     _ROW_ARMED = SolidColorBrush(Color.FromRgb(0x4A, 0x3A, 0x22))
 
     def __init__(self, xaml_file, uiapp):
-        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        # theme=False: dark window, the shared light theme does not fit it.
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file, theme=False)
         self.uiapp = uiapp
         self.application = uiapp.Application
         self.logger = deew_logger.DeeWLogger(_TOOL_NAME)
@@ -1535,20 +1537,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
                 e, traceback.format_exc()[-700:]), title=_TOOL_TITLE)
 
     def _pump(self):
-        """Forces one Dispatcher pass before reading row geometry -
-        ported verbatim from DeeMAPLink, see its own comment: rows have
-        no ActualHeight until WPF lays them out, and TranslatePoint
-        silently returns (0,0) rather than erroring if read too soon."""
-        try:
-            frame = DispatcherFrame()
-
-            def _stop():
-                frame.Continue = False
-
-            self.Dispatcher.BeginInvoke(DispatcherPriority.Background, Action(_stop))
-            Dispatcher.PushFrame(frame)
-        except Exception:
-            pass
+        dee_ui.pump(self)
 
     def _map_names_for(self, side):
         if side == "source":

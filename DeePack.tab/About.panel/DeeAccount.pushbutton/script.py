@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-DeeAccount (Cloud)
+DeeAccount (About)
 Lets the user sign in to TWO separate, independently-cached Autodesk
 accounts - "Work / Company" and "Personal" - and pick which one is
 ACTIVE. Every other cloud tool in this extension calls

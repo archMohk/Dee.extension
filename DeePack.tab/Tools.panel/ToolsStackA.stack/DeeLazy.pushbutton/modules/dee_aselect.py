@@ -389,29 +389,8 @@ _LARGE_SELECTION_WARN_THRESHOLD = 50000
 _JOIN_SCAN_MAX_IDS = 20000
 
 
-class _SafeProgress(object):
-    """forms.ProgressBar tries to set Window.TaskbarItemInfo on its host
-    window - a genuine WPF-level bug (not this extension's code), fully
-    documented in dee_view_select.py's own copy of this class. Wraps the
-    real forms.ProgressBar and falls back to no progress UI at all if
-    entering it fails, so a Remote Desktop session degrades gracefully
-    instead of crashing."""
-    def __init__(self, **kwargs):
-        self._kwargs = kwargs
-        self._real = None
-
-    def __enter__(self):
-        try:
-            self._real = forms.ProgressBar(**self._kwargs)
-            return self._real.__enter__()
-        except Exception:
-            self._real = None
-            return self
-
-    def __exit__(self, exc_type, exc_value, tb):
-        if self._real is not None:
-            return self._real.__exit__(exc_type, exc_value, tb)
-        return False
+from dee_ui import SafeProgress as _SafeProgress
+from dee_ui import eid_int
 
 
 def _category_name(element):
@@ -563,7 +542,7 @@ def _join_partners_outside(doc, ids):
     tool can be asked to move tens of thousands at once."""
     if ids.Count > _JOIN_SCAN_MAX_IDS:
         return None
-    id_set = set(eid.IntegerValue for eid in ids)
+    id_set = set(eid_int(eid) for eid in ids)
     count = 0
     for eid in ids:
         el = doc.GetElement(eid)
@@ -579,7 +558,7 @@ def _join_partners_outside(doc, ids):
         except Exception:
             continue
         for partner_id in partners:
-            if partner_id.IntegerValue not in id_set:
+            if eid_int(partner_id) not in id_set:
                 count += 1
                 break
     return count
@@ -660,7 +639,7 @@ def _group_ids_by_owner_view(doc, ids):
             continue
         try:
             owner = el.OwnerViewId
-            key = owner.IntegerValue if owner is not None else -1
+            key = eid_int(owner) if owner is not None else -1
         except Exception:
             key = -1
         bucket = groups.get(key)

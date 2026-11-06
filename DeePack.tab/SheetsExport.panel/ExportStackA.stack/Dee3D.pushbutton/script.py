@@ -38,6 +38,7 @@ import deew_settings
 import dee_settings_file
 import dee_3d_export_service as core
 import dee_telemetry
+import dee_ui
 dee_telemetry.check_access("Dee3D")
 
 
@@ -135,11 +136,7 @@ class _InlineProgress(object):
         self._pump()
 
     def _pump(self):
-        try:
-            self._window.Dispatcher.Invoke(
-                System.Action(lambda: None), DispatcherPriority.Background)
-        except Exception:
-            pass
+        dee_ui.pump(self._window)
 
     def __enter__(self):
         return self

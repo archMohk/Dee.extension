@@ -73,7 +73,8 @@ _ROW_BG = SolidColorBrush(Color.FromRgb(0x2B, 0x2B, 0x2B))
 
 class DeeSVTemplateWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc, uidoc):
-        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        # theme=False: dark window, the shared light theme does not fit it.
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file, theme=False)
         self.doc = doc
         self.uidoc = uidoc
         self._ready = False
