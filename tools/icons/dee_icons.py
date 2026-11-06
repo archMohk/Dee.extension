@@ -238,6 +238,14 @@ def crosshair(cx=48, cy=48, r=18, c="accent", w=1.2):
             ln(cx, cy - r - 8, cx, cy + r + 8, c, w * 0.8)]
 
 
+def eye(cx=48, cy=48, s=1.0, c="accent", w=1.1):
+    """Almond outline with a solid pupil - the shared 'visibility / view'
+    motif (Dee3DView, DeeSVTemplate)."""
+    pts = [(-22, 0), (-11, -9), (0, -12), (11, -9), (22, 0), (11, 9), (0, 12), (-11, 9)]
+    return [pl([(cx + x * s, cy + y * s) for x, y in pts], c, w, True),
+            cf(cx, cy, 5 * s, c)]
+
+
 # ==========================================================================
 # the glyphs - one entry per pushbutton folder name
 # ==========================================================================
@@ -615,6 +623,58 @@ GLYPHS = {
     ],
     "DeeSheetLinks": lambda: sheet(16, 14, 58, 72, "ink", 0.9) + [
         rc(52, 60, 72, 76, "ink", 0.9, 6), rc(64, 60, 84, 76, "accent", 0.9, 6),
+    ],
+    # ---------------- Added: buttons that had no glyph yet ----------------
+    # Cube (3D view) + the shared eye: "what shows in 3D views".
+    "Dee3DView": lambda: cube(38, 40, 20, "ink", 0.9) + eye(64, 74, 1.0),
+    # Sheet + eye: visibility/graphics presets applied to sheets/views.
+    "DeeSVTemplate": lambda: sheet(14, 10, 62, 70, "ink", 0.9) + eye(64, 74, 1.0),
+    # Two profiles with a swap underneath - switch Work/Personal account.
+    "DeeAccount": lambda: person(28, 40, 0.72, "ink", 1.0) + person(68, 40, 0.72, "ink", 1.0)
+                          + arrow(26, 74, 70, 74, "accent", 1.2, 10)
+                          + arrow(70, 88, 26, 88, "accent", 1.2, 10),
+    # Contour lines above, a solid accent terrain below - surface to Toposolid.
+    "DeeCtotopo": lambda: [
+        pl([(14, 38), (30, 24), (44, 32), (58, 18), (82, 36)], "ink", 1.0),
+        pl([(14, 54), (32, 42), (46, 48), (60, 36), (82, 52)], "ink", 0.9),
+        pf([(14, 90), (14, 76), (32, 66), (46, 72), (60, 62), (82, 74), (82, 90)]),
+    ],
+    # Element dropping straight down onto a sloped surface.
+    "DeeDropToSurface": lambda: [rc(34, 10, 62, 36, "ink", 1.0, 3)]
+                                + arrow(48, 42, 48, 68, "accent", 1.3, 11)
+                                + [ln(10, 86, 86, 64, "ink", 1.2)],
+    # File thumbnail (picture frame) with an accent brand badge.
+    "DeeIcon": lambda: [
+        rc(12, 16, 70, 66, "ink", 1.0, 4),
+        pl([(18, 58), (32, 42), (42, 52), (50, 44), (64, 58)], "ink", 0.9),
+        cf(70, 70, 16), ci(70, 70, 7, "white", 0.9),
+    ],
+    # Cloud + a bold plus: create brand-new cloud models.
+    "DeeInitiator": lambda: cloud(48, 36, 0.85) + [
+        ln(48, 60, 48, 90, "accent", 1.5), ln(33, 75, 63, 75, "accent", 1.5),
+    ],
+    # The shared link capsules over a ticked list - manage the links.
+    "DeeLinkManagement": lambda: [
+        rc(14, 12, 48, 32, "ink", 1.0, 10), rc(38, 12, 72, 32, "accent", 1.0, 10),
+        rf(14, 45, 26, 57), ln(34, 51, 82, 51, "ink", 1.0),
+        rf(14, 63, 26, 75), ln(34, 69, 82, 69, "ink", 1.0),
+        rc(14, 81, 26, 93, "ink", 0.9, 2), ln(34, 87, 82, 87, "ink", 1.0),
+    ],
+    # Two columns of files cross-wired many-to-many (DeeLinkMAP is the
+    # triangle graph; this one is source list -> target list).
+    "DeeMAPLink": lambda: [
+        ln(29, 24, 67, 48, "ink", 0.85), ln(29, 48, 67, 24, "ink", 0.85),
+        ln(29, 48, 67, 72, "ink", 0.85), ln(29, 72, 67, 48, "ink", 0.85),
+        ci(22, 24, 7, "ink", 1.0), ci(22, 48, 7, "ink", 1.0), ci(22, 72, 7, "ink", 1.0),
+        cf(74, 24, 7.5), cf(74, 48, 7.5), cf(74, 72, 7.5),
+    ],
+    # Local server (two rack units) with an accent network connection.
+    "DeeMCP": lambda: [
+        rc(16, 12, 80, 36, "ink", 1.0, 4), rc(16, 44, 80, 68, "ink", 1.0, 4),
+        ln(26, 24, 48, 24, "ink", 0.9), ln(26, 56, 48, 56, "ink", 0.9),
+        cf(68, 24, 4.5), cf(68, 56, 4.5),
+        ln(48, 68, 48, 84, "accent", 1.2), ln(24, 84, 72, 84, "accent", 1.2),
+        cf(24, 84, 5.5), cf(72, 84, 5.5),
     ],
 }
 
