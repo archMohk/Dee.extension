@@ -141,7 +141,7 @@
                                 <Button x:Name="save_preset_b" Content="Save As..." Width="90" Height="26" Margin="0,0,6,0"
                                         Click="save_preset_click"/>
                                 <Button x:Name="delete_preset_b" Content="Delete" Width="70" Height="26"
-                                        Click="delete_preset_click"/>
+                                        Click="delete_preset_click" Style="{DynamicResource DeeDanger}"/>
                             </StackPanel>
                         </StackPanel>
                     </GroupBox>

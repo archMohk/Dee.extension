@@ -8,7 +8,7 @@
         <!-- Bottom nav -->
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
             <Button x:Name="back_b" Content="&lt; Back" Click="back_click" Width="80" Height="28"/>
-            <Button x:Name="next_b" Content="Next &gt;" Click="next_click" Width="80" Height="28" Margin="6,0,0,0"/>
+            <Button x:Name="next_b" Content="Next &gt;" Click="next_click" Width="80" Height="28" Margin="6,0,0,0" Style="{DynamicResource DeePrimary}"/>
             <Button x:Name="close_b" Content="Close" Click="close_click" Width="80" Height="28" Margin="20,0,0,0"/>
         </StackPanel>
 
@@ -74,19 +74,19 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                     <TextBlock Text="Floor Finish:" Width="90" VerticalAlignment="Center"/>
                                     <ComboBox x:Name="global_floor_cb" Width="180" Height="24"/>
-                                    <Button x:Name="apply_floor_selected_b" Content="Apply to Selected" Click="apply_floor_selected_click" Width="120" Height="24" Margin="10,0,0,0"/>
+                                    <Button x:Name="apply_floor_selected_b" Content="Apply to Selected" Click="apply_floor_selected_click" Width="120" Height="24" Margin="10,0,0,0" Style="{DynamicResource DeePrimary}"/>
                                     <Button x:Name="apply_floor_all_b" Content="Apply to All" Click="apply_floor_all_click" Width="100" Height="24" Margin="6,0,0,0"/>
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                     <TextBlock Text="Wall Finish:" Width="90" VerticalAlignment="Center"/>
                                     <ComboBox x:Name="global_wall_cb" Width="180" Height="24"/>
-                                    <Button x:Name="apply_wall_selected_b" Content="Apply to Selected" Click="apply_wall_selected_click" Width="120" Height="24" Margin="10,0,0,0"/>
+                                    <Button x:Name="apply_wall_selected_b" Content="Apply to Selected" Click="apply_wall_selected_click" Width="120" Height="24" Margin="10,0,0,0" Style="{DynamicResource DeePrimary}"/>
                                     <Button x:Name="apply_wall_all_b" Content="Apply to All" Click="apply_wall_all_click" Width="100" Height="24" Margin="6,0,0,0"/>
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                     <TextBlock Text="Ceiling Finish:" Width="90" VerticalAlignment="Center"/>
                                     <ComboBox x:Name="global_ceiling_cb" Width="180" Height="24"/>
-                                    <Button x:Name="apply_ceiling_selected_b" Content="Apply to Selected" Click="apply_ceiling_selected_click" Width="120" Height="24" Margin="10,0,0,0"/>
+                                    <Button x:Name="apply_ceiling_selected_b" Content="Apply to Selected" Click="apply_ceiling_selected_click" Width="120" Height="24" Margin="10,0,0,0" Style="{DynamicResource DeePrimary}"/>
                                     <Button x:Name="apply_ceiling_all_b" Content="Apply to All" Click="apply_ceiling_all_click" Width="100" Height="24" Margin="6,0,0,0"/>
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0">

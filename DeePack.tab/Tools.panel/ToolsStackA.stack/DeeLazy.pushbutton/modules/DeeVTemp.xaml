@@ -66,7 +66,7 @@
                         <RadioButton x:Name="option_linked_rb" Content="By Linked View" GroupName="link_display" Margin="0,2,0,4"/>
                         <TextBlock TextWrapping="Wrap" FontStyle="Italic" Margin="0,4,0,8"
                                    Text="Matches the per-link 'Display Settings' dropdown in a view's Visibility/Graphics Overrides &gt; Revit Links tab - applied to every selected link, in every selected View Template, in one go."/>
-                        <Button x:Name="apply_b" Content="Apply to Selected" Click="apply_click" Height="28"/>
+                        <Button x:Name="apply_b" Content="Apply to Selected" Click="apply_click" Height="28" Style="{DynamicResource DeePrimary}"/>
                     </StackPanel>
                 </GroupBox>
 

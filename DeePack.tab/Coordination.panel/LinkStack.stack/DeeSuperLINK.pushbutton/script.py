@@ -218,7 +218,8 @@ class DeeSuperLinkWindow(dee_branding.DeeBrandedWindow):
     _ROW_ARMED = SolidColorBrush(Color.FromRgb(0x4A, 0x3A, 0x22))
 
     def __init__(self, xaml_file, uiapp):
-        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        # theme=False: dark window, the shared light theme does not fit it.
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file, theme=False)
         self.uiapp = uiapp
         self.application = uiapp.Application
         self.logger = deew_logger.DeeWLogger(_TOOL_NAME)

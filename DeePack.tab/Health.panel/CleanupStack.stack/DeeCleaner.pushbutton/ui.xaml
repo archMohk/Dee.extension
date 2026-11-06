@@ -25,7 +25,7 @@
                         <Button x:Name="rooms_select_highlighted_b" Content="Select Highlighted" Click="rooms_select_highlighted_click" Width="130" Height="24" Margin="16,0,0,0"
                                 ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
                         <Button x:Name="rooms_deselect_highlighted_b" Content="Deselect Highlighted" Click="rooms_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
-                        <Button x:Name="rooms_delete_b" Content="Delete Selected" Click="rooms_delete_click" Width="120" Height="24" Margin="20,0,0,0"/>
+                        <Button x:Name="rooms_delete_b" Content="Delete Selected" Click="rooms_delete_click" Width="120" Height="24" Margin="20,0,0,0" Style="{DynamicResource DeeDanger}"/>
                         <TextBlock x:Name="rooms_count_tb" Text="0 zero-area room(s)" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
                     </StackPanel>
                     <DataGrid x:Name="rooms_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
@@ -77,7 +77,7 @@
                         <Button x:Name="groups_select_highlighted_b" Content="Select Highlighted" Click="groups_select_highlighted_click" Width="130" Height="24" Margin="16,0,0,0"
                                 ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
                         <Button x:Name="groups_deselect_highlighted_b" Content="Deselect Highlighted" Click="groups_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
-                        <Button x:Name="groups_delete_b" Content="Delete Selected" Click="groups_delete_click" Width="120" Height="24" Margin="20,0,0,0"/>
+                        <Button x:Name="groups_delete_b" Content="Delete Selected" Click="groups_delete_click" Width="120" Height="24" Margin="20,0,0,0" Style="{DynamicResource DeeDanger}"/>
                         <TextBlock x:Name="groups_count_tb" Text="0 unused group(s)" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
                     </StackPanel>
                     <DataGrid x:Name="groups_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
@@ -103,7 +103,7 @@
                                 ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
                         <Button x:Name="views_deselect_highlighted_b" Content="Deselect Highlighted" Click="views_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
                         <Button x:Name="views_select_not_on_sheet_b" Content="Select All Not On Sheet" Click="views_select_not_on_sheet_click" Width="160" Height="24" Margin="16,0,0,0"/>
-                        <Button x:Name="views_delete_b" Content="Delete Selected" Click="views_delete_click" Width="120" Height="24" Margin="16,0,0,0"/>
+                        <Button x:Name="views_delete_b" Content="Delete Selected" Click="views_delete_click" Width="120" Height="24" Margin="16,0,0,0" Style="{DynamicResource DeeDanger}"/>
                         <TextBlock x:Name="views_count_tb" Text="0 view(s)" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
                     </StackPanel>
                     <DataGrid x:Name="views_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
@@ -129,7 +129,7 @@
                                 ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
                         <Button x:Name="sheets_deselect_highlighted_b" Content="Deselect Highlighted" Click="sheets_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
                         <Button x:Name="sheets_select_empty_b" Content="Select All Empty Sheets" Click="sheets_select_empty_click" Width="160" Height="24" Margin="16,0,0,0"/>
-                        <Button x:Name="sheets_delete_b" Content="Delete Selected" Click="sheets_delete_click" Width="120" Height="24" Margin="16,0,0,0"/>
+                        <Button x:Name="sheets_delete_b" Content="Delete Selected" Click="sheets_delete_click" Width="120" Height="24" Margin="16,0,0,0" Style="{DynamicResource DeeDanger}"/>
                         <TextBlock x:Name="sheets_count_tb" Text="0 sheet(s)" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
                     </StackPanel>
                     <DataGrid x:Name="sheets_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">
@@ -155,7 +155,7 @@
                                 ToolTip="Click a row then Shift-click another to highlight a range (or Ctrl-click to add rows), then click this to check them."/>
                         <Button x:Name="dup_deselect_highlighted_b" Content="Deselect Highlighted" Click="dup_deselect_highlighted_click" Width="140" Height="24" Margin="6,0,0,0"/>
                         <Button x:Name="dup_select_all_but_first_b" Content="Select All But First In Each Group" Click="dup_select_all_but_first_click" Width="220" Height="24" Margin="16,0,0,0"/>
-                        <Button x:Name="dup_delete_b" Content="Delete Selected" Click="dup_delete_click" Width="120" Height="24" Margin="16,0,0,0"/>
+                        <Button x:Name="dup_delete_b" Content="Delete Selected" Click="dup_delete_click" Width="120" Height="24" Margin="16,0,0,0" Style="{DynamicResource DeeDanger}"/>
                         <TextBlock x:Name="dup_count_tb" Text="0 room(s) in 0 group(s)" VerticalAlignment="Center" Margin="20,0,0,0" FontStyle="Italic"/>
                     </StackPanel>
                     <DataGrid x:Name="dup_grid" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow">

@@ -18,7 +18,7 @@
         <!-- Bottom nav -->
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
             <Button x:Name="back_b" Content="&lt; Back" Click="back_click" Width="80" Height="28"/>
-            <Button x:Name="next_b" Content="Next &gt;" Click="next_click" Width="80" Height="28" Margin="6,0,0,0"/>
+            <Button x:Name="next_b" Content="Next &gt;" Click="next_click" Width="80" Height="28" Margin="6,0,0,0" Style="{DynamicResource DeePrimary}"/>
             <Button x:Name="close_b" Content="Close" Click="close_click" Width="80" Height="28" Margin="20,0,0,0"/>
         </StackPanel>
 
@@ -196,7 +196,7 @@
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                         <Button x:Name="refresh_preview_b" Content="Refresh Preview" Click="refresh_preview_click" Width="110" Height="26"/>
                         <Button x:Name="export_csv_b" Content="Export to Excel (CSV)" Click="export_csv_click" Width="150" Height="26" Margin="8,0,0,0"/>
-                        <Button x:Name="run_b" Content="Run" Click="run_click" Width="100" Height="26" Margin="14,0,0,0"/>
+                        <Button x:Name="run_b" Content="Run" Click="run_click" Width="100" Height="26" Margin="14,0,0,0" Style="{DynamicResource DeePrimary}"/>
                     </StackPanel>
                     <TextBox x:Name="summary_tb" DockPanel.Dock="Top" Height="110" Margin="0,0,0,8"
                              IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"

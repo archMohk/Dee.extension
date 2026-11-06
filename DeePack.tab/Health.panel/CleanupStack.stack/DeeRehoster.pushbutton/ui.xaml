@@ -119,7 +119,7 @@
                                 <TextBlock Text="Set target for selected row(s):" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                 <ComboBox x:Name="mapping_target_cb" Width="220" Height="24"/>
                                 <Button x:Name="set_mapping_target_b" Content="Apply to Selected"
-                                        Click="set_mapping_target_click" Width="130" Height="24" Margin="10,0,0,0"/>
+                                        Click="set_mapping_target_click" Width="130" Height="24" Margin="10,0,0,0" Style="{DynamicResource DeePrimary}"/>
                             </StackPanel>
                         </StackPanel>
 

@@ -72,7 +72,7 @@
                     <Button x:Name="attach_image_b" Content="Attach Image..." Width="120" Height="26"
                             HorizontalAlignment="Left" Click="attach_image_click"/>
                     <Button x:Name="remove_image_b" Content="Remove" Width="70" Height="26" Margin="8,0,0,0"
-                            HorizontalAlignment="Left" Click="remove_image_click" Visibility="Collapsed"/>
+                            HorizontalAlignment="Left" Click="remove_image_click" Visibility="Collapsed" Style="{DynamicResource DeeDanger}"/>
                     <TextBlock x:Name="image_status_tb" VerticalAlignment="Center" FontSize="11"
                                Foreground="#888" Margin="10,0,0,0" Text="No image attached"/>
                 </StackPanel>

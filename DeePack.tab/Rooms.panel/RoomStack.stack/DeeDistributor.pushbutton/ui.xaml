@@ -8,7 +8,7 @@
         <!-- Bottom nav -->
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
             <Button x:Name="back_b" Content="&lt; Back" Click="back_click" Width="80" Height="28"/>
-            <Button x:Name="next_b" Content="Next &gt;" Click="next_click" Width="80" Height="28" Margin="6,0,0,0"/>
+            <Button x:Name="next_b" Content="Next &gt;" Click="next_click" Width="80" Height="28" Margin="6,0,0,0" Style="{DynamicResource DeePrimary}"/>
             <Button x:Name="close_b" Content="Close" Click="close_click" Width="80" Height="28" Margin="20,0,0,0"/>
         </StackPanel>
 
@@ -296,7 +296,7 @@
                         <Button x:Name="zoom_fit_b" Content="Zoom to Fit" Click="zoom_fit_click" Width="90" Height="26" Margin="20,0,0,0"/>
                         <Button x:Name="zoom_in_b" Content="+" Click="zoom_in_click" Width="30" Height="26" Margin="6,0,0,0"/>
                         <Button x:Name="zoom_out_b" Content="-" Click="zoom_out_click" Width="30" Height="26" Margin="6,0,0,0"/>
-                        <Button x:Name="generate_b" Content="Generate" Click="generate_click" Width="100" Height="26" Margin="20,0,0,0"/>
+                        <Button x:Name="generate_b" Content="Generate" Click="generate_click" Width="100" Height="26" Margin="20,0,0,0" Style="{DynamicResource DeePrimary}"/>
                         <Button x:Name="cancel_preview_b" Content="Cancel" Click="cancel_preview_click" Width="90" Height="26" Margin="6,0,0,0"/>
                     </StackPanel>
                     <Grid>

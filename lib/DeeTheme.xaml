@@ -52,8 +52,6 @@ orange #F2994D, status green/amber/red), gathered in one place.
     <SolidColorBrush x:Key="DeeStatusFail" Color="#F4C7C3"/>
     <SolidColorBrush x:Key="DeeStatusIgnored" Color="#E0E0E0"/>
 
-    <sys:Double xmlns:sys="clr-namespace:System;assembly=mscorlib" x:Key="DeeFontSize">12</sys:Double>
-    <FontFamily x:Key="DeeFont">Segoe UI</FontFamily>
     <CornerRadius x:Key="DeeRadius">4</CornerRadius>
 
     <!-- ===== Buttons ===== -->
@@ -91,10 +89,13 @@ orange #F2994D, status green/amber/red), gathered in one place.
         <Setter Property="BorderBrush" Value="{StaticResource DeeBorderStrong}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Foreground" Value="{StaticResource DeeText}"/>
-        <Setter Property="Padding" Value="12,4"/>
-        <Setter Property="MinHeight" Value="28"/>
-        <Setter Property="MinWidth" Value="80"/>
-        <Setter Property="FontSize" Value="{StaticResource DeeFontSize}"/>
+        <!-- No MinWidth / MinHeight on purpose: Min* beats an inline
+             Width / Height, and 400+ buttons across the tools are sized
+             22-24px tall (and some 24px wide: "+", "-", arrows).
+             No FontSize setter anywhere in this file either: tools set
+             9-24 inline where it matters and inherit the rest from the
+             window; a style FontSize would override that inheritance. -->
+        <Setter Property="Padding" Value="8,2"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
@@ -140,14 +141,10 @@ orange #F2994D, status green/amber/red), gathered in one place.
 
     <!-- ===== Inputs ===== -->
     <Style TargetType="TextBox">
-        <Setter Property="Padding" Value="6,4"/>
-        <Setter Property="MinHeight" Value="26"/>
+        <Setter Property="Padding" Value="4,2"/>
         <Setter Property="BorderBrush" Value="{StaticResource DeeBorder}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Background" Value="{StaticResource DeeSurface}"/>
-        <Setter Property="Foreground" Value="{StaticResource DeeText}"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
-        <Setter Property="FontSize" Value="{StaticResource DeeFontSize}"/>
         <Style.Triggers>
             <Trigger Property="IsKeyboardFocused" Value="True">
                 <Setter Property="BorderBrush" Value="{StaticResource DeeAccent}"/>
@@ -156,51 +153,30 @@ orange #F2994D, status green/amber/red), gathered in one place.
     </Style>
 
     <Style TargetType="PasswordBox">
-        <Setter Property="Padding" Value="6,4"/>
-        <Setter Property="MinHeight" Value="26"/>
+        <Setter Property="Padding" Value="4,2"/>
         <Setter Property="BorderBrush" Value="{StaticResource DeeBorder}"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
-        <Setter Property="FontSize" Value="{StaticResource DeeFontSize}"/>
     </Style>
 
     <Style TargetType="ComboBox">
-        <Setter Property="MinHeight" Value="26"/>
-        <Setter Property="Padding" Value="6,3"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
-        <Setter Property="FontSize" Value="{StaticResource DeeFontSize}"/>
     </Style>
 
+    <!-- Text-bearing controls deliberately get NO Foreground setter: a
+         style setter outranks the Foreground a window inherits from its
+         root, so it would paint dark text onto the few dark windows.
+         No Margin either - that would shift every existing layout. -->
     <Style TargetType="CheckBox">
         <Setter Property="VerticalContentAlignment" Value="Center"/>
-        <Setter Property="Margin" Value="0,2"/>
-        <Setter Property="FontSize" Value="{StaticResource DeeFontSize}"/>
-        <Setter Property="Foreground" Value="{StaticResource DeeText}"/>
     </Style>
 
     <Style TargetType="RadioButton">
         <Setter Property="VerticalContentAlignment" Value="Center"/>
-        <Setter Property="Margin" Value="0,2"/>
-        <Setter Property="FontSize" Value="{StaticResource DeeFontSize}"/>
-    </Style>
-
-    <!-- ===== Text ===== -->
-    <Style TargetType="TextBlock">
-        <Setter Property="Foreground" Value="{StaticResource DeeText}"/>
-        <Setter Property="FontSize" Value="{StaticResource DeeFontSize}"/>
-    </Style>
-
-    <Style TargetType="Label">
-        <Setter Property="Foreground" Value="{StaticResource DeeText}"/>
-        <Setter Property="FontSize" Value="{StaticResource DeeFontSize}"/>
-        <Setter Property="Padding" Value="0,2"/>
     </Style>
 
     <!-- ===== Containers ===== -->
     <Style TargetType="GroupBox">
         <Setter Property="BorderBrush" Value="{StaticResource DeeBorder}"/>
-        <Setter Property="Padding" Value="8"/>
-        <Setter Property="Margin" Value="0,0,0,8"/>
-        <Setter Property="FontSize" Value="{StaticResource DeeFontSize}"/>
         <Setter Property="HeaderTemplate">
             <Setter.Value>
                 <DataTemplate>
@@ -212,23 +188,19 @@ orange #F2994D, status green/amber/red), gathered in one place.
     </Style>
 
     <Style TargetType="TabItem">
-        <Setter Property="Padding" Value="12,5"/>
-        <Setter Property="FontSize" Value="{StaticResource DeeFontSize}"/>
+        <Setter Property="Padding" Value="12,4"/>
     </Style>
 
     <Style TargetType="ProgressBar">
         <Setter Property="Foreground" Value="{StaticResource DeeAccent}"/>
         <Setter Property="Background" Value="{StaticResource DeeButtonBg}"/>
         <Setter Property="BorderBrush" Value="{StaticResource DeeBorder}"/>
-        <Setter Property="Height" Value="14"/>
     </Style>
 
     <Style TargetType="DataGrid">
-        <Setter Property="FontSize" Value="{StaticResource DeeFontSize}"/>
         <Setter Property="GridLinesVisibility" Value="Horizontal"/>
         <Setter Property="HorizontalGridLinesBrush" Value="#EAEAEA"/>
         <Setter Property="BorderBrush" Value="{StaticResource DeeBorder}"/>
-        <Setter Property="RowHeight" Value="24"/>
         <Setter Property="AlternatingRowBackground" Value="#F7F7F7"/>
     </Style>
 
@@ -242,12 +214,10 @@ orange #F2994D, status green/amber/red), gathered in one place.
 
     <Style TargetType="ListBox">
         <Setter Property="BorderBrush" Value="{StaticResource DeeBorder}"/>
-        <Setter Property="FontSize" Value="{StaticResource DeeFontSize}"/>
     </Style>
 
     <Style TargetType="ListView">
         <Setter Property="BorderBrush" Value="{StaticResource DeeBorder}"/>
-        <Setter Property="FontSize" Value="{StaticResource DeeFontSize}"/>
     </Style>
 
 </ResourceDictionary>
