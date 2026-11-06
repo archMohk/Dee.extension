@@ -88,6 +88,7 @@ from System.Windows.Forms import SaveFileDialog, DialogResult, MessageBox
 import utils
 import deew_progress_service as progsvc
 import xlsx_writer
+from dee_ids import eid_value
 
 output = script.get_output()
 
@@ -140,7 +141,7 @@ def _discipline_text(view):
 def _view_template_name(doc, view):
     try:
         tid = view.ViewTemplateId
-        if tid is not None and tid.IntegerValue > 0:
+        if tid is not None and eid_value(tid) > 0:
             t = doc.GetElement(tid)
             return utils.read_name(t) or "(unnamed template)"
     except Exception:
@@ -211,7 +212,7 @@ def scan_entire_project(doc):
     for view in FilteredElementCollector(doc).OfClass(View):
         if not _is_supported_candidate(view):
             continue
-        sheet = view_to_sheet.get(view.Id.IntegerValue)
+        sheet = view_to_sheet.get(eid_value(view.Id))
         rows.append(ViewRow(doc, view, sheet))
     return rows
 
@@ -228,10 +229,10 @@ def scan_views(doc, views):
     for view in views:
         if not _is_supported_candidate(view):
             continue
-        if view.Id.IntegerValue in seen_ids:
+        if eid_value(view.Id) in seen_ids:
             continue
-        seen_ids.add(view.Id.IntegerValue)
-        sheet = view_to_sheet.get(view.Id.IntegerValue)
+        seen_ids.add(eid_value(view.Id))
+        sheet = view_to_sheet.get(eid_value(view.Id))
         rows.append(ViewRow(doc, view, sheet))
     return rows
 

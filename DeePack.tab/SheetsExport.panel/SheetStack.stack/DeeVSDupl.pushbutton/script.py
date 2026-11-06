@@ -99,6 +99,7 @@ import dee_sheet_renamer_service as renamer
 import deew_settings
 
 import dee_telemetry
+from dee_ids import eid_value
 dee_telemetry.check_access("DeeVSDupl")
 
 
@@ -330,7 +331,7 @@ def _placements_by_sheet(doc):
     vp_by_sheet = {}
     for vp in FilteredElementCollector(doc).OfClass(Viewport):
         try:
-            vp_by_sheet.setdefault(vp.SheetId.IntegerValue, []).append(vp)
+            vp_by_sheet.setdefault(eid_value(vp.SheetId), []).append(vp)
         except Exception:
             continue
     ssi_by_sheet = {}
@@ -341,7 +342,7 @@ def _placements_by_sheet(doc):
         except Exception:
             pass
         try:
-            ssi_by_sheet.setdefault(ssi.SheetId.IntegerValue, []).append(ssi)
+            ssi_by_sheet.setdefault(eid_value(ssi.SheetId), []).append(ssi)
         except Exception:
             continue
     return vp_by_sheet, ssi_by_sheet
@@ -359,7 +360,7 @@ def _sheet_owned_annotation_ids(doc, sheet_id):
             if el.OwnerViewId != sheet_id:
                 continue
             cat = el.Category
-            if cat is not None and cat.Id.IntegerValue in _NOT_COPYABLE:
+            if cat is not None and eid_value(cat.Id) in _NOT_COPYABLE:
                 continue
             ids.append(el.Id)
         except Exception:
@@ -621,9 +622,9 @@ def _duplicate_templates(doc, view_elements):
             continue
         if tid is None or tid == ElementId.InvalidElementId:
             continue
-        if tid.IntegerValue in seen:
+        if eid_value(tid) in seen:
             continue
-        seen.add(tid.IntegerValue)
+        seen.add(eid_value(tid))
         distinct_ids.append(tid)
 
     for tid in distinct_ids:
@@ -634,7 +635,7 @@ def _duplicate_templates(doc, view_elements):
                 doc, List[ElementId]([tid]), doc, Transform.Identity, CopyPasteOptions())
             new_id = list(new_ids)[0]
             t.Commit()
-            template_map[tid.IntegerValue] = new_id
+            template_map[eid_value(tid)] = new_id
         except Exception:
             t.RollBack()
             continue
@@ -646,8 +647,8 @@ def _apply_mapped_template(new_view, original_view, dup_templates, template_map)
         return
     try:
         old_tid = original_view.ViewTemplateId
-        if old_tid is not None and old_tid.IntegerValue in template_map:
-            new_view.ViewTemplateId = template_map[old_tid.IntegerValue]
+        if old_tid is not None and eid_value(old_tid) in template_map:
+            new_view.ViewTemplateId = template_map[eid_value(old_tid)]
     except Exception:
         pass
 
@@ -691,7 +692,7 @@ def _duplicate_view_or_schedule(doc, row, dup_templates, template_map, param_nam
         _set_tag(new_el, row.tag_value, param_name)
 
         placed_detail = ""
-        host = host_by_element.get(original.Id.IntegerValue)
+        host = host_by_element.get(eid_value(original.Id))
         if host is not None:
             host_sheet_id, position = host
             new_sheet = sheet_id_map.get(host_sheet_id)
@@ -737,7 +738,7 @@ def _duplicate_sheet(doc, row, dup_templates, template_map, vp_by_sheet, ssi_by_
         detail_bits = []
         if dup_sheet_views:
             view_dup_option = _view_duplicate_option("View", as_dependent)
-            for vp in vp_by_sheet.get(original_sheet.Id.IntegerValue, []):
+            for vp in vp_by_sheet.get(eid_value(original_sheet.Id), []):
                 src_view = doc.GetElement(vp.ViewId)
                 if src_view is None:
                     continue
@@ -753,7 +754,7 @@ def _duplicate_sheet(doc, row, dup_templates, template_map, vp_by_sheet, ssi_by_
                     Viewport.Create(doc, new_sheet.Id, new_view.Id, vp.GetBoxCenter())
                     detail_bits.append("1 view")
 
-            for ssi in ssi_by_sheet.get(original_sheet.Id.IntegerValue, []):
+            for ssi in ssi_by_sheet.get(eid_value(original_sheet.Id), []):
                 src_sched = doc.GetElement(ssi.ScheduleId)
                 if src_sched is None:
                     continue
@@ -1257,7 +1258,7 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
                 for r in ready_rows:
                     if r.kind != "Sheet":
                         continue
-                    for vp in vp_by_sheet.get(r.picker_row.element.Id.IntegerValue, []):
+                    for vp in vp_by_sheet.get(eid_value(r.picker_row.element.Id), []):
                         v = self.doc.GetElement(vp.ViewId)
                         if v is not None:
                             elements_for_templates.append(v)
@@ -1273,13 +1274,13 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
         for sid, vps in vp_by_sheet.items():
             for vp in vps:
                 try:
-                    host_by_element[vp.ViewId.IntegerValue] = (sid, vp.GetBoxCenter())
+                    host_by_element[eid_value(vp.ViewId)] = (sid, vp.GetBoxCenter())
                 except Exception:
                     continue
         for sid, ssis in ssi_by_sheet.items():
             for ssi in ssis:
                 try:
-                    host_by_element[ssi.ScheduleId.IntegerValue] = (sid, ssi.Point)
+                    host_by_element[eid_value(ssi.ScheduleId)] = (sid, ssi.Point)
                 except Exception:
                     continue
 
@@ -1295,7 +1296,7 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
         # once here via its own row, once already handled inside that
         # Sheet's own duplication loop. Skip the standalone row in that
         # case rather than create a redundant second copy.
-        checked_sheet_ids = set(r.picker_row.element.Id.IntegerValue for r in ready_rows if r.kind == "Sheet")
+        checked_sheet_ids = set(eid_value(r.picker_row.element.Id) for r in ready_rows if r.kind == "Sheet")
 
         with _SafeProgress(title="DeeV.S.Dupl. - Duplicating...", cancellable=True) as pb:
             for i, r in enumerate(ordered_rows):
@@ -1307,11 +1308,11 @@ class DeeVSDuplWindow(dee_branding.DeeBrandedWindow):
                                                               vp_by_sheet, ssi_by_sheet, param_name, as_dependent,
                                                               dup_sheet_views)
                     if ok and new_sheet is not None:
-                        sheet_id_map[r.picker_row.element.Id.IntegerValue] = new_sheet
+                        sheet_id_map[eid_value(r.picker_row.element.Id)] = new_sheet
                     old_label = u"{0} - {1}".format(r.old_number, r.old_name)
                     new_label = u"{0} - {1}".format(r.new_number, r.new_name)
                 else:
-                    host = host_by_element.get(r.picker_row.element.Id.IntegerValue)
+                    host = host_by_element.get(eid_value(r.picker_row.element.Id))
                     # Only skip when the Sheet's own pass would actually have
                     # handled this View/Schedule (dup_sheet_views on) - with
                     # it off, the Sheet's pass does nothing for hosted

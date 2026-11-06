@@ -15,18 +15,14 @@ from Autodesk.Revit.DB import (
     FilteredElementCollector, ViewSheet, View, Viewport, ScheduleSheetInstance,
     UnitUtils, UnitTypeId, SpecTypeId,
 )
+from dee_ids import eid_value
 
 
 def id_value(element_id):
-    """Integer value of an ElementId on any Revit version. ElementId
-    .IntegerValue was deprecated in Revit 2024 and removed in 2026
-    (live-reported: "'ElementId' object has no attribute 'IntegerValue'"),
-    where .Value (a 64-bit integer) replaces it - so try the old name
-    first and fall back to the new one."""
-    try:
-        return element_id.IntegerValue
-    except AttributeError:
-        return element_id.Value
+    """Integer value of an ElementId on any Revit version - thin alias of
+    the shared lib/dee_ids.eid_value (tries .Value first, falls back to
+    the pre-2024 name). Kept so existing DeeLazy modules keep working."""
+    return eid_value(element_id)
 
 
 # ==========================================================================

@@ -63,6 +63,7 @@ from Autodesk.Revit.DB import FilteredElementCollector, ViewSheet, Transaction
 import deew_settings
 
 import System
+from dee_ids import eid_value
 
 output = script.get_output()
 
@@ -629,7 +630,7 @@ def apply_renames(doc, rows):
         for r in to_apply:
             if r.new_number == r.original_number:
                 continue
-            temp_number = "ZZDeeSheetTMP{0}".format(r.sheet.Id.IntegerValue)
+            temp_number = "ZZDeeSheetTMP{0}".format(eid_value(r.sheet.Id))
             try:
                 r.sheet.SheetNumber = temp_number
             except Exception as e:

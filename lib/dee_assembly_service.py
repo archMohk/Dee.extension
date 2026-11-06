@@ -57,6 +57,7 @@ from Autodesk.Revit.DB import (
     AssemblyInstance, AssemblyViewUtils, AssemblyDetailViewOrientation,
     UnitUtils, UnitTypeId,
 )
+from dee_ids import eid_value
 
 
 # --------------------------------------------------------------------------
@@ -316,7 +317,7 @@ def index_assembly_views(doc):
             continue
         if aid is None or aid == ElementId.InvalidElementId:
             continue
-        key = aid.IntegerValue
+        key = eid_value(aid)
         if isinstance(v, ViewSheet):
             sheets_by_assembly.setdefault(key, []).append(v.Id)
         else:
@@ -347,7 +348,7 @@ def collect_assemblies(doc, progress_cb=None):
         if not isinstance(el, AssemblyInstance):
             continue
         try:
-            key = el.Id.IntegerValue
+            key = eid_value(el.Id)
             try:
                 type_name = el.AssemblyTypeName or ""
             except Exception:

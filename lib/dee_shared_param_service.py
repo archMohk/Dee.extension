@@ -74,6 +74,7 @@ from Autodesk.Revit.DB import (
     Transaction, ExternalDefinitionCreationOptions, SpecTypeId,
     GroupTypeId,
 )
+from dee_ids import eid_value
 
 _SP_GROUP_NAME = "DeePack"
 
@@ -115,7 +116,7 @@ def _ensure_shared_param_file(app, doc):
 
 def _same_category(cat_a, cat_b):
     try:
-        return cat_a.Id.IntegerValue == cat_b.Id.IntegerValue
+        return eid_value(cat_a.Id) == eid_value(cat_b.Id)
     except Exception:
         return cat_a == cat_b
 

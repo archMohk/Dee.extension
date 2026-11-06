@@ -62,6 +62,7 @@ from Autodesk.Revit.DB import (
 )
 
 import deew_settings
+from dee_ids import eid_value
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "LineTag.xaml")
@@ -278,7 +279,7 @@ def _collect_tag_candidates(doc, sheet):
     for fi in FilteredElementCollector(doc, sheet.Id).OfClass(FamilyInstance):
         try:
             cat = fi.Category
-            if cat is None or cat.Id.IntegerValue not in _TAG_CATEGORY_IDS:
+            if cat is None or eid_value(cat.Id) not in _TAG_CATEGORY_IDS:
                 continue
             bbox = fi.get_BoundingBox(sheet)
             if bbox is None:

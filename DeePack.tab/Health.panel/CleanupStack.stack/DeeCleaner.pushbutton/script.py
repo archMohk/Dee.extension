@@ -44,6 +44,7 @@ from Autodesk.Revit.DB.Architecture import Room
 
 from System.Collections.Generic import List
 import dee_telemetry
+from dee_ids import eid_value
 dee_telemetry.check_access("DeeCleaner")
 
 
@@ -384,7 +385,7 @@ def _room_bbox_key(room):
     if bbox is None:
         return None
     try:
-        level_id = room.LevelId.IntegerValue
+        level_id = eid_value(room.LevelId)
     except Exception:
         level_id = -1
     try:
@@ -422,7 +423,7 @@ def _scan_duplicate_rooms(doc):
         group_size = len(rooms_in_group)
         # Lowest Element Id first within a group, so "Select All But
         # First in Each Group" deterministically keeps the oldest one.
-        rooms_in_group.sort(key=lambda rm: rm.Id.IntegerValue)
+        rooms_in_group.sort(key=lambda rm: eid_value(rm.Id))
         for r in rooms_in_group:
             rows.append(DuplicateRoomRow(r, doc, group_index, group_size))
     rows.sort(key=lambda row: (row.group_index, row.element_id_int))
@@ -496,7 +497,7 @@ class DuplicateRoomRow(object):
     def __init__(self, room, doc, group_index, group_size):
         self.room = room
         self.selected = False
-        self.element_id_int = room.Id.IntegerValue
+        self.element_id_int = eid_value(room.Id)
         self.group_index = group_index
         self.group_size = group_size
         self.number = _read_room_number(room)

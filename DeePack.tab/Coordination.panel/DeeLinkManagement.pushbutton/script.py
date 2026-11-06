@@ -66,6 +66,7 @@ dee_telemetry.check_access("DeeLinkManagement")
 import acc_auth
 import acc_file_browser as afb
 import dee_link_create_service as lcs
+from dee_ids import eid_value
 
 from Autodesk.Revit.DB import (
     FilteredElementCollector, RevitLinkType, RevitLinkInstance, AttachmentType,
@@ -92,11 +93,9 @@ PLACEMENT_CHOICES = [
 # Small helpers
 # ==========================================================================
 def _id_value(element_id):
-    """ElementId.IntegerValue was removed in Revit 2026 (.Value replaces it)."""
-    try:
-        return element_id.IntegerValue
-    except AttributeError:
-        return element_id.Value
+    """ElementId.IntegerValue was removed in Revit 2026 (.Value replaces it);
+    delegates to the shared lib/dee_ids helper."""
+    return eid_value(element_id)
 
 
 def _element_name(element):

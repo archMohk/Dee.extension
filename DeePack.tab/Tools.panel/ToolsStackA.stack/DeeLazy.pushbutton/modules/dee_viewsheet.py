@@ -82,6 +82,7 @@ from Autodesk.Revit.DB import (
     GroupTypeId, ElementId, StorageType,
 )
 from System.Collections.Generic import List
+from dee_ids import eid_value
 
 output = script.get_output()
 
@@ -158,7 +159,7 @@ def scan_placed_views(doc):
                 continue
             if isinstance(view, ViewSheet):
                 continue
-            sheets = view_to_sheets.get(view.Id.IntegerValue)
+            sheets = view_to_sheets.get(eid_value(view.Id))
             if not sheets:
                 continue
             rows.append(ViewRow(view, sheets))
@@ -344,11 +345,11 @@ def template_controls_param(template, param_id):
     if template is None or param_id is None:
         return False
     try:
-        controllable = [i.IntegerValue for i in template.GetTemplateParameterIds()]
-        if param_id.IntegerValue not in controllable:
+        controllable = [eid_value(i) for i in template.GetTemplateParameterIds()]
+        if eid_value(param_id) not in controllable:
             return False
-        excluded = [i.IntegerValue for i in template.GetNonControlledTemplateParameterIds()]
-        return param_id.IntegerValue not in excluded
+        excluded = [eid_value(i) for i in template.GetNonControlledTemplateParameterIds()]
+        return eid_value(param_id) not in excluded
     except Exception:
         return False
 
@@ -371,12 +372,12 @@ def exclude_param_from_templates(doc, template_ids, param_id):
                 continue
             name = utils.read_name(template) or "(unnamed template)"
             try:
-                controllable = [i.IntegerValue for i in template.GetTemplateParameterIds()]
-                if param_id.IntegerValue not in controllable:
+                controllable = [eid_value(i) for i in template.GetTemplateParameterIds()]
+                if eid_value(param_id) not in controllable:
                     notes.append("{0}: template cannot control this parameter - nothing to do".format(name))
                     continue
                 existing = list(template.GetNonControlledTemplateParameterIds())
-                if any(i.IntegerValue == param_id.IntegerValue for i in existing):
+                if any(eid_value(i) == eid_value(param_id) for i in existing):
                     notes.append("{0}: already excluded".format(name))
                     continue
                 # Rebuild the FULL excluded set - Set() replaces it.
@@ -406,7 +407,7 @@ def templates_used_by(doc, rows):
         try:
             tid = view.ViewTemplateId
             if tid is not None and tid != ElementId.InvalidElementId:
-                seen[tid.IntegerValue] = tid
+                seen[eid_value(tid)] = tid
         except Exception:
             continue
     return list(seen.values())
@@ -583,7 +584,7 @@ class DeeViewsheetWindow(dee_branding.DeeBrandedWindow):
             if row.template_id is not None:
                 template = self.doc.GetElement(row.template_id)
                 row.template_name = utils.read_name(template) or ""
-                key = row.template_id.IntegerValue
+                key = eid_value(row.template_id)
                 if key not in lock_cache:
                     lock_cache[key] = template_controls_param(template, param_id)
                 row.locked = lock_cache[key]

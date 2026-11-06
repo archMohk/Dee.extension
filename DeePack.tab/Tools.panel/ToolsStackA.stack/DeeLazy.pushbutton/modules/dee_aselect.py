@@ -268,6 +268,7 @@ from Autodesk.Revit.DB import (
     ElementTransformUtils, XYZ, JoinGeometryUtils, WorksharingUtils,
     Plane, Line as RevitLine,
 )
+from dee_ids import eid_value
 
 output = script.get_output()
 
@@ -563,7 +564,7 @@ def _join_partners_outside(doc, ids):
     tool can be asked to move tens of thousands at once."""
     if ids.Count > _JOIN_SCAN_MAX_IDS:
         return None
-    id_set = set(eid.IntegerValue for eid in ids)
+    id_set = set(eid_value(eid) for eid in ids)
     count = 0
     for eid in ids:
         el = doc.GetElement(eid)
@@ -579,7 +580,7 @@ def _join_partners_outside(doc, ids):
         except Exception:
             continue
         for partner_id in partners:
-            if partner_id.IntegerValue not in id_set:
+            if eid_value(partner_id) not in id_set:
                 count += 1
                 break
     return count
@@ -660,7 +661,7 @@ def _group_ids_by_owner_view(doc, ids):
             continue
         try:
             owner = el.OwnerViewId
-            key = owner.IntegerValue if owner is not None else -1
+            key = eid_value(owner) if owner is not None else -1
         except Exception:
             key = -1
         bucket = groups.get(key)

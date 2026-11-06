@@ -55,6 +55,7 @@ from Autodesk.Revit.DB import (
 from pyrevit import forms
 import dee_branding
 import dee_telemetry
+from dee_ids import eid_value
 dee_telemetry.check_access("DeeJoin")
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -157,11 +158,11 @@ def _find_candidate_pairs(doc, group_a_ids, group_b_ids, same_group, pb=None):
             if b_id == a_id:
                 continue
             if same_group:
-                if a_id.IntegerValue < b_id.IntegerValue:
+                if eid_value(a_id) < eid_value(b_id):
                     lo, hi = a_id, b_id
                 else:
                     lo, hi = b_id, a_id
-                key = (lo.IntegerValue, hi.IntegerValue)
+                key = (eid_value(lo), eid_value(hi))
                 if key in seen:
                     continue
                 seen.add(key)

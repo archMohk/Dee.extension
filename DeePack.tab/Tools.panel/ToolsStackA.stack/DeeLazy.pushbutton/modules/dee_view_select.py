@@ -84,6 +84,7 @@ from Autodesk.Revit.DB import (
 
 import utils
 from modules import view_cropping
+from dee_ids import eid_value
 
 output = script.get_output()
 
@@ -188,7 +189,7 @@ def scan_sheets(doc):
                 sheet_id=sheet.Id,
                 number=sheet.SheetNumber,
                 name=utils.read_name(sheet) or "(unnamed)",
-                view_count=len(placements.get(sheet.Id.IntegerValue, []))))
+                view_count=len(placements.get(eid_value(sheet.Id), []))))
         except Exception:
             continue
     rows.sort(key=lambda r: r.number.lower())
@@ -203,7 +204,7 @@ def _placements_by_sheet(doc):
     try:
         for vp in FilteredElementCollector(doc).OfClass(Viewport):
             try:
-                out.setdefault(vp.SheetId.IntegerValue, []).append((vp.ViewId, vp.Id))
+                out.setdefault(eid_value(vp.SheetId), []).append((vp.ViewId, vp.Id))
             except Exception:
                 continue
     except Exception:
@@ -216,7 +217,7 @@ def _placements_by_sheet(doc):
             except Exception:
                 pass
             try:
-                out.setdefault(ssi.SheetId.IntegerValue, []).append((ssi.ScheduleId, None))
+                out.setdefault(eid_value(ssi.SheetId), []).append((ssi.ScheduleId, None))
             except Exception:
                 continue
     except Exception:
@@ -257,7 +258,7 @@ def scan_views_on_sheets(doc, sheet_ids, progress_cb=None):
         if sheet is None:
             continue
         label = utils.sheet_label(sheet)
-        for view_id, viewport_id in placements.get(sheet_id.IntegerValue, []):
+        for view_id, viewport_id in placements.get(eid_value(sheet_id), []):
             view = doc.GetElement(view_id)
             if view is None:
                 continue
@@ -749,7 +750,7 @@ class DeeViewSelectWindow(dee_branding.DeeBrandedWindow):
         self.sheets_summary_tb.Text = "{0} of {1} sheet(s) checked.".format(
             sheets_picked, len(self._sheet_rows))
         picked = self._selected_views()
-        distinct = len(set(r.view_id.IntegerValue for r in picked))
+        distinct = len(set(eid_value(r.view_id) for r in picked))
         self.views_summary_tb.Text = "{0} of {1} placement(s) checked ({2} distinct view(s)).".format(
             len(picked), len(self._view_rows), distinct)
         self.action_target_tb.Text = (
@@ -837,7 +838,7 @@ class DeeViewSelectWindow(dee_branding.DeeBrandedWindow):
         seen = set()
         out = []
         for r in rows:
-            key = r.view_id.IntegerValue
+            key = eid_value(r.view_id)
             if key in seen:
                 continue
             seen.add(key)
@@ -1054,13 +1055,13 @@ class DeeViewSelectWindow(dee_branding.DeeBrandedWindow):
         # Those placements are gone, so re-scan the sheet counts rather than
         # trusting the pre-delete list. The tick state is carried over by id
         # so the user does not lose their sheet selection.
-        checked = set(r.sheet_id.IntegerValue for r in self._sheet_rows if r.selected)
+        checked = set(eid_value(r.sheet_id) for r in self._sheet_rows if r.selected)
         self._sheet_rows = scan_sheets(self.doc)
         for r in self._sheet_rows:
-            r.selected = r.sheet_id.IntegerValue in checked
-        gone = set(x.viewport_id.IntegerValue for x in rows)
+            r.selected = eid_value(r.sheet_id) in checked
+        gone = set(eid_value(x.viewport_id) for x in rows)
         self._view_rows = [r for r in self._view_rows
-                           if r.viewport_id is None or r.viewport_id.IntegerValue not in gone]
+                           if r.viewport_id is None or eid_value(r.viewport_id) not in gone]
         self._refresh_sheets_grid()
         self._refresh_views_grid()
         self._update_summaries()
