@@ -26,7 +26,7 @@ _WEBSITE_URL = "https://www.archmkd.com"
 
 class AboutWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file):
-        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file, theme=True)
         try:
             if os.path.exists(_LOGO_FILE):
                 bmp = BitmapImage()
