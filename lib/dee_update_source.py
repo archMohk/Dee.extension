@@ -304,6 +304,36 @@ def plan_update(root, manifest, applied=None):
     }
 
 
+_BUNDLE_SUFFIXES = (".tab", ".panel", ".stack", ".pulldown", ".splitbutton",
+                    ".splitpushbutton", ".pushbutton", ".smartbutton",
+                    ".linkbutton", ".invokebutton", ".urlbutton", ".content")
+
+
+def prune_empty_bundles(root):
+    """Removes pyRevit bundle folders (*.pushbutton, *.panel, ...) that hold
+    no files at all. Returns the folders removed.
+
+    A button moved or deleted on the mirror has its FILES removed by
+    apply_update, but the folder stays - and pyRevit still lists an empty
+    bundle folder on the ribbon (DeeAccount kept showing on the Cloud panel
+    after it moved to About). Only completely empty folders are touched, so
+    nothing anybody saved can be lost."""
+    removed = []
+    try:
+        for current, dirs, files in os.walk(root, topdown=False):
+            if current == root or not current.lower().endswith(_BUNDLE_SUFFIXES):
+                continue
+            try:
+                if not os.listdir(current):
+                    os.rmdir(current)
+                    removed.append(current)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return removed
+
+
 def apply_update(root, supabase_url, bucket, manifest, plan=None,
                  on_progress=None, logger=None):
     """Downloads and writes the planned files. Returns a result dict.
@@ -369,6 +399,9 @@ def apply_update(root, supabase_url, bucket, manifest, plan=None,
             removed.append(rel_path)
         except Exception as e:
             failed.append((rel_path, "could not remove: {0}".format(e)))
+
+    if removed:
+        prune_empty_bundles(root)
 
     if on_progress is not None:
         try:
