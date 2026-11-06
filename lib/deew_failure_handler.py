@@ -174,6 +174,26 @@ def make_dialog_handler(logger=None):
     return handler
 
 
+def make_known_dialogs_handler(logger=None):
+    """Handler for when a tool's "Automatically Resolve Dialogs" switch is
+    OFF: answers ONLY the shared must-handle dialogs in
+    lib/dee_known_dialogs.py (Copied Central Model, ...) and leaves every
+    other dialog untouched for the user to answer, as before."""
+
+    def handler(sender, args):
+        try:
+            known = dee_known_dialogs.answer(args)
+            if known and logger is not None:
+                try:
+                    logger.info(known, resolved=True)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    return handler
+
+
 class DeeWFailuresPreprocessor(IFailuresPreprocessor):
     """Suppresses Warning-severity failures (deletes them so no modal
     pops mid-batch) and requests a rollback the moment a real
