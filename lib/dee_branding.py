@@ -179,9 +179,8 @@ class DeeBrandedWindow(forms.WPFWindow):
     def __init__(self, xaml_file, theme=True):
         forms.WPFWindow.__init__(self, xaml_file)
         # Every branded window gets lib/DeeTheme.xaml (shared button /
-        # input / grid look). A window passes theme=False to stay out -
-        # the four dark-background tools do, because the theme's light
-        # button and grid brushes are drawn for a light window.
+        # input / grid look). theme=False is an escape hatch only - no
+        # tool uses it, so every window shares the same light theme.
         if theme:
             apply_theme(self)
         try:

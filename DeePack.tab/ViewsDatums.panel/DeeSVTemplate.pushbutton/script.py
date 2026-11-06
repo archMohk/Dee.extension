@@ -41,6 +41,9 @@ from System.Windows import (CornerRadius, HorizontalAlignment, Thickness,
 from System.Windows.Controls import (Border, CheckBox, Orientation, StackPanel,
                                      TextBlock, WrapPanel)
 from System.Windows.Media import Brushes, Color, SolidColorBrush
+
+# Dark text for rows built in code - matches DeeTheme's DeeText (#222222).
+_ROW_TEXT = SolidColorBrush(Color.FromRgb(0x22, 0x22, 0x22))
 from System.Windows.Media.Imaging import BitmapImage, BitmapCacheOption
 from System.Windows.Input import Cursors
 from System.IO import File, MemoryStream
@@ -68,13 +71,12 @@ _SWATCH_HALFTONE = SolidColorBrush(Color.FromRgb(0x77, 0x77, 0x77))
 _SWATCH_THICK = SolidColorBrush(Color.FromRgb(0x2E, 0x4B, 0x6E))
 _SWATCH_FILLED = SolidColorBrush(Color.FromRgb(0x3E, 0x6E, 0x4B))
 _SWATCH_HIDDEN = SolidColorBrush(Color.FromRgb(0x5C, 0x2A, 0x2A))
-_ROW_BG = SolidColorBrush(Color.FromRgb(0x2B, 0x2B, 0x2B))
+_ROW_BG = SolidColorBrush(Color.FromRgb(0xF2, 0xF2, 0xF2))
 
 
 class DeeSVTemplateWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc, uidoc):
-        # theme=False: dark window, the shared light theme does not fit it.
-        dee_branding.DeeBrandedWindow.__init__(self, xaml_file, theme=False)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self.uidoc = uidoc
         self._ready = False
@@ -259,7 +261,7 @@ class DeeSVTemplateWindow(dee_branding.DeeBrandedWindow):
     def _make_target_row(self, element, label):
         cb = CheckBox()
         cb.Content = label
-        cb.Foreground = Brushes.WhiteSmoke
+        cb.Foreground = _ROW_TEXT
         cb.Margin = Thickness(6, 3, 6, 3)
         cb.Tag = element
         row = Border()

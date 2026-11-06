@@ -68,6 +68,9 @@ from System.Windows.Input import Cursors, Keyboard, ModifierKeys
 from System.Windows.Media import (Brushes, Color, DoubleCollection,
                                   PointCollection, SolidColorBrush,
                                   VisualTreeHelper)
+
+# Dark text for rows built in code - matches DeeTheme's DeeText (#222222).
+_ROW_TEXT = SolidColorBrush(Color.FromRgb(0x22, 0x22, 0x22))
 from System.Windows.Shapes import Line, Polygon
 from System.Windows.Threading import Dispatcher, DispatcherFrame, DispatcherPriority
 from System.Windows.Forms import FolderBrowserDialog, DialogResult, SaveFileDialog, OpenFileDialog, MessageBox
@@ -165,8 +168,7 @@ class MatchRow(object):
 
 class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, uiapp):
-        # theme=False: dark window, the shared light theme does not fit it.
-        dee_branding.DeeBrandedWindow.__init__(self, xaml_file, theme=False)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.uiapp = uiapp
         self.application = uiapp.Application
         self.logger = deew_logger.DeeWLogger(_TOOL_NAME)
@@ -548,8 +550,8 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
     # files that are already visible together.
 
     _WIRE_BRUSH = SolidColorBrush(Color.FromRgb(0xF2, 0x99, 0x4D))
-    _ROW_BG = SolidColorBrush(Color.FromRgb(0x2B, 0x2B, 0x2B))
-    _ROW_ARMED = SolidColorBrush(Color.FromRgb(0x4A, 0x3A, 0x22))
+    _ROW_BG = SolidColorBrush(Color.FromRgb(0xF2, 0xF2, 0xF2))
+    _ROW_ARMED = SolidColorBrush(Color.FromRgb(0xFC, 0xE4, 0xCC))
     _MAP_ALL = "(all)"
 
     def _guard_map(self, fn):
@@ -696,7 +698,7 @@ class DeeMAPLinkWindow(dee_branding.DeeBrandedWindow):
 
         text = TextBlock()
         text.Text = name
-        text.Foreground = Brushes.WhiteSmoke
+        text.Foreground = _ROW_TEXT
         text.FontSize = 10
         text.TextTrimming = TextTrimming.CharacterEllipsis
         text.VerticalAlignment = VerticalAlignment.Center
