@@ -186,13 +186,17 @@ def _build_bar():
 _THEME_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "DeeTheme.xaml")
 
 
-def _load_theme_dictionary():
-    """Parse lib/DeeTheme.xaml into a fresh ResourceDictionary.
+def _load_theme_dictionary(dark=False):
+    """Parse lib/DeeTheme.xaml into a fresh ResourceDictionary (with the
+    dark palette from lib/dee_dark.py when dark=True).
 
     Fresh per window on purpose: a ResourceDictionary merged into one
     window and then into another is fine for brushes, but a parse costs
     a few ms and sharing one instance across windows opened at different
     times has bitten WPF before (frozen Freezables, ownership checks)."""
+    if dark:
+        import dee_dark
+        return XamlReader.Parse(dee_dark.theme_text())
     stream = FileStream(_THEME_FILE, FileMode.Open, FileAccess.Read)
     try:
         return XamlReader.Load(stream)
@@ -200,14 +204,24 @@ def _load_theme_dictionary():
         stream.Close()
 
 
-def apply_theme(window):
-    """Merge DeeTheme.xaml into a window's Resources.
+def theme_wanted():
+    """"light" or "dark", from About -> Interface -> Theme & shape."""
+    try:
+        import dee_effects
+        return dee_effects.load_theme()
+    except Exception:
+        return "light"
+
+
+def apply_theme(window, dark=False):
+    """Merge DeeTheme.xaml into a window's Resources (dark: the dark
+    palette, then DeeThemeDark.xaml on top).
 
     Implicit styles in the dictionary then apply to every control in the
     window that doesn't set the same property inline. Safe to call on any
     window; a failure leaves the window exactly as its own XAML drew it."""
     try:
-        theme = _load_theme_dictionary()
+        theme = _load_theme_dictionary(dark)
         try:
             # The user's accent replaces the theme's orange.
             accent = _accent_color()
@@ -216,6 +230,9 @@ def apply_theme(window):
         except Exception:
             pass
         window.Resources.MergedDictionaries.Add(theme)
+        if dark:
+            import dee_dark
+            window.Resources.MergedDictionaries.Add(XamlReader.Parse(dee_dark.extras_text()))
         return True
     except Exception:
         return False
@@ -415,21 +432,44 @@ def progress_cancel(window):
 
 
 class DeeBrandedWindow(forms.WPFWindow):
-    def __init__(self, xaml_file, theme=True, rounded=None, shape=None):
+    def __init__(self, xaml_file, theme=True, rounded=None, shape=None, dark=None):
         # shape=None follows About -> Interface -> Shapes; rounded=True/False
         # is the older way of asking for "rounded" / "standard".
         if shape is None:
             shape = shape_wanted() if rounded is None else ("rounded" if rounded else "standard")
         rounded = shape != "standard"
+        # dark=None follows About -> Interface -> Theme & shape.
+        if dark is None:
+            dark = theme_wanted() == "dark"
+        dark = bool(dark and theme)
+        source, literal = xaml_file, False
+        if dark and os.path.isfile(xaml_file):
+            # The tool's own written-in colours, turned dark before the
+            # window is built (lib/dee_dark.py).
+            import dee_dark
+            text = dee_dark.dark_xaml_for(xaml_file)
+            if text:
+                source, literal = text, True
         # Rounded chrome must be set before the native handle exists, and
         # pyrevit's owner setup creates it - so defer that (see below).
-        forms.WPFWindow.__init__(self, xaml_file, set_owner=not rounded)
+        if literal:
+            forms.WPFWindow.__init__(self, source, literal_string=True, set_owner=not rounded)
+        else:
+            forms.WPFWindow.__init__(self, source, set_owner=not rounded)
         set_window_accent(self)
         # Every branded window gets lib/DeeTheme.xaml (shared button /
         # input / grid look). theme=False is an escape hatch only - no
-        # tool uses it, so every window shares the same light theme.
+        # tool uses it.
+        self._dee_dark = False
         if theme:
-            apply_theme(self)
+            apply_theme(self, dark)
+            if dark:
+                self._dee_dark = True
+                try:
+                    import dee_dark
+                    dee_dark.attach_scanner(self)
+                except Exception:
+                    pass
         self._dee_rounded = False
         if rounded:
             try:

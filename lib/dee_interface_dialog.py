@@ -11,7 +11,7 @@ Colours - two colours, one at a time ("Colour the: Accent / Lines"):
   colour picker) and a hex box.
 Effects - any combination of glass, accent outline, accent top line,
   fade in and accent title bar (lib/dee_effects.py).
-Shapes - the outline of every tool window: Standard, Rounded, Soft float,
+Theme & shape - Light or Dark (lib/dee_dark.py), and the outline of every tool window: Standard, Rounded, Soft float,
   Cut corners, Leaf or Ticket (lib/dee_shapes.py), each drawn as a card;
   "Try it" opens a sample window in the picked shape.
 
@@ -100,6 +100,10 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._build_effects()
         self._shape_cards = {}
         self._build_shapes()
+        if self._effects.get("theme") == "dark":
+            self.theme_dark_rb.IsChecked = True
+        else:
+            self.theme_light_rb.IsChecked = True
         dee_effects.when_ready(self, lambda: dee_effects.apply(self, self._effects))
         self._ready = True
         self.hex_tb.Text = self._target_value()
@@ -252,9 +256,16 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._sync_shape_cards()
         self._effects_changed()
 
+    def theme_changed(self, sender, args):
+        if not self._ready:
+            return
+        self._effects["theme"] = "dark" if self.theme_dark_rb.IsChecked else "light"
+        self._effects_changed()
+
     def try_shape_click(self, sender, args):
         try:
-            sample = _ShapeSample(self._effects.get("shape", "standard"))
+            sample = _ShapeSample(self._effects.get("shape", "standard"),
+                                  self._effects.get("theme") == "dark")
             try:
                 sample.Owner = self
             except Exception:
@@ -283,15 +294,17 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
                    or self._effects != self._saved_effects)
         if changed:
             self.status_tb.Text = "Not applied yet - click Apply."
-            if self._effects.get("shape") != self._saved_effects.get("shape"):
-                self.status_tb.Text += (" A new shape shows on windows opened after Apply"
-                                        " (Try it shows it now).")
+            if (self._effects.get("shape") != self._saved_effects.get("shape")
+                    or self._effects.get("theme") != self._saved_effects.get("theme")):
+                self.status_tb.Text += (" A new theme or shape shows on windows opened"
+                                        " after Apply (Try it shows it now).")
         else:
             on = [label for key, label, _tip in dee_effects.EFFECTS if self._effects.get(key)]
             shape = dict((k, l) for k, l, _d in dee_shapes.SHAPES).get(
                 self._effects.get("shape"), "Standard")
-            self.status_tb.Text = "Current: accent {0}, lines {1}, shape {2}, effects: {3}".format(
-                self._saved_accent, self._saved_line or "grey", shape, ", ".join(on) or "none")
+            self.status_tb.Text = "Current: {4} theme, accent {0}, lines {1}, shape {2}, effects: {3}".format(
+                self._saved_accent, self._saved_line or "grey", shape, ", ".join(on) or "none",
+                self._effects.get("theme", "light"))
 
     def _refresh(self):
         current = self._target_value()
@@ -408,10 +421,10 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
 class _ShapeSample(dee_branding.DeeBrandedWindow):
     """The small window "Try it" opens, in the shape being picked."""
 
-    def __init__(self, shape):
-        dee_branding.DeeBrandedWindow.__init__(self, _SAMPLE_XAML, shape=shape)
+    def __init__(self, shape, dark=False):
+        dee_branding.DeeBrandedWindow.__init__(self, _SAMPLE_XAML, shape=shape, dark=dark)
         label = dict((k, l) for k, l, _d in dee_shapes.SHAPES).get(shape, shape)
-        self.sample_tb.Text = "Shape: {0}".format(label)
+        self.sample_tb.Text = "Shape: {0}, {1} theme".format(label, "dark" if dark else "light")
 
     def close_click(self, sender, args):
         self.Close()

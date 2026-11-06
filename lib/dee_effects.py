@@ -45,6 +45,7 @@ DEFAULTS = {
     "fade": False,
     "titlebar": False,
     "shape": "standard",
+    "theme": "light",
 }
 _SWITCHES = ("glass", "outline", "topline", "fade", "titlebar")
 
@@ -87,7 +88,13 @@ def load_effects():
         out["shape"] = "rounded"
     import dee_shapes
     out["shape"] = dee_shapes.normalize(out["shape"])
+    if out["theme"] not in ("light", "dark"):
+        out["theme"] = "light"
     return out
+
+
+def load_theme():
+    return load_effects()["theme"]
 
 
 def load_shape():
