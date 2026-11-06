@@ -75,3 +75,4 @@ dee_control_panel.json
 __pycache__/
 *.pyc
 *.log
+.deeursfiles_acc_cache.json
