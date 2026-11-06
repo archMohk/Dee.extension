@@ -39,12 +39,16 @@ way (DWMWA_WINDOW_CORNER_PREFERENCE, Windows 11 only, a silent no-op on
 Windows 10, never touches WindowStyle/AllowsTransparency/chrome, so it
 can't cause this class of bug).
 """
+import os
+
 import clr
 clr.AddReference("PresentationFramework")
 clr.AddReference("PresentationCore")
 clr.AddReference("System")
 from System import Uri, IntPtr
 from System.Diagnostics import Process
+from System.IO import FileStream, FileMode, FileAccess
+from System.Windows.Markup import XamlReader
 from System.Windows import (
     Thickness, HorizontalAlignment, VerticalAlignment, FontWeights,
     WindowStyle, CornerRadius, Rect, TextTrimming
@@ -141,9 +145,45 @@ def _build_bar():
     return bar
 
 
+_THEME_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "DeeTheme.xaml")
+
+
+def _load_theme_dictionary():
+    """Parse lib/DeeTheme.xaml into a fresh ResourceDictionary.
+
+    Fresh per window on purpose: a ResourceDictionary merged into one
+    window and then into another is fine for brushes, but a parse costs
+    a few ms and sharing one instance across windows opened at different
+    times has bitten WPF before (frozen Freezables, ownership checks)."""
+    stream = FileStream(_THEME_FILE, FileMode.Open, FileAccess.Read)
+    try:
+        return XamlReader.Load(stream)
+    finally:
+        stream.Close()
+
+
+def apply_theme(window):
+    """Merge DeeTheme.xaml into a window's Resources.
+
+    Implicit styles in the dictionary then apply to every control in the
+    window that doesn't set the same property inline. Safe to call on any
+    window; a failure leaves the window exactly as its own XAML drew it."""
+    try:
+        window.Resources.MergedDictionaries.Add(_load_theme_dictionary())
+        return True
+    except Exception:
+        return False
+
+
 class DeeBrandedWindow(forms.WPFWindow):
-    def __init__(self, xaml_file):
+    def __init__(self, xaml_file, theme=False):
         forms.WPFWindow.__init__(self, xaml_file)
+        # theme=True opts the window into lib/DeeTheme.xaml (shared
+        # button / input / grid look). Off by default while it is being
+        # piloted, so the windows that have not been checked against it
+        # keep their current appearance.
+        if theme:
+            apply_theme(self)
         try:
             self._add_footer_bar()
         except Exception:

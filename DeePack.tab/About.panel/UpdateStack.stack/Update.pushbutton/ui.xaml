@@ -17,7 +17,8 @@
             <Button x:Name="check_b" Content="Check for Updates" Click="check_click"
                     Width="140" Height="30" Margin="0,0,8,0"/>
             <Button x:Name="update_b" Content="Update Now" Click="update_click"
-                    Width="110" Height="30" Margin="0,0,8,0" FontWeight="Bold"/>
+                    Width="110" Height="30" Margin="0,0,8,0"
+                    Style="{DynamicResource DeePrimary}"/>
             <Button x:Name="cancel_b" Content="Cancel" Click="cancel_click"
                     Width="90" Height="30"/>
         </StackPanel>

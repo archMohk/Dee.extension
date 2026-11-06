@@ -119,7 +119,7 @@ class _SafeProgress(object):
 
 class UpdateWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file):
-        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file, theme=True)
         self.confirmed = False
         self.source = upd.SOURCE_GITHUB
         try:

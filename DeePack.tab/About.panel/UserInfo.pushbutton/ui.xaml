@@ -9,6 +9,7 @@
         <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
             <StackPanel Orientation="Horizontal">
                 <Button x:Name="check_now_b" Content="Check Now" Width="110" Height="28" Click="check_now_click"
+                        Style="{DynamicResource DeePrimary}"
                         ToolTip="Runs a fresh check against the server instead of showing the last cached result."/>
                 <Button x:Name="reenter_b" Content="Re-enter Email" Width="120" Height="28" Margin="8,0,0,0" Click="reenter_click"/>
                 <Button x:Name="close_b" Content="Close" Width="90" Height="28" Margin="8,0,0,0" Click="close_click"/>

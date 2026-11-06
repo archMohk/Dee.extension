@@ -15,6 +15,7 @@
                    Text="Batch open, link, and publish Revit cloud models from ACC/BIM360, plus a growing set of modeling, QC, sheet, and alignment tools for NAGA Architects Designers &amp; Planners."/>
         <Button x:Name="website_b" Content="www.archmkd.com" Click="website_click"
                 HorizontalAlignment="Center" Padding="14,6" Margin="0,0,0,16" Cursor="Hand"/>
-        <Button x:Name="close_b" Content="Close" Click="close_click" Width="100" Height="28" HorizontalAlignment="Center"/>
+        <Button x:Name="close_b" Content="Close" Click="close_click" Width="100" Height="28" HorizontalAlignment="Center"
+                Style="{DynamicResource DeePrimary}"/>
     </StackPanel>
 </Window>

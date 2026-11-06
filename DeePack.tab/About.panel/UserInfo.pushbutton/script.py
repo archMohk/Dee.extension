@@ -57,7 +57,7 @@ def _expires_text(status):
 
 class UserInfoWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file):
-        dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        dee_branding.DeeBrandedWindow.__init__(self, xaml_file, theme=True)
         self.contact_tb.Text = "Contact:\n" + dee_telemetry.CONTACT_INFO
         self._refresh()
         # Third attempt point for the experimental tab icon (see
