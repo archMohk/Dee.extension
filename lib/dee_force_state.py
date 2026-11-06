@@ -158,6 +158,12 @@ def _set_button_icon(uiapp, icon_path):
         button = _find_deeforce_button(uiapp)
         if button is None:
             return
+        try:
+            # The user's accent colour (DeeControl -> Accent Colour).
+            import dee_accent
+            icon_path = dee_accent.resolve(icon_path)
+        except Exception:
+            pass
         from pyrevit.coreutils.ribbon import ButtonIcons
         icons = ButtonIcons(icon_path)
         try:

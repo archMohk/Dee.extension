@@ -98,6 +98,15 @@ try:
 except Exception:
     pass
 
+# The user's accent colour on the ribbon icons (DeeControl -> Accent
+# Colour). Waits for Revit's first Idling, after the ribbon is built.
+try:
+    from pyrevit import HOST_APP
+    import dee_accent
+    dee_accent.apply_on_startup(HOST_APP.uiapp)
+except Exception:
+    pass
+
 try:
     from pyrevit import HOST_APP
     import dee_icon_service

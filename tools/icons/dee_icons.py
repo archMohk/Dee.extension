@@ -73,6 +73,8 @@ STROKE = 7.5                # base stroke width, in 96-space units
 # The brand orange #F2994D is NOT used directly: it measures 2.22 on white,
 # which is why the light ribbon looked washed out even where it was orange.
 # #CC7020 is the same hue carried far enough to be legible on both.
+# lib/dee_accent.py (the user's Accent Colour) recolours exactly this accent
+# at runtime - change ICON_ACCENT there too if it ever changes here.
 # --crisp restores maximum-contrast per-theme ink for a machine that never
 # switches theme.
 PALETTES = {
