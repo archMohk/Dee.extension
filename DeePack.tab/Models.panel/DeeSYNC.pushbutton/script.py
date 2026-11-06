@@ -1,6 +1,7 @@
 from Autodesk.Revit.DB import *
 from pyrevit import forms, script
 import dee_telemetry
+import dee_known_dialogs
 dee_telemetry.check_access("DeeSYNC")
 import deew_failure_handler as ffh
 import deew_logger
@@ -36,6 +37,7 @@ logger = deew_logger.DeeWLogger("DeeSYNC")
 dialog_handler = ffh.make_dialog_handler(logger)
 try:
     __revit__.DialogBoxShowing += dialog_handler
+    dee_known_dialogs.attach_failures(__revit__)
 except Exception:
     pass
 
@@ -72,6 +74,7 @@ try:
                 results.append("{} - FAILED (skipped): {}".format(doc.Title, str(e)))
 finally:
     try:
+        dee_known_dialogs.detach_failures(__revit__)
         __revit__.DialogBoxShowing -= dialog_handler
     except Exception:
         pass

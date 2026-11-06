@@ -103,6 +103,7 @@ import acc_file_browser as afb
 import acc_links_service as als
 import deew_document_manager as docmgr
 import deew_failure_handler as ffh
+import dee_known_dialogs
 import deew_logger
 import dee_linkmap_service as svc
 import dee_telemetry
@@ -667,6 +668,7 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
         dialog_handler = ffh.make_dialog_handler(self.logger)
         try:
             self.uiapp.DialogBoxShowing += dialog_handler
+            dee_known_dialogs.attach_failures(self.uiapp)
         except Exception as e:
             self.logger.exception("Could not attach dialog handler", e)
 
@@ -747,6 +749,7 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
                 self._progress_done_one()
         finally:
             try:
+                dee_known_dialogs.detach_failures(self.uiapp)
                 self.uiapp.DialogBoxShowing -= dialog_handler
             except Exception:
                 pass

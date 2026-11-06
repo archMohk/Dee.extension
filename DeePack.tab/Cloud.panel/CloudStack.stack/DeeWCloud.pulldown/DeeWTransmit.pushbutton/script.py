@@ -77,6 +77,7 @@ import deew_model_scanner as scanner
 import deew_document_manager as docmgr
 import deew_clean_service as cleansvc
 import deew_failure_handler as ffh
+import dee_known_dialogs
 import deew_progress_service as progsvc
 import deew_report_generator as reportgen
 import acc_file_browser as afb
@@ -514,6 +515,7 @@ class DeeWTransmitWindow(dee_branding.DeeBrandedWindow):
             self._dialog_handler = ffh.make_known_dialogs_handler(self.logger)
         try:
             self.uiapp.DialogBoxShowing += self._dialog_handler
+            dee_known_dialogs.attach_failures(self.uiapp)
         except Exception as e:
             self.logger.exception("Could not attach dialog handler", e)
 
@@ -558,6 +560,7 @@ class DeeWTransmitWindow(dee_branding.DeeBrandedWindow):
         finally:
             if self._dialog_handler is not None:
                 try:
+                    dee_known_dialogs.detach_failures(self.uiapp)
                     self.uiapp.DialogBoxShowing -= self._dialog_handler
                 except Exception:
                     pass

@@ -24,6 +24,7 @@ from Autodesk.Revit.DB import (
 )
 from Autodesk.Revit.UI import RevitCommandId, PostableCommand
 import deew_failure_handler as ffh
+import dee_known_dialogs
 import deew_logger
 import dee_telemetry
 dee_telemetry.check_access("DeeCloseAll")
@@ -151,6 +152,7 @@ def main():
     dialog_handler = ffh.make_dialog_handler(logger)
     try:
         __revit__.DialogBoxShowing += dialog_handler
+        dee_known_dialogs.attach_failures(__revit__)
     except Exception:
         pass
 
@@ -184,6 +186,7 @@ def main():
                     results.append((label, "FAILED (skipped): {0}".format(e), False))
     finally:
         try:
+            dee_known_dialogs.detach_failures(__revit__)
             __revit__.DialogBoxShowing -= dialog_handler
         except Exception:
             pass

@@ -665,6 +665,7 @@ def main():
     dialogs = []
     handler = _make_dialog_handler(dialogs)
     uiapp.DialogBoxShowing += handler
+    dee_known_dialogs.attach_failures(uiapp)
     try:
         with _SafeProgress(title="DeeTransmit - cleaning...",
                                cancellable=True) as pb:
@@ -678,6 +679,7 @@ def main():
                 except Exception as e:
                     target.error = "Cleaning failed: {0}".format(e)
     finally:
+        dee_known_dialogs.detach_failures(uiapp)
         uiapp.DialogBoxShowing -= handler
 
     finish_mode, folder = _finish(targets, live)
@@ -685,6 +687,7 @@ def main():
         # The saving pass raises the same dialogs the cleaning pass did,
         # so it needs the same handler over it.
         uiapp.DialogBoxShowing += handler
+        dee_known_dialogs.attach_failures(uiapp)
         try:
             with _SafeProgress(title="DeeTransmit - saving...",
                                    cancellable=False) as pb:
@@ -696,6 +699,7 @@ def main():
                     if target.result:
                         target.result.notes.append(note)
         finally:
+            dee_known_dialogs.detach_failures(uiapp)
             uiapp.DialogBoxShowing -= handler
 
     # Only ever close what this tool opened, and only when the user did

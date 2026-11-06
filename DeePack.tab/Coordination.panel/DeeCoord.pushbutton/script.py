@@ -735,6 +735,7 @@ def main():
     dismissed_log = []
     dialog_handler = _make_dialog_handler(dismissed_log)
     uiapp.DialogBoxShowing += dialog_handler
+    dee_known_dialogs.attach_failures(uiapp)
 
     try:
         with _SafeProgress(title="DeeCoord — starting...", cancellable=True) as pb:
@@ -833,6 +834,7 @@ def main():
                 else:
                     prev_steps.append(("Left open (Close After Sync unchecked)", None))
     finally:
+        dee_known_dialogs.detach_failures(uiapp)
         uiapp.DialogBoxShowing -= dialog_handler
 
     # ── coloured HTML results ──────────────────────────────────────────────────
