@@ -893,8 +893,9 @@ class ProgressService(object):
         # no progress UI instead of crashing; set_step()/update()/cancelled
         # already guard self._pb being None.
         try:
-            self._pb = forms.ProgressBar(title=self._title_template.replace("{step}", "starting..."),
-                                          cancellable=True)
+            import dee_ui   # shared bar: in-window strip with Cancel, else pop-up
+            self._pb = dee_ui.open_progress(
+                title=self._title_template.replace("{step}", "starting..."), cancellable=True)
         except Exception:
             self._pb = None
         return self

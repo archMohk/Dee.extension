@@ -195,16 +195,47 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
     def _pump(self):
         dee_ui.pump(self)
 
+    # ---- progress: the shared strip at the bottom of the window ----
+    # Status line, bar and a Cancel button, drawn by dee_branding and
+    # driven through dee_ui.open_progress - the same strip every tool
+    # uses. Replaces this tool's own embedded ProgressBar.
+    def _prog_open(self, indeterminate=False):
+        self._prog_close()
+        self._prog_was_cancelled = False
+        self._prog_ui = dee_ui.open_progress(window=self, title="Starting...",
+                                             indeterminate=indeterminate,
+                                             cancellable=True)
+
+    def _prog_close(self):
+        prog = getattr(self, "_prog_ui", None)
+        self._prog_ui = None
+        if prog is not None:
+            try:
+                self._prog_was_cancelled = bool(prog.cancelled)
+            except Exception:
+                pass
+            try:
+                prog.close()
+            except Exception:
+                pass
+
+    def _progress_cancelled(self):
+        """True once Cancel was clicked (or the window closed) mid-run;
+        loops check it before each item and stop cleanly."""
+        prog = getattr(self, "_prog_ui", None)
+        if prog is None:
+            return bool(getattr(self, "_prog_was_cancelled", False))
+        try:
+            return bool(prog.cancelled)
+        except Exception:
+            return False
+
     def _progress_begin(self, total_steps, indeterminate=False):
         self._prog_total = max(1, total_steps)
         self._prog_done = 0
         self._prog_start = time.time()
+        self._prog_open(indeterminate)
         try:
-            self.progress_bar.IsIndeterminate = indeterminate
-            self.progress_bar.Minimum = 0
-            self.progress_bar.Maximum = self._prog_total
-            self.progress_bar.Value = 0
-            self.progress_host.Visibility = Visibility.Visible
             self.run_b.IsEnabled = False
         except Exception:
             pass
@@ -213,8 +244,8 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
     def _progress_set_total(self, total_steps):
         self._prog_total = max(1, total_steps)
         try:
-            self.progress_bar.IsIndeterminate = False
-            self.progress_bar.Maximum = self._prog_total
+            if self._prog_ui is not None:
+                self._prog_ui.indeterminate = False
         except Exception:
             pass
 
@@ -227,9 +258,11 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
                 eta = "ETA {0:.0f}s".format(max(0, remaining))
             else:
                 eta = "ETA --"
-            self.progress_bar.Value = min(done, self._prog_total)
-            self.progress_text_tb.Text = "{0}   |   {1} of {2}   |   {3}".format(
-                label, min(done + 1, self._prog_total), self._prog_total, eta)
+            if self._prog_ui is not None:
+                self._prog_ui.update_progress(min(done, self._prog_total), self._prog_total)
+            if self._prog_ui is not None:
+                self._prog_ui.title = "{0}   |   {1} of {2}   |   {3}".format(
+                    label, min(done + 1, self._prog_total), self._prog_total, eta)
         except Exception:
             pass
         self._pump()
@@ -240,14 +273,15 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
     def _progress_done_one(self):
         self._prog_done += 1
         try:
-            self.progress_bar.Value = min(self._prog_done, self._prog_total)
+            if self._prog_ui is not None:
+                self._prog_ui.update_progress(min(self._prog_done, self._prog_total), self._prog_total)
         except Exception:
             pass
         self._pump()
 
     def _progress_end(self):
         try:
-            self.progress_host.Visibility = Visibility.Collapsed
+            self._prog_close()
             self.run_b.IsEnabled = True
         except Exception:
             pass
@@ -674,6 +708,12 @@ class DeeLinkMAPWindow(dee_branding.DeeBrandedWindow):
 
         try:
             for row in remaining:
+                if self._progress_cancelled():
+                    self._unread_node(row, file_nodes, "not read - run cancelled")
+                    results.append((None, row.name, "skipped - cancelled"))
+                    skipped_count += 1
+                    self._progress_done_one()
+                    continue
                 if time_budget_hit:
                     self._unread_node(row, file_nodes,
                                       "not read - run stopped at the time budget")

@@ -590,8 +590,10 @@ class LazyLineTagWindow(dee_branding.DeeBrandedWindow):
         settings = self._read_settings()
 
         groups = []
-        with _SafeProgress(title="Lazy Line Tag - scanning...", cancellable=False) as pb:
+        with _SafeProgress(title="Lazy Line Tag - scanning...", cancellable=True) as pb:
             for i, sheet in enumerate(selected_sheets):
+                if pb.cancelled:
+                    break   # preview what was scanned so far
                 pb.update_progress(i, len(selected_sheets))
                 try:
                     groups.extend(scan_sheet(self.doc, sheet, settings))

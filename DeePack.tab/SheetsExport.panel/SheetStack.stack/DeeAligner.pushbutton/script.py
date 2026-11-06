@@ -1493,6 +1493,8 @@ class DeeAlignerWindow(dee_branding.DeeBrandedWindow):
             t = Transaction(self.doc, "DeeAligner - Insert Super Images")
             t.Start()
             for i, row in enumerate(ready):
+                if pb.cancelled:
+                    break   # Cancel: stop after the current item, keep what is done
                 pb.update_progress(i, len(ready))
                 try:
                     self._insert_image_on_sheet(self._super_sheet, row.file_path, row.staged_box)

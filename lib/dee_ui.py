@@ -15,12 +15,15 @@ eid_int(eid)
     ElementId, an int, or anything with .Id (an Element).
 
 SafeProgress(**kwargs)
-    Context manager around pyrevit.forms.ProgressBar that degrades to a
-    silent no-op when the bar cannot be created. forms.ProgressBar sets
-    Window.TaskbarItemInfo, which throws NotImplementedException under
-    Remote Desktop / a shell without a taskbar; without this wrapper the
-    tool would crash there before doing any work. Use exactly like the
-    real bar:
+    The one progress bar. With a Dee tool window open it is drawn in a
+    strip at the bottom of that window - status line, bar and a Cancel
+    button - and the rest of the window is locked until the work ends
+    (closing the window = Cancel). With no tool window open it falls back
+    to pyRevit's pop-up bar (also with Cancel), and to a silent no-op if
+    even that cannot be created (forms.ProgressBar's TaskbarItemInfo
+    throws under Remote Desktop). Cancel is always offered. A loop that
+    never checks pb.cancelled is stopped at its next update_progress()
+    after Cancel. Use exactly like the real bar:
 
         with SafeProgress(title="Doing {value} of {max_value}", cancellable=True) as pb:
             for i, item in enumerate(items, 1):
@@ -109,64 +112,272 @@ def eid_int(eid):
 # ---------------------------------------------------------------------------
 # Progress
 # ---------------------------------------------------------------------------
-class _NullProgress(object):
-    """What SafeProgress hands back when the real bar could not be
-    created: accepts every attribute the real one has, does nothing."""
-    cancelled = False
-    title = ""
-    step = 1
-    max_value = 0
+class DeeCancelled(BaseException):
+    """Raised out of update_progress() to stop a loop that never checks
+    `.cancelled` itself (see _ProgressBase). A BaseException on purpose:
+    a tool's per-item `except Exception:` must not swallow it and carry
+    on with the next item. SafeProgress.__exit__ catches it, so the
+    `with` block simply ends."""
 
-    def update_progress(self, i, total):
-        pass
+
+def _format_title(template, value, max_value):
+    try:
+        return template.format(value=value, max_value=max_value)
+    except Exception:
+        return template
+
+
+class _ProgressBase(object):
+    """The object a `with SafeProgress(...) as pb:` block gets, whichever
+    bar is behind it. Same surface as pyrevit.forms.ProgressBar: title,
+    update_progress(), cancelled, reset(), indeterminate, step, max_value.
+
+    Cancel handling. A tool that reads `pb.cancelled` after Cancel was
+    clicked stops itself, cleanly, its own way. A tool that never looks
+    is stopped for it: its next update_progress() raises DeeCancelled,
+    which ends the `with` block (SafeProgress swallows it). Transactions
+    open inside the block roll back as the exception passes through."""
+
+    _PUMP_INTERVAL = 0.05   # seconds between repaints in a tight loop
+
+    def __init__(self, title="", indeterminate=False, cancellable=True,
+                 step=1, auto_stop=True, **_ignored):
+        object.__setattr__(self, "_title_template", title or "")
+        object.__setattr__(self, "_indeterminate", bool(indeterminate))
+        object.__setattr__(self, "_cancellable", True if cancellable is None else bool(cancellable))
+        object.__setattr__(self, "_cancel_requested", False)
+        object.__setattr__(self, "_cancel_seen", False)
+        object.__setattr__(self, "_auto_stop", auto_stop)
+        object.__setattr__(self, "_value", 0)
+        object.__setattr__(self, "_last_pump", 0.0)
+        object.__setattr__(self, "step", step)
+        object.__setattr__(self, "max_value", 0)
+
+    # -- pyRevit-compatible surface --
+    @property
+    def cancelled(self):
+        if self._cancel_requested:
+            object.__setattr__(self, "_cancel_seen", True)
+        return self._cancel_requested
+
+    @property
+    def title(self):
+        return self._title_template
+
+    @title.setter
+    def title(self, value):
+        object.__setattr__(self, "_title_template", value or "")
+        self._show(force_pump=True)
+
+    @property
+    def indeterminate(self):
+        return self._indeterminate
+
+    @indeterminate.setter
+    def indeterminate(self, value):
+        object.__setattr__(self, "_indeterminate", bool(value))
+        self._show(force_pump=True)
 
     def update_title(self, title):
         self.title = title
 
-    def __setattr__(self, name, value):
-        object.__setattr__(self, name, value)
+    def update_progress(self, new_value, max_value=1):
+        if (self._cancel_requested and not self._cancel_seen
+                and self._auto_stop and self._cancellable):
+            raise DeeCancelled()
+        object.__setattr__(self, "_value", new_value)
+        object.__setattr__(self, "max_value", max_value)
+        self._show()
+
+    def reset(self):
+        object.__setattr__(self, "_value", 0)
+        self._show(force_pump=True)
+
+    def request_cancel(self):
+        object.__setattr__(self, "_cancel_requested", True)
+
+    # -- backend hooks --
+    def _show(self, force_pump=False):
+        pass
+
+    def _current_title(self):
+        return _format_title(self._title_template, self._value, self.max_value)
+
+
+class _WindowProgress(_ProgressBase):
+    """Draws into the strip at the bottom of an open Dee window."""
+
+    def __init__(self, window, **kwargs):
+        _ProgressBase.__init__(self, **kwargs)
+        object.__setattr__(self, "_window", window)
+
+    def open(self):
+        import dee_branding
+        dee_branding.progress_begin(self._window, self._cancellable, self.request_cancel)
+        self._show(force_pump=True)
+        return self
+
+    def close(self):
+        import dee_branding
+        try:
+            dee_branding.progress_end(self._window, self.request_cancel)
+        except Exception:
+            pass
+        pump(self._window)
+
+    def _show(self, force_pump=False):
+        import time
+        import dee_branding
+        try:
+            dee_branding.progress_set(
+                self._window, title=self._current_title(),
+                value=self._value, maximum=self.max_value,
+                indeterminate=self._indeterminate)
+        except Exception:
+            return
+        now = time.time()
+        if force_pump or now - self._last_pump >= self._PUMP_INTERVAL:
+            object.__setattr__(self, "_last_pump", now)
+            # Repaints the strip AND lets a Cancel click through.
+            pump(self._window)
+
+
+class _PopupProgress(_ProgressBase):
+    """pyrevit.forms.ProgressBar, for work that runs with no Dee window
+    on screen. Always offers Cancel, like the in-window strip."""
+
+    def __init__(self, **kwargs):
+        _ProgressBase.__init__(self, **kwargs)
+        object.__setattr__(self, "_bar", None)
+
+    def open(self):
+        bar = forms.ProgressBar(title=self._title_template,
+                                indeterminate=self._indeterminate,
+                                cancellable=self._cancellable, step=self.step)
+        bar.__enter__()
+        object.__setattr__(self, "_bar", bar)
+        return self
+
+    def close(self):
+        try:
+            if self._bar is not None:
+                self._bar.__exit__(None, None, None)
+        except Exception:
+            pass
+
+    @property
+    def cancelled(self):
+        try:
+            if self._bar is not None and self._bar.cancelled:
+                object.__setattr__(self, "_cancel_requested", True)
+        except Exception:
+            pass
+        return _ProgressBase.cancelled.fget(self)
+
+    def update_progress(self, new_value, max_value=1):
+        try:
+            if self._bar is not None and self._bar.cancelled:
+                object.__setattr__(self, "_cancel_requested", True)
+        except Exception:
+            pass
+        _ProgressBase.update_progress(self, new_value, max_value)
+
+    def _show(self, force_pump=False):
+        bar = self._bar
+        if bar is None:
+            return
+        try:
+            bar.title = self._title_template
+        except Exception:
+            pass
+        try:
+            bar.indeterminate = self._indeterminate
+        except Exception:
+            pass
+        try:
+            bar.update_progress(self._value, self.max_value or 1)
+        except Exception:
+            pass
+
+
+class _NullProgress(_ProgressBase):
+    """What SafeProgress hands back when no bar could be created at all:
+    accepts everything the real ones do, draws nothing."""
+
+    def open(self):
+        return self
+
+    def close(self):
+        pass
+
+
+def open_progress(window=None, **kwargs):
+    """An opened progress object without a `with` block - for the few
+    wrappers that keep one around. Call .close() when done. Never raises
+    DeeCancelled (no `with` to catch it): check .cancelled instead."""
+    kwargs.setdefault("auto_stop", False)
+    if window is None:
+        try:
+            import dee_branding
+            window = dee_branding.active_window()
+        except Exception:
+            window = None
+    if window is not None:
+        try:
+            return _WindowProgress(window, **kwargs).open()
+        except Exception:
+            pass
+    try:
+        return _PopupProgress(**kwargs).open()
+    except Exception:
+        # e.g. forms.ProgressBar's TaskbarItemInfo throwing under Remote
+        # Desktop - the reason this wrapper exists in the first place.
+        return _NullProgress(**kwargs).open()
 
 
 class SafeProgress(object):
-    def __init__(self, **kwargs):
+    """`with SafeProgress(title=..., cancellable=True) as pb:` - the one
+    progress bar every tool uses. With a Dee tool window open it is the
+    strip at the bottom of that window (status, bar, Cancel); otherwise
+    pyRevit's pop-up bar; if neither can be created, a silent no-op.
+    Cancel is always offered. Pass window= to target a specific window."""
+
+    def __init__(self, window=None, **kwargs):
+        self._window = window
         self._kwargs = kwargs
-        self._real = None
-        self._null = None
+        self._pb = None
 
     def __enter__(self):
-        try:
-            self._real = forms.ProgressBar(**self._kwargs)
-            return self._real.__enter__()
-        except Exception:
-            self._real = None
-            self._null = _NullProgress()
-            self._null.title = self._kwargs.get("title", "")
-            return self._null
+        kwargs = dict(self._kwargs)
+        kwargs.setdefault("auto_stop", True)
+        self._pb = open_progress(window=self._window, **kwargs)
+        return self._pb
 
     def __exit__(self, exc_type, exc_value, tb):
-        if self._real is not None:
-            try:
-                return self._real.__exit__(exc_type, exc_value, tb)
-            except Exception:
-                return False
-        return False
+        try:
+            if self._pb is not None:
+                self._pb.close()
+        except Exception:
+            pass
+        # A loop stopped by Cancel ends the block quietly.
+        return exc_type is not None and issubclass(exc_type, DeeCancelled)
 
     # Also usable without `with` (a few tools kept a reference around).
     @property
     def cancelled(self):
-        if self._real is not None:
-            try:
-                return bool(self._real.cancelled)
-            except Exception:
-                return False
-        return False
+        try:
+            return bool(self._pb.cancelled) if self._pb is not None else False
+        except Exception:
+            return False
 
     def update_progress(self, i, total):
-        if self._real is not None:
-            try:
-                self._real.update_progress(i, total)
-            except Exception:
-                pass
+        try:
+            if self._pb is not None:
+                self._pb.update_progress(i, total)
+        except DeeCancelled:
+            raise
+        except Exception:
+            pass
 
 
 def pump(window=None, priority=None):

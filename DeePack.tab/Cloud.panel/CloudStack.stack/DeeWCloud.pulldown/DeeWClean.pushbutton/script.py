@@ -383,6 +383,8 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
         added = 0
         with _SafeProgress(title="DeeWClean - scanning {value} of {max_value}...") as pb:
             for i, path in enumerate(dlg.FileNames):
+                if pb.cancelled:
+                    break   # Cancel: stop after the current item, keep what is done
                 pb.update_progress(i, len(dlg.FileNames))
                 if path in existing_paths:
                     continue

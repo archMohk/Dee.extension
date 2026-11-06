@@ -178,7 +178,9 @@ def _update_from_mirror(root):
                        title="Dee Update - Mirror", yes=True, no=True):
         return False, "Cancelled."
 
+    # Not cancellable: a half-applied update is worse than waiting.
     with _SafeProgress(title="Dee Update - downloading from the mirror...",
+                       cancellable=False,
                        max_value=max(1, len(plan["download"])), step=1) as pb:
         def progress(index, total, _path):
             try:
@@ -218,7 +220,7 @@ if window.confirmed:
             forms.alert(message, title="Dee Update - Mirror")
     else:
         with _SafeProgress(title="Dee Update - updating and reloading...",
-                           indeterminate=True):
+                           indeterminate=True, cancellable=False):
             ok, output = _run_pyrevit_update()
             if not ok and output:
                 forms.alert(

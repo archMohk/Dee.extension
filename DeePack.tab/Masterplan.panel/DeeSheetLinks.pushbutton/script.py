@@ -91,58 +91,59 @@ def _safe_range_value(text):
 
 
 class _InlineProgress(object):
-    """A progress bar EMBEDDED in this window's own layout, never a
-    second window/dialog - forms.ProgressBar (pyRevit's own) tries to
-    set Window.TaskbarItemInfo on its host, which throws
-    NotImplementedException under Remote Desktop/Terminal Services or a
-    custom shell without a taskbar (live-confirmed on this exact error
-    from two different DeeSheetLinks actions earlier), so it showed NO
-    progress feedback at all in that environment - not a crash any
-    more (that was already fixed), just silently nothing to look at.
-    This sidesteps the whole problem: it is a plain <ProgressBar>
-    control already living in ui.xaml, updated directly, so it never
-    touches TaskbarItemInfo or opens anything new.
-
-    WPF does not repaint mid-loop on its own - a long synchronous
-    Python loop blocks the same thread WPF would use to redraw, so
-    every update() call pumps the Dispatcher's Background-priority
-    queue (the same mechanism forms.ProgressBar itself relies on
-    internally) to force the bar/text to actually appear before the
-    loop continues."""
+    """Progress for this window's long steps, shown in the shared strip
+    at the bottom of every Dee window (status line, bar and Cancel - see
+    dee_ui.open_progress / dee_branding). Same start/update/stop surface
+    this tool always used; update() returns True once Cancel was clicked
+    on a cancellable step. The strip never touches TaskbarItemInfo, so it
+    still works under Remote Desktop - the reason this class exists."""
     def __init__(self, window, cancellable=False):
         self._window = window
         self._cancellable = cancellable
+        self._prog = None
+        self._maximum = 1
 
     def start(self, status, indeterminate=True, maximum=100):
+        self.stop()
         w = self._window
-        w.progress_bar.IsIndeterminate = indeterminate
-        w.progress_bar.Minimum = 0
-        w.progress_bar.Maximum = maximum if maximum > 0 else 1
-        w.progress_bar.Value = 0
-        w.cancel_b.Visibility = Visibility.Visible if self._cancellable else Visibility.Collapsed
-        w.progress_row.Visibility = Visibility.Visible
+        self._maximum = maximum if maximum > 0 else 1
         w._cancel_requested = False
         w.status_tb.Text = status
-        self._pump()
+        self._prog = dee_ui.open_progress(window=w, title=status,
+                                          indeterminate=indeterminate,
+                                          cancellable=self._cancellable)
 
     def update(self, value, status=None):
         w = self._window
-        try:
-            w.progress_bar.Value = value
-        except Exception:
-            pass
+        if self._prog is not None:
+            try:
+                if status is not None:
+                    self._prog.title = status
+                self._prog.update_progress(value, self._maximum)
+            except Exception:
+                pass
         if status is not None:
             w.status_tb.Text = status
-        self._pump()
-        return self._cancellable and w._cancel_requested
+        return self.cancelled
+
+    @property
+    def cancelled(self):
+        if not self._cancellable:
+            return False
+        try:
+            if self._prog is not None and self._prog.cancelled:
+                return True
+        except Exception:
+            pass
+        return bool(getattr(self._window, "_cancel_requested", False))
 
     def stop(self):
-        w = self._window
-        w.progress_row.Visibility = Visibility.Collapsed
-        self._pump()
-
-    def _pump(self):
-        dee_ui.pump(self._window)
+        prog, self._prog = self._prog, None
+        if prog is not None:
+            try:
+                prog.close()
+            except Exception:
+                pass
 
     def __enter__(self):
         return self

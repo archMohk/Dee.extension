@@ -53,7 +53,9 @@ from System.Windows import (
     Thickness, HorizontalAlignment, VerticalAlignment, FontWeights,
     WindowStyle, CornerRadius, Rect, TextTrimming
 )
-from System.Windows.Controls import DockPanel, Dock, TextBlock, Border, Grid
+from System.Windows.Controls import (DockPanel, Dock, TextBlock, Border, Grid,
+                                     Button, ProgressBar, ColumnDefinition)
+from System.Windows import GridLength, GridUnitType, Visibility
 from System.Windows.Documents import Hyperlink, Run
 from System.Windows.Media import SolidColorBrush, Color, Brushes, RectangleGeometry
 from System.Windows.Input import Cursors
@@ -195,6 +197,189 @@ def apply_theme(window):
         return False
 
 
+# ============================================================================
+# In-window progress strip
+# ============================================================================
+# Every branded window carries a hidden strip just above the branding bar:
+# a status line, a progress bar and a Cancel button. dee_ui.SafeProgress
+# shows it (instead of a separate pop-up bar) whenever a tool window is
+# open, so every tool reports progress the same way, at the bottom of its
+# own window. Only the strip is drawn here; the progress logic lives in
+# dee_ui.
+_open_windows = []
+
+
+def active_window():
+    """The most recently opened Dee window that is still on screen and
+    has a progress strip, or None."""
+    for win in reversed(_open_windows):
+        try:
+            if win.IsVisible and getattr(win, "_dee_strip", None) is not None:
+                return win
+        except Exception:
+            continue
+    return None
+
+
+def _track_window(window):
+    def _loaded(sender, args):
+        if window not in _open_windows:
+            _open_windows.append(window)
+
+    def _closed(sender, args):
+        try:
+            _open_windows.remove(window)
+        except ValueError:
+            pass
+
+    def _closing(sender, args):
+        # Closing the window while work is running means Cancel - never
+        # tear the window down under a loop that is still using it.
+        try:
+            if window._dee_progress_depth > 0:
+                args.Cancel = True
+                progress_cancel(window)
+        except Exception:
+            pass
+
+    try:
+        window.Loaded += _loaded
+        window.Closed += _closed
+        window.Closing += _closing
+    except Exception:
+        pass
+
+
+def _wrap_with_progress_strip(window, content):
+    """Returns a DockPanel holding `content` with the (collapsed)
+    progress strip docked under it, and remembers the parts on the
+    window. Any failure returns `content` unchanged."""
+    try:
+        strip = Border()
+        strip.SetResourceReference(Border.BackgroundProperty, "DeeButtonBg")
+        strip.SetResourceReference(Border.BorderBrushProperty, "DeeBorder")
+        strip.BorderThickness = Thickness(0, 1, 0, 0)
+        strip.Padding = Thickness(10, 5, 10, 5)
+        strip.Visibility = Visibility.Collapsed
+        DockPanel.SetDock(strip, Dock.Bottom)
+
+        grid = Grid()
+        for width in (GridLength(1, GridUnitType.Star), GridLength(260),
+                      GridLength(100)):
+            col = ColumnDefinition()
+            col.Width = width
+            grid.ColumnDefinitions.Add(col)
+
+        text = TextBlock()
+        text.VerticalAlignment = VerticalAlignment.Center
+        text.TextTrimming = TextTrimming.CharacterEllipsis
+        text.Margin = Thickness(0, 0, 10, 0)
+        Grid.SetColumn(text, 0)
+
+        bar = ProgressBar()
+        bar.Height = 16
+        bar.Minimum = 0
+        bar.Maximum = 1
+        bar.VerticalAlignment = VerticalAlignment.Center
+        bar.SetResourceReference(ProgressBar.ForegroundProperty, "DeeAccent")
+        Grid.SetColumn(bar, 1)
+
+        cancel = Button()
+        cancel.Content = "Cancel"
+        cancel.Height = 24
+        cancel.Margin = Thickness(10, 0, 0, 0)
+        cancel.ToolTip = "Stop after the item currently being processed."
+
+        def _cancel_click(sender, args):
+            progress_cancel(window)
+        cancel.Click += _cancel_click
+        Grid.SetColumn(cancel, 2)
+
+        grid.Children.Add(text)
+        grid.Children.Add(bar)
+        grid.Children.Add(cancel)
+        strip.Child = grid
+
+        panel = DockPanel()
+        panel.Children.Add(strip)
+        panel.Children.Add(content)
+
+        window._dee_strip = strip
+        window._dee_strip_text = text
+        window._dee_strip_bar = bar
+        window._dee_strip_cancel = cancel
+        window._dee_strip_content = content
+        window._dee_progress_depth = 0
+        window._dee_progress_listeners = []
+        _track_window(window)
+        return panel
+    except Exception:
+        window._dee_strip = None
+        return content
+
+
+def progress_begin(window, cancellable, listener):
+    """Shows the strip (or joins one already showing) and locks the rest
+    of the window so a second click cannot start overlapping work."""
+    window._dee_progress_depth += 1
+    window._dee_progress_listeners.append(listener)
+    if window._dee_progress_depth == 1:
+        window._dee_strip_bar.Value = 0
+        window._dee_strip_bar.Maximum = 1
+        window._dee_strip_bar.IsIndeterminate = False
+        window._dee_strip_cancel.IsEnabled = True
+        window._dee_strip_cancel.Content = "Cancel"
+        window._dee_strip.Visibility = Visibility.Visible
+        try:
+            window._dee_strip_content.IsEnabled = False
+        except Exception:
+            pass
+    if not cancellable:
+        # A step that genuinely cannot be interrupted still shows the
+        # button, greyed, so the strip looks the same in every tool.
+        window._dee_strip_cancel.IsEnabled = False
+
+
+def progress_set(window, title=None, value=None, maximum=None, indeterminate=None):
+    if title is not None:
+        window._dee_strip_text.Text = title
+        window._dee_strip_text.ToolTip = title
+    if indeterminate is not None:
+        window._dee_strip_bar.IsIndeterminate = bool(indeterminate)
+    if maximum is not None and maximum > 0:
+        window._dee_strip_bar.Maximum = float(maximum)
+    if value is not None:
+        window._dee_strip_bar.Value = max(0.0, min(float(value), window._dee_strip_bar.Maximum))
+
+
+def progress_end(window, listener):
+    try:
+        window._dee_progress_listeners.remove(listener)
+    except ValueError:
+        pass
+    window._dee_progress_depth = max(0, window._dee_progress_depth - 1)
+    if window._dee_progress_depth == 0:
+        window._dee_strip.Visibility = Visibility.Collapsed
+        window._dee_strip_text.Text = ""
+        try:
+            window._dee_strip_content.IsEnabled = True
+        except Exception:
+            pass
+
+
+def progress_cancel(window):
+    try:
+        window._dee_strip_cancel.IsEnabled = False
+        window._dee_strip_cancel.Content = "Stopping..."
+        for listener in list(window._dee_progress_listeners):
+            try:
+                listener()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 class DeeBrandedWindow(forms.WPFWindow):
     def __init__(self, xaml_file, theme=True):
         forms.WPFWindow.__init__(self, xaml_file)
@@ -225,7 +410,7 @@ class DeeBrandedWindow(forms.WPFWindow):
         self.Content = None
         outer = DockPanel()
         outer.Children.Add(_build_bar())
-        outer.Children.Add(original_content)
+        outer.Children.Add(_wrap_with_progress_strip(self, original_content))
         self.Content = outer
         try:
             if self.Height and self.Height > 0:
@@ -497,6 +682,7 @@ class DeeRoundedWindow(forms.WPFWindow):
         if original_content is None:
             return
         self.Content = None
+        original_content = _wrap_with_progress_strip(self, original_content)
 
         theme_state = {"theme": _load_theme()}
 

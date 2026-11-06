@@ -599,8 +599,10 @@ def _open_and_report(targets, close_worksets, detach=None, extra_results=None):
     results = list(extra_results or [])
     try:
         with _SafeProgress(title="DeeOpener - opening {value} of {max_value}...",
-                               cancellable=False) as pb:
+                               cancellable=True) as pb:
             for i, target in enumerate(targets):
+                if pb.cancelled:
+                    break   # models already opened stay open and are reported
                 label = target.label
                 pb.update_progress(i, len(targets))
                 before_count = len(dismissed_log)

@@ -992,6 +992,8 @@ class DeeViewSelectWindow(dee_branding.DeeBrandedWindow):
             t.Start()
             with _SafeProgress(title="DeeViewSelect - removing from sheets...") as pb:
                 for i, row in enumerate(rows):
+                    if pb.cancelled:
+                        break   # Cancel: stop after the current item, keep what is done
                     try:
                         self.doc.Delete(row.viewport_id)
                         removed += 1

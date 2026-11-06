@@ -516,8 +516,10 @@ class DeeFamilyWindow(dee_branding.DeeBrandedWindow):
             if new_rows:
                 batch = 0
                 with _SafeProgress(title="DeeFamily - loading {value} of {max_value} new thumbnails...",
-                                    cancellable=False) as pb:
+                                    cancellable=True) as pb:
                     for i, row in enumerate(new_rows):
+                        if pb.cancelled:
+                            break   # the rest just show no thumbnail
                         pb.update_progress(i, len(new_rows))
                         symbol = row.resolve_symbol()
                         row.thumbnail = _get_thumbnail(symbol) if symbol is not None else None

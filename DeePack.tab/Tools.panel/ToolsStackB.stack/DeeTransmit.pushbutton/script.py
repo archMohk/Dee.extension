@@ -690,8 +690,10 @@ def main():
         dee_known_dialogs.attach_failures(uiapp)
         try:
             with _SafeProgress(title="DeeTransmit - saving...",
-                                   cancellable=False) as pb:
+                                   cancellable=True) as pb:
                 for i, target in enumerate(live):
+                    if pb.cancelled:
+                        break   # models not reached yet stay unsaved
                     pb.update_progress(i, len(live))
                     if target.error:
                         continue

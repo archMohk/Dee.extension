@@ -94,10 +94,13 @@ class DeeWProgressService(object):
         self._current_index = 0
 
     def __enter__(self):
-        from pyrevit import forms
         self._start_time = time.time()
         try:
-            self._pb = forms.ProgressBar(title=self.tool_title + " - starting...", cancellable=True)
+            # Shared bar: the strip at the bottom of the open Dee window
+            # (with Cancel), else pyRevit's pop-up.
+            import dee_ui
+            self._pb = dee_ui.open_progress(title=self.tool_title + " - starting...",
+                                            cancellable=True)
         except Exception:
             self._pb = None
         return self

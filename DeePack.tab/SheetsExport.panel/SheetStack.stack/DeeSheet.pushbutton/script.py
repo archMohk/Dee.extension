@@ -454,6 +454,8 @@ class DeeSheetWindow(dee_branding.DeeRoundedWindow):
             except Exception:
                 pass
             for i, r in enumerate(existing_rows):
+                if pb.cancelled:
+                    break   # Cancel: stop after the current item, keep what is done
                 pb.update_progress(i, len(existing_rows))
                 try:
                     existing_tbs = list(FilteredElementCollector(self.doc, r.sheet.Id)
