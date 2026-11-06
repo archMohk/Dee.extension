@@ -84,6 +84,16 @@ try:
 except Exception:
     pass
 
+# Before pyRevit builds the ribbon: drop bundle folders an update emptied
+# (a moved/removed button leaves its folder behind, and pyRevit still shows
+# it - e.g. DeeAccount lingering on the Cloud panel after moving to About).
+try:
+    import os
+    import dee_update_source
+    dee_update_source.prune_empty_bundles(os.path.dirname(os.path.abspath(__file__)))
+except Exception:
+    pass
+
 try:
     from pyrevit import HOST_APP
     import dee_prayer_service
