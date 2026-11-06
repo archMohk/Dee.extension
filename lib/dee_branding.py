@@ -15,11 +15,11 @@ DeeBrandedWindow.__init__(self, xaml_file) instead of
 forms.WPFWindow.__init__(self, xaml_file) - everything else about the
 window (its own __init__ logic, event handlers, XAML) is untouched.
 
-Rounded windows (About -> Interface -> Effects -> "Rounded windows"):
-an option for every tool. When on, DeeBrandedWindow swaps the Windows
-frame for rounded corners and a slim title bar drawn in the same theme
-colours (see the "Rounded windows" section below for how and why the
-owner setup is deferred). Off, it only asks Windows 11's DWM for its
+Window shapes (About -> Interface -> Shapes): an option for every tool.
+Any shape but Standard swaps the Windows frame for a custom outline
+(rounded, soft float, cut corners, leaf, ticket - lib/dee_shapes.py) and
+a slim title bar drawn in the same theme colours (see the "Shaped
+windows" section below for how and why the owner setup is deferred). Off, it only asks Windows 11's DWM for its
 own small rounded corners (a silent no-op on Windows 10).
 DeeRoundedWindow is kept as a plain alias of DeeBrandedWindow.
 """
@@ -45,6 +45,8 @@ from System.Windows.Documents import Hyperlink, Run
 from System.Windows.Media import (SolidColorBrush, Color, Brushes, RectangleGeometry,
                                   FontFamily)
 from System.Windows.Data import Binding
+from System.Windows.Media.Effects import DropShadowEffect
+from System.Windows.Shapes import Path
 from System.Windows.Input import Cursors
 from System.Windows.Interop import WindowInteropHelper
 from System.Windows.Shell import WindowChrome
@@ -413,10 +415,12 @@ def progress_cancel(window):
 
 
 class DeeBrandedWindow(forms.WPFWindow):
-    def __init__(self, xaml_file, theme=True, rounded=None):
-        # rounded=None follows About -> Interface -> "Rounded windows".
-        if rounded is None:
-            rounded = rounded_wanted()
+    def __init__(self, xaml_file, theme=True, rounded=None, shape=None):
+        # shape=None follows About -> Interface -> Shapes; rounded=True/False
+        # is the older way of asking for "rounded" / "standard".
+        if shape is None:
+            shape = shape_wanted() if rounded is None else ("rounded" if rounded else "standard")
+        rounded = shape != "standard"
         # Rounded chrome must be set before the native handle exists, and
         # pyrevit's owner setup creates it - so defer that (see below).
         forms.WPFWindow.__init__(self, xaml_file, set_owner=not rounded)
@@ -429,7 +433,7 @@ class DeeBrandedWindow(forms.WPFWindow):
         self._dee_rounded = False
         if rounded:
             try:
-                _make_rounded(self)
+                _make_rounded(self, shape)
             except Exception:
                 pass
             try:
@@ -475,7 +479,7 @@ class DeeBrandedWindow(forms.WPFWindow):
 
 
 # ============================================================================
-# Rounded windows - an option for every tool (About -> Interface -> Effects)
+# Shaped windows - an option for every tool (About -> Interface -> Shapes)
 # ============================================================================
 # Real rounded corners on Windows 10 need custom chrome: WindowStyle=None +
 # AllowsTransparency=True + a hand-built title bar. Both properties can only
@@ -487,6 +491,8 @@ class DeeBrandedWindow(forms.WPFWindow):
 # moved or closed. Everything in the custom chrome is drawn from the same
 # theme resources (DeeWindowBg / DeeSurface / DeeText / DeeBorder...) as
 # the rest of the window, so a rounded tool looks exactly like any other.
+# The outline itself (rounded, soft, cut corners, leaf, ticket) comes from
+# lib/dee_shapes.py: the body is clipped to it and a Path strokes it.
 _TITLE_BAR_HEIGHT = 30.0
 _CORNER_RADIUS = 10.0
 _CLOSE_HOVER_BG = Color.FromRgb(0xC4, 0x2B, 0x1C)
@@ -497,13 +503,17 @@ _GLYPH_RESTORE = u""
 _GLYPH_CLOSE = u""
 
 
-def rounded_wanted():
-    """The "Rounded windows" option from About -> Interface -> Effects."""
+def shape_wanted():
+    """The shape picked in About -> Interface -> Shapes."""
     try:
         import dee_effects
-        return bool(dee_effects.load_effects().get("rounded"))
+        return dee_effects.load_shape()
     except Exception:
-        return False
+        return "standard"
+
+
+def rounded_wanted():
+    return shape_wanted() != "standard"
 
 
 def _try_drag(window):
@@ -593,14 +603,12 @@ def _work_area(window):
 
 def _toggle_maximise(window):
     """WindowStyle=None windows cover the taskbar when truly maximised,
-    so "maximise" here fills the monitor's working area instead."""
-    border = getattr(window, "_dee_round_border", None)
+    so "maximise" here fills the monitor's working area instead (square,
+    no shadow margin)."""
     saved = getattr(window, "_dee_restore_bounds", None)
     if saved is not None:
         window.Left, window.Top, window.Width, window.Height = saved
         window._dee_restore_bounds = None
-        if border is not None:
-            border.CornerRadius = CornerRadius(_CORNER_RADIUS)
         glyph = _GLYPH_MAX
     else:
         window._dee_restore_bounds = (window.Left, window.Top,
@@ -609,9 +617,10 @@ def _toggle_maximise(window):
         area = _work_area(window)
         window.Left, window.Top = area.Left, area.Top
         window.Width, window.Height = area.Width, area.Height
-        if border is not None:
-            border.CornerRadius = CornerRadius(0)
         glyph = _GLYPH_RESTORE
+    reshape = getattr(window, "_dee_reshape", None)
+    if reshape is not None:
+        reshape()
     text = getattr(window, "_dee_max_text", None)
     if text is not None:
         text.Text = glyph
@@ -696,11 +705,15 @@ def _clear_round_chrome(window):
         pass
 
 
-def _make_rounded(window):
-    """Rebuilds the window as a rounded one: title bar, the window's own
-    content (with the progress strip) and the website bar, inside one
-    rounded border. Returns False, leaving the window untouched, if any
-    step fails."""
+def _make_rounded(window, shape="rounded"):
+    """Rebuilds the window in a custom shape (lib/dee_shapes.py): title
+    bar, the window's own content (with the progress strip) and the
+    website bar, clipped to the shape, with its outline stroked on top.
+    Returns False, leaving the window untouched, if any step fails."""
+    import dee_shapes
+    shape = dee_shapes.normalize(shape)
+    if shape == "standard":
+        shape = "rounded"
     original = window.Content
     if original is None:
         return False
@@ -711,31 +724,91 @@ def _make_rounded(window):
         window.Resources["DeeTitleFg"] = window.TryFindResource("DeeText") or Brushes.Black
         _set_round_chrome(window)
         window.Content = None
-        border = Border()
-        border.CornerRadius = CornerRadius(_CORNER_RADIUS)
-        border.BorderThickness = Thickness(1)
-        border.SetResourceReference(Border.BackgroundProperty, "DeeWindowBg")
-        border.SetResourceReference(Border.BorderBrushProperty, "DeeBorderStrong")
+        pad = dee_shapes.margin(shape)
+
+        root = Grid()
+        if pad:
+            # Near-invisible, not fully transparent: a layered window
+            # ignores the mouse on fully clear pixels, and the resize
+            # border sits out here.
+            root.Background = SolidColorBrush(Color.FromArgb(1, 255, 255, 255))
+        holder = Grid()
+        holder.Margin = Thickness(pad)
+        root.Children.Add(holder)
+
+        shadow = None
+        if shape == "soft":
+            shadow = Border()
+            shadow.CornerRadius = CornerRadius(dee_shapes.SOFT_R)
+            shadow.SetResourceReference(Border.BackgroundProperty, "DeeWindowBg")
+            fx = DropShadowEffect()
+            fx.BlurRadius = 18
+            fx.ShadowDepth = 3
+            fx.Direction = 270
+            fx.Opacity = 0.35
+            shadow.Effect = fx
+            holder.Children.Add(shadow)
+
+        body = Border()
+        body.SetResourceReference(Border.BackgroundProperty, "DeeWindowBg")
         inner = DockPanel()
         inner.Children.Add(_build_title_bar(window))
         inner.Children.Add(_build_bar())
         inner.Children.Add(_wrap_with_progress_strip(window, original))
-        border.Child = inner
+        body.Child = inner
+        holder.Children.Add(body)
 
-        def _clip(sender, args):
+        outline = Path()
+        outline.IsHitTestVisible = False
+        outline.StrokeThickness = 1.0
+        outline.SetResourceReference(Path.StrokeProperty, "DeeBorderStrong")
+        holder.Children.Add(outline)
+
+        def _maxed():
+            return getattr(window, "_dee_restore_bounds", None) is not None
+
+        def _current():
+            return "standard" if _maxed() else shape
+
+        def region_geometry():
+            """The shape in window coordinates (for the glass region)."""
+            m = 0.0 if _maxed() else pad
+            return dee_shapes.geometry(
+                _current(), Rect(m, m, max(holder.ActualWidth, 0.0), max(holder.ActualHeight, 0.0)),
+                m + _TITLE_BAR_HEIGHT)
+
+        def reshape(*args):
             try:
-                r = border.CornerRadius.TopLeft
-                border.Clip = RectangleGeometry(
-                    Rect(0, 0, max(border.ActualWidth, 0.0), max(border.ActualHeight, 0.0)), r, r)
+                holder.Margin = Thickness(0 if _maxed() else pad)
+                if shadow is not None:
+                    glass = getattr(window, "_dee_glass_saved", None) is not None
+                    shadow.Visibility = (Visibility.Collapsed if (_maxed() or glass)
+                                         else Visibility.Visible)
+                w = max(holder.ActualWidth, 0.0)
+                h = max(holder.ActualHeight, 0.0)
+                cur = _current()
+                body.Clip = dee_shapes.geometry(cur, Rect(0, 0, w, h), _TITLE_BAR_HEIGHT)
+                t = outline.StrokeThickness
+                outline.Data = dee_shapes.geometry(
+                    cur, Rect(t / 2.0, t / 2.0, max(w - t, 0.0), max(h - t, 0.0)),
+                    _TITLE_BAR_HEIGHT, t / 2.0)
             except Exception:
                 pass
-        border.SizeChanged += _clip
-        window.Content = border
-        window._dee_round_border = border
+
+        holder.SizeChanged += reshape
+        window.Content = root
+        window._dee_round_border = body
+        window._dee_shape_path = outline
+        window._dee_shadow = shadow
+        window._dee_shape = shape
+        window._dee_reshape = reshape
+        window._dee_region_geometry = region_geometry
         window._dee_rounded = True
         try:
             if window.Height and window.Height > 0:
-                window.Height = window.Height + _BAR_HEIGHT + _TITLE_BAR_HEIGHT
+                window.Height = window.Height + _BAR_HEIGHT + _TITLE_BAR_HEIGHT + 2 * pad
+            if pad and window.Width and window.Width > 0:
+                window.Width = window.Width + 2 * pad
         except Exception:
             pass
         return True
@@ -745,6 +818,8 @@ def _make_rounded(window):
         _clear_round_chrome(window)
         window._dee_round_border = None
         window._dee_titlebar = None
+        window._dee_shape_path = None
+        window._dee_reshape = None
         window._dee_rounded = False
         return False
 

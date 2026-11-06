@@ -10,7 +10,10 @@ Colours - two colours, one at a time ("Colour the: Accent / Lines"):
   Each has a 44-colour palette, "More colours..." (the full Windows
   colour picker) and a hex box.
 Effects - any combination of glass, accent outline, accent top line,
-  fade in, rounded windows and accent title bar (lib/dee_effects.py).
+  fade in and accent title bar (lib/dee_effects.py).
+Shapes - the outline of every tool window: Standard, Rounded, Soft float,
+  Cut corners, Leaf or Ticket (lib/dee_shapes.py), each drawn as a card;
+  "Try it" opens a sample window in the picked shape.
 
 Everything previews live on real ribbon icons, a sample progress bar and
 this window itself. Apply saves it all (lib/.dee_accent.json) and
@@ -24,9 +27,13 @@ clr.AddReference("PresentationCore")
 clr.AddReference("System.Windows.Forms")
 clr.AddReference("System.Drawing")
 from System import Uri, UriKind  # noqa: E402
-from System.Windows import Thickness  # noqa: E402
-from System.Windows.Controls import Button, Image, CheckBox  # noqa: E402
+from System.Windows import Thickness, Rect, CornerRadius, HorizontalAlignment  # noqa: E402
+from System.Windows.Controls import (Button, Image, CheckBox, Border, Canvas,  # noqa: E402
+                                     Grid, StackPanel, TextBlock)
+from System.Windows.Input import Cursors  # noqa: E402
 from System.Windows.Media import SolidColorBrush, Color  # noqa: E402
+from System.Windows.Media.Effects import DropShadowEffect  # noqa: E402
+from System.Windows.Shapes import Path, Rectangle  # noqa: E402
 from System.Windows.Media.Imaging import BitmapImage, BitmapCacheOption  # noqa: E402
 from System.Windows.Forms import ColorDialog, DialogResult  # noqa: E402
 import System.Drawing  # noqa: E402
@@ -34,8 +41,11 @@ import System.Drawing  # noqa: E402
 import dee_accent
 import dee_branding
 import dee_effects
+import dee_shapes
 
 _XAML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "DeeInterface.xaml")
+_SAMPLE_XAML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "DeeShapeSample.xaml")
+_CARD_W, _CARD_H = 112.0, 70.0     # the little window drawn on each shape card
 _PREVIEW_BUTTONS = ["DeePublisher", "DeeSuperLINK", "Dee3DView", "DeeCleaner",
                     "DeeLazy", "DeeForce", "DeeIcon", "DeeMAPLink"]
 
@@ -88,6 +98,8 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._effects = dict(self._saved_effects)
         self._effect_boxes = {}
         self._build_effects()
+        self._shape_cards = {}
+        self._build_shapes()
         dee_effects.when_ready(self, lambda: dee_effects.apply(self, self._effects))
         self._ready = True
         self.hex_tb.Text = self._target_value()
@@ -134,8 +146,8 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
             box.Margin = Thickness(0, 0, 0, 8)
             box.IsChecked = bool(self._effects.get(key))
             if key == "titlebar" and not win11:
-                # Windows 10: only rounded windows have a title bar of ours.
-                box.Content = label + "  (Windows 10: with Rounded windows)"
+                # Windows 10: only shaped windows have a title bar of ours.
+                box.Content = label + "  (Windows 10: with any shape but Standard)"
             box.Tag = key
             box.Checked += self._effect_toggled
             box.Unchecked += self._effect_toggled
@@ -149,12 +161,116 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self.glass_level_sl.Value = self._effects["glass_level"]
         self._sync_effect_controls()
 
+    # ---- shapes ----
+    def _draw_shape(self, key):
+        """A small window drawn in the shape: title strip, two lines of
+        'content' and the website bar, clipped to the shape's outline."""
+        pad = 6.0 if key == "soft" else 2.0
+        rect = Rect(pad, pad, _CARD_W - 2 * pad, _CARD_H - 2 * pad)
+        title_h = 12.0
+        geom = dee_shapes.geometry(key, rect, pad + title_h)
+        canvas = Canvas()
+        canvas.Width, canvas.Height = _CARD_W, _CARD_H
+        body = Path()
+        body.Data = geom
+        body.SetResourceReference(Path.FillProperty, "DeeWindowBg")
+        if key == "soft":
+            fx = DropShadowEffect()
+            fx.BlurRadius = 8
+            fx.ShadowDepth = 2
+            fx.Direction = 270
+            fx.Opacity = 0.35
+            body.Effect = fx
+        canvas.Children.Add(body)
+        inside = Grid()
+        inside.Width, inside.Height = _CARD_W, _CARD_H
+        inside.Clip = geom
+        parts = Canvas()
+
+        def _bar(x, y, w, h, resource):
+            r = Rectangle()
+            r.Width, r.Height = w, h
+            r.SetResourceReference(Rectangle.FillProperty, resource)
+            Canvas.SetLeft(r, x)
+            Canvas.SetTop(r, y)
+            parts.Children.Add(r)
+
+        _bar(0, 0, _CARD_W, pad + title_h, "DeeBorder")                  # title bar
+        _bar(pad + 10, pad + title_h + 9, _CARD_W * 0.55, 4, "DeeBorder")
+        _bar(pad + 10, pad + title_h + 18, _CARD_W * 0.38, 4, "DeeBorder")
+        _bar(0, _CARD_H - pad - 6, _CARD_W, pad + 6, "DeeOrange")         # website bar
+        inside.Children.Add(parts)
+        canvas.Children.Add(inside)
+        edge = Path()
+        edge.Data = geom
+        edge.StrokeThickness = 1
+        edge.SetResourceReference(Path.StrokeProperty, "DeeBorderStrong")
+        canvas.Children.Add(edge)
+        return canvas
+
+    def _build_shapes(self):
+        for key, label, desc in dee_shapes.SHAPES:
+            card = Border()
+            card.Width = 160
+            card.Margin = Thickness(4)
+            card.Padding = Thickness(6, 8, 6, 6)
+            card.CornerRadius = CornerRadius(6)
+            card.Cursor = Cursors.Hand
+            card.ToolTip = desc
+            card.Tag = key
+            card.SetResourceReference(Border.BackgroundProperty, "DeeSurface")
+            stack = StackPanel()
+            picture = self._draw_shape(key)
+            picture.HorizontalAlignment = HorizontalAlignment.Center
+            stack.Children.Add(picture)
+            name = TextBlock()
+            name.Text = label
+            name.Margin = Thickness(0, 6, 0, 0)
+            name.HorizontalAlignment = HorizontalAlignment.Center
+            stack.Children.Add(name)
+            card.Child = stack
+            card.MouseLeftButtonUp += self._shape_click
+            self._shape_cards[key] = card
+            self.shapes_panel.Children.Add(card)
+        self._sync_shape_cards()
+
+    def _sync_shape_cards(self):
+        current = self._effects.get("shape", "standard")
+        for key, card in self._shape_cards.items():
+            picked = key == current
+            card.BorderThickness = Thickness(2 if picked else 1)
+            card.SetResourceReference(Border.BorderBrushProperty,
+                                      "DeeOrange" if picked else "DeeBorder")
+        for key, label, desc in dee_shapes.SHAPES:
+            if key == current:
+                self.shape_desc_tb.Text = "{0}: {1}".format(label, desc)
+
+    def _shape_click(self, sender, args):
+        if not self._ready:
+            return
+        self._effects["shape"] = sender.Tag
+        self._sync_shape_cards()
+        self._effects_changed()
+
+    def try_shape_click(self, sender, args):
+        try:
+            sample = _ShapeSample(self._effects.get("shape", "standard"))
+            try:
+                sample.Owner = self
+            except Exception:
+                pass
+            effects = dict(self._effects)
+            dee_effects.when_ready(sample, lambda: dee_effects.apply(sample, effects))
+            sample.Show()
+        except Exception as err:
+            self.status_tb.Text = "Couldn't open the sample: {0}".format(err)
+
     def _sync_effect_controls(self):
         self.glass_level_row.IsEnabled = bool(self._effects["glass"])
         if not dee_effects.is_windows_11():
             box = self._effect_boxes.get("titlebar")
             if box is not None:
-                box.IsEnabled = bool(self._effects.get("rounded"))
+                box.IsEnabled = self._effects.get("shape", "standard") != "standard"
         self.glass_level_tb.Text = "{0}%".format(int(self._effects["glass_level"]))
 
     def _effects_changed(self):
@@ -167,13 +283,15 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
                    or self._effects != self._saved_effects)
         if changed:
             self.status_tb.Text = "Not applied yet - click Apply."
-            if self._effects.get("rounded") != self._saved_effects.get("rounded"):
-                self.status_tb.Text += (" Rounded windows changes the window frame, so it "
-                                        "shows on windows opened after Apply.")
+            if self._effects.get("shape") != self._saved_effects.get("shape"):
+                self.status_tb.Text += (" A new shape shows on windows opened after Apply"
+                                        " (Try it shows it now).")
         else:
             on = [label for key, label, _tip in dee_effects.EFFECTS if self._effects.get(key)]
-            self.status_tb.Text = "Current: accent {0}, lines {1}, effects: {2}".format(
-                self._saved_accent, self._saved_line or "grey", ", ".join(on) or "none")
+            shape = dict((k, l) for k, l, _d in dee_shapes.SHAPES).get(
+                self._effects.get("shape"), "Standard")
+            self.status_tb.Text = "Current: accent {0}, lines {1}, shape {2}, effects: {3}".format(
+                self._saved_accent, self._saved_line or "grey", shape, ", ".join(on) or "none")
 
     def _refresh(self):
         current = self._target_value()
@@ -282,6 +400,18 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._refresh()
         self.status_tb.Text = ("Saved. {0} ribbon buttons repainted, and every open "
                                "Dee window updated.".format(count))
+
+    def close_click(self, sender, args):
+        self.Close()
+
+
+class _ShapeSample(dee_branding.DeeBrandedWindow):
+    """The small window "Try it" opens, in the shape being picked."""
+
+    def __init__(self, shape):
+        dee_branding.DeeBrandedWindow.__init__(self, _SAMPLE_XAML, shape=shape)
+        label = dict((k, l) for k, l, _d in dee_shapes.SHAPES).get(shape, shape)
+        self.sample_tb.Text = "Shape: {0}".format(label)
 
     def close_click(self, sender, args):
         self.Close()

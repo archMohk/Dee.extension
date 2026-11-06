@@ -13,10 +13,10 @@ ones already open when the user clicks Apply.
   outline   A thin accent-coloured outline around the window.
   topline   An accent-coloured line along the top of the window.
   fade      Windows fade and slide in when they open.
-  rounded   Rounded corners and a slim title bar in the theme colours
-            (lib/dee_branding.py builds it). Chrome can only change before
-            a window exists, so this one shows on windows opened after
-            Apply.
+  shape     The window shape from the Shapes tab (lib/dee_shapes.py):
+            standard, rounded, soft, chamfer, leaf or ticket. Chrome can
+            only change before a window exists, so it shows on windows
+            opened after Apply. (Older settings stored "rounded": true.)
   titlebar  The title bar painted in the accent colour: the Windows title
             bar on Windows 11, the rounded window's own title bar
             anywhere (Windows 10 has no API for its own).
@@ -43,9 +43,10 @@ DEFAULTS = {
     "outline": False,
     "topline": False,
     "fade": False,
-    "rounded": False,
     "titlebar": False,
+    "shape": "standard",
 }
+_SWITCHES = ("glass", "outline", "topline", "fade", "titlebar")
 
 # (key, label, tooltip) in the order the Effects tab lists them.
 EFFECTS = [
@@ -57,12 +58,9 @@ EFFECTS = [
      "An accent-coloured line along the top of every tool window."),
     ("fade", "Fade in",
      "Windows fade and slide in gently when they open."),
-    ("rounded", "Rounded windows",
-     "Rounded corners and a slim title bar on every tool window. "
-     "Shows on windows opened after Apply."),
     ("titlebar", "Accent title bar",
-     "The title bar in the accent colour (Windows 11, or any PC with "
-     "Rounded windows on)."),
+     "The title bar in the accent colour (Windows 11, or any PC with a "
+     "shape other than Standard)."),
 ]
 
 
@@ -85,7 +83,15 @@ def load_effects():
         out["glass_level"] = max(0, min(100, int(out["glass_level"])))
     except Exception:
         out["glass_level"] = DEFAULTS["glass_level"]
+    if isinstance(data, dict) and "shape" not in data and data.get("rounded"):
+        out["shape"] = "rounded"
+    import dee_shapes
+    out["shape"] = dee_shapes.normalize(out["shape"])
     return out
+
+
+def load_shape():
+    return load_effects()["shape"]
 
 
 def save_effects(effects):
@@ -125,8 +131,9 @@ try:
     _user32.SetWindowRgn.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int]
     _user32.SetWindowRgn.restype = ctypes.c_int
     _gdi32 = ctypes.WinDLL("gdi32")
-    _gdi32.CreateRoundRectRgn.argtypes = [ctypes.c_int] * 6
-    _gdi32.CreateRoundRectRgn.restype = ctypes.c_void_p
+    _gdi32.CreatePolyPolygonRgn.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
+                                            ctypes.c_int, ctypes.c_int]
+    _gdi32.CreatePolyPolygonRgn.restype = ctypes.c_void_p
 except Exception:
     ctypes = None
     _gdi32 = None
@@ -178,8 +185,9 @@ def _dwm_color(hwnd, attribute, value):
 
 
 def _round_region(window, hwnd, off=False):
-    """Clips a rounded window to its rounded shape, so the blurred glass
-    behind it doesn't show as a square at the corners. Re-done on resize."""
+    """Clips a shaped window to its shape (lib/dee_shapes.py), so the
+    blurred glass behind it doesn't show as a square past the corners,
+    notches or cut edges. Re-done on resize."""
     if _gdi32 is None:
         return
     try:
@@ -193,16 +201,18 @@ def _round_region(window, hwnd, off=False):
                 if getattr(window, "_dee_glass_saved", None) is not None:
                     _round_region(window, hwnd)
             window.SizeChanged += _resized
-        src = HwndSource.FromHwnd(hwnd)
-        m = src.CompositionTarget.TransformToDevice
-        w = int(round(window.ActualWidth * m.M11))
-        h = int(round(window.ActualHeight * m.M22))
-        border = window._dee_round_border
-        r = border.CornerRadius.TopLeft
-        d = max(1, int(round(2 * r * m.M11)))
-        if w <= 0 or h <= 0:
+        if window.ActualWidth <= 0 or window.ActualHeight <= 0:
             return
-        rgn = _gdi32.CreateRoundRectRgn(0, 0, w + 1, h + 1, d, d)
+        import dee_shapes
+        m = HwndSource.FromHwnd(hwnd).CompositionTarget.TransformToDevice
+        polys = dee_shapes.polygons(window._dee_region_geometry(), m.M11, m.M22)
+        if not polys:
+            return
+        flat = [v for poly in polys for p in poly for v in p]
+        points = (ctypes.c_int * len(flat))(*flat)
+        counts = (ctypes.c_int * len(polys))(*[len(p) for p in polys])
+        rgn = _gdi32.CreatePolyPolygonRgn(ctypes.addressof(points), ctypes.addressof(counts),
+                                          len(polys), 1)   # ALTERNATE: notches stay holes
         _user32.SetWindowRgn(hwnd.ToInt64(), rgn, True)   # Windows owns rgn now
     except Exception:
         pass
@@ -250,6 +260,7 @@ def _glass(window, on, level):
                 saved["resources"].get("DeeWindowBg"), alpha)
             window.Resources["DeeSurface"] = _with_alpha(
                 saved["resources"].get("DeeSurface"), min(255, alpha + 25))
+            _reshape(window)
             _round_region(window, hwnd)
         else:
             window.Background = _with_alpha(base, alpha)
@@ -272,17 +283,25 @@ def _glass(window, on, level):
             if window.Resources.Contains(key):
                 window.Resources.Remove(key)
         window._dee_glass_saved = None
+        _reshape(window)
+
+
+def _reshape(window):
+    fn = getattr(window, "_dee_reshape", None)
+    if fn is not None:
+        fn()
 
 
 def _outline(window, on):
-    border = getattr(window, "_dee_round_border", None)
-    if border is not None:
-        # The outline follows the rounded corners instead of the square
+    path = getattr(window, "_dee_shape_path", None)
+    if path is not None:
+        # The outline follows the window's shape instead of the square
         # (invisible) window edge.
-        border.BorderThickness = Thickness(2 if on else 1)
-        border.SetResourceReference(Border.BorderBrushProperty,
-                                    "DeeOrange" if on else "DeeBorderStrong")
+        path.StrokeThickness = 2.0 if on else 1.0
+        path.SetResourceReference(path.StrokeProperty,
+                                  "DeeOrange" if on else "DeeBorderStrong")
         window._dee_outline_on = bool(on)
+        _reshape(window)
         return
     if on:
         window.BorderThickness = Thickness(2)
@@ -367,7 +386,7 @@ def attach(window):
         effects = load_effects()
     except Exception:
         return
-    if not any(effects[k] for k in DEFAULTS if k != "glass_level"):
+    if not any(effects[k] for k in _SWITCHES):
         return
 
     def _loaded(sender, args):

@@ -6,7 +6,7 @@
         WindowStartupLocation="CenterScreen">
     <StackPanel Margin="14">
         <TextBlock TextWrapping="Wrap" Margin="0,0,0,10" Foreground="{DynamicResource DeeTextMuted}"
-                   Text="How DeePack looks on this PC: icon colours and window effects. Personal to this PC - it does not change anyone else's ribbon."/>
+                   Text="How DeePack looks on this PC: icon colours, window effects and window shapes. Personal to this PC - it does not change anyone else's ribbon."/>
 
         <TabControl x:Name="tabs" Margin="0,0,0,12">
             <!-- ================= Colours ================= -->
@@ -67,6 +67,22 @@
                     </StackPanel>
                     <Button x:Name="effects_off_b" Content="Turn all effects off" Width="150" Height="26"
                             HorizontalAlignment="Left" Click="effects_off_click"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- ================= Shapes ================= -->
+            <TabItem Header="Shapes">
+                <StackPanel Margin="10">
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="The shape of every tool window. A new shape shows on windows opened after Apply - Try it opens a sample straight away."/>
+                    <WrapPanel x:Name="shapes_panel"/>
+                    <DockPanel Margin="4,8,0,0">
+                        <Button x:Name="try_shape_b" DockPanel.Dock="Left" Content="Try it" Width="100" Height="26"
+                                Click="try_shape_click"
+                                ToolTip="Open a small sample window in the picked shape, with the effects you have ticked."/>
+                        <TextBlock x:Name="shape_desc_tb" VerticalAlignment="Center" Margin="12,0,0,0"
+                                   TextWrapping="Wrap" Foreground="{DynamicResource DeeTextMuted}" Text=""/>
+                    </DockPanel>
                 </StackPanel>
             </TabItem>
         </TabControl>
