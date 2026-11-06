@@ -97,7 +97,43 @@ def _accent_color():
         return Color.FromRgb(r, g, b)
     except Exception:
         return _BAR_BG
+
+
 _LINK_FG = Color.FromRgb(0xFF, 0xFF, 0xFF)
+_LINK_FG_DARK = Color.FromRgb(0x22, 0x22, 0x22)
+
+
+def _text_on(color):
+    """White text on a dark/saturated accent, near-black on a light one
+    (e.g. a pale yellow), so the website link always stays readable."""
+    lum = (0.2126 * color.R + 0.7152 * color.G + 0.0722 * color.B) / 255.0
+    return _LINK_FG_DARK if lum > 0.62 else _LINK_FG
+
+
+def set_window_accent(window, color=None):
+    """Puts the accent brushes straight into the window's own Resources.
+    The branding bar, its link, the progress strip and every ProgressBar
+    look them up by name (DynamicResource), so calling this again on an
+    open window repaints all of them at once."""
+    try:
+        if color is None:
+            color = _accent_color()
+        elif not isinstance(color, Color):
+            import dee_accent
+            r, g, b = dee_accent.hex_to_rgb(color)
+            color = Color.FromRgb(r, g, b)
+        window.Resources["DeeOrangeColor"] = color
+        window.Resources["DeeOrange"] = SolidColorBrush(color)
+        window.Resources["DeeOnOrange"] = SolidColorBrush(_text_on(color))
+    except Exception:
+        pass
+
+
+def repaint_open_windows(color=None):
+    """After Apply in Accent Colour: every Dee window still on screen
+    takes the new colour now, not only the next one opened."""
+    for win in list(_open_windows):
+        set_window_accent(win, color)
 
 # DWMWA_WINDOW_CORNER_PREFERENCE / DWMWCP_ROUNDSMALL - a Windows 11 DWM
 # attribute that asks the OS compositor to draw small-radius rounded
@@ -136,6 +172,7 @@ def _round_corners_dwm(window):
 def _build_bar():
     bar = Border()
     bar.Background = SolidColorBrush(_accent_color())
+    bar.SetResourceReference(Border.BackgroundProperty, "DeeOrange")
     bar.Padding = Thickness(8, 2, 8, 2)
     bar.Height = _BAR_HEIGHT
     DockPanel.SetDock(bar, Dock.Bottom)
@@ -151,7 +188,8 @@ def _build_bar():
         link.NavigateUri = Uri(_SITE_URL)
     except Exception:
         pass
-    link.Foreground = SolidColorBrush(_LINK_FG)
+    link.Foreground = SolidColorBrush(_text_on(_accent_color()))
+    link.SetResourceReference(Hyperlink.ForegroundProperty, "DeeOnOrange")
     link.RequestNavigate += _open_site
     text.Inlines.Add(link)
 
@@ -281,7 +319,7 @@ def _wrap_with_progress_strip(window, content):
         bar.Minimum = 0
         bar.Maximum = 1
         bar.VerticalAlignment = VerticalAlignment.Center
-        bar.SetResourceReference(ProgressBar.ForegroundProperty, "DeeAccent")
+        bar.SetResourceReference(ProgressBar.ForegroundProperty, "DeeOrange")
         Grid.SetColumn(bar, 1)
 
         cancel = Button()
@@ -383,6 +421,7 @@ def progress_cancel(window):
 class DeeBrandedWindow(forms.WPFWindow):
     def __init__(self, xaml_file, theme=True):
         forms.WPFWindow.__init__(self, xaml_file)
+        set_window_accent(self)
         # Every branded window gets lib/DeeTheme.xaml (shared button /
         # input / grid look). theme=False is an escape hatch only - no
         # tool uses it, so every window shares the same light theme.
@@ -661,6 +700,7 @@ class DeeRoundedWindow(forms.WPFWindow):
 
     def __init__(self, xaml_file):
         forms.WPFWindow.__init__(self, xaml_file, set_owner=False)
+        set_window_accent(self)
         try:
             self._apply_branding()
         except Exception:

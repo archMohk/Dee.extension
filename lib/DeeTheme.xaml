@@ -192,7 +192,7 @@ orange #F2994D, status green/amber/red), gathered in one place.
     </Style>
 
     <Style TargetType="ProgressBar">
-        <Setter Property="Foreground" Value="{StaticResource DeeAccent}"/>
+        <Setter Property="Foreground" Value="{DynamicResource DeeOrange}"/>
         <Setter Property="Background" Value="{StaticResource DeeButtonBg}"/>
         <Setter Property="BorderBrush" Value="{StaticResource DeeBorder}"/>
     </Style>
