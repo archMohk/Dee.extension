@@ -167,6 +167,8 @@ class OptionsWindow(dee_branding.DeeBrandedWindow):
 
     def __init__(self, xaml_file, header):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        # Shared "On Revit errors: delete ... and continue" tick box
+        dee_known_dialogs.add_error_checkbox(self)
         self.confirmed = False
         self.options = {}
         self.source_tb.Text = header

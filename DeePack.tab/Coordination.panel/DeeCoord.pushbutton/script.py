@@ -732,6 +732,11 @@ def main():
     prev_doc = None
     prev_steps = None
 
+    # Same question as the tick box on the windowed tools: Revit errors
+    # it can only fix by deleting elements (Cannot form radial dimension...).
+    if dee_known_dialogs.ask_delete_errors("DeeCoord") is None:
+        return
+
     dismissed_log = []
     dialog_handler = _make_dialog_handler(dismissed_log)
     uiapp.DialogBoxShowing += dialog_handler

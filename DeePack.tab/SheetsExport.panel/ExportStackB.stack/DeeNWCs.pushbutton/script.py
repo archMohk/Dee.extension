@@ -595,6 +595,8 @@ class DeeNWCsOptionsWindow(dee_branding.DeeBrandedWindow):
 
     def __init__(self, xaml_file):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        # Shared "On Revit errors: delete ... and continue" tick box
+        dee_known_dialogs.add_error_checkbox(self, anchor="continue_b", at_start=True)
         # Set by continue_click(), read by main() AFTER ShowDialog()
         # returns - never acted on from inside this still-open window
         # (this codebase's hard rule - see module docstring).

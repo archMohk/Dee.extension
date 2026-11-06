@@ -118,16 +118,62 @@ def answer(args, text=None):
 _SLOT = "dee_known_dialogs.failures"
 
 
-def _on_failures_processing(sender, args):
+_POLICY = "dee_known_dialogs.delete_errors"
+
+
+def set_delete_errors(enabled):
+    """The current run's answer to "Revit reports an error it can fix by
+    deleting elements (e.g. 'Cannot form radial dimension' -> Delete
+    Dimension(s)) - delete them and continue?". Set by the tick box on a
+    tool's first window (add_error_checkbox) or by ask_delete_errors()."""
     try:
-        from Autodesk.Revit.DB import FailureSeverity
+        import System
+        System.AppDomain.CurrentDomain.SetData(_POLICY, bool(enabled))
+    except Exception:
+        pass
+
+
+def delete_errors_enabled():
+    try:
+        import System
+        return bool(System.AppDomain.CurrentDomain.GetData(_POLICY))
+    except Exception:
+        return False
+
+
+def _on_failures_processing(sender, args):
+    """Warnings: deleted (= OK). Errors: with the tool's "delete and continue"
+    option ticked, an error Revit can resolve by deleting the failing
+    elements is resolved that way; any other error - or every error when the
+    option is off - rolls back that step (the model is reported as failed and
+    the batch moves on) instead of leaving Revit's error dialog on screen."""
+    try:
+        from Autodesk.Revit.DB import (
+            FailureSeverity, FailureResolutionType, FailureProcessingResult)
         accessor = args.GetFailuresAccessor()
+        delete_ok = delete_errors_enabled()
+        unresolved = False
+        resolved = False
         for failure in list(accessor.GetFailureMessages()):
             try:
-                if failure.GetSeverity() == FailureSeverity.Warning:
+                severity = failure.GetSeverity()
+                if severity == FailureSeverity.Warning:
                     accessor.DeleteWarning(failure)
+                elif severity == FailureSeverity.Error:
+                    if delete_ok and failure.HasResolutionOfType(
+                            FailureResolutionType.DeleteElements):
+                        failure.SetCurrentResolutionType(
+                            FailureResolutionType.DeleteElements)
+                        accessor.ResolveFailure(failure)
+                        resolved = True
+                    else:
+                        unresolved = True
             except Exception:
-                pass
+                unresolved = True
+        if unresolved:
+            args.SetProcessingResult(FailureProcessingResult.ProceedWithRollBack)
+        elif resolved:
+            args.SetProcessingResult(FailureProcessingResult.ProceedWithCommit)
     except Exception:
         pass
 
@@ -139,8 +185,12 @@ def _application(uiapp):
         return uiapp
 
 
-def attach_failures(uiapp):
-    """Start auto-accepting warnings. Never raises."""
+def attach_failures(uiapp, delete_errors=None):
+    """Start auto-handling warnings/errors. delete_errors=None keeps the
+    current choice (a tool window's tick box); True/False sets it. Never
+    raises."""
+    if delete_errors is not None:
+        set_delete_errors(delete_errors)
     try:
         import System
         from System import EventHandler
@@ -173,3 +223,89 @@ def detach_failures(uiapp):
         _application(uiapp).FailuresProcessing -= slot[0]
     except Exception:
         pass
+
+
+# --------------------------------------------------------------------------
+# The "delete and continue" option on each tool's first window
+# --------------------------------------------------------------------------
+ERROR_OPTION_LABEL = "On Revit errors: delete the failing elements and continue"
+ERROR_OPTION_TIP = (
+    "Some Revit errors cannot be ignored - e.g. 'Cannot form radial "
+    "dimension', with the fix button 'Delete Dimension(s)'.\n\n"
+    "Ticked: the elements Revit names are deleted (exactly what that fix "
+    "button does) and the run continues.\n"
+    "Not ticked: that model / step is cancelled (rolled back, nothing "
+    "deleted), reported as failed, and the run moves on to the next one.")
+_REMEMBER = "dee_known_dialogs.delete_errors.last"
+
+
+def add_error_checkbox(window, anchor="run_b", at_start=False):
+    """Adds the option to the button row holding `anchor` (the window's
+    Run / Continue button) and keeps the run policy in step with it. Built
+    in code rather than in each tool's XAML so all windows get the identical
+    control and wording. Remembers the last choice for this Revit session.
+    Never raises; returns the CheckBox or None."""
+    try:
+        import System
+        from System.Windows import Thickness, VerticalAlignment
+        from System.Windows.Controls import CheckBox, Panel
+        button = window.FindName(anchor)
+        parent = button.Parent if button is not None else None
+        if not isinstance(parent, Panel):
+            return None
+        box = CheckBox()
+        box.Content = ERROR_OPTION_LABEL
+        box.ToolTip = ERROR_OPTION_TIP
+        box.VerticalAlignment = VerticalAlignment.Center
+        box.Margin = Thickness(0, 0, 12, 0) if at_start else Thickness(12, 0, 0, 0)
+        try:
+            last = System.AppDomain.CurrentDomain.GetData(_REMEMBER)
+        except Exception:
+            last = None
+        box.IsChecked = bool(last)
+        set_delete_errors(bool(last))
+
+        def _changed(sender, args):
+            value = bool(box.IsChecked)
+            set_delete_errors(value)
+            try:
+                System.AppDomain.CurrentDomain.SetData(_REMEMBER, value)
+            except Exception:
+                pass
+
+        # Not reset when the window closes: DeeNWCs / DeeTransmit close their
+        # options window BEFORE the run starts. Tools without a window set
+        # the choice themselves (ask_delete_errors / attach_failures(...)).
+        box.Checked += _changed
+        box.Unchecked += _changed
+        if at_start:
+            parent.Children.Insert(0, box)
+        else:
+            parent.Children.Insert(parent.Children.IndexOf(button) + 1, box)
+        window.dee_delete_errors_cb = box
+        return box
+    except Exception:
+        return None
+
+
+def ask_delete_errors(tool_name=""):
+    """The same question for tools without a window of their own (DeeOpener,
+    DeeCoord, DeeLinkReview). Returns True/False, or None if the user closed
+    the prompt (treat as cancel)."""
+    try:
+        from pyrevit import forms
+        yes = "Yes - delete them and continue"
+        no = "No - cancel that model and move on"
+        answer = forms.CommandSwitchWindow.show(
+            [yes, no],
+            message=("{0}If Revit reports an error it can only fix by deleting "
+                     "elements (e.g. 'Cannot form radial dimension' -> "
+                     "Delete Dimension(s)):").format(
+                         (tool_name + " - ") if tool_name else ""))
+        if not answer:
+            return None
+        set_delete_errors(answer == yes)
+        return answer == yes
+    except Exception:
+        set_delete_errors(False)
+        return False

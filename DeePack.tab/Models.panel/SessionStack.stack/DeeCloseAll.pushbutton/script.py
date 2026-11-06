@@ -152,7 +152,7 @@ def main():
     dialog_handler = ffh.make_dialog_handler(logger)
     try:
         __revit__.DialogBoxShowing += dialog_handler
-        dee_known_dialogs.attach_failures(__revit__)
+        dee_known_dialogs.attach_failures(__revit__, delete_errors=False)
     except Exception:
         pass
 

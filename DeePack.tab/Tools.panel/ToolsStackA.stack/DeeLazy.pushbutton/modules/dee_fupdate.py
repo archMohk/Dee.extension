@@ -284,6 +284,8 @@ def _collect_families(doc):
 class DeeFUpdateWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, uiapp):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        # Shared "On Revit errors: delete ... and continue" tick box
+        dee_known_dialogs.add_error_checkbox(self)
         self.uiapp = uiapp
         self.application = uiapp.Application
         self.doc = uiapp.ActiveUIDocument.Document

@@ -899,6 +899,8 @@ class DeeParaValuePipeline(object):
 class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, uiapp):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        # Shared "On Revit errors: delete ... and continue" tick box
+        dee_known_dialogs.add_error_checkbox(self, anchor="save_b")
         self.uiapp = uiapp
         self.application = uiapp.Application
         # No active document is a real, supported case here - this tool

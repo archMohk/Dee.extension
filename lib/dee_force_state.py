@@ -290,7 +290,7 @@ def _do_sync(uiapp):
     dialog_handler = ffh.make_dialog_handler(logger)
     try:
         uiapp.DialogBoxShowing += dialog_handler
-        dee_known_dialogs.attach_failures(uiapp)
+        dee_known_dialogs.attach_failures(uiapp, delete_errors=False)
     except Exception:
         pass
     try:

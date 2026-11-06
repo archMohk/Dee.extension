@@ -591,6 +591,11 @@ def _open_and_report(targets, close_worksets, detach=None, extra_results=None):
     the same attempt-and-fall-back this repo already needed in
     deew_document_manager.open_document_best_detach()."""
     uiapp = __revit__
+    # Same question as the tick box on the windowed tools: Revit errors
+    # it can only fix by deleting elements (Cannot form radial dimension...).
+    if dee_known_dialogs.ask_delete_errors("DeeOpener") is None:
+        return
+
     dismissed_log = []
     dialog_handler = _make_dialog_handler(dismissed_log)
     uiapp.DialogBoxShowing += dialog_handler
