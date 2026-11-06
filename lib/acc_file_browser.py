@@ -41,6 +41,7 @@ from Autodesk.Revit.DB import (
 from Autodesk.Revit.UI import TaskDialogResult
 
 import acc_api
+import dee_known_dialogs
 
 
 from dee_ui import SafeProgress as _SafeProgress
@@ -377,6 +378,13 @@ def make_dialog_handler(log_list):
             except Exception:
                 pass
             text = (dialog_id + " " + message).lower()
+
+            # Shared open-time dialogs (Copied Central Model, ...) - one list
+            # for every Dee tool, see lib/dee_known_dialogs.py.
+            known = dee_known_dialogs.answer(args, text)
+            if known:
+                log_list.append((known, True))
+                return
 
             if "docwarn" in text:
                 # The warnings-review list Revit shows while OPENING a

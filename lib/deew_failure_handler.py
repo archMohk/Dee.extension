@@ -35,6 +35,8 @@ Two independent Revit API mechanisms, both needed together:
 """
 from Autodesk.Revit.DB import FailureProcessingResult, FailureSeverity, IFailuresPreprocessor
 
+import dee_known_dialogs
+
 
 # Win32 message-box result codes DialogBoxShowingEventArgs.OverrideResult
 # accepts - documented here since these raw integers are otherwise
@@ -111,6 +113,19 @@ def make_dialog_handler(logger=None):
                 dialog_id = (args.DialogId or "").lower()
             except Exception:
                 dialog_id = ""
+
+            # Shared open-time dialogs first (lib/dee_known_dialogs.py). The
+            # Copied Central Model notice would otherwise hit the "central"
+            # key below and get IDOK - not one of its buttons (it only has
+            # Close), so Revit leaves it on screen and the batch hangs.
+            known = dee_known_dialogs.answer(args)
+            if known:
+                if logger is not None:
+                    try:
+                        logger.info(known, dialog_id=dialog_id, resolved=True)
+                    except Exception:
+                        pass
+                return
 
             resolved = False
             for key, code in _AUTO_RESOLVE_IDS.items():
