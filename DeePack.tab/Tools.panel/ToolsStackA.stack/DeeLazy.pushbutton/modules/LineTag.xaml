@@ -28,7 +28,7 @@
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Button x:Name="scan_b" Content="Scan" Width="90" Height="28" Click="scan_click"/>
-            <Button x:Name="run_b" Content="Run" Width="90" Height="28" Margin="8,0,0,0" Click="run_click"/>
+            <Button x:Name="run_b" Content="Run" Width="90" Height="28" Margin="8,0,0,0" Click="run_click" Style="{DynamicResource DeePrimary}"/>
             <Button x:Name="close_b" Content="Close" Width="90" Height="28" Margin="8,0,0,0" Click="close_click"/>
         </StackPanel>
 
@@ -66,9 +66,9 @@
                         <TextBlock Text="Preset:" VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <ComboBox x:Name="preset_cb" Width="200" Height="24" IsEditable="True"
                                   ToolTip="Pick a saved preset to Load/Delete, or type a new name and click Save."/>
-                        <Button x:Name="preset_save_b" Content="Save" Width="70" Height="24" Margin="6,0,0,0" Click="preset_save_click"/>
+                        <Button x:Name="preset_save_b" Content="Save" Width="70" Height="24" Margin="6,0,0,0" Click="preset_save_click" Style="{DynamicResource DeePrimary}"/>
                         <Button x:Name="preset_load_b" Content="Load" Width="70" Height="24" Margin="4,0,0,0" Click="preset_load_click"/>
-                        <Button x:Name="preset_delete_b" Content="Delete" Width="70" Height="24" Margin="4,0,0,0" Click="preset_delete_click"/>
+                        <Button x:Name="preset_delete_b" Content="Delete" Width="70" Height="24" Margin="4,0,0,0" Click="preset_delete_click" Style="{DynamicResource DeeDanger}"/>
                     </StackPanel>
 
                     <GroupBox Header="Line" Padding="6" Margin="0,0,0,10">

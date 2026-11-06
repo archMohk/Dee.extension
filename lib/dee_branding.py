@@ -176,12 +176,11 @@ def apply_theme(window):
 
 
 class DeeBrandedWindow(forms.WPFWindow):
-    def __init__(self, xaml_file, theme=False):
+    def __init__(self, xaml_file, theme=True):
         forms.WPFWindow.__init__(self, xaml_file)
-        # theme=True opts the window into lib/DeeTheme.xaml (shared
-        # button / input / grid look). Off by default while it is being
-        # piloted, so the windows that have not been checked against it
-        # keep their current appearance.
+        # Every branded window gets lib/DeeTheme.xaml (shared button /
+        # input / grid look). theme=False is an escape hatch only - no
+        # tool uses it, so every window shares the same light theme.
         if theme:
             apply_theme(self)
         try:

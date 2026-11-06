@@ -235,7 +235,7 @@
                         <Button x:Name="super_select_none_b" Content="Select None" Click="super_select_none_click" Width="90" Height="24" Margin="6,0,0,0"/>
                         <Button x:Name="super_move_up_b" Content="Move Up" Click="super_move_up_click" Width="90" Height="24" Margin="14,0,0,0"/>
                         <Button x:Name="super_move_down_b" Content="Move Down" Click="super_move_down_click" Width="90" Height="24" Margin="6,0,0,0"/>
-                        <Button x:Name="super_remove_selected_b" Content="Remove Selected" Click="super_remove_selected_click" Width="120" Height="24" Margin="14,0,0,0"/>
+                        <Button x:Name="super_remove_selected_b" Content="Remove Selected" Click="super_remove_selected_click" Width="120" Height="24" Margin="14,0,0,0" Style="{DynamicResource DeeDanger}"/>
                     </StackPanel>
                     <TextBlock DockPanel.Dock="Top" x:Name="super_status_tb" Text="No images added yet." Margin="0,0,0,8" FontStyle="Italic"/>
 

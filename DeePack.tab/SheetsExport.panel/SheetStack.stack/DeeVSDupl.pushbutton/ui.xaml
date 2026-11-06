@@ -69,9 +69,9 @@
                         <TextBlock Text="Selection Preset:" VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <ComboBox x:Name="preset_cb" Width="200" Height="24" IsEditable="True"
                                   ToolTip="Pick a saved preset to Load/Delete, or type a new name and click Save."/>
-                        <Button x:Name="preset_save_b" Content="Save" Width="70" Height="24" Margin="6,0,0,0" Click="preset_save_click"/>
+                        <Button x:Name="preset_save_b" Content="Save" Width="70" Height="24" Margin="6,0,0,0" Click="preset_save_click" Style="{DynamicResource DeePrimary}"/>
                         <Button x:Name="preset_load_b" Content="Load" Width="70" Height="24" Margin="4,0,0,0" Click="preset_load_click"/>
-                        <Button x:Name="preset_delete_b" Content="Delete" Width="70" Height="24" Margin="4,0,0,0" Click="preset_delete_click"/>
+                        <Button x:Name="preset_delete_b" Content="Delete" Width="70" Height="24" Margin="4,0,0,0" Click="preset_delete_click" Style="{DynamicResource DeeDanger}"/>
                         <TextBlock Text="Saved on THIS PC only, remembers which Sheets/Views/Schedules were checked (by Sheet Number / View or Schedule Name)."
                                    VerticalAlignment="Center" Margin="12,0,0,0" FontSize="11" Foreground="#888888" TextWrapping="Wrap"/>
                     </StackPanel>

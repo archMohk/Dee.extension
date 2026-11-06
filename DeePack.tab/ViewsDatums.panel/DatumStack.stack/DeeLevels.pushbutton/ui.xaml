@@ -29,7 +29,7 @@
                 <TextBlock Text="Scope Box:" VerticalAlignment="Center" Margin="0,0,6,0"/>
                 <ComboBox x:Name="scope_box_cb" Width="160" Height="24"/>
                 <Button x:Name="apply_scope_selected_b" Content="Apply to Selected"
-                        Click="apply_scope_selected_click" Width="120" Height="24" Margin="10,0,0,0"/>
+                        Click="apply_scope_selected_click" Width="120" Height="24" Margin="10,0,0,0" Style="{DynamicResource DeePrimary}"/>
                 <Button x:Name="apply_scope_all_b" Content="Apply to All Levels"
                         Click="apply_scope_all_click" Width="130" Height="24" Margin="6,0,0,0"/>
             </StackPanel>

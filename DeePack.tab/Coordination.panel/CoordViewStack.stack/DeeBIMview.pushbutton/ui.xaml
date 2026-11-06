@@ -15,7 +15,7 @@
         </StatusBar>
 
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
-            <Button x:Name="run_b" Content="Run" Width="170" Height="32" FontWeight="Bold" Click="run_click"/>
+            <Button x:Name="run_b" Content="Run" Width="170" Height="32" FontWeight="Bold" Click="run_click" Style="{DynamicResource DeePrimary}"/>
             <Button x:Name="close_b" Content="Close" Width="90" Height="32" Margin="14,0,0,0" Click="close_click"/>
         </StackPanel>
 

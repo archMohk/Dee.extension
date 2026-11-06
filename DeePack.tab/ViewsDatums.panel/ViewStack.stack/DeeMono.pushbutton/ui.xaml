@@ -14,7 +14,7 @@
 
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
             <Button x:Name="apply_b" Content="Apply" Width="110" Height="32"
-                    FontWeight="Bold" Click="apply_click"/>
+                    FontWeight="Bold" Click="apply_click" Style="{DynamicResource DeePrimary}"/>
             <Button x:Name="restore_b" Content="Restore Original" Width="140" Height="32"
                     Margin="10,0,0,0" Click="restore_click"
                     ToolTip="Puts this view's graphics back to how they were before DeeMono first touched them."/>

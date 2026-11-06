@@ -6,10 +6,10 @@
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <Border DockPanel.Dock="Right" Width="380" Margin="8,0,0,0"
-                BorderBrush="#666" BorderThickness="1,0,0,0" Padding="8,0,0,0">
+                BorderBrush="{DynamicResource DeeBorder}" BorderThickness="1,0,0,0" Padding="8,0,0,0">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Top" Text="MATCHES  (Source → Target)"
-                           FontWeight="Bold" Foreground="#F2994D"
+                           FontWeight="Bold" Foreground="{DynamicResource DeeAccent}"
                            Margin="0,0,0,6"/>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
                     <Button x:Name="remove_match_b" Content="Remove" Width="70" Height="24"
@@ -18,11 +18,11 @@
                 </StackPanel>
                 <Button DockPanel.Dock="Bottom" x:Name="clear_matches_b" Content="Clear All"
                         Height="24" Margin="0,6,0,0" Click="clear_matches_click"/>
-                <Border DockPanel.Dock="Bottom" BorderBrush="#666" BorderThickness="1"
+                <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource DeeBorder}" BorderThickness="1"
                         Margin="0,8,0,0" Padding="6">
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Top" Text="ANALYSIS" FontWeight="Bold"
-                                   Foreground="#F2994D" Margin="0,0,0,4"/>
+                                   Foreground="{DynamicResource DeeAccent}" Margin="0,0,0,4"/>
                         <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Auto">
                             <TextBlock x:Name="analysis_tb" FontFamily="Consolas" FontSize="10"
@@ -159,12 +159,12 @@
                         <Button x:Name="wiremap_clear_wires_b" Content="Clear Wires" Width="90" Height="22"
                                 Margin="6,0,0,0" Click="wiremap_clear_wires_click"/>
                         <TextBlock x:Name="wiremap_count_tb" VerticalAlignment="Center" Margin="14,0,0,0"
-                                   Foreground="#888" Text=""/>
+                                   Foreground="{DynamicResource DeeTextMuted}" Text=""/>
                     </StackPanel>
 
-                    <Border DockPanel.Dock="Bottom" Background="#2B2B2B" BorderBrush="#555"
+                    <Border DockPanel.Dock="Bottom" Background="{DynamicResource DeeButtonBg}" BorderBrush="{DynamicResource DeeBorder}"
                             BorderThickness="1" Padding="6,4" Margin="0,6,0,0">
-                        <TextBlock x:Name="wiremap_hint_tb" FontSize="11" Foreground="#CCC"
+                        <TextBlock x:Name="wiremap_hint_tb" FontSize="11" Foreground="{DynamicResource DeeTextMuted}"
                                    Text="Click a file on the left, then a file on the right, to link the first into the second."/>
                     </Border>
 
@@ -176,7 +176,7 @@
                         </Grid.ColumnDefinitions>
 
                         <DockPanel Grid.Column="0">
-                            <TextBlock DockPanel.Dock="Top" Foreground="#F2994D" FontWeight="Bold"
+                            <TextBlock DockPanel.Dock="Top" Foreground="{DynamicResource DeeAccent}" FontWeight="Bold"
                                        Margin="0,0,0,3" Text="SOURCES — click one to start"/>
                             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,3">
                                 <TextBox x:Name="wiremap_left_search_tb" Width="140" Height="22"
@@ -184,21 +184,21 @@
                                 <Button x:Name="wiremap_left_clear_b" Content="Clear" Width="46" Height="22"
                                         Margin="4,0,0,0" Click="wiremap_left_clear_click"/>
                                 <TextBlock x:Name="wiremap_left_count_tb" VerticalAlignment="Center"
-                                           Margin="8,0,0,0" Foreground="#888" Text=""/>
+                                           Margin="8,0,0,0" Foreground="{DynamicResource DeeTextMuted}" Text=""/>
                             </StackPanel>
-                            <Border BorderBrush="#555" BorderThickness="1">
+                            <Border BorderBrush="{DynamicResource DeeBorder}" BorderThickness="1">
                                 <ScrollViewer x:Name="wiremap_left_scroll" VerticalScrollBarVisibility="Auto"
                                               HorizontalScrollBarVisibility="Disabled">
-                                    <StackPanel x:Name="wiremap_left_panel" Background="#1E1E1E"/>
+                                    <StackPanel x:Name="wiremap_left_panel" Background="{DynamicResource DeeSurface}"/>
                                 </ScrollViewer>
                             </Border>
                         </DockPanel>
 
-                        <Canvas Grid.Column="1" x:Name="wiremap_canvas" Background="#161616"
+                        <Canvas Grid.Column="1" x:Name="wiremap_canvas" Background="{DynamicResource DeeWindowBg}"
                                 ClipToBounds="True"/>
 
                         <DockPanel Grid.Column="2">
-                            <TextBlock DockPanel.Dock="Top" Foreground="#F2994D" FontWeight="Bold"
+                            <TextBlock DockPanel.Dock="Top" Foreground="{DynamicResource DeeAccent}" FontWeight="Bold"
                                        Margin="0,0,0,3" Text="TARGETS — click one to finish"/>
                             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,3">
                                 <TextBox x:Name="wiremap_right_search_tb" Width="140" Height="22"
@@ -206,12 +206,12 @@
                                 <Button x:Name="wiremap_right_clear_b" Content="Clear" Width="46" Height="22"
                                         Margin="4,0,0,0" Click="wiremap_right_clear_click"/>
                                 <TextBlock x:Name="wiremap_right_count_tb" VerticalAlignment="Center"
-                                           Margin="8,0,0,0" Foreground="#888" Text=""/>
+                                           Margin="8,0,0,0" Foreground="{DynamicResource DeeTextMuted}" Text=""/>
                             </StackPanel>
-                            <Border BorderBrush="#555" BorderThickness="1">
+                            <Border BorderBrush="{DynamicResource DeeBorder}" BorderThickness="1">
                                 <ScrollViewer x:Name="wiremap_right_scroll" VerticalScrollBarVisibility="Auto"
                                               HorizontalScrollBarVisibility="Disabled">
-                                    <StackPanel x:Name="wiremap_right_panel" Background="#1E1E1E"/>
+                                    <StackPanel x:Name="wiremap_right_panel" Background="{DynamicResource DeeSurface}"/>
                                 </ScrollViewer>
                             </Border>
                         </DockPanel>
@@ -236,19 +236,19 @@
                         <Button x:Name="matrix_clear_all_b" Content="Clear All" Width="80" Height="22"
                                 Margin="14,0,0,0" Click="matrix_clear_click"/>
                         <TextBlock x:Name="matrix_count_tb" VerticalAlignment="Center" Margin="14,0,0,0"
-                                   Foreground="#888" Text=""/>
+                                   Foreground="{DynamicResource DeeTextMuted}" Text=""/>
                     </StackPanel>
 
-                    <Border DockPanel.Dock="Bottom" Background="#2B2B2B" BorderBrush="#555"
+                    <Border DockPanel.Dock="Bottom" Background="{DynamicResource DeeButtonBg}" BorderBrush="{DynamicResource DeeBorder}"
                             BorderThickness="1" Padding="6,4" Margin="0,6,0,0">
-                        <TextBlock FontSize="11" Foreground="#CCC" TextWrapping="Wrap"
+                        <TextBlock FontSize="11" Foreground="{DynamicResource DeeTextMuted}" TextWrapping="Wrap"
                                    Text="Tick a cell to link that ROW into that COLUMN - shift-click to set a whole rectangle at once. The diagonal is disabled - a file can't be linked into itself. Right-click a header to insert/remove a separator line (saved with Save Set)."/>
                     </Border>
 
-                    <Border BorderBrush="#555" BorderThickness="1">
+                    <Border BorderBrush="{DynamicResource DeeBorder}" BorderThickness="1">
                         <ScrollViewer x:Name="matrix_scroll" VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Auto">
-                            <Grid x:Name="matrix_grid" Background="#1E1E1E"/>
+                            <Grid x:Name="matrix_grid" Background="{DynamicResource DeeSurface}"/>
                         </ScrollViewer>
                     </Border>
                 </DockPanel>
@@ -259,11 +259,11 @@
                     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
                                Text="Every current match, with its own Link Type and Attachment. Leave a match alone to use the Link Type/options defaults above - only change what you need to differ. Select multiple rows (Ctrl/Shift-click) to bulk-apply a change below."/>
                     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
-                        <TextBlock Text="Set Link Type for selected:" Foreground="WhiteSmoke" VerticalAlignment="Center"/>
+                        <TextBlock Text="Set Link Type for selected:" Foreground="{DynamicResource DeeText}" VerticalAlignment="Center"/>
                         <ComboBox x:Name="bulk_placement_cb" Width="200" Height="24" Margin="6,0,0,0"/>
                         <Button x:Name="bulk_placement_apply_b" Content="Apply" Width="70" Height="24"
                                 Margin="6,0,0,0" Click="bulk_placement_apply_click"/>
-                        <TextBlock Text="Attachment:" Foreground="WhiteSmoke" VerticalAlignment="Center" Margin="20,0,0,0"/>
+                        <TextBlock Text="Attachment:" Foreground="{DynamicResource DeeText}" VerticalAlignment="Center" Margin="20,0,0,0"/>
                         <ComboBox x:Name="bulk_attachment_cb" Width="120" Height="24" Margin="6,0,0,0"/>
                         <Button x:Name="bulk_attachment_apply_b" Content="Apply" Width="70" Height="24"
                                 Margin="6,0,0,0" Click="bulk_attachment_apply_click"/>
@@ -275,7 +275,7 @@
                             <DataGridTextColumn Header="Match" Binding="{Binding match_label}" IsReadOnly="True" Width="2*">
                                 <DataGridTextColumn.ElementStyle>
                                     <Style TargetType="TextBlock">
-                                        <Setter Property="Foreground" Value="WhiteSmoke"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource DeeText}"/>
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                             </DataGridTextColumn>
@@ -283,7 +283,7 @@
                                                      SelectedItemBinding="{Binding placement_label}" Width="220">
                                 <DataGridComboBoxColumn.ElementStyle>
                                     <Style TargetType="TextBlock">
-                                        <Setter Property="Foreground" Value="WhiteSmoke"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource DeeText}"/>
                                     </Style>
                                 </DataGridComboBoxColumn.ElementStyle>
                             </DataGridComboBoxColumn>
@@ -291,7 +291,7 @@
                                                      SelectedItemBinding="{Binding attachment_label}" Width="140">
                                 <DataGridComboBoxColumn.ElementStyle>
                                     <Style TargetType="TextBlock">
-                                        <Setter Property="Foreground" Value="WhiteSmoke"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource DeeText}"/>
                                     </Style>
                                 </DataGridComboBoxColumn.ElementStyle>
                             </DataGridComboBoxColumn>

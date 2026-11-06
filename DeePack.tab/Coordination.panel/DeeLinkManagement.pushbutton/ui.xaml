@@ -38,7 +38,7 @@
                     <StackPanel Orientation="Horizontal" Margin="6">
                         <TextBlock Text="Set ticked links to:" VerticalAlignment="Center" Margin="0,0,8,0"/>
                         <ComboBox x:Name="reference_cb" Width="160" Height="26"/>
-                        <Button x:Name="apply_reference_b" Content="Apply to Selected" Click="apply_reference_click" Width="150" Height="26" Margin="10,0,0,0"/>
+                        <Button x:Name="apply_reference_b" Content="Apply to Selected" Click="apply_reference_click" Width="150" Height="26" Margin="10,0,0,0" Style="{DynamicResource DeePrimary}"/>
                     </StackPanel>
                 </GroupBox>
                 <GroupBox Header="Reload" Margin="0,0,0,8">
