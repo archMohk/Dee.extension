@@ -1,6 +1,7 @@
 title: "About"
 layout:
   - DeeControl
+  - DeeInterface
   - UserInfo
   - DeeAccount
   - NotificationCenter

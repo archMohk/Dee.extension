@@ -1,0 +1,94 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Dee.extension — Interface"
+        ShowInTaskbar="False" ResizeMode="NoResize"
+        SizeToContent="Height" Width="580"
+        WindowStartupLocation="CenterScreen">
+    <StackPanel Margin="14">
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,10" Foreground="{DynamicResource DeeTextMuted}"
+                   Text="How DeePack looks on this PC: icon colours and window effects. Personal to this PC - it does not change anyone else's ribbon."/>
+
+        <TabControl x:Name="tabs" Margin="0,0,0,12">
+            <!-- ================= Colours ================= -->
+            <TabItem Header="Colours">
+                <StackPanel Margin="10">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                        <TextBlock Text="Colour the:" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <RadioButton x:Name="target_accent_rb" Content="Accent (orange)" GroupName="target"
+                                     IsChecked="True" Margin="12,0,0,0" VerticalAlignment="Center"
+                                     Checked="target_changed"
+                                     ToolTip="The orange in the icons, the website bar and the progress bars."/>
+                        <RadioButton x:Name="target_line_rb" Content="Lines (grey)" GroupName="target"
+                                     Margin="16,0,0,0" VerticalAlignment="Center"
+                                     Checked="target_changed"
+                                     ToolTip="The grey line work of the ribbon icons."/>
+                    </StackPanel>
+
+                    <TextBlock Text="Palette" FontWeight="Bold" Margin="0,0,0,4"/>
+                    <WrapPanel x:Name="presets_panel" Margin="0,0,0,10"/>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <Button x:Name="more_b" Content="More colours..." Width="120" Height="26"
+                                Click="more_click"
+                                ToolTip="Open the full Windows colour picker - any colour at all."/>
+                        <TextBlock Text="Hex:" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                        <TextBox x:Name="hex_tb" Width="100" Height="24" Margin="8,0,0,0"
+                                 TextChanged="hex_changed"
+                                 ToolTip="Any colour as #RRGGBB, e.g. #1F6FB2"/>
+                        <Border x:Name="swatch_b" Width="40" Height="24" Margin="8,0,0,0"
+                                BorderBrush="{DynamicResource DeeBorderStrong}" BorderThickness="1" CornerRadius="3"/>
+                        <TextBlock x:Name="name_tb" Foreground="{DynamicResource DeeTextMuted}"
+                                   VerticalAlignment="Center" Margin="8,0,0,0" Text=""/>
+                        <TextBlock x:Name="hex_error_tb" Foreground="{DynamicResource DeeDangerBrush}"
+                                   VerticalAlignment="Center" Margin="8,0,0,0" Text=""/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                        <Button x:Name="reset_b" Content="Reset to Orange" Width="130" Height="26" Click="reset_click"/>
+                    </StackPanel>
+                </StackPanel>
+            </TabItem>
+
+            <!-- ================= Effects ================= -->
+            <TabItem Header="Effects">
+                <StackPanel Margin="10">
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,10"
+                               Text="Tick any number of effects - they all work together. This window shows them as you tick."/>
+                    <StackPanel x:Name="effects_panel"/>
+                    <StackPanel x:Name="glass_level_row" Orientation="Horizontal" Margin="26,2,0,10">
+                        <TextBlock Text="See-through:" VerticalAlignment="Center"/>
+                        <Slider x:Name="glass_level_sl" Width="220" Minimum="0" Maximum="100"
+                                Margin="10,0,0,0" VerticalAlignment="Center"
+                                TickFrequency="10" IsSnapToTickEnabled="False"
+                                ValueChanged="glass_level_changed"
+                                ToolTip="Left: frosted, almost solid. Right: clear glass."/>
+                        <TextBlock x:Name="glass_level_tb" Margin="10,0,0,0" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource DeeTextMuted}" Text=""/>
+                    </StackPanel>
+                    <Button x:Name="effects_off_b" Content="Turn all effects off" Width="150" Height="26"
+                            HorizontalAlignment="Left" Click="effects_off_click"/>
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+
+        <TextBlock Text="Preview" FontWeight="Bold" Margin="0,0,0,4"/>
+        <Border Background="{DynamicResource DeeSurface}" BorderBrush="{DynamicResource DeeBorder}"
+                BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,0,0,12">
+            <StackPanel>
+                <WrapPanel x:Name="preview_panel"/>
+                <ProgressBar x:Name="preview_pb" Height="14" Minimum="0" Maximum="100" Value="62"
+                             Margin="4,8,4,2" ToolTip="Progress bars use the accent too."/>
+                <TextBlock Foreground="{DynamicResource DeeTextMuted}" Margin="4,4,4,0" TextWrapping="Wrap"
+                           Text="This window itself also shows the website bar colour and the effects."/>
+            </StackPanel>
+        </Border>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="apply_b" Content="Apply" Width="100" Height="28"
+                    Style="{DynamicResource DeePrimary}" Click="apply_click"/>
+            <Button x:Name="close_b" Content="Close" Width="90" Height="28" Margin="8,0,0,0" Click="close_click"/>
+        </StackPanel>
+        <TextBlock x:Name="status_tb" Foreground="{DynamicResource DeeTextMuted}" TextWrapping="Wrap"
+                   Margin="0,8,0,0" Text=""/>
+    </StackPanel>
+</Window>

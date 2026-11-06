@@ -186,6 +186,7 @@ TOOL_CATEGORIES = {
     "DistributeVertical": "productivity",
     # About.panel - meta/admin, deliberately never category-gated.
     "DeeControl": None,
+    "DeeInterface": None,
     "Update": None,
     "Version": None,
     "WebSite": None,

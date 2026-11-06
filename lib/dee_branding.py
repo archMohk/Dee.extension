@@ -129,6 +129,11 @@ def set_window_accent(window, color=None):
         pass
 
 
+def open_windows():
+    """Every Dee window currently on screen."""
+    return list(_open_windows)
+
+
 def repaint_open_windows(color=None):
     """After Apply in Accent Colour: every Dee window still on screen
     takes the new colour now, not only the next one opened."""
@@ -164,7 +169,7 @@ def _round_corners_dwm(window):
         pref = ctypes.c_int(_DWMWCP_ROUNDSMALL)
         _dwmapi.DwmSetWindowAttribute(
             hwnd.ToInt64(), _DWMWA_WINDOW_CORNER_PREFERENCE,
-            ctypes.byref(pref), ctypes.sizeof(pref))
+            ctypes.addressof(pref), ctypes.sizeof(pref))   # byref() fails on c_void_p in IronPython
     except Exception:
         pass
 
@@ -338,9 +343,19 @@ def _wrap_with_progress_strip(window, content):
         grid.Children.Add(cancel)
         strip.Child = grid
 
+        # Accent line along the top - hidden unless the "Accent top line"
+        # effect is on (dee_effects).
+        topline = Border()
+        topline.Height = 3
+        topline.SetResourceReference(Border.BackgroundProperty, "DeeOrange")
+        topline.Visibility = Visibility.Collapsed
+        DockPanel.SetDock(topline, Dock.Top)
+
         panel = DockPanel()
+        panel.Children.Add(topline)
         panel.Children.Add(strip)
         panel.Children.Add(content)
+        window._dee_topline = topline
 
         window._dee_strip = strip
         window._dee_strip_text = text
@@ -433,6 +448,12 @@ class DeeBrandedWindow(forms.WPFWindow):
             # A branding-bar failure should never block a tool from
             # opening - worst case the window just looks like it did
             # before this module existed.
+            pass
+        try:
+            # Glass / outline / fade ... from About -> Interface.
+            import dee_effects
+            dee_effects.attach(self)
+        except Exception:
             pass
         try:
             self.SourceInitialized += self._on_source_initialized

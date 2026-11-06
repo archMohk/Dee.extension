@@ -285,12 +285,6 @@ class DeeControlWindow(dee_branding.DeeBrandedWindow):
         self.Close()
         sessionmgr.reload_pyrevit()
 
-    def accent_click(self, sender, args):
-        def run():
-            import dee_accent_dialog
-            dee_accent_dialog.show(__revit__)  # noqa: F821 - pyRevit global
-        self._guard(run)
-
     def close_click(self, sender, args):
         self.Close()
 

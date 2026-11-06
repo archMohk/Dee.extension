@@ -1,17 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-dee_accent_dialog
-The Icon Colours picker opened from DeeControl -> Accent Colour.
+dee_interface_dialog
+The window behind About -> Interface. Two tabs:
 
-Two colours can be set, one at a time ("Colour the: Accent / Lines"):
+Colours - two colours, one at a time ("Colour the: Accent / Lines"):
   - Accent: the orange in every ribbon icon, the website bar under each
     tool window and the progress bars.
   - Lines:  the grey line work of the ribbon icons.
-Each has a 44-colour palette, "More colours..." (the full Windows colour
-picker) and a hex box, with a live preview on real ribbon icons, a sample
-progress bar and this window's own website bar. Apply saves both
-(lib/.dee_accent.json) and repaints the live ribbon and every open Dee
-window straight away - no pyRevit reload. See lib/dee_accent.py.
+  Each has a 44-colour palette, "More colours..." (the full Windows
+  colour picker) and a hex box.
+Effects - any combination of glass, accent outline, accent top line,
+  fade in and accent title bar (lib/dee_effects.py).
+
+Everything previews live on real ribbon icons, a sample progress bar and
+this window itself. Apply saves it all (lib/.dee_accent.json) and
+repaints the live ribbon and every open Dee window straight away - no
+pyRevit reload. See lib/dee_accent.py and lib/dee_effects.py.
 """
 import os
 
@@ -21,7 +25,7 @@ clr.AddReference("System.Windows.Forms")
 clr.AddReference("System.Drawing")
 from System import Uri, UriKind  # noqa: E402
 from System.Windows import Thickness  # noqa: E402
-from System.Windows.Controls import Button, Image  # noqa: E402
+from System.Windows.Controls import Button, Image, CheckBox  # noqa: E402
 from System.Windows.Media import SolidColorBrush, Color  # noqa: E402
 from System.Windows.Media.Imaging import BitmapImage, BitmapCacheOption  # noqa: E402
 from System.Windows.Forms import ColorDialog, DialogResult  # noqa: E402
@@ -29,8 +33,9 @@ import System.Drawing  # noqa: E402
 
 import dee_accent
 import dee_branding
+import dee_effects
 
-_XAML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "DeeAccentDialog.xaml")
+_XAML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "DeeInterface.xaml")
 _PREVIEW_BUTTONS = ["DeePublisher", "DeeSuperLINK", "Dee3DView", "DeeCleaner",
                     "DeeLazy", "DeeForce", "DeeIcon", "DeeMAPLink"]
 
@@ -63,7 +68,7 @@ def _load_image(path):
     return bmp
 
 
-class AccentDialog(dee_branding.DeeBrandedWindow):
+class InterfaceDialog(dee_branding.DeeBrandedWindow):
     _ready = False
 
     def __init__(self, uiapp=None):
@@ -79,6 +84,11 @@ class AccentDialog(dee_branding.DeeBrandedWindow):
                                  for n in _PREVIEW_BUTTONS if n in bundles]
         self._swatches = []
         self._build_presets()
+        self._saved_effects = dee_effects.load_effects()
+        self._effects = dict(self._saved_effects)
+        self._effect_boxes = {}
+        self._build_effects()
+        self.SourceInitialized += lambda s, a: dee_effects.apply(self, self._effects)
         self._ready = True
         self.hex_tb.Text = self._target_value()
         self._refresh()
@@ -115,6 +125,50 @@ class AccentDialog(dee_branding.DeeBrandedWindow):
             self._swatches.append(b)
             self.presets_panel.Children.Add(b)
 
+    def _build_effects(self):
+        win11 = dee_effects.is_windows_11()
+        for key, label, tip in dee_effects.EFFECTS:
+            box = CheckBox()
+            box.Content = label
+            box.ToolTip = tip
+            box.Margin = Thickness(0, 0, 0, 8)
+            box.IsChecked = bool(self._effects.get(key))
+            if key == "titlebar" and not win11:
+                box.IsEnabled = False
+                box.IsChecked = False
+                box.Content = label + "  (needs Windows 11)"
+            box.Tag = key
+            box.Checked += self._effect_toggled
+            box.Unchecked += self._effect_toggled
+            self._effect_boxes[key] = box
+            self.effects_panel.Children.Add(box)
+            if key == "glass":
+                # the See-through slider sits right under Glass
+                row = self.glass_level_row
+                row.Parent.Children.Remove(row)
+                self.effects_panel.Children.Add(row)
+        self.glass_level_sl.Value = self._effects["glass_level"]
+        self._sync_effect_controls()
+
+    def _sync_effect_controls(self):
+        self.glass_level_row.IsEnabled = bool(self._effects["glass"])
+        self.glass_level_tb.Text = "{0}%".format(int(self._effects["glass_level"]))
+
+    def _effects_changed(self):
+        self._sync_effect_controls()
+        dee_effects.apply(self, self._effects)
+        self._update_status()
+
+    def _update_status(self):
+        changed = ((self._accent, self._line) != (self._saved_accent, self._saved_line)
+                   or self._effects != self._saved_effects)
+        if changed:
+            self.status_tb.Text = "Not applied yet - click Apply."
+        else:
+            on = [label for key, label, _tip in dee_effects.EFFECTS if self._effects.get(key)]
+            self.status_tb.Text = "Current: accent {0}, lines {1}, effects: {2}".format(
+                self._saved_accent, self._saved_line or "grey", ", ".join(on) or "none")
+
     def _refresh(self):
         current = self._target_value()
         self.swatch_b.Background = _brush(current)
@@ -140,12 +194,25 @@ class AccentDialog(dee_branding.DeeBrandedWindow):
                 self.preview_panel.Children.Add(img)
             except Exception:
                 pass
-        changed = (self._accent, self._line) != (self._saved_accent, self._saved_line)
-        self.status_tb.Text = ("Not applied yet - click Apply." if changed
-                               else "Current: accent {0}, lines {1}".format(
-                                   self._saved_accent, self._saved_line or "grey"))
+        self._update_status()
 
     # ---- events ----
+    def _effect_toggled(self, sender, args):
+        if not self._ready:
+            return
+        self._effects[sender.Tag] = bool(sender.IsChecked)
+        self._effects_changed()
+
+    def glass_level_changed(self, sender, args):
+        if not self._ready:
+            return
+        self._effects["glass_level"] = int(round(self.glass_level_sl.Value))
+        self._effects_changed()
+
+    def effects_off_click(self, sender, args):
+        for box in self._effect_boxes.values():
+            box.IsChecked = False      # each fires _effect_toggled
+
     def target_changed(self, sender, args):
         if not self._ready:
             return
@@ -202,6 +269,10 @@ class AccentDialog(dee_branding.DeeBrandedWindow):
             dee_branding.repaint_open_windows(dee_accent.window_accent())
         except Exception:
             pass
+        self._saved_effects = dee_effects.save_effects(self._effects)
+        for win in dee_branding.open_windows():
+            if win is not self:
+                dee_effects.apply(win, self._saved_effects)
         self._refresh()
         self.status_tb.Text = ("Saved. {0} ribbon buttons repainted, and every open "
                                "Dee window updated.".format(count))
@@ -211,4 +282,4 @@ class AccentDialog(dee_branding.DeeBrandedWindow):
 
 
 def show(uiapp=None):
-    AccentDialog(uiapp).ShowDialog()
+    InterfaceDialog(uiapp).ShowDialog()

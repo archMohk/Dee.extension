@@ -584,6 +584,14 @@ GLYPHS = {
         rc(16, 46, 64, 66, "ink", 0.95, 10), cf(28, 56, 7, "ink"),
         rc(16, 72, 64, 92, "ink", 0.95, 10), cf(52, 82, 7),
     ],
+    # A window with colour swatches and a slider under it - the look of
+    # DeePack: colours + effects (glass strength).
+    "DeeInterface": lambda: [
+        rc(10, 12, 86, 70, "ink", 1.0, 4), ln(10, 25, 86, 25, "ink", 0.9),
+        cf(30, 47, 9), ci(54, 47, 9, "ink", 0.9), ci(54, 47, 3, "ink", 0.9),
+        ln(70, 38, 76, 56, "ink", 0.8), ln(76, 38, 82, 56, "ink", 0.8),
+        ln(10, 86, 86, 86, "ink", 1.0), cf(62, 86, 7),
+    ],
     # Plain person outline (the same shared motif DeeGUID/DeeRelinquish
     # combine with other elements) at full standalone size - a simple
     # profile/account glyph, no accent needed since there's no single

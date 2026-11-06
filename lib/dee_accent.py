@@ -160,15 +160,22 @@ def load_line():
     return normalize_hex(_load_config().get("line"))
 
 
+def update_config(changes):
+    """Merges `changes` into lib/.dee_accent.json (colours and the
+    dee_effects settings share the file), keeping every other key."""
+    data = _load_config()
+    data.update(changes)
+    try:
+        with open(_CONFIG_PATH, "w") as f:
+            f.write(json.dumps(data, indent=2, sort_keys=True))
+    except Exception:
+        pass
+
+
 def save_accent(value, line=None):
     """Saves both colours. line=None keeps the default grey lines."""
     value = normalize_hex(value) or ICON_ACCENT
-    line = normalize_hex(line)
-    try:
-        with open(_CONFIG_PATH, "w") as f:
-            f.write(json.dumps({"accent": value, "line": line}, indent=2))
-    except Exception:
-        pass
+    update_config({"accent": value, "line": normalize_hex(line)})
     return value
 
 
