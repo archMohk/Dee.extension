@@ -13,8 +13,13 @@ ones already open when the user clicks Apply.
   outline   A thin accent-coloured outline around the window.
   topline   An accent-coloured line along the top of the window.
   fade      Windows fade and slide in when they open.
-  titlebar  The Windows title bar painted in the accent colour
-            (Windows 11 only - Windows 10 has no API for it).
+  rounded   Rounded corners and a slim title bar in the theme colours
+            (lib/dee_branding.py builds it). Chrome can only change before
+            a window exists, so this one shows on windows opened after
+            Apply.
+  titlebar  The title bar painted in the accent colour: the Windows title
+            bar on Windows 11, the rounded window's own title bar
+            anywhere (Windows 10 has no API for its own).
 
 Stored per PC next to the colours, in lib/.dee_accent.json ("effects").
 Nothing here ever raises into a caller: an effect that can't be applied
@@ -25,6 +30,7 @@ clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
 from System import Environment, TimeSpan  # noqa: E402
 from System.Windows import Thickness, Visibility, Window, Duration  # noqa: E402
+from System.Windows.Controls import Border  # noqa: E402
 from System.Windows.Interop import WindowInteropHelper, HwndSource  # noqa: E402
 from System.Windows.Media import SolidColorBrush, Color, Colors, TranslateTransform  # noqa: E402
 from System.Windows.Media.Animation import DoubleAnimation, QuadraticEase, EasingMode  # noqa: E402
@@ -37,6 +43,7 @@ DEFAULTS = {
     "outline": False,
     "topline": False,
     "fade": False,
+    "rounded": False,
     "titlebar": False,
 }
 
@@ -50,8 +57,12 @@ EFFECTS = [
      "An accent-coloured line along the top of every tool window."),
     ("fade", "Fade in",
      "Windows fade and slide in gently when they open."),
+    ("rounded", "Rounded windows",
+     "Rounded corners and a slim title bar on every tool window. "
+     "Shows on windows opened after Apply."),
     ("titlebar", "Accent title bar",
-     "The Windows title bar in the accent colour (Windows 11 only)."),
+     "The title bar in the accent colour (Windows 11, or any PC with "
+     "Rounded windows on)."),
 ]
 
 
@@ -111,8 +122,14 @@ try:
     _dwmapi.DwmSetWindowAttribute.argtypes = [
         ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]
     _dwmapi.DwmSetWindowAttribute.restype = ctypes.c_long
+    _user32.SetWindowRgn.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int]
+    _user32.SetWindowRgn.restype = ctypes.c_int
+    _gdi32 = ctypes.WinDLL("gdi32")
+    _gdi32.CreateRoundRectRgn.argtypes = [ctypes.c_int] * 6
+    _gdi32.CreateRoundRectRgn.restype = ctypes.c_void_p
 except Exception:
     ctypes = None
+    _gdi32 = None
 
 _WCA_ACCENT_POLICY = 19
 _ACCENT_DISABLED = 0
@@ -160,6 +177,37 @@ def _dwm_color(hwnd, attribute, value):
         pass
 
 
+def _round_region(window, hwnd, off=False):
+    """Clips a rounded window to its rounded shape, so the blurred glass
+    behind it doesn't show as a square at the corners. Re-done on resize."""
+    if _gdi32 is None:
+        return
+    try:
+        if off:
+            _user32.SetWindowRgn(hwnd.ToInt64(), None, True)
+            return
+        if not getattr(window, "_dee_region_hooked", False):
+            window._dee_region_hooked = True
+
+            def _resized(sender, args):
+                if getattr(window, "_dee_glass_saved", None) is not None:
+                    _round_region(window, hwnd)
+            window.SizeChanged += _resized
+        src = HwndSource.FromHwnd(hwnd)
+        m = src.CompositionTarget.TransformToDevice
+        w = int(round(window.ActualWidth * m.M11))
+        h = int(round(window.ActualHeight * m.M22))
+        border = window._dee_round_border
+        r = border.CornerRadius.TopLeft
+        d = max(1, int(round(2 * r * m.M11)))
+        if w <= 0 or h <= 0:
+            return
+        rgn = _gdi32.CreateRoundRectRgn(0, 0, w + 1, h + 1, d, d)
+        _user32.SetWindowRgn(hwnd.ToInt64(), rgn, True)   # Windows owns rgn now
+    except Exception:
+        pass
+
+
 def _colorref(color):
     return color.R | (color.G << 8) | (color.B << 16)
 
@@ -177,8 +225,9 @@ def _with_alpha(brush, alpha):
 
 
 def _glass(window, on, level):
-    if getattr(window, "AllowsTransparency", False):
-        return      # custom-chrome windows draw their own body; leave them
+    rounded = getattr(window, "_dee_round_border", None) is not None
+    if getattr(window, "AllowsTransparency", False) and not rounded:
+        return      # other custom-chrome windows draw their own body
     hwnd = _hwnd(window)
     if hwnd is None:
         return
@@ -195,11 +244,19 @@ def _glass(window, on, level):
         alpha = int(round(235 - 1.7 * level))
         base = saved["background"] if saved["background"] is not None else saved["resources"].get("DeeWindowBg")
         src.CompositionTarget.BackgroundColor = Colors.Transparent
-        window.Background = _with_alpha(base, alpha)
-        for key in _GLASS_KEYS:
-            original = saved["resources"].get(key)
-            if original is not None:
-                window.Resources[key] = _with_alpha(original, min(255, alpha + 25))
+        if rounded:
+            # The rounded border paints DeeWindowBg; the window stays clear.
+            window.Resources["DeeWindowBg"] = _with_alpha(
+                saved["resources"].get("DeeWindowBg"), alpha)
+            window.Resources["DeeSurface"] = _with_alpha(
+                saved["resources"].get("DeeSurface"), min(255, alpha + 25))
+            _round_region(window, hwnd)
+        else:
+            window.Background = _with_alpha(base, alpha)
+            for key in _GLASS_KEYS:
+                original = saved["resources"].get(key)
+                if original is not None:
+                    window.Resources[key] = _with_alpha(original, min(255, alpha + 25))
         _set_blur(hwnd, True)
     else:
         saved = getattr(window, "_dee_glass_saved", None)
@@ -207,7 +264,10 @@ def _glass(window, on, level):
             return
         _set_blur(hwnd, False)
         src.CompositionTarget.BackgroundColor = saved["target"]
-        window.Background = saved["background"]
+        if rounded:
+            _round_region(window, hwnd, off=True)
+        else:
+            window.Background = saved["background"]
         for key in _GLASS_KEYS:
             if window.Resources.Contains(key):
                 window.Resources.Remove(key)
@@ -215,6 +275,15 @@ def _glass(window, on, level):
 
 
 def _outline(window, on):
+    border = getattr(window, "_dee_round_border", None)
+    if border is not None:
+        # The outline follows the rounded corners instead of the square
+        # (invisible) window edge.
+        border.BorderThickness = Thickness(2 if on else 1)
+        border.SetResourceReference(Border.BorderBrushProperty,
+                                    "DeeOrange" if on else "DeeBorderStrong")
+        window._dee_outline_on = bool(on)
+        return
     if on:
         window.BorderThickness = Thickness(2)
         window.SetResourceReference(Window.BorderBrushProperty, "DeeOrange")
@@ -231,6 +300,15 @@ def _topline(window, on):
 
 
 def _titlebar(window, on):
+    if getattr(window, "_dee_titlebar", None) is not None:
+        # Rounded window: its own title bar, on any Windows version.
+        if on:
+            window.Resources["DeeTitleBg"] = window.TryFindResource("DeeOrange")
+            window.Resources["DeeTitleFg"] = window.TryFindResource("DeeOnOrange")
+        else:
+            window.Resources["DeeTitleBg"] = window.TryFindResource("DeeSurface")
+            window.Resources["DeeTitleFg"] = window.TryFindResource("DeeText")
+        return
     if not is_windows_11():
         return
     hwnd = _hwnd(window)
@@ -292,15 +370,25 @@ def attach(window):
     if not any(effects[k] for k in DEFAULTS if k != "glass_level"):
         return
 
-    def _initialized(sender, args):
-        apply(window, effects)
-
     def _loaded(sender, args):
         if effects["fade"]:
             _fade_in(window)
 
     try:
-        window.SourceInitialized += _initialized
+        when_ready(window, lambda: apply(window, effects))
         window.Loaded += _loaded
     except Exception:
         pass
+
+
+def when_ready(window, action):
+    """Runs `action` once the window has its native handle - straight
+    away if it already has one (rounded windows create it early, during
+    their own setup), else on SourceInitialized."""
+    if _hwnd(window) is not None:
+        action()
+        return
+
+    def _initialized(sender, args):
+        action()
+    window.SourceInitialized += _initialized

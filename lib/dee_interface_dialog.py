@@ -10,7 +10,7 @@ Colours - two colours, one at a time ("Colour the: Accent / Lines"):
   Each has a 44-colour palette, "More colours..." (the full Windows
   colour picker) and a hex box.
 Effects - any combination of glass, accent outline, accent top line,
-  fade in and accent title bar (lib/dee_effects.py).
+  fade in, rounded windows and accent title bar (lib/dee_effects.py).
 
 Everything previews live on real ribbon icons, a sample progress bar and
 this window itself. Apply saves it all (lib/.dee_accent.json) and
@@ -88,7 +88,7 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._effects = dict(self._saved_effects)
         self._effect_boxes = {}
         self._build_effects()
-        self.SourceInitialized += lambda s, a: dee_effects.apply(self, self._effects)
+        dee_effects.when_ready(self, lambda: dee_effects.apply(self, self._effects))
         self._ready = True
         self.hex_tb.Text = self._target_value()
         self._refresh()
@@ -134,9 +134,8 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
             box.Margin = Thickness(0, 0, 0, 8)
             box.IsChecked = bool(self._effects.get(key))
             if key == "titlebar" and not win11:
-                box.IsEnabled = False
-                box.IsChecked = False
-                box.Content = label + "  (needs Windows 11)"
+                # Windows 10: only rounded windows have a title bar of ours.
+                box.Content = label + "  (Windows 10: with Rounded windows)"
             box.Tag = key
             box.Checked += self._effect_toggled
             box.Unchecked += self._effect_toggled
@@ -152,6 +151,10 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
 
     def _sync_effect_controls(self):
         self.glass_level_row.IsEnabled = bool(self._effects["glass"])
+        if not dee_effects.is_windows_11():
+            box = self._effect_boxes.get("titlebar")
+            if box is not None:
+                box.IsEnabled = bool(self._effects.get("rounded"))
         self.glass_level_tb.Text = "{0}%".format(int(self._effects["glass_level"]))
 
     def _effects_changed(self):
@@ -164,6 +167,9 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
                    or self._effects != self._saved_effects)
         if changed:
             self.status_tb.Text = "Not applied yet - click Apply."
+            if self._effects.get("rounded") != self._saved_effects.get("rounded"):
+                self.status_tb.Text += (" Rounded windows changes the window frame, so it "
+                                        "shows on windows opened after Apply.")
         else:
             on = [label for key, label, _tip in dee_effects.EFFECTS if self._effects.get(key)]
             self.status_tb.Text = "Current: accent {0}, lines {1}, effects: {2}".format(
