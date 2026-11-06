@@ -50,6 +50,7 @@ import deew_document_manager as dm
 import deew_model_scanner as scanner
 import dee_transmit_service as core
 import dee_telemetry
+import dee_known_dialogs
 dee_telemetry.check_access("DeeTransmit")
 
 
@@ -126,6 +127,10 @@ def _make_dialog_handler(log):
             except Exception:
                 message = ""
             text = (dialog_id + " " + message).lower()
+
+            if dee_known_dialogs.answer(args, text):
+                log.append((True, dialog_id, message))
+                return
 
             for needle, answer in _DIALOG_ANSWERS:
                 if needle in text:

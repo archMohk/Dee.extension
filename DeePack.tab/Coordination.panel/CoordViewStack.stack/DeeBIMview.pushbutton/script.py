@@ -72,6 +72,7 @@ import acc_auth
 import acc_api
 import acc_file_browser as afb
 import dee_telemetry
+import dee_known_dialogs
 dee_telemetry.check_access("DeeBIMview")
 
 
@@ -243,6 +244,13 @@ def _make_dialog_handler(log_list):
             except Exception:
                 pass
             text = (dialog_id + " " + message).lower()
+
+            # Shared open-time dialogs (Copied Central Model, ...) - one list
+            # for every Dee tool, see lib/dee_known_dialogs.py.
+            known = dee_known_dialogs.answer(args, text)
+            if known:
+                log_list.append((known, True))
+                return
 
             if "docwarn" in text:
                 # The warnings-review list Revit shows while OPENING a
