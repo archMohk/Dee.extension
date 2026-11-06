@@ -55,6 +55,12 @@ _XAML_FILE = os.path.join(_THIS_DIR, "DeeURSFiles.xaml")
 _CACHE_FILE = os.path.join(_THIS_DIR, ".deeursfiles_acc_cache.json")
 _MAX_COPIES = 200
 _BAD_CHARS = set('\\/:*?"<>|')
+# values match dee_urs_levels_grids.ANCHOR_* (that module is imported
+# lazily, so the strings are repeated here rather than imported)
+_ANCHORS = [
+    ("Lower-left grid intersection (A/1)", "intersection"),
+    ("Centre of all grids", "centre"),
+]
 
 
 # ==========================================================================
@@ -203,6 +209,8 @@ class URSFilesWindow(dee_branding.DeeBrandedWindow):
         self._lg_source = None       # _Source
         self._lg_rows = []
         self._lg_dest = None
+        self.lg_anchor_cb.ItemsSource = [label for label, _v in _ANCHORS]
+        self.lg_anchor_cb.SelectedIndex = 0
 
         self._ready = True
         self._log("Ready.")
@@ -441,6 +449,12 @@ class URSFilesWindow(dee_branding.DeeBrandedWindow):
         reset = bool(self.lg_reset_cb.IsChecked)
         keep_views = bool(self.lg_keep_views_cb.IsChecked)
         purge = bool(self.lg_purge_cb.IsChecked)
+        move = bool(self.lg_move_cb.IsChecked)
+        keep_scope = bool(self.lg_scope_cb.IsChecked)
+        idx = self.lg_anchor_cb.SelectedIndex
+        anchor_label, anchor = _ANCHORS[idx if 0 <= idx < len(_ANCHORS) else 0]
+        opts = {"reset": reset, "keep_views": keep_views, "purge": purge,
+                "move": move, "anchor": anchor, "keep_scope": keep_scope}
 
         jobs = [(r, _clean_name(_display_base(r.name)) + suffix) for r in picked]
         taken = _existing_names(dest["project_id"], self._lg_source.token)
@@ -457,22 +471,23 @@ class URSFilesWindow(dee_branding.DeeBrandedWindow):
 
         if not forms.alert(
                 "{0} file(s) will be copied into NEW Cloud Models with only Levels and Grids kept.\n\n"
+                "Move grids and levels to internal origin: {5}\nKeep + move scope boxes: {6}\n"
                 "Reset coordinates: {1}\nKeep floor plans / elevations: {2}\nPurge unused: {3}\n"
                 "Destination: {4}\n\nThe original files are not changed. Start?"
                 .format(len(jobs), "Yes" if reset else "No", "Yes" if keep_views else "No",
-                        "Yes" if purge else "No", _dest_text(dest)),
+                        "Yes" if purge else "No", _dest_text(dest),
+                        ("Yes - " + anchor_label) if move else "No", "Yes" if keep_scope else "No"),
                 yes=True, no=True):
             return
 
-        results = self._with_dialog_handler(
-            lambda: self._lg_run(jobs, dest, reset, keep_views, purge))
+        results = self._with_dialog_handler(lambda: self._lg_run(jobs, dest, opts))
         done = len([r for r in results if r[1]])
         self._log("Levels & Grids finished: {0} of {1} created.".format(done, len(results)))
         forms.alert("{0} of {1} Levels & Grids file(s) created in\n{2}."
                     "\n\nSee the log at the bottom of the window for details."
                     .format(done, len(results), _dest_text(dest)), title="URS Files")
 
-    def _lg_run(self, jobs, dest, reset, keep_views, purge):
+    def _lg_run(self, jobs, dest, opts):
         # imported here, not at module load, so a Revit-version API gap in
         # the cleaner can never stop the whole DeeLazy launcher from opening
         from modules import dee_urs_levels_grids as lg
@@ -498,12 +513,21 @@ class URSFilesWindow(dee_branding.DeeBrandedWindow):
                             pb.title = _p + " - " + step
 
                         result, coord_notes = lg.strip_to_levels_and_grids(
-                            doc, keep_views=keep_views, purge=purge, reset_coords=reset, note=note)
+                            doc, keep_views=opts["keep_views"], purge=opts["purge"],
+                            reset_coords=opts["reset"], note=note,
+                            move_to_origin=opts["move"], anchor_mode=opts["anchor"],
+                            keep_scope_boxes=opts["keep_scope"])
                         levels, grids = lg.count_levels_and_grids(doc)
                         self._log("  removed: {0}".format(result.summary()))
-                        self._log("  kept: {0} level(s), {1} grid(s)".format(levels, grids))
+                        kept = "  kept: {0} level(s), {1} grid(s)".format(levels, grids)
+                        if opts["keep_scope"]:
+                            boxes = lg.count_scope_boxes(doc)
+                            kept += ", {0} scope box(es)".format(boxes)
+                            if not boxes:
+                                kept += " - this file had none, and Revit's API cannot create one"
+                        self._log(kept)
                         for n in coord_notes:
-                            self._log("  coordinates: " + n)
+                            self._log("  " + n)
                         for e in result.errors:
                             self._log("  ! " + e)
                         pb.title = prefix + " - saving working copy"
