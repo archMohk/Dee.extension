@@ -29,7 +29,7 @@
             <Button x:Name="shown_off_b" Content="Shown Off" Width="90" Height="24" Margin="6,0,0,0" Click="shown_off_click"/>
         </StackPanel>
 
-        <Border DockPanel.Dock="Bottom" BorderBrush="#F2994D" BorderThickness="2" CornerRadius="4"
+        <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource DeeOrange}" BorderThickness="2" CornerRadius="4"
                 Padding="10" Margin="0,8,0,6">
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
@@ -43,6 +43,9 @@
                     <Button x:Name="save_favorites_b" Content="Save Favorites" Width="140" Height="30"
                             Margin="24,0,0,0" Click="save_favorites_click"
                             ToolTip="Saves the Fav column. Takes effect immediately - just pick Favorite in DeePack's ribbon View dropdown, no Apply or reload needed."/>
+                    <Button x:Name="accent_b" Content="Accent Colour..." Width="130" Height="30"
+                            Margin="10,0,0,0" Click="accent_click"
+                            ToolTip="Change the orange in every DeePack icon and window to a colour of your choice. Personal to this PC, applies instantly."/>
                     <Button x:Name="close_b" Content="Close" Width="90" Height="30" Margin="10,0,0,0" Click="close_click"/>
                 </StackPanel>
                 <TextBlock TextWrapping="Wrap" FontSize="11" Margin="0,8,0,0"

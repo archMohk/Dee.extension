@@ -83,6 +83,18 @@ _SITE_URL = "http://www.archMKD.com"
 _SITE_LABEL = "www.archMKD.com"
 _BAR_HEIGHT = 22.0
 _BAR_BG = Color.FromRgb(0xF2, 0x99, 0x4D)
+
+
+def _accent_color():
+    """The user's accent colour (DeeControl -> Accent Colour), else the
+    brand orange. Read per window, so a new pick shows in the next
+    window opened without a reload."""
+    try:
+        import dee_accent
+        r, g, b = dee_accent.hex_to_rgb(dee_accent.window_accent())
+        return Color.FromRgb(r, g, b)
+    except Exception:
+        return _BAR_BG
 _LINK_FG = Color.FromRgb(0xFF, 0xFF, 0xFF)
 
 # DWMWA_WINDOW_CORNER_PREFERENCE / DWMWCP_ROUNDSMALL - a Windows 11 DWM
@@ -121,7 +133,7 @@ def _round_corners_dwm(window):
 
 def _build_bar():
     bar = Border()
-    bar.Background = SolidColorBrush(_BAR_BG)
+    bar.Background = SolidColorBrush(_accent_color())
     bar.Padding = Thickness(8, 2, 8, 2)
     bar.Height = _BAR_HEIGHT
     DockPanel.SetDock(bar, Dock.Bottom)
@@ -169,7 +181,15 @@ def apply_theme(window):
     window that doesn't set the same property inline. Safe to call on any
     window; a failure leaves the window exactly as its own XAML drew it."""
     try:
-        window.Resources.MergedDictionaries.Add(_load_theme_dictionary())
+        theme = _load_theme_dictionary()
+        try:
+            # The user's accent replaces the theme's orange.
+            accent = _accent_color()
+            theme["DeeOrangeColor"] = accent
+            theme["DeeOrange"] = SolidColorBrush(accent)
+        except Exception:
+            pass
+        window.Resources.MergedDictionaries.Add(theme)
         return True
     except Exception:
         return False
