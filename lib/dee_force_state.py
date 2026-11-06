@@ -43,6 +43,7 @@ Idling/DialogBoxShowing use this session is scoped to one script run,
 unsubscribed in that same run's own finally block).
 """
 import json
+import dee_known_dialogs
 import os
 import time
 
@@ -283,6 +284,7 @@ def _do_sync(uiapp):
     dialog_handler = ffh.make_dialog_handler(logger)
     try:
         uiapp.DialogBoxShowing += dialog_handler
+        dee_known_dialogs.attach_failures(uiapp)
     except Exception:
         pass
     try:
@@ -298,6 +300,7 @@ def _do_sync(uiapp):
                 logger.exception("Auto-sync failed for a document", e)
     finally:
         try:
+            dee_known_dialogs.detach_failures(uiapp)
             uiapp.DialogBoxShowing -= dialog_handler
         except Exception:
             pass

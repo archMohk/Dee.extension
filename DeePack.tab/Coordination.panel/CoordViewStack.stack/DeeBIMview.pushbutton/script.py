@@ -851,6 +851,7 @@ def _process_acc(uiapp, req):
     dismissed_log = []
     dialog_handler = _make_dialog_handler(dismissed_log)
     uiapp.DialogBoxShowing += dialog_handler
+    dee_known_dialogs.attach_failures(uiapp)
 
     try:
         with _SafeProgress(title="DeeBIMview — starting...", cancellable=True) as pb:
@@ -931,6 +932,7 @@ def _process_acc(uiapp, req):
                 else:
                     prev_steps.append(("Left open (Close After Sync unchecked)", None))
     finally:
+        dee_known_dialogs.detach_failures(uiapp)
         uiapp.DialogBoxShowing -= dialog_handler
 
     _print_results(all_results)
@@ -946,6 +948,7 @@ def _process_session(uiapp, req):
     dismissed_log = []
     dialog_handler = _make_dialog_handler(dismissed_log)
     uiapp.DialogBoxShowing += dialog_handler
+    dee_known_dialogs.attach_failures(uiapp)
     try:
         with _SafeProgress(title="DeeBIMview — starting...", cancellable=True) as pb:
             for i, (label, doc) in enumerate(targets):
@@ -981,6 +984,7 @@ def _process_session(uiapp, req):
 
                 steps.append(("Left open (already open in this session)", None))
     finally:
+        dee_known_dialogs.detach_failures(uiapp)
         uiapp.DialogBoxShowing -= dialog_handler
 
     _print_results(all_results)

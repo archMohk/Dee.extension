@@ -179,6 +179,7 @@ import clr
 clr.AddReference("System.Windows.Forms")
 from System.Windows.Forms import FolderBrowserDialog, DialogResult
 import dee_telemetry
+import dee_known_dialogs
 dee_telemetry.check_access("DeeNWCs")
 
 
@@ -868,6 +869,7 @@ def _run_local(uiapp, docs, config, export_folder, best_effort_skipped):
     dismissed_log = []
     dialog_handler = afb.make_dialog_handler(dismissed_log)
     uiapp.DialogBoxShowing += dialog_handler
+    dee_known_dialogs.attach_failures(uiapp)
     try:
         total = len(docs)
         with _SafeProgress(title="DeeNWCs — exporting NWC...", cancellable=True) as pb:
@@ -883,6 +885,7 @@ def _run_local(uiapp, docs, config, export_folder, best_effort_skipped):
                     results.append((True, doc.Title, "-", msg))
                 results.extend(doc_results)
     finally:
+        dee_known_dialogs.detach_failures(uiapp)
         uiapp.DialogBoxShowing -= dialog_handler
     return results
 
@@ -941,6 +944,7 @@ def _run_acc(uiapp, acc_ctx, config, export_folder, best_effort_skipped):
     dismissed_log = []
     dialog_handler = afb.make_dialog_handler(dismissed_log)
     uiapp.DialogBoxShowing += dialog_handler
+    dee_known_dialogs.attach_failures(uiapp)
     try:
         total = len(selected_names)
         with _SafeProgress(title="DeeNWCs — batch exporting NWC...", cancellable=True) as pb:
@@ -971,6 +975,7 @@ def _run_acc(uiapp, acc_ctx, config, export_folder, best_effort_skipped):
                     except Exception:
                         pass
     finally:
+        dee_known_dialogs.detach_failures(uiapp)
         uiapp.DialogBoxShowing -= dialog_handler
     return results
 

@@ -630,6 +630,7 @@ def _open_and_report(targets, close_worksets, detach=None, extra_results=None):
     dismissed_log = []
     dialog_handler = _make_dialog_handler(dismissed_log)
     uiapp.DialogBoxShowing += dialog_handler
+    dee_known_dialogs.attach_failures(uiapp)
 
     results = list(extra_results or [])
     try:
@@ -669,6 +670,7 @@ def _open_and_report(targets, close_worksets, detach=None, extra_results=None):
                 for msg, _sev in dismissed_log[before_count:]:
                     results.append((True, label, msg))
     finally:
+        dee_known_dialogs.detach_failures(uiapp)
         uiapp.DialogBoxShowing -= dialog_handler
 
     html = '<h2 style="font-family:sans-serif;color:#ddd;">Batch Open Results</h2>'

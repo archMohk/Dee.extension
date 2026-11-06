@@ -258,6 +258,7 @@ import deew_logger
 import deew_model_scanner as scanner
 import deew_document_manager as docmgr
 import deew_failure_handler as ffh
+import dee_known_dialogs
 import deew_progress_service as progsvc
 import acc_file_browser as afb
 import deew_cloud_service as cloudsvc
@@ -1531,6 +1532,7 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
             self._dialog_handler = ffh.make_dialog_handler(self.logger)
             try:
                 self.uiapp.DialogBoxShowing += self._dialog_handler
+                dee_known_dialogs.attach_failures(self.uiapp)
             except Exception as e:
                 self.logger.exception("Could not attach dialog handler", e)
 
@@ -1557,6 +1559,7 @@ class DeeParaValueWindow(dee_branding.DeeBrandedWindow):
         finally:
             if self._dialog_handler is not None:
                 try:
+                    dee_known_dialogs.detach_failures(self.uiapp)
                     self.uiapp.DialogBoxShowing -= self._dialog_handler
                 except Exception:
                     pass

@@ -288,6 +288,7 @@ import deew_model_scanner as scanner
 import deew_document_manager as docmgr
 import deew_cloud_service as cloudsvc
 import deew_failure_handler as ffh
+import dee_known_dialogs
 import deew_progress_service as progsvc
 import deew_report_generator as reportgen
 import acc_file_browser as afb
@@ -1077,6 +1078,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         dialog_handler = ffh.make_dialog_handler(self.logger)
         try:
             self.uiapp.DialogBoxShowing += dialog_handler
+            dee_known_dialogs.attach_failures(self.uiapp)
         except Exception as e:
             self.logger.exception("Could not attach dialog handler", e)
 
@@ -1107,6 +1109,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
                         self._log("Delivery Party {0} - '{1}': {2}".format(party.id, name, row.upload_status))
         finally:
             try:
+                dee_known_dialogs.detach_failures(self.uiapp)
                 self.uiapp.DialogBoxShowing -= dialog_handler
             except Exception:
                 pass
@@ -2117,6 +2120,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         dialog_handler = ffh.make_dialog_handler(self.logger)
         try:
             self.uiapp.DialogBoxShowing += dialog_handler
+            dee_known_dialogs.attach_failures(self.uiapp)
         except Exception as e:
             self.logger.exception("Could not attach dialog handler", e)
 
@@ -2204,6 +2208,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
                             pass
         finally:
             try:
+                dee_known_dialogs.detach_failures(self.uiapp)
                 self.uiapp.DialogBoxShowing -= dialog_handler
             except Exception:
                 pass

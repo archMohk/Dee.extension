@@ -473,6 +473,7 @@ def main():
     dismissed_log = []
     dialog_handler = _make_dialog_handler(dismissed_log)
     uiapp.DialogBoxShowing += dialog_handler
+    dee_known_dialogs.attach_failures(uiapp)
 
     try:
         with _SafeProgress(title="DeeLinkReview — scanning...", cancellable=True) as pb:
@@ -592,6 +593,7 @@ def main():
                 "panel > Coordination Review.".format(host_choice, e)
             )
     finally:
+        dee_known_dialogs.detach_failures(uiapp)
         uiapp.DialogBoxShowing -= dialog_handler
 
 
