@@ -11,7 +11,7 @@
                      VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="11"/>
         </DockPanel>
 
-        <TabControl x:Name="main_tabs" DockPanel.Dock="Top" Height="250" SelectionChanged="tabs_changed">
+        <TabControl x:Name="main_tabs" DockPanel.Dock="Top" Height="280" SelectionChanged="tabs_changed">
             <!-- ================= Tab 1: Open session ================= -->
             <TabItem Header="Open Models (this session)">
                 <StackPanel Margin="12">
@@ -34,6 +34,16 @@
                         <Button Content="Select All" Click="acc_all_click" Width="80" Height="26" Margin="10,0,0,0"/>
                         <Button Content="Select None" Click="acc_none_click" Width="90" Height="26" Margin="6,0,0,0"/>
                         <Button x:Name="acc_read_b" Content="Read Links of Ticked Files" Click="acc_read_click" Width="190" Height="26" Margin="16,0,0,0" FontWeight="Bold"/>
+                    </StackPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBlock Text="Remove / unload by:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ComboBox x:Name="acc_run_cb" Width="420" Height="26" SelectedIndex="0"
+                                  ToolTip="Background Revit: a second Revit is started by the pyRevit CLI and does the job while you keep working here; it closes itself when done. This session: each model is opened in this Revit (headless, or through Revit's own open route when that is refused) and this window waits.">
+                            <ComboBoxItem Content="Background Revit (separate window - this session stays free)"/>
+                            <ComboBoxItem Content="This Revit session (opens each model here and waits)"/>
+                        </ComboBox>
+                        <Button x:Name="job_stop_b" Content="Stop Background Job" Click="job_stop_click" Width="150" Height="26" Margin="12,0,0,0" Visibility="Collapsed"
+                                ToolTip="Finishes the model being processed, then skips the rest."/>
                     </StackPanel>
                     <TextBlock DockPanel.Dock="Top" x:Name="acc_info_tb" Opacity="0.75" Margin="0,0,0,4" TextWrapping="Wrap"
                                Text="No files scanned yet. Links are read from ACC without opening the models; a model ACC cannot report is opened read-only instead. Removing opens each model, deletes the links and synchronizes it back to ACC."/>

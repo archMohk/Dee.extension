@@ -16,6 +16,14 @@ ACC Files
     opened headless + DETACHED and read instead, so nothing is written.
     Removing opens each host ATTACHED, deletes the links and
     synchronizes back to ACC (or saves a non-workshared cloud model).
+    Two ways to run it ("Remove / unload by"):
+      - Background Revit (default): a job file + stub are written under
+        %LOCALAPPDATA%\\DeeLazy\\remove_links\\<stamp> and `pyrevit run`
+        starts a SECOND Revit that does the work (dee_remove_links_worker);
+        this window tails its log and reads results.json when it ends.
+      - This Revit session: headless open here; when that is refused,
+        Revit's own OpenAndActivateDocument route (the model then stays
+        open, the API cannot close the active document).
 
 Local Files
     Add .rvt files / a folder. Each ticked file is opened DETACHED to
@@ -28,7 +36,9 @@ Nested links belong to the linked model and cannot be removed from the
 host, so they are listed but never ticked or deleted.
 """
 import os
+import io
 import re
+import json
 import time
 import datetime
 import traceback
@@ -37,7 +47,9 @@ import clr
 clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
 import System
-from System import GC
+from System import GC, TimeSpan
+from System.Windows.Threading import DispatcherTimer
+from System.Diagnostics import Process, ProcessStartInfo
 
 from pyrevit import forms
 from Autodesk.Revit.DB import (
@@ -47,6 +59,7 @@ from Autodesk.Revit.DB import (
     WorksharingUtils, CheckoutStatus, Transaction,
 )
 
+import pyrevit
 import dee_branding
 import acc_auth
 import acc_file_browser as afb
@@ -62,6 +75,22 @@ _BACKUP_RE = re.compile(r"\.\d{4}\.rvt$", re.IGNORECASE)
 MODE_SESSION, MODE_ACC, MODE_LOCAL = 0, 1, 2
 _MODE_LABELS = {MODE_SESSION: "open models", MODE_ACC: "ACC files", MODE_LOCAL: "local files"}
 _SYNC_COMMENT = "DeeLazy - Remove Links"
+_JOBS_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "DeeLazy", "remove_links")
+RUN_BACKGROUND, RUN_SESSION = 0, 1
+ST_QUEUED = "Queued (background)"
+_STUB = u'''# -*- coding: utf-8 -*-
+# DeeLazy - Remove Links: stub run by `pyrevit run` in a second Revit.
+import sys
+for _p in {paths!r}:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+import dee_remove_links_worker
+try:
+    _handle = __revit__
+except NameError:
+    _handle = None
+dee_remove_links_worker.main(_handle, {job!r})
+'''
 
 ST_REMOVED = "Removed"
 ST_UNLOADED = "Unloaded"
@@ -445,6 +474,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         self._loc_rows = []
         self._shown_mode = None
         self._ses_opts = (True, True)    # session tab's own sync / close choice
+        self._job = None                 # running background job: dict(folder, process, timer, offset, rows)
 
         self._ready = True
         self._refresh_links()
@@ -460,7 +490,19 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
             pass
 
     def close_click(self, sender, args):
+        if self._job is not None:
+            if not forms.alert("A background Revit is still removing links. It keeps running after this "
+                               "window closes, but the results will not be shown here.\n\nLog folder:\n{0}"
+                               "\n\nClose anyway?".format(self._job["folder"]), yes=True, no=True):
+                return
+            self._job_stop_timer()
         self.Close()
+
+    def _acc_run_mode(self):
+        try:
+            return RUN_SESSION if self.acc_run_cb.SelectedIndex == 1 else RUN_BACKGROUND
+        except Exception:
+            return RUN_BACKGROUND
 
     def _cad(self):
         try:
@@ -624,6 +666,9 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
     def _run_action(self, action):
         self._commit_grids()
         mode = self._mode()
+        if self._job is not None:
+            forms.alert("A background job is still running - wait for it to finish (or stop it) first.")
+            return
         self._action = action
         verb = "Unload" if action == "unload" else "Remove"
         picked = [r for r in self._links[mode] if r.selected and not r.nested and r.status not in ST_DONE]
@@ -647,6 +692,10 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                 after += "\nEach model is closed after it synchronizes (except the active view's model)."
             elif close:
                 after += "\nModels are not closed, because closing without saving would lose the removal."
+        elif mode == MODE_ACC and self._acc_run_mode() == RUN_BACKGROUND:
+            after = ("A second Revit is started in the background; it opens each model, cleans it, synchronizes "
+                     "it back to ACC and closes it (this changes the real ACC models). Do not touch that Revit "
+                     "window - it closes itself when the job ends.")
         elif mode == MODE_ACC:
             after = "Each model is opened, cleaned, synchronized back to ACC and closed (this changes the real ACC models)."
         else:
@@ -659,6 +708,10 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
 
         if mode == MODE_SESSION:
             self._with_dialog_handler(lambda: self._remove_session(order, by_host, save, close))
+        elif mode == MODE_ACC and self._acc_run_mode() == RUN_BACKGROUND:
+            if self._start_background_job(action, order, by_host):
+                self._refresh_links()
+            return
         elif mode == MODE_ACC:
             self._with_dialog_handler(lambda: self._remove_acc(order, by_host))
         else:
@@ -983,7 +1036,12 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         """Headless open. attached=True -> DoNotDetach (to change + sync the
         real model). attached=False -> detached when the model allows it
         (read-only use), falling back to DoNotDetach for a non-workshared
-        model, which is still never saved by the read path."""
+        model, which is still never saved by the read path.
+
+        When the headless attached open is refused, Revit's own open route
+        (UIApplication.OpenAndActivateDocument - what Revit Home uses) is
+        tried: the model then becomes the active document and cannot be
+        closed by this tool, so the detail starts with "activated"."""
         model_path, detail = self._acc_cloud_path(item_id)
         if model_path is None:
             return None, detail
@@ -1005,6 +1063,20 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                 return self.application.OpenDocumentFile(model_path, oo), str(option)
             except Exception as e:
                 errors.append("{0}: {1}".format(option, e))
+        if attached:
+            try:
+                oo = OpenOptions()
+                oo.DetachFromCentralOption = DetachFromCentralOption.DoNotDetach
+                try:
+                    oo.SetOpenWorksetsConfiguration(WorksetConfiguration(WorksetConfigurationOption.OpenAllWorksets))
+                except Exception:
+                    pass
+                self._log("  headless open refused ({0}) - trying Revit's own open route".format(
+                    errors[-1].split("\n")[0][:120]))
+                uidoc = self.uiapp.OpenAndActivateDocument(model_path, oo, False)
+                return uidoc.Document, "activated (Revit open route)"
+            except Exception as e:
+                errors.append("OpenAndActivateDocument: {0}".format(e))
         return None, " | ".join(errors)
 
     def _acc_read_by_opening(self, hosts):
@@ -1035,6 +1107,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
             return
         open_titles, _paths = self._open_doc_titles()
         names = dict((h.key, h.name) for h in self._acc_rows)
+        left_open = []
         with SafeProgress(window=self, title="Removing links...", cancellable=True) as pb:
             for i, key in enumerate(order):
                 if pb.cancelled:
@@ -1053,6 +1126,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                     for r in by_host[key]:
                         r.status = "Open failed"
                     continue
+                activated = detail.startswith("activated")
                 try:
                     removed = self._apply(doc, MODE_ACC, key, by_host[key])
                     if removed:
@@ -1066,9 +1140,205 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                 except Exception as e:
                     self._log(u"  ✗ " + str(e))
                 finally:
-                    docmgr.close_document(doc, save_modified=False)
+                    if activated:
+                        left_open.append(name)   # the active document cannot be closed by the API
+                    else:
+                        docmgr.close_document(doc, save_modified=False)
                     _release()
             pb.update_progress(len(order), len(order))
+        if left_open:
+            self._log("Left open in Revit (opened through Revit's own route, already synchronized): "
+                      + ", ".join(left_open))
+
+    # ---------------- ACC: background Revit ----------------
+    def _start_background_job(self, action, order, by_host):
+        """Writes a job file + stub and starts `pyrevit run` in a second
+        Revit. Returns True when the job was started."""
+        if not self._fresh_token():
+            return False
+        names = dict((h.key, h.name) for h in self._acc_rows)
+        open_titles, _paths = self._open_doc_titles()
+        hosts = []
+        with SafeProgress(window=self, title="Resolving cloud paths...", cancellable=True) as pb:
+            for i, key in enumerate(order):
+                if pb.cancelled:
+                    self._log("Cancelled.")
+                    return False
+                pb.update_progress(i, len(order))
+                name = names.get(key, by_host[key][0].host)
+                if _strip_rvt(name).lower() in open_titles:
+                    self._log(u"  ✗ {0}: skipped - this model is open in Revit; use the Open Models tab".format(name))
+                    continue
+                model_path, detail = self._acc_cloud_path(key)
+                if model_path is None or key not in self._acc_guids:
+                    self._log(u"  ✗ {0}: {1}".format(name, detail))
+                    for r in by_host[key]:
+                        r.status = "Open failed"
+                    continue
+                pg, mg = self._acc_guids[key]
+                all_rows = [r for r in self._all_rows_of_host(MODE_ACC, key)
+                            if not r.nested and r.status not in ST_DONE and r.kind not in _CAD_KINDS]
+                picked_rvt = [r for r in by_host[key] if r.kind not in _CAD_KINDS]
+                hosts.append({
+                    "key": key, "name": name,
+                    "project_guid": str(pg), "model_guid": str(mg),
+                    "remove_all": len(picked_rvt) == len(all_rows),
+                    "rows": [{"type_id": r.type_id, "name": r.link_name, "kind": r.kind} for r in by_host[key]],
+                })
+        if not hosts:
+            forms.alert("Nothing to do - no model could be resolved on ACC.")
+            return False
+
+        year = str(self.application.VersionNumber)
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        folder = os.path.join(_JOBS_DIR, stamp)
+        try:
+            os.makedirs(folder)
+        except Exception:
+            pass
+        job_file = os.path.join(folder, "job.json")
+        stub_file = os.path.join(folder, "run_remove_links.py")
+        job = {"action": action, "include_cad": self._cad(), "region": self._acc_source["region"],
+               "sync_comment": _SYNC_COMMENT, "hosts": hosts}
+        paths = [os.path.dirname(os.path.dirname(os.path.abspath(pyrevit.__file__))),
+                 os.path.dirname(os.path.abspath(afb.__file__)),
+                 _THIS_DIR]
+        try:
+            with io.open(job_file, "w", encoding="utf-8") as f:
+                f.write(json.dumps(job, indent=1))
+            with io.open(stub_file, "w", encoding="utf-8") as f:
+                f.write(_STUB.format(paths=[str(p) for p in paths], job=str(job_file)))
+        except Exception as e:
+            forms.alert("Could not write the job files in\n{0}\n\n{1}".format(folder, e))
+            return False
+
+        try:
+            psi = ProcessStartInfo()
+            psi.FileName = "pyrevit"
+            psi.Arguments = u'run "{0}" --revit={1}'.format(stub_file, year)
+            psi.UseShellExecute = False
+            psi.CreateNoWindow = True
+            psi.WorkingDirectory = folder
+            process = Process.Start(psi)
+        except Exception as e:
+            forms.alert("Could not start the pyRevit CLI (`pyrevit run`). Is the pyRevit CLI installed and on "
+                        "the PATH?\n\n{0}\n\nSwitch 'Remove / unload by' to this Revit session instead.".format(e))
+            return False
+
+        for key in [h["key"] for h in hosts]:
+            for r in by_host[key]:
+                r.status = ST_QUEUED
+        self._job = {"folder": folder, "process": process, "offset": 0, "by_host": by_host,
+                     "action": action, "started": time.time(), "hosts": [h["key"] for h in hosts],
+                     "log": os.path.join(folder, "log.txt"), "results": os.path.join(folder, "results.json")}
+        self._log("Background job started: Revit {0} is starting (this takes a minute). {1} model(s). "
+                  "Job folder: {2}".format(year, len(hosts), folder))
+        self._set_job_ui(True)
+        timer = DispatcherTimer()
+        timer.Interval = TimeSpan.FromSeconds(1)
+        timer.Tick += self._job_tick
+        timer.Start()
+        self._job["timer"] = timer
+        return True
+
+    def _set_job_ui(self, running):
+        for b in (self.remove_b, self.unload_b, self.acc_read_b, self.acc_scan_b):
+            b.IsEnabled = not running
+        self.job_stop_b.Visibility = System.Windows.Visibility.Visible if running else System.Windows.Visibility.Collapsed
+
+    def _job_stop_timer(self):
+        job = self._job
+        self._job = None
+        if job and job.get("timer") is not None:
+            try:
+                job["timer"].Stop()
+            except Exception:
+                pass
+        self._set_job_ui(False)
+        return job
+
+    def job_stop_click(self, sender, args):
+        if self._job is None:
+            return
+        try:
+            with io.open(os.path.join(self._job["folder"], "stop.txt"), "w", encoding="utf-8") as f:
+                f.write(u"stop")
+            self._log("Stop requested - the background Revit finishes the current model, then skips the rest.")
+        except Exception as e:
+            self._log("Could not write the stop file: {0}".format(e))
+
+    def _job_tick(self, sender, args):
+        job = self._job
+        if job is None:
+            return
+        import dee_remove_links_worker as worker
+        finished = None
+        try:
+            if os.path.exists(job["log"]):
+                with io.open(job["log"], "r", encoding="utf-8") as f:
+                    f.seek(job["offset"])
+                    chunk = f.read()
+                    job["offset"] = f.tell()
+                for line in chunk.splitlines():
+                    if not line.strip():
+                        continue
+                    if worker.LOG_DONE_MARKER in line:
+                        finished = "done"
+                    elif worker.LOG_FAIL_MARKER in line:
+                        finished = "failed"
+                    else:
+                        self._log(u"[bg] " + line)
+        except Exception:
+            pass
+        if finished is None:
+            try:
+                if job["process"].HasExited:
+                    finished = "exited"
+            except Exception:
+                finished = "exited"
+        if finished is None:
+            minutes = int((time.time() - job["started"]) / 60)
+            if minutes and minutes != job.get("noted"):
+                job["noted"] = minutes
+                self._log("[bg] still running ({0} min)...".format(minutes))
+            return
+        self._job_stop_timer()
+        self._finish_background_job(job, finished)
+
+    def _finish_background_job(self, job, how):
+        results = {}
+        try:
+            if os.path.exists(job["results"]):
+                with io.open(job["results"], "r", encoding="utf-8") as f:
+                    results = json.load(f)
+        except Exception as e:
+            self._log("Could not read the results file: {0}".format(e))
+        by_host = job["by_host"]
+        for key in job["hosts"]:
+            res = results.get(key)
+            for r in by_host.get(key, []):
+                if r.status != ST_QUEUED:
+                    continue
+                if res is None:
+                    r.status = "Not processed"
+                    continue
+                if not res.get("opened"):
+                    r.status = "Open failed"
+                    continue
+                r.status = res.get("rows", {}).get(r.type_id or r.link_name or "", "Not processed")
+                if r.status in ST_DONE:
+                    r.selected = False
+        self._refresh_links()
+        picked = [r for key in job["hosts"] for r in by_host.get(key, [])]
+        done = len([r for r in picked if r.status in ST_DONE])
+        verb = "unloaded" if job["action"] == "unload" else "removed"
+        if how == "exited":
+            self._log("The background Revit ended without reporting - see the log in {0}".format(job["folder"]))
+        elif how == "failed":
+            self._log("The background job crashed - see the log above and in {0}".format(job["folder"]))
+        self._log("Background job finished: {0} of {1} link(s) {2}.".format(done, len(picked), verb))
+        forms.alert("Background job finished: {0} of {1} link(s) {2}.\n\nSee the log at the bottom of the window."
+                    .format(done, len(picked), verb), title="Remove Links")
 
     # ---------------- Tab 3: local ----------------
     def _loc_add(self, paths):
