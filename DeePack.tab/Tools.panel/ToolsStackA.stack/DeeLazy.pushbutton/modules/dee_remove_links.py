@@ -42,6 +42,7 @@ from System import GC
 from pyrevit import forms
 from Autodesk.Revit.DB import (
     FilteredElementCollector, RevitLinkType, RevitLinkInstance, ModelPathUtils, Element,
+    CADLinkType, ImportInstance,
     OpenOptions, DetachFromCentralOption, WorksetConfiguration, WorksetConfigurationOption,
     WorksharingUtils, CheckoutStatus, Transaction,
 )
@@ -67,9 +68,14 @@ ST_UNLOADED = "Unloaded"
 ST_NESTED = "Nested (skip)"
 ST_DONE = (ST_REMOVED, ST_UNLOADED)
 
-_XLSX_HEADERS = ["Host Model", "Host Location", "Link Name", "Link Path",
+_XLSX_HEADERS = ["Host Model", "Host Location", "Link Name", "Kind", "Link Path",
                  "Type", "Status", "Instances", "Read From"]
-_XLSX_WIDTHS = [34, 50, 34, 70, 12, 16, 10, 22]
+_XLSX_WIDTHS = [34, 50, 34, 12, 70, 12, 16, 10, 22]
+
+KIND_REVIT = "Revit"
+KIND_CAD_LINK = "CAD link"
+KIND_CAD_IMPORT = "CAD import"
+_CAD_KINDS = (KIND_CAD_LINK, KIND_CAD_IMPORT)
 
 
 # ==========================================================================
@@ -86,8 +92,9 @@ class HostRow(object):
 
 class LinkRow(object):
     def __init__(self, host, host_key, host_location, link_name, path, attachment="",
-                 status="", instances="", nested=False, type_id=None, read_from=""):
+                 status="", instances="", nested=False, type_id=None, read_from="", kind=KIND_REVIT):
         self.host = host
+        self.kind = kind
         self.host_key = host_key            # session doc index / ACC item_id / local path
         self.host_location = host_location
         self.link_name = link_name
@@ -163,8 +170,55 @@ def _doc_location(doc):
         return ""
 
 
-def read_links(doc):
-    """[{type_id, name, path, attachment, status, instances, nested}]."""
+def read_cad_links(doc):
+    """Linked AND imported DWG/DXF/DGN/SAT...: one entry per CADLinkType,
+    same keys as read_links plus "kind"."""
+    counts, linked = {}, {}
+    try:
+        for inst in FilteredElementCollector(doc).OfClass(ImportInstance):
+            try:
+                tid = _eid(inst.GetTypeId())
+                counts[tid] = counts.get(tid, 0) + 1
+                if inst.IsLinked:
+                    linked[tid] = True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    out = []
+    try:
+        types = list(FilteredElementCollector(doc).OfClass(CADLinkType))
+    except Exception:
+        types = []
+    for ct in types:
+        tid = _eid(ct.Id)
+        is_link = linked.get(tid, False)
+        path, status = "", "Imported"
+        if is_link:
+            try:
+                ext = ct.GetExternalFileReference()
+                if ext is not None:
+                    try:
+                        path = _user_path(ext.GetAbsolutePath())
+                    except Exception:
+                        path = ""
+                    if not path:
+                        path = _user_path(ext.GetPath())
+                    try:
+                        status = _enum_word(ext.GetLinkedFileStatus())
+                    except Exception:
+                        status = ""
+            except Exception:
+                status = ""
+        out.append({"type_id": tid, "name": _name(ct), "path": path,
+                    "attachment": "Link" if is_link else "Import", "status": status,
+                    "instances": counts.get(tid, 0), "nested": False,
+                    "kind": KIND_CAD_LINK if is_link else KIND_CAD_IMPORT})
+    return out
+
+
+def read_links(doc, include_cad=False):
+    """[{type_id, name, path, attachment, status, instances, nested, kind}]."""
     counts = {}
     try:
         for inst in FilteredElementCollector(doc).OfClass(RevitLinkInstance):
@@ -209,8 +263,45 @@ def read_links(doc):
         except Exception:
             pass
         out.append({"type_id": tid, "name": _name(lt), "path": path, "attachment": attachment,
-                    "status": status, "instances": counts.get(tid, 0), "nested": nested})
+                    "status": status, "instances": counts.get(tid, 0), "nested": nested,
+                    "kind": KIND_REVIT})
+    if include_cad:
+        out += read_cad_links(doc)
     return out
+
+
+def _row_from(host, host_key, host_location, lk, read_from):
+    return LinkRow(host, host_key, host_location, lk["name"], lk["path"], lk["attachment"],
+                   ST_NESTED if lk["nested"] else lk["status"], lk["instances"],
+                   nested=lk["nested"], type_id=lk["type_id"], read_from=read_from, kind=lk["kind"])
+
+
+def remove_cad_links(doc, type_ids):
+    """Deletes the ImportInstances of the given CADLinkType ids, then the
+    types. Returns (removed, targeted, reasons)."""
+    import dee_transmit_service as ts
+    type_ids = set(type_ids or [])
+    types = [ct for ct in FilteredElementCollector(doc).OfClass(CADLinkType) if _eid(ct.Id) in type_ids]
+    if not types:
+        return 0, 0, {}
+    ids = []
+    for inst in FilteredElementCollector(doc).OfClass(ImportInstance):
+        try:
+            if _eid(inst.GetTypeId()) in type_ids:
+                if inst.Pinned:
+                    _unpin_elements(doc, [inst])
+                ids.append(inst.Id)
+        except Exception:
+            continue
+    ids += [ct.Id for ct in types]
+    ts.delete_ids(doc, ids, "DeeLazy - Remove CAD Links")
+    removed, reasons = 0, {}
+    for ct in types:
+        if doc.GetElement(ct.Id) is None:
+            removed += 1
+        else:
+            reasons[_name(ct)] = "Revit refused" + _owner_note(doc, ct)
+    return removed, len(types), reasons
 
 
 def _target_link_types(doc, type_ids, names, remove_all):
@@ -242,6 +333,10 @@ def _unpin_instances(doc, type_ids):
                 pinned.append(inst)
         except Exception:
             continue
+    return _unpin_elements(doc, pinned)
+
+
+def _unpin_elements(doc, pinned):
     if not pinned:
         return 0
     t = Transaction(doc, "DeeLazy - Unpin Link Instances")
@@ -367,6 +462,12 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
     def close_click(self, sender, args):
         self.Close()
 
+    def _cad(self):
+        try:
+            return bool(self.opt_cad_cb.IsChecked)
+        except Exception:
+            return False
+
     def _mode(self):
         idx = self.main_tabs.SelectedIndex
         return idx if idx in (MODE_SESSION, MODE_ACC, MODE_LOCAL) else MODE_SESSION
@@ -424,7 +525,8 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         rows = self._links[mode]
         hosts = len(set(r.host_key for r in rows))
         self._update_option_boxes(mode)
-        self.links_title_tb.Text = "Revit links found in {0}".format(_MODE_LABELS[mode])
+        self.links_title_tb.Text = "{1} found in {0}".format(
+            _MODE_LABELS[mode], "Revit + CAD links" if self._cad() else "Revit links")
         if rows:
             self.links_info_tb.Text = "{0} link(s) in {1} model(s), {2} ticked.".format(
                 len(rows), hosts, len([r for r in rows if r.selected]))
@@ -495,7 +597,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                     tag = "fail"
                 elif r.nested:
                     tag = "skip"
-                data.append(([r.host, r.host_location, r.link_name, r.path, r.attachment,
+                data.append(([r.host, r.host_location, r.link_name, r.kind, r.path, r.attachment,
                               r.status, r.instances, r.read_from], tag))
             title = "Revit Links - {0} - {1}".format(
                 _MODE_LABELS[mode], datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
@@ -576,7 +678,30 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         Returns how many link types were changed."""
         started = time.time()
         action = getattr(self, "_action", "remove")
-        host_rows = [r for r in self._all_rows_of_host(mode, key) if not r.nested and r.status not in ST_DONE]
+        cad_rows = [r for r in rows if r.kind in _CAD_KINDS]
+        rows = [r for r in rows if r.kind not in _CAD_KINDS]
+        cad_done = 0
+        if cad_rows:
+            if action == "unload":
+                for r in cad_rows:
+                    r.status = "Unload n/a (CAD)"
+                    r.selected = False
+                self._log("  {0} CAD row(s) skipped - CAD links cannot be unloaded, only removed"
+                          .format(len(cad_rows)))
+            else:
+                cad_done, cad_targeted, cad_reasons = remove_cad_links(
+                    doc, [r.type_id for r in cad_rows if r.type_id])
+                still_cad = set(_eid(ct.Id) for ct in FilteredElementCollector(doc).OfClass(CADLinkType))
+                for r in cad_rows:
+                    r.status = ST_REMOVED if r.type_id not in still_cad else "Remove failed"
+                    r.selected = False
+                for nm, why in sorted(cad_reasons.items()):
+                    self._log(u"  ! {0}: {1}".format(nm, why))
+                self._log("  removed {0} of {1} CAD link/import type(s)".format(cad_done, cad_targeted))
+        if not rows:
+            return cad_done
+        host_rows = [r for r in self._all_rows_of_host(mode, key)
+                     if not r.nested and r.status not in ST_DONE and r.kind not in _CAD_KINDS]
         remove_all = len(rows) == len(host_rows)
         ids = [r.type_id for r in rows if r.type_id]
         names = [r.link_name for r in rows]
@@ -606,9 +731,9 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
             self._log("  not found in the model: " + ", ".join(missing))
         for nm, why in sorted(reasons.items()):
             self._log(u"  ! {0}: {1}".format(nm, why))
-        self._log("  {0} {1} of {2} link type(s) in {3:.0f} s".format(
+        self._log("  {0} {1} of {2} Revit link type(s) in {3:.0f} s".format(
             "unloaded" if action == "unload" else "removed", done, targeted, time.time() - started))
-        return done
+        return done + cad_done
 
     # ---------------- Tab 1: open session ----------------
     def ses_scan_click(self, sender, args):
@@ -624,11 +749,8 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
             self._ses_docs.append(d)
             title = d.Title
             location = _doc_location(d)
-            links = read_links(d)
-            for lk in links:
-                rows.append(LinkRow(title, index, location, lk["name"], lk["path"], lk["attachment"],
-                                    ST_NESTED if lk["nested"] else lk["status"], lk["instances"],
-                                    nested=lk["nested"], type_id=lk["type_id"], read_from="Open model"))
+            links = read_links(d, include_cad=self._cad())
+            rows += [_row_from(title, index, location, lk, "Open model") for lk in links]
             self._log("{0}: {1} link(s)".format(title, len(links)))
         self._links[MODE_SESSION] = rows
         self.ses_info_tb.Text = "{0} open model(s), {1} link(s).".format(len(self._ses_docs), len(rows))
@@ -762,6 +884,12 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         import acc_links_service as als
         rows = []
         fallback = []
+        if self._cad():
+            self._log("CAD links are not in ACC's published data - every ticked model is opened read-only.")
+            rows = self._with_dialog_handler(lambda: self._acc_read_by_opening(hosts))
+            self._links[MODE_ACC] = rows
+            self._refresh_links()
+            return
         with SafeProgress(window=self, title="Reading links from ACC...", cancellable=True) as pb:
             def progress(done, total):
                 pb.update_progress(done, total)
@@ -893,12 +1021,8 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                     self._log(u"  ✗ {0}: could not open - {1}".format(host.name, detail))
                     continue
                 try:
-                    links = read_links(doc)
-                    for lk in links:
-                        rows.append(LinkRow(host.name, host.key, self._acc_where, lk["name"], lk["path"],
-                                            lk["attachment"], ST_NESTED if lk["nested"] else lk["status"],
-                                            lk["instances"], nested=lk["nested"], type_id=lk["type_id"],
-                                            read_from="Opened model"))
+                    links = read_links(doc, include_cad=self._cad())
+                    rows += [_row_from(host.name, host.key, self._acc_where, lk, "Opened model") for lk in links]
                     self._log("{0}: {1} link(s) (opened)".format(host.name, len(links)))
                 finally:
                     docmgr.close_document(doc, save_modified=False)
@@ -1033,12 +1157,8 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                     self._log(u"  ✗ {0}: could not open - {1}".format(host.name, detail))
                     continue
                 try:
-                    links = read_links(doc)
-                    for lk in links:
-                        rows.append(LinkRow(host.name, host.key, host.key, lk["name"], lk["path"],
-                                            lk["attachment"], ST_NESTED if lk["nested"] else lk["status"],
-                                            lk["instances"], nested=lk["nested"], type_id=lk["type_id"],
-                                            read_from="Opened file"))
+                    links = read_links(doc, include_cad=self._cad())
+                    rows += [_row_from(host.name, host.key, host.key, lk, "Opened file") for lk in links]
                     self._log("{0}: {1} link(s)".format(host.name, len(links)))
                 except Exception as e:
                     self._log(u"  ✗ {0}: {1}".format(host.name, e))

@@ -79,6 +79,9 @@
             <TextBox x:Name="links_search_tb" Width="220" Height="26" VerticalContentAlignment="Center" TextChanged="links_search_changed"/>
             <Button Content="Select All" Click="links_all_click" Width="80" Height="26" Margin="10,0,0,0"/>
             <Button Content="Select None" Click="links_none_click" Width="90" Height="26" Margin="6,0,0,0"/>
+            <CheckBox x:Name="opt_cad_cb" IsChecked="False" VerticalAlignment="Center" Margin="18,0,0,0"
+                      Content="Include CAD links and imports (DWG, DXF, DGN...)"
+                      ToolTip="Tick BEFORE scanning / reading. CAD links are not in ACC's published data, so on the ACC tab every ticked model is opened read-only. CAD links can be removed but not unloaded."/>
         </StackPanel>
 
         <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
@@ -101,6 +104,7 @@
                                         Binding="{Binding selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                 <DataGridTextColumn Header="Host Model" Binding="{Binding host}" Width="200" IsReadOnly="True"/>
                 <DataGridTextColumn Header="Link" Binding="{Binding link_name}" Width="200" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Kind" Binding="{Binding kind}" Width="80" IsReadOnly="True"/>
                 <DataGridTextColumn Header="Link Path" Binding="{Binding path}" Width="*" IsReadOnly="True"/>
                 <DataGridTextColumn Header="Type" Binding="{Binding attachment}" Width="85" IsReadOnly="True"/>
                 <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="110" IsReadOnly="True"/>
