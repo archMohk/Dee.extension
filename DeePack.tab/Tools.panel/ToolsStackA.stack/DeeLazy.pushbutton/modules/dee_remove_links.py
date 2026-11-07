@@ -29,17 +29,20 @@ host, so they are listed but never ticked or deleted.
 """
 import os
 import re
+import time
 import datetime
 import traceback
 
 import clr
 clr.AddReference("PresentationCore")
 clr.AddReference("PresentationFramework")
+import System
 from System import GC
 
 from pyrevit import forms
 from Autodesk.Revit.DB import (
     FilteredElementCollector, RevitLinkType, RevitLinkInstance, ModelPathUtils, Element,
+    OpenOptions, DetachFromCentralOption, WorksetConfiguration, WorksetConfigurationOption,
 )
 
 import dee_branding
@@ -252,6 +255,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         self._ses_docs = []          # documents found by the last session scan
         self._acc_source = None      # dict: token, hub_id, region, hub_name, project_id, project_name
         self._acc_rows = []
+        self._acc_guids = {}         # item_id -> (project Guid, model Guid), verified with ACC
         self._loc_rows = []
         self._shown_mode = None
 
@@ -535,6 +539,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         self._acc_source = {"token": token, "hub_id": hub_id, "region": region, "hub_name": hub_name,
                             "project_id": project_id, "project_name": project_name}
         self._acc_rows = [HostRow(name, items[name]) for name in sorted(items.keys())]
+        self._acc_guids = {}
         self._acc_where = "{0} / {1}".format(hub_name, where)
         self.acc_info_tb.Text = "{0} Revit file(s) in {1}. Tick files, then Read Links.".format(
             len(self._acc_rows), self._acc_where)
@@ -572,6 +577,8 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Scan ACC and tick at least one file first.")
             return
         src = self._acc_source
+        if not self._fresh_token():
+            return
         import acc_links_service as als
         rows = []
         fallback = []
@@ -585,6 +592,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
             host = by_id.get(res.get("item_id"))
             if host is None:
                 continue
+            self._remember_guids(host.key, res.get("project_guid"), res.get("model_guid"))
             if res.get("status") != "ok":
                 fallback.append(host)
                 self._log("{0}: ACC cannot report links ({1}) - will open the model".format(
@@ -603,6 +611,94 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         self._links[MODE_ACC] = rows
         self._refresh_links()
 
+    # ---------------- ACC: sign-in + cloud ids ----------------
+    def _fresh_token(self):
+        """Re-reads the Autodesk sign-in right before talking to ACC. A
+        token kept from the scan can expire while the user reviews the
+        list, and an expired token is what made every model fail to open
+        with "The central model is missing" (see _acc_cloud_path)."""
+        try:
+            token = acc_auth.get_access_token()
+        except Exception as e:
+            self._log("Autodesk sign-in failed: {0}".format(e))
+            forms.alert("Could not sign in to Autodesk: {0}".format(e))
+            return None
+        if token and self._acc_source is not None:
+            self._acc_source["token"] = token
+        return token
+
+    def _remember_guids(self, item_id, project_guid, model_guid):
+        if not (item_id and project_guid and model_guid):
+            return
+        try:
+            self._acc_guids[item_id] = (System.Guid(str(project_guid)), System.Guid(str(model_guid)))
+        except Exception:
+            pass
+
+    def _acc_cloud_path(self, item_id):
+        """(ModelPath or None, detail).
+
+        afb.get_cloud_path_guids never fails: when ACC does not answer
+        (expired sign-in, rate limit) it quietly GUESSES the ids from the
+        item URN ("lineage"). That guess is wrong for normal cloud models
+        and Revit then refuses with "The central model is missing". So the
+        ids are taken from the scan when ACC gave them, otherwise asked for
+        again with a fresh token - and a guessed answer is never used."""
+        src = self._acc_source
+        ids = self._acc_guids.get(item_id)
+        if ids is None:
+            label = ""
+            for attempt in range(3):
+                token = self._fresh_token()
+                if not token:
+                    return None, "not signed in to Autodesk"
+                try:
+                    pg, mg, label = afb.get_cloud_path_guids(src["project_id"], item_id, token)
+                except Exception as e:
+                    label = "error: {0}".format(e)
+                if label and not label.startswith("lineage") and not label.startswith("error"):
+                    ids = (pg, mg)
+                    self._acc_guids[item_id] = ids
+                    break
+                time.sleep(2 * (attempt + 1))
+            if ids is None:
+                return None, ("ACC did not return this model's cloud IDs ({0}) - the Autodesk sign-in may "
+                              "have expired or ACC is busy. Sign in again and retry.".format(label or "no answer"))
+        try:
+            return ModelPathUtils.ConvertCloudGUIDsToCloudPath(src["region"], ids[0], ids[1]), "ok"
+        except Exception as e:
+            # stale ids from an earlier read - forget them so a retry asks ACC again
+            self._acc_guids.pop(item_id, None)
+            return None, "Revit could not find this cloud model: {0}".format(e)
+
+    def _open_acc(self, item_id, attached):
+        """Headless open. attached=True -> DoNotDetach (to change + sync the
+        real model). attached=False -> detached when the model allows it
+        (read-only use), falling back to DoNotDetach for a non-workshared
+        model, which is still never saved by the read path."""
+        model_path, detail = self._acc_cloud_path(item_id)
+        if model_path is None:
+            return None, detail
+        if attached:
+            attempts = [DetachFromCentralOption.DoNotDetach]
+        else:
+            attempts = [DetachFromCentralOption.DetachAndPreserveWorksets,
+                        DetachFromCentralOption.DetachAndDiscardWorksets,
+                        DetachFromCentralOption.DoNotDetach]
+        errors = []
+        for option in attempts:
+            try:
+                oo = OpenOptions()
+                oo.DetachFromCentralOption = option
+                try:
+                    oo.SetOpenWorksetsConfiguration(WorksetConfiguration(WorksetConfigurationOption.OpenAllWorksets))
+                except Exception:
+                    pass
+                return self.application.OpenDocumentFile(model_path, oo), str(option)
+            except Exception as e:
+                errors.append("{0}: {1}".format(option, e))
+        return None, " | ".join(errors)
+
     def _acc_read_by_opening(self, hosts):
         src = self._acc_source
         rows = []
@@ -613,8 +709,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                     break
                 pb.update_progress(i, len(hosts))
                 pb.title = "{0} ({1}/{2}) - opening read-only".format(host.name, i + 1, len(hosts))
-                doc, detail = afb.open_cloud_document_detached(
-                    self.application, src["region"], src["project_id"], host.key, src["token"])
+                doc, detail = self._open_acc(host.key, attached=False)
                 if doc is None:
                     self._log(u"  ✗ {0}: could not open - {1}".format(host.name, detail))
                     continue
@@ -633,7 +728,8 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         return rows
 
     def _remove_acc(self, order, by_host):
-        src = self._acc_source
+        if not self._fresh_token():
+            return
         open_titles, _paths = self._open_doc_titles()
         names = dict((h.key, h.name) for h in self._acc_rows)
         with SafeProgress(window=self, title="Removing links...", cancellable=True) as pb:
@@ -648,8 +744,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                 if _strip_rvt(name).lower() in open_titles:
                     self._log(u"  ✗ skipped - this model is open in Revit; use the Open Models tab")
                     continue
-                doc, detail = afb.open_cloud_document_attached(
-                    self.application, src["region"], src["project_id"], key, src["token"])
+                doc, detail = self._open_acc(key, attached=True)
                 if doc is None:
                     self._log(u"  ✗ could not open - " + detail)
                     for r in by_host[key]:
