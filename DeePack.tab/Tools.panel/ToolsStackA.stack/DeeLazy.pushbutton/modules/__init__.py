@@ -41,6 +41,7 @@ from modules import dee_para_value
 from modules import dee_links_into_views
 from modules import dee_dependent_views
 from modules import dee_urs_files
+from modules import dee_remove_links
 
 REGISTERED_MODULES = [
     view_cropping.TOOL_INFO,
@@ -58,4 +59,5 @@ REGISTERED_MODULES = [
     dee_links_into_views.TOOL_INFO,
     dee_dependent_views.TOOL_INFO,
     dee_urs_files.TOOL_INFO,
+    dee_remove_links.TOOL_INFO,
 ]

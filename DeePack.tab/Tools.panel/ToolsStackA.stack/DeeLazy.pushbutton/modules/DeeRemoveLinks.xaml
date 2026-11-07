@@ -1,0 +1,103 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeLazy - Remove Links"
+        ShowInTaskbar="False"
+        MinHeight="620" MinWidth="900" Height="780" Width="1100"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+            <Button DockPanel.Dock="Right" x:Name="close_b" Content="Close" Click="close_click" Width="90" Height="28" Margin="8,0,0,0" VerticalAlignment="Bottom"/>
+            <TextBox x:Name="log_tb" Height="110" IsReadOnly="True" TextWrapping="Wrap"
+                     VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="11"/>
+        </DockPanel>
+
+        <TabControl x:Name="main_tabs" DockPanel.Dock="Top" Height="250" SelectionChanged="tabs_changed">
+            <!-- ================= Tab 1: Open session ================= -->
+            <TabItem Header="Open Models (this session)">
+                <StackPanel Margin="12">
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,12"
+                               Text="Scans every Revit project open in this Revit session and lists all of its Revit links. Links are removed directly in the open models."/>
+                    <Button x:Name="ses_scan_b" Content="Scan Open Models" Click="ses_scan_click" Width="160" Height="28" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+                    <CheckBox x:Name="ses_save_cb" IsChecked="False" Margin="0,0,0,6"
+                              Content="Save / Synchronize each model after removing its links (otherwise the changes stay unsaved for you to review)"/>
+                    <TextBlock x:Name="ses_info_tb" Opacity="0.75" Text="Not scanned yet."/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- ================= Tab 2: ACC ================= -->
+            <TabItem Header="ACC Files">
+                <DockPanel Margin="12,8,12,8">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                        <Button x:Name="acc_scan_b" Content="Scan ACC Files..." Click="acc_scan_click" Width="130" Height="26"/>
+                        <TextBlock Text="Search:" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                        <TextBox x:Name="acc_search_tb" Width="200" Height="26" VerticalContentAlignment="Center" TextChanged="acc_search_changed"/>
+                        <Button Content="Select All" Click="acc_all_click" Width="80" Height="26" Margin="10,0,0,0"/>
+                        <Button Content="Select None" Click="acc_none_click" Width="90" Height="26" Margin="6,0,0,0"/>
+                        <Button x:Name="acc_read_b" Content="Read Links of Ticked Files" Click="acc_read_click" Width="190" Height="26" Margin="16,0,0,0" FontWeight="Bold"/>
+                    </StackPanel>
+                    <TextBlock DockPanel.Dock="Top" x:Name="acc_info_tb" Opacity="0.75" Margin="0,0,0,4" TextWrapping="Wrap"
+                               Text="No files scanned yet. Links are read from ACC without opening the models; a model ACC cannot report is opened read-only instead. Removing opens each model, deletes the links and synchronizes it back to ACC."/>
+                    <DataGrid x:Name="acc_grid" AutoGenerateColumns="False" CanUserAddRows="False" RowHeaderWidth="0">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Select" Width="55"
+                                                    Binding="{Binding selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                            <DataGridTextColumn Header="ACC File" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- ================= Tab 3: Local ================= -->
+            <TabItem Header="Local Files">
+                <DockPanel Margin="12,8,12,8">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                        <Button Content="Add Files..." Click="loc_add_files_click" Width="100" Height="26"/>
+                        <Button Content="Add Folder..." Click="loc_add_folder_click" Width="100" Height="26" Margin="6,0,0,0"/>
+                        <Button Content="Clear" Click="loc_clear_click" Width="60" Height="26" Margin="6,0,0,0"/>
+                        <Button Content="Select All" Click="loc_all_click" Width="80" Height="26" Margin="16,0,0,0"/>
+                        <Button Content="Select None" Click="loc_none_click" Width="90" Height="26" Margin="6,0,0,0"/>
+                        <Button x:Name="loc_read_b" Content="Read Links of Ticked Files" Click="loc_read_click" Width="190" Height="26" Margin="16,0,0,0" FontWeight="Bold"/>
+                    </StackPanel>
+                    <TextBlock DockPanel.Dock="Top" x:Name="loc_info_tb" Opacity="0.75" Margin="0,0,0,4" TextWrapping="Wrap"
+                               Text="Add .rvt files from your PC or a network folder. Each ticked file is opened read-only to read its links. Removing opens the file, deletes the links and saves it (or synchronizes it with its central model)."/>
+                    <DataGrid x:Name="loc_grid" AutoGenerateColumns="False" CanUserAddRows="False" RowHeaderWidth="0">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="Select" Width="55"
+                                                    Binding="{Binding selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                            <DataGridTextColumn Header="File" Binding="{Binding name}" Width="260" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Folder" Binding="{Binding folder}" Width="*" IsReadOnly="True"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
+
+        <!-- ================= Shared: links found ================= -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,10,0,6">
+            <TextBlock x:Name="links_title_tb" Text="Revit links found" FontWeight="Bold" VerticalAlignment="Center"/>
+            <TextBlock Text="Search:" VerticalAlignment="Center" Margin="18,0,6,0"/>
+            <TextBox x:Name="links_search_tb" Width="220" Height="26" VerticalContentAlignment="Center" TextChanged="links_search_changed"/>
+            <Button Content="Select All" Click="links_all_click" Width="80" Height="26" Margin="10,0,0,0"/>
+            <Button Content="Select None" Click="links_none_click" Width="90" Height="26" Margin="6,0,0,0"/>
+        </StackPanel>
+
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+            <Button DockPanel.Dock="Right" x:Name="remove_b" Content="Remove Ticked Links" Click="remove_click" Width="180" Height="32" Margin="8,0,0,0" FontWeight="Bold"/>
+            <Button DockPanel.Dock="Right" x:Name="export_b" Content="Export Paths to Excel..." Click="export_click" Width="180" Height="32"/>
+            <TextBlock x:Name="links_info_tb" VerticalAlignment="Center" Opacity="0.75" TextWrapping="Wrap" Text=""/>
+        </DockPanel>
+
+        <DataGrid x:Name="links_grid" AutoGenerateColumns="False" CanUserAddRows="False" RowHeaderWidth="0">
+            <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="Select" Width="55"
+                                        Binding="{Binding selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                <DataGridTextColumn Header="Host Model" Binding="{Binding host}" Width="200" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Link" Binding="{Binding link_name}" Width="200" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Link Path" Binding="{Binding path}" Width="*" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Type" Binding="{Binding attachment}" Width="85" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="110" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Instances" Binding="{Binding instances}" Width="70" IsReadOnly="True"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>
