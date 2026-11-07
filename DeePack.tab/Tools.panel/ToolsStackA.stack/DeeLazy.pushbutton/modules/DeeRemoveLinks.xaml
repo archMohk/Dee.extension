@@ -18,8 +18,8 @@
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,12"
                                Text="Scans every Revit project open in this Revit session and lists all of its Revit links. Links are removed directly in the open models."/>
                     <Button x:Name="ses_scan_b" Content="Scan Open Models" Click="ses_scan_click" Width="160" Height="28" HorizontalAlignment="Left" Margin="0,0,0,12"/>
-                    <CheckBox x:Name="ses_save_cb" IsChecked="False" Margin="0,0,0,6"
-                              Content="Save / Synchronize each model after removing its links (otherwise the changes stay unsaved for you to review)"/>
+                    <TextBlock TextWrapping="Wrap" Opacity="0.75" Margin="0,0,0,6"
+                               Text="Use the options under the list to synchronize / save and close each model when it is finished. Revit does not let a tool close the model of the active view - that one is synchronized but stays open."/>
                     <TextBlock x:Name="ses_info_tb" Opacity="0.75" Text="Not scanned yet."/>
                 </StackPanel>
             </TabItem>
@@ -84,6 +84,12 @@
         <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
             <Button DockPanel.Dock="Right" x:Name="remove_b" Content="Remove Ticked Links" Click="remove_click" Width="180" Height="32" Margin="8,0,0,0" FontWeight="Bold"/>
             <Button DockPanel.Dock="Right" x:Name="export_b" Content="Export Paths to Excel..." Click="export_click" Width="180" Height="32"/>
+            <StackPanel DockPanel.Dock="Right" Margin="0,0,16,0" VerticalAlignment="Center">
+                <CheckBox x:Name="opt_sync_cb" IsChecked="True" Margin="0,0,0,4"
+                          Content="Synchronize with central / save when finished"/>
+                <CheckBox x:Name="opt_close_cb" IsChecked="True"
+                          Content="Close the model when finished"/>
+            </StackPanel>
             <TextBlock x:Name="links_info_tb" VerticalAlignment="Center" Opacity="0.75" TextWrapping="Wrap" Text=""/>
         </DockPanel>
 

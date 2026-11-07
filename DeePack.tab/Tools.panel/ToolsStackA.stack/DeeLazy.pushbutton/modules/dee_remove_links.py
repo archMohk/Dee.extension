@@ -258,6 +258,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         self._acc_guids = {}         # item_id -> (project Guid, model Guid), verified with ACC
         self._loc_rows = []
         self._shown_mode = None
+        self._ses_opts = (True, True)    # session tab's own sync / close choice
 
         self._ready = True
         self._refresh_links()
@@ -331,12 +332,32 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         self.links_grid.ItemsSource = self._visible_links()
         rows = self._links[mode]
         hosts = len(set(r.host_key for r in rows))
+        self._update_option_boxes(mode)
         self.links_title_tb.Text = "Revit links found in {0}".format(_MODE_LABELS[mode])
         if rows:
             self.links_info_tb.Text = "{0} link(s) in {1} model(s), {2} ticked.".format(
                 len(rows), hosts, len([r for r in rows if r.selected]))
         else:
             self.links_info_tb.Text = "Nothing scanned on this tab yet."
+
+    def _update_option_boxes(self, mode):
+        """Sync + close are real choices only for models open in this
+        session. ACC and local files are opened headless just for this
+        job, so they are ALWAYS synchronized / saved and closed - closing
+        without saving would silently throw the removal away."""
+        sync_cb, close_cb = self.opt_sync_cb, self.opt_close_cb
+        tip = "ACC and local files are always synchronized / saved and closed - otherwise the removal would be lost."
+        if mode == MODE_SESSION:
+            if not sync_cb.IsEnabled:
+                sync_cb.IsChecked, close_cb.IsChecked = self._ses_opts
+                sync_cb.IsEnabled = close_cb.IsEnabled = True
+                sync_cb.ToolTip = close_cb.ToolTip = None
+        else:
+            if sync_cb.IsEnabled:
+                self._ses_opts = (sync_cb.IsChecked, close_cb.IsChecked)
+            sync_cb.IsChecked = close_cb.IsChecked = True
+            sync_cb.IsEnabled = close_cb.IsEnabled = False
+            sync_cb.ToolTip = close_cb.ToolTip = tip
 
     def links_search_changed(self, sender, args):
         if getattr(self, "_ready", False):
@@ -417,19 +438,24 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
             by_host[r.host_key].append(r)
 
         if mode == MODE_SESSION:
-            save = bool(self.ses_save_cb.IsChecked)
-            after = ("Each model is then saved / synchronized." if save
+            save = bool(self.opt_sync_cb.IsChecked)
+            close = bool(self.opt_close_cb.IsChecked)
+            after = ("Each model is then synchronized with central (or saved)." if save
                      else "The models are NOT saved - review and save them yourself.")
+            if close and save:
+                after += "\nEach model is closed after it synchronizes (except the active view's model)."
+            elif close:
+                after += "\nModels are not closed, because closing without saving would lose the removal."
         elif mode == MODE_ACC:
-            after = "Each model is opened, cleaned and synchronized back to ACC (this changes the real ACC models)."
+            after = "Each model is opened, cleaned, synchronized back to ACC and closed (this changes the real ACC models)."
         else:
-            after = "Each file is opened, cleaned and saved / synchronized (this changes the real files)."
+            after = "Each file is opened, cleaned, saved / synchronized and closed (this changes the real files)."
         if not forms.alert("Remove {0} Revit link(s) from {1} model(s)?\n\n{2}\n\nThis cannot be undone from here."
                            .format(len(picked), len(order), after), yes=True, no=True):
             return
 
         if mode == MODE_SESSION:
-            self._with_dialog_handler(lambda: self._remove_session(order, by_host, save))
+            self._with_dialog_handler(lambda: self._remove_session(order, by_host, save, close))
         elif mode == MODE_ACC:
             self._with_dialog_handler(lambda: self._remove_acc(order, by_host))
         else:
@@ -486,17 +512,49 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         self.ses_info_tb.Text = "{0} open model(s), {1} link(s).".format(len(self._ses_docs), len(rows))
         self._refresh_links()
 
-    def _remove_session(self, order, by_host, save):
+    def _active_doc(self):
+        try:
+            return self.uiapp.ActiveUIDocument.Document
+        except Exception:
+            return None
+
+    def _remove_session(self, order, by_host, save, close):
+        active = self._active_doc()
         for key in order:
             doc = self._ses_docs[key]
-            self._log("{0}:".format(doc.Title))
+            if doc is None:
+                self._log(u"  ✗ {0}: already closed - scan again".format(by_host[key][0].host))
+                continue
+            title = doc.Title
+            self._log("{0}:".format(title))
             try:
                 self._apply(doc, MODE_SESSION, key, by_host[key])
-                if save:
-                    ok, detail = save_after_remove(doc)
-                    self._log(u"  ✓ " + detail if ok else u"  ✗ save/sync failed: " + detail)
             except Exception as e:
                 self._log(u"  ✗ " + str(e))
+                continue
+            saved = False
+            if save:
+                ok, detail = save_after_remove(doc)
+                saved = ok
+                self._log(u"  ✓ " + detail if ok else u"  ✗ save/sync failed: " + detail)
+                if not ok:
+                    for r in by_host[key]:
+                        if r.status == ST_REMOVED:
+                            r.status = "Not synced"
+            if not close:
+                continue
+            if not saved:
+                self._log("  left open - not saved, closing would lose the removal")
+                continue
+            if active is not None and doc.Equals(active):
+                self._log("  left open - it is the active view's model, which Revit does not let a tool close")
+                continue
+            if docmgr.close_document(doc, save_modified=False):
+                self._ses_docs[key] = None
+                self._log(u"  ✓ closed")
+            else:
+                self._log(u"  ✗ could not close")
+        _release()
 
     # ---------------- Tab 2: ACC ----------------
     def acc_scan_click(self, sender, args):
@@ -700,7 +758,6 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         return None, " | ".join(errors)
 
     def _acc_read_by_opening(self, hosts):
-        src = self._acc_source
         rows = []
         with SafeProgress(window=self, title="Opening models to read links...", cancellable=True) as pb:
             for i, host in enumerate(hosts):
