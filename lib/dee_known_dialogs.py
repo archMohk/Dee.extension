@@ -54,6 +54,16 @@ KNOWN_DIALOGS = [
     (("docwarn", "multiple rooms are in the same enclosed region"),
      IDOK,
      "Auto-accepted Revit warnings dialog (OK)"),
+    # "Open Model" progress window ending in "The host model failed to
+    # open. Please try again." with a single Close button (plus "Show
+    # details" / "How can I ensure the model will open?"). Found live
+    # 2026-11-08 while DeeLazy Remove Links opened ACC models read-only to
+    # read their links: the batch sat behind it until someone pressed
+    # Close. Close is the only button; the open call then raises and the
+    # tool reports that model as "could not open" and moves on.
+    (("host model failed to open", "model failed to open", "failed to open. please try again"),
+     IDCLOSE,
+     "Auto-closed 'The host model failed to open' notice (model skipped)"),
 ]
 
 
