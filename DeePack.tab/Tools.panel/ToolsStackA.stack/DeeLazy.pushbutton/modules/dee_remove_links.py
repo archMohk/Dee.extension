@@ -43,6 +43,7 @@ from pyrevit import forms
 from Autodesk.Revit.DB import (
     FilteredElementCollector, RevitLinkType, RevitLinkInstance, ModelPathUtils, Element,
     OpenOptions, DetachFromCentralOption, WorksetConfiguration, WorksetConfigurationOption,
+    WorksharingUtils, CheckoutStatus, Transaction,
 )
 
 import dee_branding
@@ -62,7 +63,9 @@ _MODE_LABELS = {MODE_SESSION: "open models", MODE_ACC: "ACC files", MODE_LOCAL: 
 _SYNC_COMMENT = "DeeLazy - Remove Links"
 
 ST_REMOVED = "Removed"
+ST_UNLOADED = "Unloaded"
 ST_NESTED = "Nested (skip)"
+ST_DONE = (ST_REMOVED, ST_UNLOADED)
 
 _XLSX_HEADERS = ["Host Model", "Host Location", "Link Name", "Link Path",
                  "Type", "Status", "Instances", "Read From"]
@@ -122,6 +125,25 @@ def _name(element):
             return "?"
 
 
+def _enum_word(value):
+    """'LinkedFileStatus.Loaded' -> 'Loaded'."""
+    text = str(value) if value is not None else ""
+    return text.split(".")[-1]
+
+
+def _owner_note(doc, element):
+    """'' or ' - checked out by <user>' for a workshared model."""
+    try:
+        if not doc.IsWorkshared:
+            return ""
+        if WorksharingUtils.GetCheckoutStatus(doc, element.Id) == CheckoutStatus.OwnedByOtherUser:
+            info = WorksharingUtils.GetWorksharingTooltipInfo(doc, element.Id)
+            return " - checked out by {0}".format(info.Owner or "another user")
+    except Exception:
+        pass
+    return ""
+
+
 def _user_path(model_path):
     try:
         return ModelPathUtils.ConvertModelPathToUserVisiblePath(model_path)
@@ -171,14 +193,14 @@ def read_links(doc):
                 if not path:
                     path = _user_path(ext.GetPath())
                 try:
-                    status = str(ext.GetLinkedFileStatus())
+                    status = _enum_word(ext.GetLinkedFileStatus())
                 except Exception:
                     status = ""
         except Exception:
             pass
         attachment = ""
         try:
-            attachment = str(lt.AttachmentType)
+            attachment = _enum_word(lt.AttachmentType)
         except Exception:
             pass
         nested = False
@@ -191,11 +213,7 @@ def read_links(doc):
     return out
 
 
-def remove_links(doc, type_ids=None, names=None, remove_all=False):
-    """Deletes RevitLinkTypes (and with them their instances). Matches by
-    type id first, then by link name (lower case). Nested links are
-    skipped. Returns (removed, targeted, missing_names)."""
-    import dee_transmit_service as ts   # lazy: heavy module, keep the launcher safe
+def _target_link_types(doc, type_ids, names, remove_all):
     type_ids = set(type_ids or [])
     wanted_names = set((n or "").lower() for n in (names or []))
     found_names = set()
@@ -208,19 +226,92 @@ def remove_links(doc, type_ids=None, names=None, remove_all=False):
             pass
         nm = (_name(lt) or "").lower()
         if remove_all or _eid(lt.Id) in type_ids or nm in wanted_names:
-            targets.append(lt.Id)
+            targets.append(lt)
             found_names.add(nm)
-    if targets:
-        ts.delete_ids(doc, targets, "DeeLazy - Remove Revit Links")
-    removed = len([t for t in targets if doc.GetElement(t) is None])
     missing = sorted(n for n in wanted_names if n and n not in found_names)
-    return removed, len(targets), missing
+    return targets, missing
+
+
+def _unpin_instances(doc, type_ids):
+    """A pinned link instance is not deleted by Document.Delete - Revit
+    only warns. Unpin first, inside its own transaction."""
+    pinned = []
+    for inst in FilteredElementCollector(doc).OfClass(RevitLinkInstance):
+        try:
+            if inst.Pinned and _eid(inst.GetTypeId()) in type_ids:
+                pinned.append(inst)
+        except Exception:
+            continue
+    if not pinned:
+        return 0
+    t = Transaction(doc, "DeeLazy - Unpin Link Instances")
+    try:
+        t.Start()
+        for inst in pinned:
+            try:
+                inst.Pinned = False
+            except Exception:
+                pass
+        t.Commit()
+    except Exception:
+        try:
+            t.RollBack()
+        except Exception:
+            pass
+    return len(pinned)
+
+
+def remove_links(doc, type_ids=None, names=None, remove_all=False):
+    """Deletes RevitLinkTypes (and with them their instances). Matches by
+    type id first, then by link name (lower case). Nested links are
+    skipped. Returns (removed, targeted, missing_names, reasons) where
+    reasons is {link name: why it could not be removed}."""
+    import dee_transmit_service as ts   # lazy: heavy module, keep the launcher safe
+    targets, missing = _target_link_types(doc, type_ids, names, remove_all)
+    reasons = {}
+    if targets:
+        _unpin_instances(doc, set(_eid(lt.Id) for lt in targets))
+        ts.delete_ids(doc, [lt.Id for lt in targets], "DeeLazy - Remove Revit Links")
+    removed = 0
+    for lt in targets:
+        if doc.GetElement(lt.Id) is None:
+            removed += 1
+        else:
+            reasons[_name(lt)] = "Revit refused" + _owner_note(doc, lt)
+    return removed, len(targets), missing, reasons
+
+
+def unload_links(doc, type_ids=None, names=None, remove_all=False):
+    """Unloads RevitLinkTypes (the link stays in Manage Links, its
+    geometry is dropped). RevitLinkType.Unload runs outside a
+    transaction. Same return shape as remove_links."""
+    targets, missing = _target_link_types(doc, type_ids, names, remove_all)
+    reasons = {}
+    done = 0
+    for lt in targets:
+        try:
+            if _enum_word(lt.GetLinkedFileStatus()) == "Unloaded":
+                done += 1
+                continue
+            lt.Unload(None)
+            done += 1
+        except Exception as e:
+            reasons[_name(lt)] = str(e) + _owner_note(doc, lt)
+    return done, len(targets), missing, reasons
 
 
 def save_after_remove(doc):
-    """Sync a workshared (attached) model, plain Save otherwise."""
+    """Sync a workshared (attached) model; SaveCloudModel for a
+    non-workshared cloud model (plain Save is refused there); plain Save
+    otherwise."""
     if docmgr.is_workshared(doc) and not docmgr.is_detached(doc):
         return docmgr.synchronize_with_central(doc, comment=_SYNC_COMMENT)
+    if docmgr.is_cloud_model(doc) and not docmgr.is_detached(doc):
+        try:
+            doc.SaveCloudModel()
+            return True, "Saved to cloud"
+        except Exception as e:
+            return False, str(e)
     return docmgr.save_standalone(doc)
 
 
@@ -365,7 +456,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
 
     def links_all_click(self, sender, args):
         for r in self._visible_links():
-            if not r.nested and r.status != ST_REMOVED:
+            if not r.nested and r.status not in ST_DONE:
                 r.selected = True
         self._refresh_links()
 
@@ -398,7 +489,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
             data = []
             for r in rows:
                 tag = None
-                if r.status == ST_REMOVED:
+                if r.status in ST_DONE:
                     tag = "ok"
                 elif r.status and ("fail" in r.status.lower() or "notfound" in r.status.lower()):
                     tag = "fail"
@@ -422,12 +513,20 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                 pass
 
     # ---------------- remove (dispatch) ----------------
+    def unload_click(self, sender, args):
+        self._run_action("unload")
+
     def remove_click(self, sender, args):
+        self._run_action("remove")
+
+    def _run_action(self, action):
         self._commit_grids()
         mode = self._mode()
-        picked = [r for r in self._links[mode] if r.selected and not r.nested and r.status != ST_REMOVED]
+        self._action = action
+        verb = "Unload" if action == "unload" else "Remove"
+        picked = [r for r in self._links[mode] if r.selected and not r.nested and r.status not in ST_DONE]
         if not picked:
-            forms.alert("Tick at least one link first (nested links cannot be removed from the host).")
+            forms.alert("Tick at least one link first (nested links cannot be changed from the host).")
             return
         by_host = {}
         order = []
@@ -450,8 +549,10 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
             after = "Each model is opened, cleaned, synchronized back to ACC and closed (this changes the real ACC models)."
         else:
             after = "Each file is opened, cleaned, saved / synchronized and closed (this changes the real files)."
-        if not forms.alert("Remove {0} Revit link(s) from {1} model(s)?\n\n{2}\n\nThis cannot be undone from here."
-                           .format(len(picked), len(order), after), yes=True, no=True):
+        what = ("The links stay in Manage Links as Unloaded; their geometry is dropped." if action == "unload"
+                else "This cannot be undone from here.")
+        if not forms.alert("{3} {0} Revit link(s) in {1} model(s)?\n\n{2}\n\n{4}"
+                           .format(len(picked), len(order), after, verb, what), yes=True, no=True):
             return
 
         if mode == MODE_SESSION:
@@ -461,32 +562,53 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         else:
             self._with_dialog_handler(lambda: self._remove_local(order, by_host))
         self._refresh_links()
-        done = len([r for r in picked if r.status == ST_REMOVED])
-        self._log("Remove finished: {0} of {1} link(s) removed.".format(done, len(picked)))
-        forms.alert("{0} of {1} link(s) removed.\n\nSee the log at the bottom of the window for details."
-                    .format(done, len(picked)), title="Remove Links")
+        done = len([r for r in picked if r.status in ST_DONE])
+        self._log("{2} finished: {0} of {1} link(s).".format(done, len(picked), verb))
+        forms.alert("{0} of {1} link(s) {2}.\n\nSee the log at the bottom of the window for details."
+                    .format(done, len(picked), "unloaded" if action == "unload" else "removed"),
+                    title="Remove Links")
 
     def _all_rows_of_host(self, mode, key):
         return [r for r in self._links[mode] if r.host_key == key]
 
     def _apply(self, doc, mode, key, rows):
-        """Removes `rows` from an open doc and marks them. Returns removed count."""
-        host_rows = [r for r in self._all_rows_of_host(mode, key) if not r.nested and r.status != ST_REMOVED]
+        """Removes or unloads `rows` in an open doc and marks them.
+        Returns how many link types were changed."""
+        started = time.time()
+        action = getattr(self, "_action", "remove")
+        host_rows = [r for r in self._all_rows_of_host(mode, key) if not r.nested and r.status not in ST_DONE]
         remove_all = len(rows) == len(host_rows)
         ids = [r.type_id for r in rows if r.type_id]
         names = [r.link_name for r in rows]
-        removed, targeted, missing = remove_links(doc, ids, names, remove_all=remove_all)
-        still = set(_eid(lt.Id) for lt in FilteredElementCollector(doc).OfClass(RevitLinkType))
-        still_names = set((_name(lt) or "").lower()
-                          for lt in FilteredElementCollector(doc).OfClass(RevitLinkType))
+        if action == "unload":
+            done, targeted, missing, reasons = unload_links(doc, ids, names, remove_all=remove_all)
+            ok_status, fail_status = ST_UNLOADED, "Unload failed"
+            still, still_names = set(), set()
+            for lt in FilteredElementCollector(doc).OfClass(RevitLinkType):
+                try:
+                    if _enum_word(lt.GetLinkedFileStatus()) == "Unloaded":
+                        continue
+                except Exception:
+                    pass
+                still.add(_eid(lt.Id))
+                still_names.add((_name(lt) or "").lower())
+        else:
+            done, targeted, missing, reasons = remove_links(doc, ids, names, remove_all=remove_all)
+            ok_status, fail_status = ST_REMOVED, "Remove failed"
+            still = set(_eid(lt.Id) for lt in FilteredElementCollector(doc).OfClass(RevitLinkType))
+            still_names = set((_name(lt) or "").lower()
+                              for lt in FilteredElementCollector(doc).OfClass(RevitLinkType))
         for r in rows:
             gone = (r.type_id not in still) if r.type_id else ((r.link_name or "").lower() not in still_names)
-            r.status = ST_REMOVED if gone else "Remove failed"
+            r.status = ok_status if gone else fail_status
             r.selected = False
         if missing:
             self._log("  not found in the model: " + ", ".join(missing))
-        self._log("  removed {0} of {1} link type(s)".format(removed, targeted))
-        return removed
+        for nm, why in sorted(reasons.items()):
+            self._log(u"  ! {0}: {1}".format(nm, why))
+        self._log("  {0} {1} of {2} link type(s) in {3:.0f} s".format(
+            "unloaded" if action == "unload" else "removed", done, targeted, time.time() - started))
+        return done
 
     # ---------------- Tab 1: open session ----------------
     def ses_scan_click(self, sender, args):
@@ -539,7 +661,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                 self._log(u"  ✓ " + detail if ok else u"  ✗ save/sync failed: " + detail)
                 if not ok:
                     for r in by_host[key]:
-                        if r.status == ST_REMOVED:
+                        if r.status in ST_DONE:
                             r.status = "Not synced"
             if not close:
                 continue
@@ -815,7 +937,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                         self._log(u"  ✓ " + detail if ok else u"  ✗ sync/save failed: " + detail)
                         if not ok:
                             for r in by_host[key]:
-                                if r.status == ST_REMOVED:
+                                if r.status in ST_DONE:
                                     r.status = "Not synced"
                 except Exception as e:
                     self._log(u"  ✗ " + str(e))
@@ -953,7 +1075,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                         self._log(u"  ✓ " + detail if ok else u"  ✗ save/sync failed: " + detail)
                         if not ok:
                             for r in by_host[key]:
-                                if r.status == ST_REMOVED:
+                                if r.status in ST_DONE:
                                     r.status = "Not saved"
                 except Exception as e:
                     self._log(u"  ✗ " + str(e))
@@ -974,7 +1096,7 @@ def launch(uiapp):
 TOOL_INFO = {
     "id": "remove_links",
     "title": "Remove Links",
-    "description": "Find the Revit links in open models, ACC files or local files - export their paths to Excel or remove them in bulk.",
+    "description": "Find the Revit links in open models, ACC files or local files - export their paths to Excel, unload or remove them in bulk.",
     "icon": u"✂",  # scissors - cutting links (the link emoji is taken by Links Into Views)
     "launch": launch,
 }

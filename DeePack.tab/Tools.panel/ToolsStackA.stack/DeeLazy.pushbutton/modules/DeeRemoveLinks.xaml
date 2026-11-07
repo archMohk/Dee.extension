@@ -82,7 +82,9 @@
         </StackPanel>
 
         <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
-            <Button DockPanel.Dock="Right" x:Name="remove_b" Content="Remove Ticked Links" Click="remove_click" Width="180" Height="32" Margin="8,0,0,0" FontWeight="Bold"/>
+            <Button DockPanel.Dock="Right" x:Name="remove_b" Content="Remove Ticked Links" Click="remove_click" Width="160" Height="32" Margin="8,0,0,0" FontWeight="Bold"/>
+            <Button DockPanel.Dock="Right" x:Name="unload_b" Content="Unload Ticked Links" Click="unload_click" Width="150" Height="32" Margin="8,0,0,0"
+                    ToolTip="Keeps the link in Manage Links but drops its geometry - the model gets lighter and the link can be reloaded later."/>
             <Button DockPanel.Dock="Right" x:Name="export_b" Content="Export Paths to Excel..." Click="export_click" Width="180" Height="32"/>
             <StackPanel DockPanel.Dock="Right" Margin="0,0,16,0" VerticalAlignment="Center">
                 <CheckBox x:Name="opt_sync_cb" IsChecked="True" Margin="0,0,0,4"
