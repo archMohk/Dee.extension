@@ -59,14 +59,13 @@ NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct)
   distinguish Central from Local Copy, so both are treated the same
   way here. Best practice is always working from a local copy; this
   is flagged rather than silently assumed safe.
-- Cloud items opened via acc_file_browser.open_cloud_file() use
-  OpenAndActivateDocument, which switches Revit's visible active tab
-  to each file in turn while the batch runs - expected/proven behavior
-  (same mechanism DeeOpener/DeeNWCs already use), not a bug, but worth
-  knowing if you're watching Revit while a Cloud Models batch runs.
+- Cloud items are opened headless + attached
+  (acc_file_browser.open_cloud_document_attached) - no active-tab
+  switching any more. The pipeline lives in lib/deew_clean_pipeline so
+  the "Run by: Background Revit" option (lib/deew_background_ui) can
+  run it in one or more second Revits.
 """
 import os
-import time
 import datetime
 
 import clr
@@ -80,8 +79,6 @@ import deew_logger
 import deew_settings
 import dee_settings_file
 import deew_model_scanner as scanner
-import deew_document_manager as docmgr
-import deew_clean_service as cleansvc
 import deew_failure_handler as ffh
 import dee_known_dialogs
 import deew_progress_service as progsvc
@@ -115,148 +112,8 @@ def _revit_version_text(app):
 
 
 from dee_ui import SafeProgress as _SafeProgress
-
-
-class CloudCleanItem(object):
-    """One row per cloud model added via "Add Cloud Models..." - plain
-    fields matching acc_file_browser's existing pick_hub/pick_project/
-    list_project_files return shapes, so no new ACC-browsing logic is
-    needed here beyond calling those already-proven functions."""
-
-    def __init__(self, hub_id, hub_name, region, project_id, project_name, item_id, display_name, token):
-        self.selected = False
-        self.hub_id = hub_id
-        self.hub_name = hub_name
-        self.region = region
-        self.project_id = project_id
-        self.project_name = project_name
-        self.item_id = item_id
-        self.display_name = display_name
-        self.token = token
-        self.status = "Ready"
-
-    @property
-    def location_text(self):
-        return "{0} / {1}".format(self.hub_name, self.project_name)
-
-
-class CleanPipeline(object):
-    """Owns the actual per-file Open -> Clean -> Save/Sync -> Close
-    pipeline, for both local and cloud sources - kept separate from
-    the Window class per this repo's established one-tool-file
-    convention (UI wiring vs. the real work)."""
-
-    def __init__(self, application, options, logger):
-        self.application = application
-        self.options = options
-        self.logger = logger
-
-    def _apply_clean_result(self, row, clean_result):
-        row.purged_count = clean_result.purged_count
-        row.zero_area_rooms_deleted = clean_result.zero_area_rooms_deleted
-        row.unused_groups_deleted = clean_result.unused_groups_deleted
-        row.inplace_families_found = clean_result.inplace_families_found
-        row.sheets_deleted = clean_result.sheets_deleted
-        row.views_deleted = clean_result.views_deleted
-        row.unused_views_deleted = clean_result.unused_views_deleted
-        if clean_result.errors:
-            row.errors = "; ".join(clean_result.errors)
-        if not clean_result.purge_supported and self.options.get("purge_unused"):
-            note = "Purge Unused needs Revit 2024+ (this session is {0})".format(
-                _revit_version_text(self.application))
-            row.warnings = (row.warnings + "; " + note) if row.warnings else note
-
-    def _add_error(self, row, detail):
-        row.errors = (row.errors + "; " + detail) if row.errors else detail
-
-    def process_local(self, scanned_model):
-        row = reportgen.CleanReportRow(
-            scanned_model.file_name, scanned_model.file_path, "Local",
-            scanned_model.model_type, _revit_version_text(self.application))
-        start = time.time()
-        document = None
-        try:
-            if scanned_model.model_type == scanner.MODEL_TYPE_CLOUD:
-                row.save_status = "Skipped - already a cloud model (use Add Cloud Models... instead)"
-                return row
-            if scanned_model.model_type in (scanner.MODEL_TYPE_CORRUPTED, scanner.MODEL_TYPE_READ_ONLY):
-                row.save_status = "Skipped - {0}".format(scanned_model.status)
-                row.errors = scanned_model.error
-                return row
-
-            document, err = docmgr.open_document_no_detach(
-                self.application, scanned_model.file_path,
-                audit=self.options.get("audit", False), open_all_worksets=True, logger=self.logger)
-            if document is None:
-                row.save_status = "Failed - could not open"
-                row.errors = err
-                return row
-
-            clean_result = cleansvc.clean_document(document, self.options)
-            self._apply_clean_result(row, clean_result)
-
-            if docmgr.is_workshared(document):
-                ok, detail = docmgr.synchronize_with_central(
-                    document, comment=self.options.get("sync_comment", ""),
-                    compact=self.options.get("compact_on_sync", False), logger=self.logger)
-                row.save_status = "Synchronized with Central" if ok else "Failed - sync error"
-                if not ok:
-                    self._add_error(row, detail)
-            else:
-                ok, detail = docmgr.save_standalone(document, logger=self.logger)
-                row.save_status = "Saved" if ok else "Failed - save error"
-                if not ok:
-                    self._add_error(row, detail)
-
-            return row
-        except Exception as e:
-            row.save_status = "Failed - unexpected error"
-            row.errors = str(e)
-            self.logger.exception("Unexpected error cleaning file", e, file=scanned_model.file_name)
-            return row
-        finally:
-            if document is not None and self.options.get("close_after", True):
-                docmgr.close_document(document, save_modified=False, logger=self.logger)
-            row.processing_time_seconds = time.time() - start
-
-    def process_cloud(self, item, uiapp):
-        row = reportgen.CleanReportRow(
-            item.display_name, item.location_text, "Cloud", "Cloud Model",
-            _revit_version_text(self.application))
-        start = time.time()
-        ui_doc = None
-        try:
-            ui_doc, detail = afb.open_cloud_file(
-                uiapp, item.region, item.project_id, item.item_id, item.token, close_worksets=False)
-            if ui_doc is None:
-                row.save_status = "Failed - could not open"
-                row.errors = detail
-                return row
-            document = ui_doc.Document
-
-            clean_result = cleansvc.clean_document(document, self.options)
-            self._apply_clean_result(row, clean_result)
-
-            ok, sync_detail = docmgr.synchronize_with_central(
-                document, comment=self.options.get("sync_comment", ""),
-                compact=self.options.get("compact_on_sync", False), logger=self.logger)
-            row.save_status = "Synchronized with Central" if ok else "Failed - sync error"
-            if not ok:
-                self._add_error(row, sync_detail)
-
-            return row
-        except Exception as e:
-            row.save_status = "Failed - unexpected error"
-            row.errors = str(e)
-            self.logger.exception("Unexpected error cleaning cloud file", e, file=item.display_name)
-            return row
-        finally:
-            if ui_doc is not None and self.options.get("close_after", True):
-                try:
-                    docmgr.close_document(ui_doc.Document, save_modified=False, logger=self.logger)
-                except Exception:
-                    pass
-            row.processing_time_seconds = time.time() - start
+import deew_background_ui
+from deew_clean_pipeline import CloudCleanItem, CleanPipeline
 
 
 class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
@@ -264,6 +121,7 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         # Shared "On Revit errors: delete ... and continue" tick box
         dee_known_dialogs.add_error_checkbox(self)
+        deew_background_ui.add_run_controls(self)
         self.uiapp = uiapp
         self.application = uiapp.Application
         self.logger = deew_logger.DeeWLogger(_TOOL_NAME)
@@ -499,6 +357,10 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
                 return
         self._save_settings()
 
+        if deew_background_ui.is_background(self):
+            self._run_background(selected_local, selected_cloud, options)
+            return
+
         # Always attached: with "Automatically Resolve Dialogs" off, it still
         # answers the shared must-handle dialogs (Copied Central Model, ...
         # see lib/dee_known_dialogs.py) and leaves every other dialog to the
@@ -568,6 +430,40 @@ class DeeWCleanWindow(dee_branding.DeeBrandedWindow):
         self.summary_tb.Text = (
             "{0} processed: {1} cleaned & saved, {2} failed, {3} skipped.".format(
                 len(report_rows), succeeded, failed, skipped))
+        self._log(self.summary_tb.Text)
+        forms.alert(self.summary_tb.Text, title=_TOOL_TITLE)
+
+    # ---------------- Background Revit ----------------
+    def _run_background(self, selected_local, selected_cloud, options):
+        items = [deew_background_ui.local_item(m) for m in selected_local]
+        items += [deew_background_ui.cloud_item(i) for i in selected_cloud]
+        if selected_cloud:
+            try:
+                options["token"] = cloudsvc.get_token()
+            except Exception as e:
+                self._log("Could not refresh the Autodesk sign-in: {0}".format(e))
+        for m in selected_local:
+            m.status = "Queued (background)"
+        for i in selected_cloud:
+            i.status = "Queued (background)"
+        self._refresh_models_grid()
+        self._refresh_cloud_grid()
+        self._bg_lookup = dict([(m.file_path, m) for m in selected_local] + [(i.item_id, i) for i in selected_cloud])
+        deew_background_ui.launch(
+            self, "DeeWClean", "deew_clean_pipeline", "worker", items, options, [_THIS_DIR],
+            reportgen.CleanReportRow, "save_status", ("Saved", "Synchronized with Central"),
+            self._background_done, title=_TOOL_TITLE)
+
+    def _background_done(self, rows, results, how):
+        for key, obj in self._bg_lookup.items():
+            res = results.get(key)
+            obj.status = (res or {}).get("status") or "Failed - not processed"
+        self._refresh_models_grid()
+        self._refresh_cloud_grid()
+        self._report_rows = rows
+        succeeded, failed, skipped = deew_background_ui.count(rows, "save_status", ("Saved", "Synchronized with Central"))
+        self.summary_tb.Text = "{0} processed in background Revit(s): {1} saved/synchronized, {2} failed, {3} skipped.".format(
+            len(rows), succeeded, failed, skipped)
         self._log(self.summary_tb.Text)
         forms.alert(self.summary_tb.Text, title=_TOOL_TITLE)
 
