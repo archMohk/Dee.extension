@@ -70,7 +70,6 @@ per-function docstrings in each lib/deew_*.py module)
   destructive operation or silently doing the wrong thing.
 """
 import os
-import time
 import datetime
 
 import clr
@@ -84,13 +83,11 @@ import deew_logger
 import deew_settings
 import dee_settings_file
 import deew_model_scanner as scanner
-import deew_document_manager as docmgr
 import deew_cloud_service as cloudsvc
 import deew_failure_handler as ffh
 import dee_known_dialogs
 import deew_progress_service as progsvc
 import deew_report_generator as reportgen
-import acc_api
 import dee_telemetry
 dee_telemetry.check_access("DeeWSharing")
 
@@ -118,131 +115,8 @@ def _revit_version_text(app):
 
 
 from dee_ui import SafeProgress as _SafeProgress
-
-
-class SharingPipeline(object):
-    """Owns the actual per-file Validate -> Determine -> Open ->
-    Detach/Worksharing -> Save-to-Cloud -> Verify -> Close pipeline.
-    Kept separate from the Window class (single responsibility: this
-    class does the Revit/cloud work, the Window class only handles
-    UI wiring) even though both live in this one script.py file, per
-    this repo's established per-tool-file convention."""
-
-    def __init__(self, application, destination, options, logger):
-        self.application = application
-        self.destination = destination
-        self.options = options
-        self.logger = logger
-        self._cloud_model_names_cache = None
-
-    def _existing_cloud_names(self, token):
-        if self._cloud_model_names_cache is None:
-            try:
-                items = acc_api.search_cloud_models(self.destination["project_id"], token)
-                self._cloud_model_names_cache = set(name for _id, name in items)
-            except Exception as e:
-                self.logger.exception("Could not list existing cloud models", e)
-                self._cloud_model_names_cache = set()
-        return self._cloud_model_names_cache
-
-    def _resolve_model_name(self, scanned_model, token):
-        base_name = os.path.splitext(scanned_model.file_name)[0]
-        existing = self._existing_cloud_names(token)
-        if base_name not in existing:
-            return base_name, None
-
-        if self.options.get("overwrite_cloud"):
-            # See module docstring - true overwrite (deleting the
-            # existing cloud item) is not implemented; skip rather
-            # than risk an unverified destructive operation.
-            return None, "Skipped - a cloud model named '{0}' already exists (overwrite not performed)".format(base_name)
-
-        # Rename Duplicate (default): find the next free "(n)" suffix.
-        n = 2
-        candidate = "{0} ({1})".format(base_name, n)
-        while candidate in existing:
-            n += 1
-            candidate = "{0} ({1})".format(base_name, n)
-        return candidate, None
-
-    def _detach_option(self, scanned_model):
-        if scanned_model.model_type in (scanner.MODEL_TYPE_CENTRAL, scanner.MODEL_TYPE_LOCAL):
-            if not self.options.get("detach"):
-                return "none"
-            return "discard" if self.options.get("discard_worksets") else "preserve"
-        return "none"
-
-    def process_one(self, scanned_model, token, dialog_handler_registered):
-        row = reportgen.ReportRow(
-            scanned_model.file_name, scanned_model.file_path,
-            _revit_version_text(self.application), scanned_model.model_type)
-        row.warnings = scanned_model.version_warning
-        start = time.time()
-        document = None
-        try:
-            if scanned_model.model_type == scanner.MODEL_TYPE_CLOUD:
-                row.upload_status = "Skipped - already a cloud model"
-                self.logger.info("Skipped (already cloud)", file=scanned_model.file_name)
-                return row
-            if scanned_model.model_type in (scanner.MODEL_TYPE_CORRUPTED, scanner.MODEL_TYPE_READ_ONLY):
-                row.upload_status = "Skipped - {0}".format(scanned_model.status)
-                row.errors = scanned_model.error
-                return row
-
-            model_name, skip_reason = self._resolve_model_name(scanned_model, token)
-            if skip_reason:
-                row.upload_status = skip_reason
-                return row
-            row.cloud_model_name = model_name + ".rvt"
-
-            detach_option = self._detach_option(scanned_model)
-            document, err = docmgr.open_document(
-                self.application, scanned_model.file_path,
-                detach_option=detach_option, audit=self.options.get("audit", False),
-                open_all_worksets=self.options.get("open_all_worksets", False),
-                logger=self.logger)
-            if document is None:
-                row.upload_status = "Failed - could not open"
-                row.errors = err
-                return row
-
-            if docmgr.is_cloud_model(document):
-                row.upload_status = "Skipped - already a cloud model"
-                return row
-
-            if self.options.get("enable_worksharing"):
-                ok = docmgr.enable_worksharing(document, logger=self.logger)
-                row.worksharing_enabled = "Yes" if ok else "Failed"
-            else:
-                row.worksharing_enabled = "Yes" if docmgr.is_workshared(document) else "No"
-
-            if self.options.get("compact"):
-                docmgr.compact_and_save_local(document, logger=self.logger)
-
-            row.acc_hub = self.destination.get("hub_name", "")
-            row.acc_project = self.destination.get("project_name", "")
-            row.acc_folder = self.destination.get("folder_name", "")
-
-            success, detail = cloudsvc.save_to_cloud(document, self.destination, model_name)
-            if success:
-                row.upload_status = "Uploaded"
-                row.cloud_guid = reportgen.get_cloud_model_guid(document)
-                self.logger.info("Uploaded", file=scanned_model.file_name, detail=detail)
-            else:
-                row.upload_status = "Failed - upload error"
-                row.errors = detail
-                self.logger.error("Upload failed", file=scanned_model.file_name, detail=detail)
-
-            return row
-        except Exception as e:
-            row.upload_status = "Failed - unexpected error"
-            row.errors = str(e)
-            self.logger.exception("Unexpected error processing file", e, file=scanned_model.file_name)
-            return row
-        finally:
-            if document is not None and self.options.get("close_after", True):
-                docmgr.close_document(document, save_modified=False, logger=self.logger)
-            row.processing_time_seconds = time.time() - start
+import deew_background_ui
+from deew_sharing_pipeline import SharingPipeline
 
 
 class DeeWSharingWindow(dee_branding.DeeBrandedWindow):
@@ -250,6 +124,7 @@ class DeeWSharingWindow(dee_branding.DeeBrandedWindow):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         # Shared "On Revit errors: delete ... and continue" tick box
         dee_known_dialogs.add_error_checkbox(self)
+        deew_background_ui.add_run_controls(self)
         self.uiapp = uiapp
         self.application = uiapp.Application
         self.logger = deew_logger.DeeWLogger(_TOOL_NAME)
@@ -437,6 +312,10 @@ class DeeWSharingWindow(dee_branding.DeeBrandedWindow):
         options = self._current_options()
         self._save_settings()
 
+        if deew_background_ui.is_background(self):
+            self._run_background(selected, options)
+            return
+
         # Always attached: with "Automatically Resolve Dialogs" off, it still
         # answers the shared must-handle dialogs (Copied Central Model, ...
         # see lib/dee_known_dialogs.py) and leaves every other dialog to the
@@ -490,6 +369,37 @@ class DeeWSharingWindow(dee_branding.DeeBrandedWindow):
         self.summary_tb.Text = (
             "{0} processed: {1} uploaded, {2} failed, {3} skipped.".format(
                 len(report_rows), uploaded, failed, skipped))
+        self._log(self.summary_tb.Text)
+        forms.alert(self.summary_tb.Text, title=_TOOL_TITLE)
+
+    # ---------------- Background Revit ----------------
+    def _run_background(self, selected, options):
+        token = self._destination.get("token") or cloudsvc.get_token()
+        pipeline = SharingPipeline(self.application, self._destination, options, self.logger)
+        self._log("Reserving cloud model names...")
+        options["resolved_names"] = pipeline.reserve_names(selected, token)
+        destination = dict(self._destination)
+        destination.pop("token", None)
+        options["destination"] = destination
+        options["token"] = token
+        items = [deew_background_ui.local_item(m) for m in selected]
+        for m in selected:
+            m.status = "Queued (background)"
+        self._refresh_models_grid()
+        self._bg_lookup = dict((m.file_path, m) for m in selected)
+        deew_background_ui.launch(
+            self, "DeeWSharing", "deew_sharing_pipeline", "worker", items, options, [_THIS_DIR],
+            reportgen.ReportRow, "upload_status", ("Uploaded",), self._background_done, title=_TOOL_TITLE)
+
+    def _background_done(self, rows, results, how):
+        for key, m in self._bg_lookup.items():
+            res = results.get(key)
+            m.status = (res or {}).get("status") or "Failed - not processed"
+        self._refresh_models_grid()
+        self._report_rows = rows
+        uploaded, failed, skipped = deew_background_ui.count(rows, "upload_status", ("Uploaded",))
+        self.summary_tb.Text = "{0} processed in background Revit(s): {1} uploaded, {2} failed, {3} skipped.".format(
+            len(rows), uploaded, failed, skipped)
         self._log(self.summary_tb.Text)
         forms.alert(self.summary_tb.Text, title=_TOOL_TITLE)
 
