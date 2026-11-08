@@ -366,5 +366,6 @@ TOOL_INFO = {
     "title": "Fill Pattern Conversion",
     "description": "Convert Fill Patterns between Model and Drafting Target - creates a new, scaled pattern; originals are never touched.",
     "icon": u"\U0001F9F1",  # bricks - a hatch/fill pattern
+    "category": "Drafting & Annotation",
     "launch": launch,
 }

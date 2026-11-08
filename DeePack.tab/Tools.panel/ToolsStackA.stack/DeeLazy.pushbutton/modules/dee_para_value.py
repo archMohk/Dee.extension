@@ -1587,5 +1587,6 @@ TOOL_INFO = {
     "title": "DeeParaValue",
     "description": "Scan many Revit files (local, ACC cloud, and/or open documents) for every shared/project parameter common to all of them - filter, group, see mismatches highlighted, then batch-edit and save corrections.",
     "icon": u"\U0001F522",  # input numbers - parameter values across files
+    "category": "Files, Links & ACC",
     "launch": launch,
 }

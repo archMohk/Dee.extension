@@ -1051,5 +1051,6 @@ TOOL_INFO = {
     "title": "DeeViewSelect",
     "description": "Pick sheets, load the views placed on them, then bulk-edit those views - templates, scale, detail, crop, names - or just select their viewports in Revit.",
     "icon": u"\U0001F5C2",  # card index dividers - browsing sheets/views to pick from
+    "category": "Views & Sheets",
     "launch": launch,
 }

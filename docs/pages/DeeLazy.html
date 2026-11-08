@@ -17,7 +17,7 @@
 
   <div class="card">
     <h2>What it does</h2>
-    <p>Opening DeeLazy shows a launcher window with one card per available tool. Clicking <strong>Open</strong> on a card opens that tool's own window - the launcher itself does nothing else.</p>
+    <p>Opening DeeLazy shows a launcher window with the tools grouped by category: <strong>Views &amp; Sheets</strong>, <strong>Drafting &amp; Annotation</strong>, <strong>Selection &amp; Editing</strong> and <strong>Files, Links &amp; ACC</strong>. Pick a category on the left (or <strong>All tools</strong>), or type in the search box to filter by name or description (Esc clears). Clicking anywhere on a card opens that tool's own window - the launcher closes itself.</p>
     <h3>View Cropping</h3>
     <p>Batch-edits Crop Region settings across many views at once: <strong>Crop Region Active</strong>, <strong>Crop Region Visibility</strong> (Show/Hide/Toggle), <strong>Annotation Crop</strong> (Yes/No), <strong>Crop Offset</strong> (Top/Bottom/Left/Right or a single Uniform value, in your project's display units), and <strong>Scope Box</strong> assignment/removal. Supports Floor Plans, Ceiling Plans, Sections, Elevations, Detail Views, Drafting Views, and 3D Views (Schedules, Legends, Renderings, and Sheets themselves are not views with a crop region and are excluded).</p>
     <p>Load views via <strong>Current Sheet</strong>, <strong>Selected Sheets...</strong>, <strong>Entire Project</strong>, or <strong>Current Selection</strong> (Project Browser or a viewport on a sheet - Revit's Selection API doesn't distinguish the two, so there is only one button for both). Narrow the list with <strong>Filters</strong> (View Type, Discipline, View Template, Name/Sheet text search, Dependent/Primary, current Crop Active/Annotation Crop state), then check the rows you want and click a Crop Action on the right. Each action shows a Yes/No confirmation naming how many views are affected, then runs immediately inside one Transaction with a progress bar, and lists every view's result in the Report grid at the bottom right - export it to Excel any time with <strong>Export Report...</strong>.</p>
@@ -29,7 +29,7 @@
     <h2>How to use it</h2>
     <p><strong>View Cropping:</strong></p>
     <ol>
-      <li>Open DeeLazy from the LazyPack panel, then click <strong>Open</strong> on the View Cropping card.</li>
+      <li>Open DeeLazy from the LazyPack panel, then click the View Cropping card (Views &amp; Sheets).</li>
       <li>Load views with one of the four buttons on the left (Current Sheet / Selected Sheets / Entire Project / Current Selection).</li>
       <li>Optionally set Filters and click <strong>Apply Filters</strong> to narrow the list, and/or type in the Search box above the grid.</li>
       <li>Check the views you want in the middle grid - use <strong>Select All</strong>, <strong>Select None</strong>, or <strong>Invert Selection</strong> to speed this up. Checked rows stay checked even if a later filter/search hides them.</li>
@@ -38,7 +38,7 @@
     </ol>
     <p><strong>Fill Pattern Conversion:</strong></p>
     <ol>
-      <li>Open DeeLazy, then click <strong>Open</strong> on the Fill Pattern Conversion card - it scans every fill pattern in the project automatically.</li>
+      <li>Open DeeLazy, then click the Fill Pattern Conversion card (Drafting &amp; Annotation) - it scans every fill pattern in the project automatically.</li>
       <li>Check the pattern(s) you want to convert (Select All / Select None / Invert Selection help with a long list). Solid Fill patterns can't be converted (no grid geometry to scale) and are always skipped even if checked.</li>
       <li>Set each checked row's <strong>Reference Scale</strong> (default 100, meaning 1:100) - edit it directly in the grid, per pattern, since different patterns may need different reference scales.</li>
       <li>Optionally change the Model/Drafting Suffix fields - the New Name column updates live as you type.</li>

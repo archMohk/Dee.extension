@@ -420,5 +420,6 @@ TOOL_INFO = {
     "title": "DeeBulkRename",
     "description": "Rename every View, Sheet, Schedule, and Legend with a full method pipeline (RegEx, Replace, Case, Remove, Add, Auto Date, Numbering) - tick a checklist, preview the result, then rename.",
     "icon": u"\U0001F3F7",  # label tag - renaming
+    "category": "Views & Sheets",
     "launch": launch,
 }

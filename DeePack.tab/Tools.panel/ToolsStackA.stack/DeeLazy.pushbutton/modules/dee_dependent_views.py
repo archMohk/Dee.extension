@@ -519,5 +519,6 @@ TOOL_INFO = {
     "title": "Dependent / Non-Dependent Views",
     "description": "Scan all views, then turn selected dependent views into independent ones - keeping each one's name and its place on the sheet.",
     "icon": u"\U0001F500",  # shuffle arrows - convert
+    "category": "Views & Sheets",
     "launch": launch,
 }

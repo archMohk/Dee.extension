@@ -566,5 +566,6 @@ TOOL_INFO = {
     "title": "URS Files",
     "description": "ACC files in bulk: duplicate a model into N worksharing Cloud Models, or make Levels & Grids-only copies (optional coordinate reset).",
     "icon": u"\U0001F4D1",  # bookmark tabs - multiple copies of a file
+    "category": "Files, Links & ACC",
     "launch": launch,
 }

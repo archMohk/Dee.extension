@@ -1152,5 +1152,6 @@ TOOL_INFO = {
     "title": "DeeSSelect",
     "description": "Color elements in the active view by parameter value (like pyRevit's Color Splasher), plus select elements by checked value-groups.",
     "icon": u"\U0001F3A8",  # palette - coloring elements by parameter value
+    "category": "Selection & Editing",
     "launch": launch,
 }

@@ -376,5 +376,6 @@ TOOL_INFO = {
     "title": "DeeVTEMP",
     "description": "Apply one change to many View Templates at once. First action: set the Revit Links Display Setting (By Host View / By Linked View) across every selected View Template and link in one run.",
     "icon": u"\U0001F517",  # link - the Revit Links display setting this currently controls
+    "category": "Views & Sheets",
     "launch": launch,
 }

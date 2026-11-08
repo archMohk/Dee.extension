@@ -1410,5 +1410,6 @@ TOOL_INFO = {
     "title": "Remove Links",
     "description": "Find the Revit links in open models, ACC files or local files - export their paths to Excel, unload or remove them in bulk.",
     "icon": u"✂",  # scissors - cutting links (the link emoji is taken by Links Into Views)
+    "category": "Files, Links & ACC",
     "launch": launch,
 }

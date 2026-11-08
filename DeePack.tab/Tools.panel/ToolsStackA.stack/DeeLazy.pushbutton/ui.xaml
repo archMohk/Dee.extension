@@ -2,14 +2,25 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeLazy — Bulk Productivity Tools"
         ShowInTaskbar="False"
-        MinHeight="420" MinWidth="580" Height="640" Width="850"
+        MinHeight="480" MinWidth="760" Height="680" Width="1000"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
-        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10"
-                   Text="DeeLazy is a growing collection of bulk productivity tools. Click anywhere on a card to open that tool in its own window."/>
-        <Button DockPanel.Dock="Bottom" x:Name="close_b" Content="Close" Click="close_click" Width="90" Height="28" HorizontalAlignment="Right" Margin="0,10,0,0"/>
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <WrapPanel x:Name="cards_panel" Orientation="Horizontal"/>
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Text="Search:" Margin="0,0,6,0"/>
+            <TextBlock DockPanel.Dock="Right" x:Name="count_tb" VerticalAlignment="Center" Opacity="0.7" Margin="12,0,0,0" Text=""/>
+            <TextBox x:Name="search_tb" Height="28" VerticalContentAlignment="Center" TextChanged="search_changed"
+                     ToolTip="Filter the tools by name or description. Esc clears."/>
+        </DockPanel>
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+            <Button DockPanel.Dock="Right" x:Name="close_b" Content="Close" Click="close_click" Width="90" Height="28"/>
+            <TextBlock VerticalAlignment="Center" Opacity="0.7" TextWrapping="Wrap"
+                       Text="Pick a category on the left or search, then click a card to open that tool in its own window."/>
+        </DockPanel>
+        <Border DockPanel.Dock="Left" Width="210" Margin="0,0,10,0" BorderThickness="0,0,1,0" BorderBrush="Gray" Padding="0,0,10,0">
+            <StackPanel x:Name="cat_panel"/>
+        </Border>
+        <ScrollViewer x:Name="scroller" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="groups_panel"/>
         </ScrollViewer>
     </DockPanel>
 </Window>

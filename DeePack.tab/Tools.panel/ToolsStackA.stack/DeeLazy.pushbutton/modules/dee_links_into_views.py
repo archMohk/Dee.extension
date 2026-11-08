@@ -1116,5 +1116,6 @@ TOOL_INFO = {
     "title": "Links Into Views",
     "description": "Pick a view with Revit Links, then create one isolated duplicate view per selected link (same view properties, only that link visible).",
     "icon": u"\U0001F517",  # link emoji
+    "category": "Views & Sheets",
     "launch": launch,
 }

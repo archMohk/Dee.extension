@@ -15,6 +15,10 @@ future module (Sheets, Dimensions, Levels, Grids, ...) means:
                                          # it via Segoe UI Emoji; omitting
                                          # this key falls back to a generic
                                          # wrench rather than erroring
+         "category": "Views & Sheets",  # group on the launcher - one of
+                                         # controller.CATEGORIES, or any
+                                         # new name (shown as its own
+                                         # group); omitted -> "Other"
          "launch": launch_function,     # def launch(uiapp): opens the
                                          # module's own window - owns
                                          # its own XAML/logic entirely
