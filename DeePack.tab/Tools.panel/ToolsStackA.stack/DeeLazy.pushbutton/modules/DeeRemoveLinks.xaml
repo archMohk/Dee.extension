@@ -109,6 +109,8 @@
             <Button DockPanel.Dock="Right" x:Name="unload_b" Content="Unload Ticked Links" Click="unload_click" Width="150" Height="32" Margin="8,0,0,0"
                     ToolTip="Keeps the link in Manage Links but drops its geometry - the model gets lighter and the link can be reloaded later."/>
             <Button DockPanel.Dock="Right" x:Name="export_b" Content="Export Paths to Excel..." Click="export_click" Width="180" Height="32"/>
+            <Button DockPanel.Dock="Right" x:Name="report_b" Content="Save Run Report..." Click="report_click" Width="140" Height="32" Margin="0,0,8,0" IsEnabled="False"
+                    ToolTip="Excel report of the last Remove / Unload run: which models were opened (and how), what happened to each link, sync / save and close results, plus the log."/>
             <StackPanel DockPanel.Dock="Right" Margin="0,0,16,0" VerticalAlignment="Center">
                 <CheckBox x:Name="opt_sync_cb" IsChecked="True" Margin="0,0,0,4"
                           Content="Synchronize with central / save when finished"/>

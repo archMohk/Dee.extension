@@ -82,6 +82,8 @@ ST_DONE = (ST_REMOVED, ST_UNLOADED)
 _XLSX_HEADERS = ["Host Model", "Host Location", "Link Name", "Kind", "Link Path",
                  "Type", "Status", "Instances", "Read From"]
 _XLSX_WIDTHS = [34, 50, 34, 12, 70, 12, 16, 10, 22]
+_REPORT_HEADERS = ["Time", "Source", "Host Model", "Location", "Event / Link", "Kind", "Action", "Result", "Details"]
+_REPORT_WIDTHS = [10, 14, 34, 50, 34, 12, 10, 24, 70]
 
 KIND_REVIT = "Revit"
 KIND_CAD_LINK = "CAD link"
@@ -458,6 +460,8 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         self._ses_opts = (True, True)    # session tab's own sync / close choice
         self._job = None                 # dee_background.BackgroundJob while one runs
         self._job_ctx = None             # (by_host, action, timer) for the running job
+        self._run = None                 # run report being recorded: dict(action, mode, rows, log, started)
+        self._last_run = None            # last finished run report (for Save Run Report)
 
         self._ready = True
         self._refresh_links()
@@ -466,11 +470,104 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
     # ---------------- shared ----------------
     def _log(self, message):
         stamp = datetime.datetime.now().strftime("%H:%M:%S")
+        if self._run is not None:
+            self._run["log"].append(u"[{0}] {1}".format(stamp, message))
         try:
             self.log_tb.AppendText(u"[{0}] {1}\n".format(stamp, message))
             self.log_tb.ScrollToEnd()
         except Exception:
             pass
+
+    # ---------------- run report ----------------
+    def _rep(self, host, location, event, result, details="", kind="", tag=None):
+        """One line of the run report (host-level event or link outcome)."""
+        if self._run is None:
+            return
+        if tag is None:
+            low = (result or "").lower()
+            if result in ST_DONE or low.startswith(("opened", "synchronized", "saved", "closed", "open in")):
+                tag = "ok"
+            elif "fail" in low or "not " in low or "could not" in low or "crash" in low:
+                tag = "fail"
+            elif "skip" in low or "left open" in low or "n/a" in low:
+                tag = "skip"
+        self._run["rows"].append({
+            "time": datetime.datetime.now().strftime("%H:%M:%S"), "host": host or "", "location": location or "",
+            "event": event or "", "kind": kind or "", "result": result or "", "details": details or "", "tag": tag})
+
+    def _begin_run(self, action, mode):
+        self._run = {"action": "Unload" if action == "unload" else "Remove", "mode": mode,
+                     "rows": [], "log": [], "started": datetime.datetime.now()}
+
+    def _finish_run(self, picked, done):
+        """Closes the run report, adds one line per picked link with its final
+        status, enables Save Run Report and offers to save it now."""
+        run = self._run
+        if run is None:
+            return
+        for r in picked:
+            self._rep(r.host, r.host_location, r.link_name, r.status, r.path, r.kind)
+        run["picked"], run["done"] = len(picked), done
+        self._run = None
+        self._last_run = run
+        self.report_b.IsEnabled = True
+        verb = "unloaded" if run["action"] == "Unload" else "removed"
+        choice = forms.alert("{0} of {1} link(s) {2}.\n\nSee the log at the bottom of the window, or save the run "
+                             "report (which models were opened, what happened to each link, sync and close results)."
+                             .format(done, len(picked), verb), title="Remove Links",
+                             options=["Save Run Report...", "Close"])
+        if choice == "Save Run Report...":
+            self._save_report()
+
+    def report_click(self, sender, args):
+        if self._last_run is None:
+            forms.alert("Run Remove or Unload first - the report covers the last run.")
+            return
+        self._save_report()
+
+    def _save_report(self):
+        run = self._last_run
+        if run is None:
+            return
+        stamp = run["started"].strftime("%Y%m%d_%H%M")
+        path = forms.save_file(file_ext="xlsx", default_name="Remove_Links_Report_{0}".format(stamp))
+        if not path:
+            return
+        source = _MODE_LABELS.get(run["mode"], "")
+        # group: every host's event lines, then its link lines, in first-seen order
+        order, by_host = [], {}
+        for row in run["rows"]:
+            if row["host"] not in by_host:
+                by_host[row["host"]] = []
+                order.append(row["host"])
+            by_host[row["host"]].append(row)
+        data = []
+        for host in order:
+            rows = by_host[host]
+            events = [r for r in rows if r["kind"] == "" and r["event"].startswith("[")]
+            links = [r for r in rows if r not in events]
+            for r in events + links:
+                data.append(([r["time"], source, r["host"], r["location"], r["event"], r["kind"],
+                              run["action"], r["result"], r["details"]], r["tag"]))
+        data.append((["", "", "", "", "", "", "", "", ""], None))
+        for line in run["log"]:
+            data.append(([line[1:9], source, "", "", "[log]", "", "", "", line[11:]], None))
+        title = "Remove Links - {0} run on {1} - {2} - {3} of {4} link(s) {5}".format(
+            run["action"], source, run["started"].strftime("%Y-%m-%d %H:%M"), run.get("done", 0),
+            run.get("picked", 0), "unloaded" if run["action"] == "Unload" else "removed")
+        try:
+            import xlsx_writer
+            xlsx_writer.write_themed_xlsx(path, title, _REPORT_HEADERS, _REPORT_WIDTHS, data)
+        except Exception as e:
+            self._log("Report failed: {0}".format(e))
+            forms.alert("Could not write the report:\n{0}".format(e))
+            return
+        self._log("Run report saved to {0}".format(path))
+        if forms.alert("Report saved to:\n{0}\n\nOpen it now?".format(path), yes=True, no=True):
+            try:
+                os.startfile(path)
+            except Exception:
+                pass
 
     def close_click(self, sender, args):
         if self._job is not None:
@@ -689,11 +786,14 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                            .format(len(picked), len(order), after, verb, what), yes=True, no=True):
             return
 
+        self._begin_run(action, mode)
         if mode == MODE_SESSION:
             self._with_dialog_handler(lambda: self._remove_session(order, by_host, save, close))
         elif mode == MODE_ACC and self._acc_run_mode() == RUN_BACKGROUND:
             if self._start_background_job(action, order, by_host):
                 self._refresh_links()
+            else:
+                self._run = None
             return
         elif mode == MODE_ACC:
             self._with_dialog_handler(lambda: self._remove_acc(order, by_host))
@@ -702,9 +802,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         self._refresh_links()
         done = len([r for r in picked if r.status in ST_DONE])
         self._log("{2} finished: {0} of {1} link(s).".format(done, len(picked), verb))
-        forms.alert("{0} of {1} link(s) {2}.\n\nSee the log at the bottom of the window for details."
-                    .format(done, len(picked), "unloaded" if action == "unload" else "removed"),
-                    title="Remove Links")
+        self._finish_run(picked, done)
 
     def _all_rows_of_host(self, mode, key):
         return [r for r in self._links[mode] if r.host_key == key]
@@ -802,38 +900,51 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         active = self._active_doc()
         for key in order:
             doc = self._ses_docs[key]
+            host = by_host[key][0].host
+            loc = by_host[key][0].host_location
             if doc is None:
-                self._log(u"  ✗ {0}: already closed - scan again".format(by_host[key][0].host))
+                self._log(u"  ✗ {0}: already closed - scan again".format(host))
+                self._rep(host, loc, "[model]", "Skipped", "already closed - scan again")
                 continue
             title = doc.Title
             self._log("{0}:".format(title))
+            self._rep(host, loc, "[model]", "Open in this session")
             try:
                 self._apply(doc, MODE_SESSION, key, by_host[key])
             except Exception as e:
                 self._log(u"  ✗ " + str(e))
+                self._rep(host, loc, "[apply]", "Failed", str(e))
                 continue
             saved = False
             if save:
                 ok, detail = save_after_remove(doc)
                 saved = ok
                 self._log(u"  ✓ " + detail if ok else u"  ✗ save/sync failed: " + detail)
+                self._rep(host, loc, "[save/sync]", detail if ok else "Failed", "" if ok else detail)
                 if not ok:
                     for r in by_host[key]:
                         if r.status in ST_DONE:
                             r.status = "Not synced"
+            else:
+                self._rep(host, loc, "[save/sync]", "Skipped", "sync / save option off - review and save yourself")
             if not close:
+                self._rep(host, loc, "[close]", "Left open", "close option off")
                 continue
             if not saved:
                 self._log("  left open - not saved, closing would lose the removal")
+                self._rep(host, loc, "[close]", "Left open", "not saved - closing would lose the removal")
                 continue
             if active is not None and doc.Equals(active):
                 self._log("  left open - it is the active view's model, which Revit does not let a tool close")
+                self._rep(host, loc, "[close]", "Left open", "active view's model - Revit does not let a tool close it")
                 continue
             if docmgr.close_document(doc, save_modified=False):
                 self._ses_docs[key] = None
                 self._log(u"  ✓ closed")
+                self._rep(host, loc, "[close]", "Closed")
             else:
                 self._log(u"  ✗ could not close")
+                self._rep(host, loc, "[close]", "Could not close")
         _release()
 
     # ---------------- Tab 2: ACC ----------------
@@ -1100,33 +1211,43 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                 pb.update_progress(i, len(order))
                 pb.title = "{0} ({1}/{2})".format(name, i + 1, len(order))
                 self._log("{0}:".format(name))
+                loc = by_host[key][0].host_location
                 if _strip_rvt(name).lower() in open_titles:
                     self._log(u"  ✗ skipped - this model is open in Revit; use the Open Models tab")
+                    self._rep(name, loc, "[model]", "Skipped", "open in this Revit - use the Open Models tab")
                     continue
                 doc, detail = self._open_acc(key, attached=True)
                 if doc is None:
                     self._log(u"  ✗ could not open - " + detail)
+                    self._rep(name, loc, "[model]", "Open failed", detail)
                     for r in by_host[key]:
                         r.status = "Open failed"
                     continue
                 activated = detail.startswith("activated")
+                self._rep(name, loc, "[model]", "Opened", detail)
                 try:
                     removed = self._apply(doc, MODE_ACC, key, by_host[key])
                     if removed:
                         pb.title = "{0} ({1}/{2}) - synchronizing".format(name, i + 1, len(order))
                         ok, detail = save_after_remove(doc)
                         self._log(u"  ✓ " + detail if ok else u"  ✗ sync/save failed: " + detail)
+                        self._rep(name, loc, "[save/sync]", detail if ok else "Failed", "" if ok else detail)
                         if not ok:
                             for r in by_host[key]:
                                 if r.status in ST_DONE:
                                     r.status = "Not synced"
+                    else:
+                        self._rep(name, loc, "[save/sync]", "Skipped", "nothing changed")
                 except Exception as e:
                     self._log(u"  ✗ " + str(e))
+                    self._rep(name, loc, "[apply]", "Failed", str(e))
                 finally:
                     if activated:
                         left_open.append(name)   # the active document cannot be closed by the API
+                        self._rep(name, loc, "[close]", "Left open", "opened through Revit's own route - the active document cannot be closed by a tool")
                     else:
                         docmgr.close_document(doc, save_modified=False)
+                        self._rep(name, loc, "[close]", "Closed")
                     _release()
             pb.update_progress(len(order), len(order))
         if left_open:
@@ -1149,12 +1270,15 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                     return False
                 pb.update_progress(i, len(order))
                 name = names.get(key, by_host[key][0].host)
+                loc = by_host[key][0].host_location
                 if _strip_rvt(name).lower() in open_titles:
                     self._log(u"  ✗ {0}: skipped - this model is open in Revit; use the Open Models tab".format(name))
+                    self._rep(name, loc, "[model]", "Skipped", "open in this Revit - use the Open Models tab")
                     continue
                 model_path, detail = self._acc_cloud_path(key)
                 if model_path is None or key not in self._acc_guids:
                     self._log(u"  ✗ {0}: {1}".format(name, detail))
+                    self._rep(name, loc, "[model]", "Open failed", detail)
                     for r in by_host[key]:
                         r.status = "Open failed"
                     continue
@@ -1238,7 +1362,21 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         keys = job.keys()
         for key in keys:
             res = results.get(key)
-            for r in by_host.get(key, []):
+            rows = by_host.get(key, [])
+            if rows:
+                name, loc = rows[0].host, rows[0].host_location
+                tag = "bg{0}".format([i + 1 for i, w in enumerate(job.workers) if key in w["keys"]][0]) \
+                    if len(job.workers) > 1 else "background Revit"
+                if res is None:
+                    self._rep(name, loc, "[model]", "Not processed", "the {0} ended before reaching it".format(tag))
+                elif not res.get("ok"):
+                    self._rep(name, loc, "[model]", "Open failed", res.get("detail", ""))
+                else:
+                    self._rep(name, loc, "[model]", "Opened", "{0} ({1})".format(res.get("detail", ""), tag))
+                    sd = res.get("save_detail", "")
+                    self._rep(name, loc, "[save/sync]", sd if res.get("saved") else "Failed", "" if res.get("saved") else sd)
+                    self._rep(name, loc, "[close]", "Closed", "by the {0}".format(tag))
+            for r in rows:
                 if r.status != ST_QUEUED:
                     continue
                 if res is None:
@@ -1259,8 +1397,7 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         elif how == "failed":
             self._log("A background job crashed - see the log above and the logs under {0}".format(job.root))
         self._log("Background job finished: {0} of {1} link(s) {2}.".format(done, len(picked), verb))
-        forms.alert("Background job finished: {0} of {1} link(s) {2}.\n\nSee the log at the bottom of the window."
-                    .format(done, len(picked), verb), title="Remove Links")
+        self._finish_run(picked, done)
 
     # ---------------- Tab 3: local ----------------
     def _loc_add(self, paths):
@@ -1373,26 +1510,34 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
                 self._log("{0}:".format(name))
                 if _norm(key) in open_paths:
                     self._log(u"  ✗ skipped - this file is open in Revit; use the Open Models tab")
+                    self._rep(name, key, "[model]", "Skipped", "open in this Revit - use the Open Models tab")
                     continue
                 doc, detail = docmgr.open_document_no_detach(self.application, key)
                 if doc is None:
                     self._log(u"  ✗ could not open - " + detail)
+                    self._rep(name, key, "[model]", "Open failed", detail)
                     for r in by_host[key]:
                         r.status = "Open failed"
                     continue
+                self._rep(name, key, "[model]", "Opened", detail)
                 try:
                     removed = self._apply(doc, MODE_LOCAL, key, by_host[key])
                     if removed:
                         ok, detail = save_after_remove(doc)
                         self._log(u"  ✓ " + detail if ok else u"  ✗ save/sync failed: " + detail)
+                        self._rep(name, key, "[save/sync]", detail if ok else "Failed", "" if ok else detail)
                         if not ok:
                             for r in by_host[key]:
                                 if r.status in ST_DONE:
                                     r.status = "Not saved"
+                    else:
+                        self._rep(name, key, "[save/sync]", "Skipped", "nothing changed")
                 except Exception as e:
                     self._log(u"  ✗ " + str(e))
+                    self._rep(name, key, "[apply]", "Failed", str(e))
                 finally:
                     docmgr.close_document(doc, save_modified=False)
+                    self._rep(name, key, "[close]", "Closed")
                     _release()
             pb.update_progress(len(order), len(order))
 
