@@ -157,7 +157,13 @@ class BackgroundJob(object):
             try:
                 psi = ProcessStartInfo()
                 psi.FileName = "pyrevit"
-                psi.Arguments = u'run "{0}" --revit={1}'.format(stub_file, revit_year)
+                # --allowdialogs: without it Revit runs the journal in strict
+                # playback and ANY dialog the journal did not script (e.g.
+                # "The host model failed to open") ends the run with
+                # "Journal Error - the journal file could not be run to
+                # completion". With it, dialogs are allowed and the
+                # DialogBoxShowing handler answers the known ones.
+                psi.Arguments = u'run "{0}" --revit={1} --allowdialogs'.format(stub_file, revit_year)
                 psi.UseShellExecute = False
                 psi.CreateNoWindow = True
                 psi.WorkingDirectory = folder
