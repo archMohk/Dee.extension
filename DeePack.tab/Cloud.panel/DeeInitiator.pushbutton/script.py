@@ -254,7 +254,6 @@ Scope limits for this first pass - not silently incomplete
 import os
 import json
 import time
-import shutil
 import datetime
 
 import clr
@@ -300,6 +299,8 @@ import acc_api
 
 import dee_telemetry
 import dee_ui
+import deew_background_ui
+from dee_initiator_pipeline import InitiatorReportRow, InitiatorPipeline
 dee_telemetry.check_access("DeeInitiator")
 
 
@@ -455,43 +456,6 @@ def validate_party_acc(party):
 # ==========================================================================
 # Report row
 # ==========================================================================
-class InitiatorReportRow(object):
-    def __init__(self, party_id, template_used, output_folder, new_file_name, revit_version):
-        self.party_id = party_id
-        self.template_used = template_used
-        self.output_folder = output_folder
-        self.new_file_name = new_file_name
-        self.file_validation = "Validated"
-        self.acc_destination_text = ""
-        self.upload_status = "Pending"
-        self.worksharing_enabled = "No"
-        self.local_copy = ""
-        self.processing_time_seconds = 0.0
-        self.errors = ""
-        self.date_text = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.revit_version = revit_version
-        try:
-            self.user = os.environ.get("USERNAME", "Unknown")
-        except Exception:
-            self.user = "Unknown"
-
-    def to_list(self):
-        return [
-            self.party_id, self.template_used, self.output_folder, self.new_file_name,
-            self.file_validation, self.acc_destination_text, self.upload_status,
-            self.worksharing_enabled, self.local_copy, "{0:.1f}s".format(self.processing_time_seconds),
-            self.errors, self.date_text, self.revit_version, self.user,
-        ]
-
-    def status_tag(self):
-        status = (self.upload_status or "").lower()
-        if "fail" in status:
-            return "fail"
-        if "uploaded" in status:
-            return "ok"
-        return None
-
-
 def _resolve_item_ids(project_id, token, expected_names, logger, attempts=8, delay_seconds=4.0, on_attempt=None):
     """Returns {expected_display_name: item_id}, best-effort. Document.
     SaveAsCloudModel (deew_cloud_service.save_to_cloud) never hands back
@@ -549,68 +513,6 @@ def _resolve_item_ids(project_id, token, expected_names, logger, attempts=8, del
 # shape directly: never raises out, always returns a report row, closes
 # the document in a finally block.
 # ==========================================================================
-class InitiatorPipeline(object):
-    def __init__(self, application, delete_after_upload, logger):
-        self.application = application
-        self.delete_after_upload = delete_after_upload
-        self.logger = logger
-
-    def process_one(self, party, new_name, party_output_folder, revit_version_text):
-        row = InitiatorReportRow(party.id, party.template_path, party_output_folder, new_name, revit_version_text)
-        row.acc_destination_text = "{0} / {1} / {2}".format(
-            party.destination.get("hub_name", "?"), party.destination.get("project_name", "?"),
-            party.destination.get("folder_name", "?"))
-        start = time.time()
-        document = None
-        target_path = None
-        try:
-            target_path = docmgr.unique_target_path(party_output_folder, new_name + ".rvt")
-            try:
-                shutil.copy2(party.template_path, target_path)
-            except Exception as e:
-                row.upload_status = "Failed - could not duplicate"
-                row.errors = str(e)
-                return row
-
-            document, detail = docmgr.open_document_best_detach(self.application, target_path, logger=self.logger)
-            if document is None:
-                row.upload_status = "Failed - could not open duplicate"
-                row.errors = detail
-                return row
-
-            ok = docmgr.enable_worksharing(document, logger=self.logger)
-            row.worksharing_enabled = "Yes" if ok else "Failed"
-
-            success, detail = cloudsvc.save_to_cloud(document, party.destination, new_name)
-            if success:
-                row.upload_status = "Uploaded"
-            else:
-                row.upload_status = "Failed - upload error"
-                row.errors = detail
-            return row
-        except Exception as e:
-            row.upload_status = "Failed - unexpected error"
-            row.errors = str(e)
-            self.logger.exception("Unexpected error processing file", e, file=new_name)
-            return row
-        finally:
-            if document is not None:
-                docmgr.close_document(document, save_modified=False, logger=self.logger)
-            # Delete only ever happens here, after close, and ONLY on a
-            # CONFIRMED successful upload - a failed upload always leaves
-            # the local duplicate in place so nothing is silently lost.
-            if target_path and row.upload_status == "Uploaded":
-                if self.delete_after_upload:
-                    try:
-                        os.remove(target_path)
-                        row.local_copy = "Deleted"
-                    except Exception:
-                        row.local_copy = "Kept (delete failed)"
-                else:
-                    row.local_copy = "Kept"
-            row.processing_time_seconds = time.time() - start
-
-
 # ==========================================================================
 # Link-setup data model - populated from THIS run's own uploaded files,
 # never a live ACC scan (see module docstring).
@@ -646,6 +548,7 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
 
     def __init__(self, xaml_file, uiapp):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
+        deew_background_ui.add_run_controls(self)
         # Shared "On Revit errors: delete ... and continue" tick box
         dee_known_dialogs.add_error_checkbox(self)
         self.uiapp = uiapp
@@ -1075,6 +978,9 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
             return
 
         delete_after_upload = bool(self.delete_after_upload_cb.IsChecked)
+        if deew_background_ui.is_background(self):
+            self._run_background(root_folder, delete_after_upload)
+            return
         pipeline = InitiatorPipeline(self.application, delete_after_upload, self.logger)
         revit_version_text = _revit_version_text(self.application)
 
@@ -1117,14 +1023,17 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
             except Exception:
                 pass
 
+        self._after_create_run(report_rows, "")
+
+    def _after_create_run(self, report_rows, note):
         self._report_rows = report_rows
         self.report_grid.ItemsSource = None
         self.report_grid.ItemsSource = report_rows
 
         uploaded = sum(1 for r in report_rows if r.upload_status == "Uploaded")
         failed = sum(1 for r in report_rows if "fail" in r.upload_status.lower())
-        self.summary_tb.Text = "{0} processed: {1} uploaded, {2} failed.".format(
-            len(report_rows), uploaded, failed)
+        self.summary_tb.Text = "{0} processed{3}: {1} uploaded, {2} failed.".format(
+            len(report_rows), uploaded, failed, note)
         self._log(self.summary_tb.Text)
 
         if uploaded:
@@ -1151,6 +1060,55 @@ class DeeInitiatorWindow(dee_branding.DeeBrandedWindow):
         try:
             # Log & Report is now index 4 - Matrix(2) and Selected
             # Links(3) were inserted before it.
+            self.main_tabs.SelectedIndex = 4
+        except Exception:
+            pass
+
+    # ---------------- Background Revit ----------------
+    def _run_background(self, root_folder, delete_after_upload):
+        items = []
+        for party in self._parties:
+            party_folder = os.path.join(
+                root_folder, "{0:02d} - {1}".format(party.id, _safe_folder_name(party.name)))
+            try:
+                if not os.path.isdir(party_folder):
+                    os.makedirs(party_folder)
+            except Exception as e:
+                self._log("Delivery Party {0}: could not create output folder - {1}".format(party.id, e))
+                continue
+            destination = dict(party.destination or {})
+            destination.pop("token", None)
+            for name in party.names():
+                items.append({"key": "{0}|{1}".format(party.id, name), "name": name, "party_id": party.id,
+                              "template_path": party.template_path, "party_folder": party_folder,
+                              "destination": destination})
+        try:
+            token = cloudsvc.get_token()
+        except Exception as e:
+            self._log("Could not refresh the Autodesk sign-in: {0}".format(e))
+            token = None
+        options = {"delete_after_upload": bool(delete_after_upload), "token": token, "auto_resolve_dialogs": True}
+        deew_background_ui.launch(
+            self, "DeeInitiator", "dee_initiator_pipeline", "worker", items, options, [_THIS_DIR],
+            InitiatorReportRow, "upload_status", ("Uploaded",), self._background_done, title=_TOOL_TITLE)
+
+    def _background_done(self, rows, results, how):
+        self._after_create_run(rows, " in background Revit(s)")
+        uploaded = sum(1 for r in rows if r.upload_status == "Uploaded")
+        if uploaded:
+            self._refresh_link_files()
+        if self._matches:
+            link_results, link_groups = self._execute_link_run(interactive=False)
+            if link_groups:
+                link_ok = sum(1 for r in link_results if r[0] is True)
+                link_fail = sum(1 for r in link_results if r[0] is False)
+                self.link_run_status_tb.Text = (
+                    "{0} succeeded, {1} failed. See the Log tab / pyRevit output.".format(link_ok, link_fail))
+                self._log(self.link_run_status_tb.Text)
+                self._print_link_report(link_results)
+                self.summary_tb.Text += "  Links: {0} succeeded, {1} failed.".format(link_ok, link_fail)
+        forms.alert(self.summary_tb.Text, title=_TOOL_TITLE)
+        try:
             self.main_tabs.SelectedIndex = 4
         except Exception:
             pass
