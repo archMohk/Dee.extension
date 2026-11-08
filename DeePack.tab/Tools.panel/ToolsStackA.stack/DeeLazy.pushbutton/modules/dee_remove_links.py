@@ -491,8 +491,8 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
 
     def close_click(self, sender, args):
         if self._job is not None:
-            if not forms.alert("A background Revit is still removing links. It keeps running after this "
-                               "window closes, but the results will not be shown here.\n\nLog folder:\n{0}"
+            if not forms.alert("Background Revit(s) are still removing links. They keep running after this "
+                               "window closes, but the results will not be shown here.\n\nLog folders under:\n{0}"
                                "\n\nClose anyway?".format(self._job["folder"]), yes=True, no=True):
                 return
             self._job_stop_timer()
@@ -1190,49 +1190,61 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
             return False
 
         year = str(self.application.VersionNumber)
+        count = max(1, min(self._acc_instances(), len(hosts)))
+        chunks = [hosts[i::count] for i in range(count)]
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        folder = os.path.join(_JOBS_DIR, stamp)
-        try:
-            os.makedirs(folder)
-        except Exception:
-            pass
-        job_file = os.path.join(folder, "job.json")
-        stub_file = os.path.join(folder, "run_remove_links.py")
-        job = {"action": action, "include_cad": self._cad(), "region": self._acc_source["region"],
-               "sync_comment": _SYNC_COMMENT, "hosts": hosts}
         paths = [os.path.dirname(os.path.dirname(os.path.abspath(pyrevit.__file__))),
                  os.path.dirname(os.path.abspath(afb.__file__)),
                  _THIS_DIR]
-        try:
-            with io.open(job_file, "w", encoding="utf-8") as f:
-                f.write(json.dumps(job, indent=1))
-            with io.open(stub_file, "w", encoding="utf-8") as f:
-                f.write(_STUB.format(paths=[str(p) for p in paths], job=str(job_file)))
-        except Exception as e:
-            forms.alert("Could not write the job files in\n{0}\n\n{1}".format(folder, e))
-            return False
-
-        try:
-            psi = ProcessStartInfo()
-            psi.FileName = "pyrevit"
-            psi.Arguments = u'run "{0}" --revit={1}'.format(stub_file, year)
-            psi.UseShellExecute = False
-            psi.CreateNoWindow = True
-            psi.WorkingDirectory = folder
-            process = Process.Start(psi)
-        except Exception as e:
-            forms.alert("Could not start the pyRevit CLI (`pyrevit run`). Is the pyRevit CLI installed and on "
-                        "the PATH?\n\n{0}\n\nSwitch 'Remove / unload by' to this Revit session instead.".format(e))
-            return False
+        workers = []
+        for idx, chunk in enumerate(chunks, 1):
+            folder = os.path.join(_JOBS_DIR, stamp if count == 1 else "{0}_{1}".format(stamp, idx))
+            try:
+                os.makedirs(folder)
+            except Exception:
+                pass
+            job_file = os.path.join(folder, "job.json")
+            stub_file = os.path.join(folder, "run_remove_links.py")
+            job = {"action": action, "include_cad": self._cad(), "region": self._acc_source["region"],
+                   "sync_comment": _SYNC_COMMENT, "hosts": chunk}
+            try:
+                with io.open(job_file, "w", encoding="utf-8") as f:
+                    f.write(json.dumps(job, indent=1))
+                with io.open(stub_file, "w", encoding="utf-8") as f:
+                    f.write(_STUB.format(paths=[str(p) for p in paths], job=str(job_file)))
+            except Exception as e:
+                forms.alert("Could not write the job files in\n{0}\n\n{1}".format(folder, e))
+                self._stop_workers(workers)
+                return False
+            try:
+                psi = ProcessStartInfo()
+                psi.FileName = "pyrevit"
+                psi.Arguments = u'run "{0}" --revit={1}'.format(stub_file, year)
+                psi.UseShellExecute = False
+                psi.CreateNoWindow = True
+                psi.WorkingDirectory = folder
+                process = Process.Start(psi)
+            except Exception as e:
+                forms.alert("Could not start the pyRevit CLI (`pyrevit run`). Is the pyRevit CLI installed and on "
+                            "the PATH?\n\n{0}\n\nSwitch 'Remove / unload by' to this Revit session instead.".format(e))
+                self._stop_workers(workers)
+                return False
+            workers.append({"idx": idx, "folder": folder, "process": process, "offset": 0, "finished": None,
+                            "log": os.path.join(folder, "log.txt"),
+                            "results": os.path.join(folder, "results.json"),
+                            "hosts": [h["key"] for h in chunk]})
+            self._log("Background Revit {0}/{1} starting with {2} model(s) - job folder: {3}".format(
+                idx, count, len(chunk), folder))
+            if idx < count:
+                time.sleep(3)      # stagger the launches so the CLI does not trip over itself
 
         for key in [h["key"] for h in hosts]:
             for r in by_host[key]:
                 r.status = ST_QUEUED
-        self._job = {"folder": folder, "process": process, "offset": 0, "by_host": by_host,
-                     "action": action, "started": time.time(), "hosts": [h["key"] for h in hosts],
-                     "log": os.path.join(folder, "log.txt"), "results": os.path.join(folder, "results.json")}
-        self._log("Background job started: Revit {0} is starting (this takes a minute). {1} model(s). "
-                  "Job folder: {2}".format(year, len(hosts), folder))
+        self._job = {"workers": workers, "by_host": by_host, "action": action, "started": time.time(),
+                     "hosts": [h["key"] for h in hosts], "folder": os.path.dirname(workers[0]["folder"])}
+        self._log("{0} background Revit(s) starting (this takes a minute each). {1} model(s) in total."
+                  .format(count, len(hosts)))
         self._set_job_ui(True)
         timer = DispatcherTimer()
         timer.Interval = TimeSpan.FromSeconds(1)
@@ -1240,6 +1252,28 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         timer.Start()
         self._job["timer"] = timer
         return True
+
+    def _acc_instances(self):
+        try:
+            return int(self.acc_par_cb.SelectedItem.Content)
+        except Exception:
+            return 1
+
+    def acc_run_changed(self, sender, args):
+        if not getattr(self, "_ready", False):
+            return
+        try:
+            self.acc_par_cb.IsEnabled = self._acc_run_mode() == RUN_BACKGROUND
+        except Exception:
+            pass
+
+    def _stop_workers(self, workers):
+        for w in workers:
+            try:
+                with io.open(os.path.join(w["folder"], "stop.txt"), "w", encoding="utf-8") as f:
+                    f.write(u"stop")
+            except Exception:
+                pass
 
     def _set_job_ui(self, running):
         for b in (self.remove_b, self.unload_b, self.acc_read_b, self.acc_scan_b):
@@ -1260,59 +1294,63 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
     def job_stop_click(self, sender, args):
         if self._job is None:
             return
-        try:
-            with io.open(os.path.join(self._job["folder"], "stop.txt"), "w", encoding="utf-8") as f:
-                f.write(u"stop")
-            self._log("Stop requested - the background Revit finishes the current model, then skips the rest.")
-        except Exception as e:
-            self._log("Could not write the stop file: {0}".format(e))
+        self._stop_workers(self._job["workers"])
+        self._log("Stop requested - each background Revit finishes its current model, then skips the rest.")
 
     def _job_tick(self, sender, args):
         job = self._job
         if job is None:
             return
         import dee_remove_links_worker as worker
-        finished = None
-        try:
-            if os.path.exists(job["log"]):
-                with io.open(job["log"], "r", encoding="utf-8") as f:
-                    f.seek(job["offset"])
-                    chunk = f.read()
-                    job["offset"] = f.tell()
-                for line in chunk.splitlines():
-                    if not line.strip():
-                        continue
-                    if worker.LOG_DONE_MARKER in line:
-                        finished = "done"
-                    elif worker.LOG_FAIL_MARKER in line:
-                        finished = "failed"
-                    else:
-                        self._log(u"[bg] " + line)
-        except Exception:
-            pass
-        if finished is None:
+        many = len(job["workers"]) > 1
+        for w in job["workers"]:
+            if w["finished"]:
+                continue
+            tag = u"[bg{0}] ".format(w["idx"]) if many else u"[bg] "
             try:
-                if job["process"].HasExited:
-                    finished = "exited"
+                if os.path.exists(w["log"]):
+                    with io.open(w["log"], "r", encoding="utf-8") as f:
+                        f.seek(w["offset"])
+                        chunk = f.read()
+                        w["offset"] = f.tell()
+                    for line in chunk.splitlines():
+                        if not line.strip():
+                            continue
+                        if worker.LOG_DONE_MARKER in line:
+                            w["finished"] = "done"
+                        elif worker.LOG_FAIL_MARKER in line:
+                            w["finished"] = "failed"
+                        else:
+                            self._log(tag + line)
             except Exception:
-                finished = "exited"
-        if finished is None:
+                pass
+            if w["finished"] is None:
+                try:
+                    if w["process"].HasExited:
+                        w["finished"] = "exited"
+                except Exception:
+                    w["finished"] = "exited"
+            if w["finished"] and many:
+                self._log(tag + "finished ({0}).".format(w["finished"]))
+        if any(w["finished"] is None for w in job["workers"]):
             minutes = int((time.time() - job["started"]) / 60)
             if minutes and minutes != job.get("noted"):
                 job["noted"] = minutes
                 self._log("[bg] still running ({0} min)...".format(minutes))
             return
         self._job_stop_timer()
-        self._finish_background_job(job, finished)
+        hows = set(w["finished"] for w in job["workers"])
+        self._finish_background_job(job, "failed" if "failed" in hows else ("exited" if "exited" in hows else "done"))
 
     def _finish_background_job(self, job, how):
         results = {}
-        try:
-            if os.path.exists(job["results"]):
-                with io.open(job["results"], "r", encoding="utf-8") as f:
-                    results = json.load(f)
-        except Exception as e:
-            self._log("Could not read the results file: {0}".format(e))
+        for w in job["workers"]:
+            try:
+                if os.path.exists(w["results"]):
+                    with io.open(w["results"], "r", encoding="utf-8") as f:
+                        results.update(json.load(f))
+            except Exception as e:
+                self._log("Could not read the results file in {0}: {1}".format(w["folder"], e))
         by_host = job["by_host"]
         for key in job["hosts"]:
             res = results.get(key)
@@ -1333,9 +1371,9 @@ class RemoveLinksWindow(dee_branding.DeeBrandedWindow):
         done = len([r for r in picked if r.status in ST_DONE])
         verb = "unloaded" if job["action"] == "unload" else "removed"
         if how == "exited":
-            self._log("The background Revit ended without reporting - see the log in {0}".format(job["folder"]))
+            self._log("A background Revit ended without reporting - see the logs under {0}".format(job["folder"]))
         elif how == "failed":
-            self._log("The background job crashed - see the log above and in {0}".format(job["folder"]))
+            self._log("A background job crashed - see the log above and the logs under {0}".format(job["folder"]))
         self._log("Background job finished: {0} of {1} link(s) {2}.".format(done, len(picked), verb))
         forms.alert("Background job finished: {0} of {1} link(s) {2}.\n\nSee the log at the bottom of the window."
                     .format(done, len(picked), verb), title="Remove Links")

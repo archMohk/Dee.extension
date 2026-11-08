@@ -37,10 +37,20 @@
                     </StackPanel>
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
                         <TextBlock Text="Remove / unload by:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <ComboBox x:Name="acc_run_cb" Width="420" Height="26" SelectedIndex="0"
+                        <ComboBox x:Name="acc_run_cb" Width="380" Height="26" SelectedIndex="0" SelectionChanged="acc_run_changed"
                                   ToolTip="Background Revit: a second Revit is started by the pyRevit CLI and does the job while you keep working here; it closes itself when done. This session: each model is opened in this Revit (headless, or through Revit's own open route when that is refused) and this window waits.">
                             <ComboBoxItem Content="Background Revit (separate window - this session stays free)"/>
                             <ComboBoxItem Content="This Revit session (opens each model here and waits)"/>
+                        </ComboBox>
+                        <TextBlock Text="Revit instances:" VerticalAlignment="Center" Margin="12,0,6,0"
+                                   ToolTip="How many background Revits run at the same time (Background Revit only). Each one needs its own memory - 2 to 3 is usually the sweet spot on a workstation."/>
+                        <ComboBox x:Name="acc_par_cb" Width="50" Height="26" SelectedIndex="1">
+                            <ComboBoxItem Content="1"/>
+                            <ComboBoxItem Content="2"/>
+                            <ComboBoxItem Content="3"/>
+                            <ComboBoxItem Content="4"/>
+                            <ComboBoxItem Content="6"/>
+                            <ComboBoxItem Content="8"/>
                         </ComboBox>
                         <Button x:Name="job_stop_b" Content="Stop Background Job" Click="job_stop_click" Width="150" Height="26" Margin="12,0,0,0" Visibility="Collapsed"
                                 ToolTip="Finishes the model being processed, then skips the rest."/>
