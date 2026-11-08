@@ -60,7 +60,6 @@ NEEDS LIVE-REVIT VERIFICATION (flagged, not silently assumed correct)
   needs confirming on a real ACC project.
 """
 import os
-import time
 import datetime
 
 import clr
@@ -74,8 +73,6 @@ import deew_logger
 import deew_settings
 import dee_settings_file
 import deew_model_scanner as scanner
-import deew_document_manager as docmgr
-import deew_clean_service as cleansvc
 import deew_failure_handler as ffh
 import dee_known_dialogs
 import deew_progress_service as progsvc
@@ -110,163 +107,8 @@ def _revit_version_text(app):
 
 
 from dee_ui import SafeProgress as _SafeProgress
-
-
-class CloudTransmitItem(object):
-    """One row per cloud model added via "Add Cloud Models..." - same
-    plain shape acc_file_browser's pick_hub/pick_project/
-    list_project_files already return."""
-
-    def __init__(self, hub_id, hub_name, region, project_id, project_name, item_id, display_name, token):
-        self.selected = False
-        self.hub_id = hub_id
-        self.hub_name = hub_name
-        self.region = region
-        self.project_id = project_id
-        self.project_name = project_name
-        self.item_id = item_id
-        self.display_name = display_name
-        self.token = token
-        self.status = "Ready"
-
-    @property
-    def location_text(self):
-        return "{0} / {1}".format(self.hub_name, self.project_name)
-
-
-class TransmitPipeline(object):
-    """Per-file Open (detached) -> Clean -> Save Copy -> Close. Kept
-    separate from the Window class per this repo's UI-vs-work
-    convention, and structured to mirror DeeW.Clean's CleanPipeline so
-    the two stay easy to compare."""
-
-    def __init__(self, application, options, logger):
-        self.application = application
-        self.options = options
-        self.logger = logger
-
-    def _target_name(self, source_file_name):
-        base, ext = os.path.splitext(source_file_name)
-        if not ext:
-            ext = ".rvt"
-        suffix = self.options.get("name_suffix", "") or ""
-        return base + suffix + ext
-
-    def _apply_clean_result(self, row, clean_result):
-        row.purged_count = clean_result.purged_count
-        row.zero_area_rooms_deleted = clean_result.zero_area_rooms_deleted
-        row.unused_groups_deleted = clean_result.unused_groups_deleted
-        row.inplace_families_found = clean_result.inplace_families_found
-        row.sheets_deleted = clean_result.sheets_deleted
-        row.views_deleted = clean_result.views_deleted
-        row.unused_views_deleted = clean_result.unused_views_deleted
-        if clean_result.errors:
-            row.errors = "; ".join(clean_result.errors)
-        if not clean_result.purge_supported and self.options.get("purge_unused"):
-            note = "Purge Unused needs Revit 2024+ (this session is {0})".format(
-                _revit_version_text(self.application))
-            row.warnings = (row.warnings + "; " + note) if row.warnings else note
-
-    def _add_error(self, row, detail):
-        row.errors = (row.errors + "; " + detail) if row.errors else detail
-
-    def _save_copy(self, row, document, source_file_name):
-        dest_folder = self.options.get("dest_folder", "")
-        target = docmgr.unique_target_path(dest_folder, self._target_name(source_file_name))
-        ok, detail = docmgr.save_copy_as(
-            document, target, compact=self.options.get("compact_on_save", False),
-            overwrite=False, logger=self.logger)
-        if ok:
-            row.save_status = "Copy saved"
-            row.location = detail          # the saved copy's real path
-        else:
-            row.save_status = "Failed - could not save copy"
-            self._add_error(row, detail)
-        return ok
-
-    def process_local(self, scanned_model):
-        row = reportgen.CleanReportRow(
-            scanned_model.file_name, scanned_model.file_path, "Local",
-            scanned_model.model_type, _revit_version_text(self.application))
-        start = time.time()
-        document = None
-        try:
-            if scanned_model.model_type == scanner.MODEL_TYPE_CLOUD:
-                row.save_status = "Skipped - already a cloud model (use Add Cloud Models... instead)"
-                return row
-            if scanned_model.model_type in (scanner.MODEL_TYPE_CORRUPTED, scanner.MODEL_TYPE_READ_ONLY):
-                row.save_status = "Skipped - {0}".format(scanned_model.status)
-                row.errors = scanned_model.error
-                return row
-
-            # Detach where the model supports it, fall back where it
-            # does not - a standalone .rvt has nothing to detach from
-            # and Revit rejects the option outright.
-            document, open_detail = docmgr.open_document_best_detach(
-                self.application, scanned_model.file_path,
-                audit=self.options.get("audit", False), logger=self.logger)
-            if document is None:
-                row.save_status = "Failed - could not open"
-                row.errors = open_detail
-                return row
-            row.warnings = (row.warnings + "; " + open_detail) if row.warnings else open_detail
-
-            clean_result = cleansvc.clean_document(document, self.options)
-            self._apply_clean_result(row, clean_result)
-            self._save_copy(row, document, scanned_model.file_name)
-            return row
-        except Exception as e:
-            row.save_status = "Failed - unexpected error"
-            row.errors = str(e)
-            self.logger.exception("Unexpected error transmitting file", e, file=scanned_model.file_name)
-            return row
-        finally:
-            if document is not None:
-                # save_modified=False always: the detached document has
-                # already been written to its new path, and there is
-                # nothing we ever want flushed back toward the origin.
-                docmgr.close_document(document, save_modified=False, logger=self.logger)
-            row.processing_time_seconds = time.time() - start
-
-    def process_cloud(self, item, uiapp):
-        """Cloud models are opened HEADLESS + DETACHED (see
-        acc_file_browser.open_cloud_document_detached for why). The
-        earlier version used the UI-activating, non-detaching
-        open_cloud_file, which made SaveAs illegal on the still-attached
-        central and destabilised every subsequent open in the batch."""
-        row = reportgen.CleanReportRow(
-            item.display_name, item.location_text, "Cloud", "Cloud Model",
-            _revit_version_text(self.application))
-        start = time.time()
-        document = None
-        try:
-            document, open_detail = afb.open_cloud_document_detached(
-                self.application, item.region, item.project_id, item.item_id, item.token,
-                audit=self.options.get("audit", False))
-            if document is None:
-                row.save_status = "Failed - could not open"
-                row.errors = open_detail
-                return row
-            row.warnings = (row.warnings + "; " + open_detail) if row.warnings else open_detail
-
-            clean_result = cleansvc.clean_document(document, self.options)
-            self._apply_clean_result(row, clean_result)
-            # The document is detached, so this writes only to the new
-            # path - the ACC model is never synchronized or altered.
-            self._save_copy(row, document, item.display_name)
-            return row
-        except Exception as e:
-            row.save_status = "Failed - unexpected error"
-            row.errors = str(e)
-            self.logger.exception("Unexpected error transmitting cloud file", e, file=item.display_name)
-            return row
-        finally:
-            if document is not None:
-                try:
-                    docmgr.close_document(document, save_modified=False, logger=self.logger)
-                except Exception:
-                    pass
-            row.processing_time_seconds = time.time() - start
+import deew_background_ui
+from deew_transmit_pipeline import CloudTransmitItem, TransmitPipeline
 
 
 class DeeWTransmitWindow(dee_branding.DeeBrandedWindow):
@@ -274,6 +116,7 @@ class DeeWTransmitWindow(dee_branding.DeeBrandedWindow):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         # Shared "On Revit errors: delete ... and continue" tick box
         dee_known_dialogs.add_error_checkbox(self)
+        deew_background_ui.add_run_controls(self)
         self.uiapp = uiapp
         self.application = uiapp.Application
         self.logger = deew_logger.DeeWLogger(_TOOL_NAME)
@@ -509,6 +352,10 @@ class DeeWTransmitWindow(dee_branding.DeeBrandedWindow):
 
         self._save_settings()
 
+        if deew_background_ui.is_background(self):
+            self._run_background(selected_local, selected_cloud, options)
+            return
+
         # Always attached: with "Automatically Resolve Dialogs" off, it still
         # answers the shared must-handle dialogs (Copied Central Model, ...
         # see lib/dee_known_dialogs.py) and leaves every other dialog to the
@@ -582,6 +429,39 @@ class DeeWTransmitWindow(dee_branding.DeeBrandedWindow):
         self.summary_tb.Text = (
             "{0} processed: {1} copies saved to '{2}', {3} failed, {4} skipped.".format(
                 len(report_rows), succeeded, dest, failed, skipped))
+        self._log(self.summary_tb.Text)
+        forms.alert(self.summary_tb.Text, title=_TOOL_TITLE)
+
+    # ---------------- Background Revit ----------------
+    def _run_background(self, selected_local, selected_cloud, options):
+        items = [deew_background_ui.local_item(m) for m in selected_local]
+        items += [deew_background_ui.cloud_item(i) for i in selected_cloud]
+        if selected_cloud:
+            try:
+                options["token"] = cloudsvc.get_token()
+            except Exception as e:
+                self._log("Could not refresh the Autodesk sign-in: {0}".format(e))
+        for m in selected_local:
+            m.status = "Queued (background)"
+        for i in selected_cloud:
+            i.status = "Queued (background)"
+        self._refresh_models_grid()
+        self._refresh_cloud_grid()
+        self._bg_lookup = dict([(m.file_path, m) for m in selected_local] + [(i.item_id, i) for i in selected_cloud])
+        deew_background_ui.launch(
+            self, "DeeWTransmit", "deew_transmit_pipeline", "worker", items, options, [_THIS_DIR],
+            reportgen.CleanReportRow, "save_status", ("Copy saved",), self._background_done, title=_TOOL_TITLE)
+
+    def _background_done(self, rows, results, how):
+        for key, obj in self._bg_lookup.items():
+            res = results.get(key)
+            obj.status = (res or {}).get("status") or "Failed - not processed"
+        self._refresh_models_grid()
+        self._refresh_cloud_grid()
+        self._report_rows = rows
+        succeeded, failed, skipped = deew_background_ui.count(rows, "save_status", ("Copy saved",))
+        self.summary_tb.Text = "{0} processed in background Revit(s): {1} copies saved to '{2}', {3} failed, {4} skipped.".format(
+            len(rows), succeeded, self.dest_folder_tb.Text, failed, skipped)
         self._log(self.summary_tb.Text)
         forms.alert(self.summary_tb.Text, title=_TOOL_TITLE)
 
