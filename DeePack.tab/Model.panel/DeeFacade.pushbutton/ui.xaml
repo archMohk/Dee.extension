@@ -1,0 +1,301 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Dee.extension — DeeFacade"
+        ShowInTaskbar="False"
+        MinHeight="620" MinWidth="980" Height="760" Width="1120"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" x:Name="wall_info_tb" TextWrapping="Wrap" Margin="0,0,0,8" FontWeight="Bold"/>
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="status_tb" Text="Ready." TextWrapping="Wrap"/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
+            <Button x:Name="apply_b" Content="Apply" Width="150" Height="30" FontWeight="Bold" Click="apply_click"
+                    ToolTip="Builds the facade with the settings above (one Undo step per run)."/>
+            <Button x:Name="repick_b" Content="Pick another wall..." Width="150" Height="30" Margin="10,0,0,0" Click="repick_click"
+                    ToolTip="Closes this window, lets you pick a wall, then reopens with the same settings."/>
+            <Button x:Name="close_b" Content="Close" Width="100" Height="30" Margin="10,0,0,0" Click="close_click"/>
+        </StackPanel>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="440"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" Margin="0,0,12,0">
+                <StackPanel>
+                    <!-- ================= OUTPUT ================= -->
+                    <TextBlock Text="1.  What to make" FontWeight="Bold" FontSize="13"/>
+                    <RadioButton x:Name="out_profile_rb" GroupName="out" IsChecked="True" Margin="0,6,0,0" Checked="output_changed"
+                                 FontWeight="Bold" Content="Cut the pattern into the wall (edit its profile sketch)"
+                                 ToolTip="Every opening becomes an inner loop of the wall's own Edit Profile sketch - the wall itself gets the holes. Straight Basic walls, Revit 2022 or newer."/>
+                    <RadioButton x:Name="out_family_rb" GroupName="out" Margin="0,4,0,0" Checked="output_changed"
+                                 FontWeight="Bold" Content="Build a Generic Model family from the wall (facade panel)"
+                                 ToolTip="Makes a new Generic Model family: a panel the size and shape of the wall with the pattern cut through it. Saved as .rfa, loaded and placed on the wall."/>
+
+                    <Border x:Name="profile_panel" BorderBrush="#F2994D" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                        <StackPanel>
+                            <CheckBox x:Name="replace_cb" IsChecked="True" Checked="option_changed" Unchecked="option_changed"
+                                      Content="Replace openings made earlier (keep only the outer profile)"
+                                      ToolTip="On: inner loops already in the wall's profile (a previous DeeFacade run, hand-drawn holes) are removed first. Off: they are kept and the new pattern keeps clear of them."/>
+                            <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Opacity="0.7"
+                                       Text="Undo (Ctrl+Z) or Edit Profile > Reset Profile brings the plain wall back."/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border x:Name="family_panel" BorderBrush="#F2994D" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="Family name:" VerticalAlignment="Center"/>
+                            <TextBox Grid.Column="1" x:Name="fam_name_tb" Height="24" VerticalContentAlignment="Center"
+                                     ToolTip="Name of the new family (also the .rfa file name)."/>
+                            <TextBlock Grid.Row="1" Text="Save in folder:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,6,0,0">
+                                <Button DockPanel.Dock="Right" Content="..." Width="30" Height="24" Margin="6,0,0,0" Click="fam_browse_click"/>
+                                <TextBox x:Name="fam_folder_tb" Height="24" VerticalContentAlignment="Center"/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="2" Text="Position:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="fam_pos_cb" Height="24" Margin="0,6,0,0" SelectedIndex="0" SelectionChanged="fam_pos_changed">
+                                <ComboBoxItem Content="Replace the wall (same place, wall thickness)"/>
+                                <ComboBoxItem Content="Screen in front of the exterior face"/>
+                                <ComboBoxItem Content="Screen behind the interior face"/>
+                            </ComboBox>
+                            <TextBlock Grid.Row="3" Text="Panel thickness:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="3" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="fam_thick_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="fam_thick_sl" Minimum="5" Maximum="600" Value="50" SmallChange="5" LargeChange="25" ValueChanged="option_changed"
+                                        ToolTip="Thickness of the panel (mm)."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="4" x:Name="fam_gap_lbl" Text="Gap from wall:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="4" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="fam_gap_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="fam_gap_sl" Minimum="0" Maximum="1500" Value="150" SmallChange="10" LargeChange="50" ValueChanged="option_changed"
+                                        ToolTip="Air gap between the wall face and the screen (mm)."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="5" Text="Material:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <ComboBox Grid.Row="5" Grid.Column="1" x:Name="fam_mat_cb" Height="24" Margin="0,6,0,0"
+                                      ToolTip="Sets the family's 'Facade Material' type parameter - change it later in Type Properties."/>
+                            <TextBlock Grid.Row="6" Text="Original wall:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <ComboBox Grid.Row="6" Grid.Column="1" x:Name="fam_wall_cb" Height="24" Margin="0,6,0,0" SelectedIndex="0" SelectionChanged="option_changed">
+                                <ComboBoxItem Content="Keep it"/>
+                                <ComboBoxItem Content="Hide it in the active view"/>
+                                <ComboBoxItem Content="Delete it (its doors / windows go too)"/>
+                            </ComboBox>
+                            <CheckBox Grid.Row="7" Grid.Column="1" x:Name="fam_cut_cb" Margin="0,6,0,0" IsChecked="True" Checked="option_changed" Unchecked="option_changed"
+                                      Content="Cut the door / window openings through the panel"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- ================= PATTERN ================= -->
+                    <TextBlock Text="2.  Pattern" FontWeight="Bold" FontSize="13" Margin="0,14,0,0"/>
+                    <ComboBox x:Name="pattern_cb" Height="26" Margin="0,6,0,0" SelectedIndex="0" SelectionChanged="pattern_changed">
+                        <ComboBoxItem Content="Voronoi (organic cells)"/>
+                        <ComboBoxItem Content="Hexagons (honeycomb)"/>
+                        <ComboBoxItem Content="Diamonds"/>
+                        <ComboBoxItem Content="Grid / slots"/>
+                        <ComboBoxItem Content="Circles (perforated)"/>
+                    </ComboBox>
+
+                    <Border x:Name="vor_panel" BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Text="Cells:" VerticalAlignment="Center"/>
+                            <DockPanel Grid.Column="1">
+                                <TextBlock DockPanel.Dock="Right" x:Name="vor_count_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="vor_count_sl" Minimum="5" Maximum="400" Value="60" SmallChange="1" LargeChange="10" ValueChanged="option_changed"
+                                        ToolTip="How many Voronoi cells (openings) across the wall."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="1" Text="Regularity:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="vor_relax_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="vor_relax_sl" Minimum="0" Maximum="8" Value="2" SmallChange="1" LargeChange="1" TickFrequency="1"
+                                        IsSnapToTickEnabled="True" ValueChanged="option_changed"
+                                        ToolTip="0 = wild random cells. Higher = relaxed, even, honeycomb-like cells (Lloyd relaxation)."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="2" Text="Density gradient:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="2" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="vor_density_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="vor_density_sl" Minimum="0" Maximum="100" Value="0" SmallChange="1" LargeChange="10" ValueChanged="option_changed"
+                                        ToolTip="More, smaller cells toward the Direction below (0 = even everywhere)."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="3" Text="Random seed:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="3" Grid.Column="1" Margin="0,6,0,0">
+                                <Button DockPanel.Dock="Right" Content="Shuffle" Width="70" Height="24" Margin="6,0,0,0" Click="shuffle_click"
+                                        ToolTip="A new random arrangement (also used by Circles' size variation)."/>
+                                <TextBox x:Name="seed_tb" Height="24" Text="7" VerticalContentAlignment="Center" TextChanged="option_changed"/>
+                            </DockPanel>
+                        </Grid>
+                    </Border>
+
+                    <Border x:Name="hex_panel" BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Text="Cell size:" VerticalAlignment="Center"/>
+                            <DockPanel Grid.Column="1">
+                                <TextBlock DockPanel.Dock="Right" x:Name="hex_size_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="hex_size_sl" Minimum="100" Maximum="4000" Value="900" SmallChange="10" LargeChange="100" ValueChanged="option_changed"
+                                        ToolTip="Hexagon size across the flats (mm), mullion included."/>
+                            </DockPanel>
+                            <WrapPanel Grid.Row="1" Grid.Column="1" Margin="0,6,0,0">
+                                <RadioButton x:Name="hex_pointy_rb" GroupName="hex" Content="Pointy top" IsChecked="True" Checked="option_changed"/>
+                                <RadioButton x:Name="hex_flat_rb" GroupName="hex" Content="Flat top" Margin="16,0,0,0" Checked="option_changed"/>
+                            </WrapPanel>
+                        </Grid>
+                    </Border>
+
+                    <Border x:Name="dia_panel" BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Text="Diamond width:" VerticalAlignment="Center"/>
+                            <DockPanel Grid.Column="1">
+                                <TextBlock DockPanel.Dock="Right" x:Name="dia_w_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="dia_w_sl" Minimum="100" Maximum="5000" Value="1200" SmallChange="10" LargeChange="100" ValueChanged="option_changed"/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="1" Text="Diamond height:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="dia_h_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="dia_h_sl" Minimum="100" Maximum="5000" Value="1800" SmallChange="10" LargeChange="100" ValueChanged="option_changed"/>
+                            </DockPanel>
+                        </Grid>
+                    </Border>
+
+                    <Border x:Name="grid_panel" BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Text="Column width:" VerticalAlignment="Center"/>
+                            <DockPanel Grid.Column="1">
+                                <TextBlock DockPanel.Dock="Right" x:Name="grid_w_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="grid_w_sl" Minimum="50" Maximum="5000" Value="600" SmallChange="10" LargeChange="100" ValueChanged="option_changed"
+                                        ToolTip="Width of each cell, mullion included (mm). Narrow + tall = vertical slots."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="1" Text="Row height:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="grid_h_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="grid_h_sl" Minimum="50" Maximum="5000" Value="1200" SmallChange="10" LargeChange="100" ValueChanged="option_changed"/>
+                            </DockPanel>
+                            <CheckBox Grid.Row="2" Grid.Column="1" x:Name="grid_stagger_cb" Content="Stagger rows (brick bond)" Margin="0,6,0,0"
+                                      Checked="option_changed" Unchecked="option_changed"/>
+                        </Grid>
+                    </Border>
+
+                    <Border x:Name="circ_panel" BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Text="Spacing:" VerticalAlignment="Center"/>
+                            <DockPanel Grid.Column="1">
+                                <TextBlock DockPanel.Dock="Right" x:Name="circ_spacing_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="circ_spacing_sl" Minimum="50" Maximum="2500" Value="400" SmallChange="10" LargeChange="50" ValueChanged="option_changed"
+                                        ToolTip="Centre-to-centre distance of the holes (mm)."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="1" Text="Hole diameter:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="circ_dia_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="circ_dia_sl" Minimum="10" Maximum="95" Value="70" SmallChange="1" LargeChange="5" ValueChanged="option_changed"
+                                        ToolTip="Hole diameter as % of the spacing (never closer than the mullion width)."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="2" Text="Size variation:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="2" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="circ_jitter_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="circ_jitter_sl" Minimum="0" Maximum="100" Value="0" SmallChange="1" LargeChange="10" ValueChanged="option_changed"
+                                        ToolTip="Random hole sizes (uses the Voronoi random seed)."/>
+                            </DockPanel>
+                            <CheckBox Grid.Row="3" Grid.Column="1" x:Name="circ_stagger_cb" Content="Staggered (hexagonal packing)" Margin="0,6,0,0" IsChecked="True"
+                                      Checked="option_changed" Unchecked="option_changed"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- ================= SHAPE ================= -->
+                    <TextBlock Text="3.  Openings" FontWeight="Bold" FontSize="13" Margin="0,14,0,0"/>
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="Mullion width:" VerticalAlignment="Center"/>
+                        <DockPanel Grid.Column="1">
+                            <TextBlock DockPanel.Dock="Right" x:Name="mullion_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            <Slider x:Name="mullion_sl" Minimum="10" Maximum="800" Value="120" SmallChange="5" LargeChange="25" ValueChanged="option_changed"
+                                    ToolTip="Solid material left between two openings (mm)."/>
+                        </DockPanel>
+                        <TextBlock Grid.Row="1" Text="Edge border:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                        <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,6,0,0">
+                            <TextBlock DockPanel.Dock="Right" x:Name="border_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            <Slider x:Name="border_sl" Minimum="0" Maximum="2500" Value="300" SmallChange="10" LargeChange="50" ValueChanged="option_changed"
+                                    ToolTip="Solid frame kept around the wall's edges (mm). Never less than half a mullion."/>
+                        </DockPanel>
+                        <TextBlock Grid.Row="2" Text="Corner rounding:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                        <DockPanel Grid.Row="2" Grid.Column="1" Margin="0,6,0,0">
+                            <TextBlock DockPanel.Dock="Right" x:Name="round_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            <Slider x:Name="round_sl" Minimum="0" Maximum="100" Value="0" SmallChange="1" LargeChange="10" ValueChanged="option_changed"
+                                    ToolTip="0 = sharp corners. 100 = soft, pebble-like openings (corner arcs)."/>
+                        </DockPanel>
+                        <TextBlock Grid.Row="3" Text="Fade (close up):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                        <DockPanel Grid.Row="3" Grid.Column="1" Margin="0,6,0,0">
+                            <TextBlock DockPanel.Dock="Right" x:Name="fade_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            <Slider x:Name="fade_sl" Minimum="0" Maximum="100" Value="0" SmallChange="1" LargeChange="10" ValueChanged="option_changed"
+                                    ToolTip="Openings get smaller toward the Direction below - a solid-to-open gradient. 100 = they close completely."/>
+                        </DockPanel>
+                        <TextBlock Grid.Row="4" Text="Direction:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                        <ComboBox Grid.Row="4" Grid.Column="1" x:Name="dir_cb" Height="24" Margin="0,6,0,0" SelectedIndex="0" SelectionChanged="option_changed"
+                                  ToolTip="Where the fade and the Voronoi density gradient go.">
+                            <ComboBoxItem Content="Toward the top"/>
+                            <ComboBoxItem Content="Toward the bottom"/>
+                            <ComboBoxItem Content="Toward the left"/>
+                            <ComboBoxItem Content="Toward the right"/>
+                            <ComboBoxItem Content="Toward the edges"/>
+                            <ComboBoxItem Content="Toward the centre"/>
+                        </ComboBox>
+                        <TextBlock Grid.Row="5" Text="Smallest opening:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                        <DockPanel Grid.Row="5" Grid.Column="1" Margin="0,6,0,0">
+                            <TextBlock DockPanel.Dock="Right" x:Name="min_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            <Slider x:Name="min_sl" Minimum="10" Maximum="1000" Value="80" SmallChange="5" LargeChange="25" ValueChanged="option_changed"
+                                    ToolTip="Openings narrower than this (mm) are dropped - no slivers."/>
+                        </DockPanel>
+                        <CheckBox Grid.Row="6" Grid.Column="1" x:Name="keep_partial_cb" Content="Keep cut cells at the border" Margin="0,6,0,0" IsChecked="True"
+                                  Checked="option_changed" Unchecked="option_changed"
+                                  ToolTip="Hexagons / Diamonds / Grid: keep the cells the border cuts through (off = whole cells only)."/>
+                        <CheckBox Grid.Row="7" Grid.Column="1" x:Name="avoid_cb" Content="Keep clear of doors, windows and openings" Margin="0,6,0,0" IsChecked="True"
+                                  Checked="option_changed" Unchecked="option_changed"/>
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+
+            <DockPanel Grid.Column="1">
+                <TextBlock DockPanel.Dock="Top" Text="Preview - wall elevation (seen from the exterior side):" Margin="0,0,0,4"/>
+                <TextBlock DockPanel.Dock="Bottom" x:Name="info_tb" Margin="0,6,0,0" TextWrapping="Wrap" FontWeight="Bold"/>
+                <Border BorderBrush="Gray" BorderThickness="1" Background="White" ClipToBounds="True">
+                    <Viewbox Stretch="Uniform" Margin="12">
+                        <Grid x:Name="canvas_grid" Width="100" Height="100">
+                            <Path x:Name="wall_path" Fill="#FF9AA3AD" Stroke="#FF404040" StrokeThickness="0.05"/>
+                            <Path x:Name="obst_path" Stroke="#FFF2994D" StrokeThickness="0.06" StrokeDashArray="3,2" Fill="#22F2994D"/>
+                        </Grid>
+                    </Viewbox>
+                </Border>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</Window>

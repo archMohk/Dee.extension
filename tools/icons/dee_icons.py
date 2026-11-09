@@ -679,6 +679,15 @@ GLYPHS = {
         cf(74, 24, 7.5), cf(74, 48, 7.5), cf(74, 72, 7.5),
     ],
     # Local server (two rack units) with an accent network connection.
+    # Wall elevation with a cluster of organic (Voronoi-ish) openings in
+    # the accent - "a pattern cut through a wall".
+    "DeeFacade": lambda: [
+        rc(12, 14, 84, 84, "ink", 1.0, 2),
+        pf([(22, 24), (40, 22), (44, 38), (30, 46), (20, 38)]),
+        pf([(50, 22), (74, 24), (72, 40), (52, 42)]),
+        pf([(24, 54), (38, 52), (46, 66), (36, 76), (22, 72)]),
+        pf([(54, 50), (72, 48), (74, 64), (62, 74), (52, 66)]),
+    ],
     "DeeMCP": lambda: [
         rc(16, 12, 80, 36, "ink", 1.0, 4), rc(16, 44, 80, 68, "ink", 1.0, 4),
         ln(26, 24, 48, 24, "ink", 0.9), ln(26, 56, 48, 56, "ink", 0.9),
