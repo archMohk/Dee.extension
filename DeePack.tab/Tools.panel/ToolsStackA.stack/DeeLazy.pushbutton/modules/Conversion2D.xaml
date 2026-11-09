@@ -34,6 +34,22 @@
                         <TextBox x:Name="path_tb" Height="26" IsReadOnly="True" VerticalContentAlignment="Center"/>
                     </DockPanel>
 
+                    <Border BorderBrush="#F2994D" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,10,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Simplify - one slider" FontWeight="Bold"/>
+                            <DockPanel Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Left" Text="Detail" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock DockPanel.Dock="Right" Text="Simple" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                <Slider x:Name="level_sl" Minimum="0" Maximum="10" Value="3" SmallChange="1" LargeChange="1"
+                                        TickFrequency="1" IsSnapToTickEnabled="True" TickPlacement="BottomRight" ValueChanged="level_changed"
+                                        ToolTip="Left: follows every detail of the image (many lines and curves). Right: fewest lines and curves, smooth shapes, specks dropped. Watch the count and the preview."/>
+                            </DockPanel>
+                            <TextBlock x:Name="level_info_tb" Margin="0,6,0,0" FontWeight="Bold" TextWrapping="Wrap"/>
+                            <CheckBox x:Name="advanced_cb" Content="Show the advanced settings the slider sets" Margin="0,6,0,0"
+                                      Checked="advanced_changed" Unchecked="advanced_changed"/>
+                        </StackPanel>
+                    </Border>
+
                     <Grid Margin="0,8,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="150"/>
@@ -62,10 +78,10 @@
                         <TextBlock Grid.Row="2" Text="Resolution (px):" VerticalAlignment="Center" Margin="0,8,0,0"/>
                         <TextBox Grid.Row="2" Grid.Column="1" x:Name="res_tb" Height="22" Margin="0,8,0,0" Text="150" TextChanged="res_changed"
                                  ToolTip="The longer side of the image is resized to this many pixels before tracing (max 600). More = finer detail, more lines."/>
-                        <TextBlock Grid.Row="3" Text="Smoothing (px):" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="3" x:Name="smooth_lbl" Text="Smoothing (px):" VerticalAlignment="Center" Margin="0,8,0,0"/>
                         <TextBox Grid.Row="3" Grid.Column="1" x:Name="smooth_tb" Height="22" Margin="0,8,0,0" Text="0.75" TextChanged="option_changed"
                                  ToolTip="How far an outline may move to straighten the pixel steps. 0 = exact pixel edges (staircase)."/>
-                        <TextBlock Grid.Row="4" Text="Ignore specks under (px²):" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="4" x:Name="speck_lbl" Text="Ignore specks under (px²):" VerticalAlignment="Center" Margin="0,8,0,0"/>
                         <TextBox Grid.Row="4" Grid.Column="1" x:Name="speck_tb" Height="22" Margin="0,8,0,0" Text="2" TextChanged="option_changed"
                                  ToolTip="Ink dots and holes smaller than this many pixels are dropped (scan noise)."/>
                         <TextBlock Grid.Row="7" Text="Draw outlines as:" VerticalAlignment="Center" Margin="0,10,0,0" FontWeight="Bold"/>
@@ -74,10 +90,10 @@
                             <ComboBoxItem Content="Lines + curves (fewest elements)"/>
                             <ComboBoxItem Content="Straight lines only"/>
                         </ComboBox>
-                        <TextBlock Grid.Row="8" Text="Simplify (px):" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="8" x:Name="simplify_lbl" Text="Simplify (px):" VerticalAlignment="Center" Margin="0,8,0,0"/>
                         <TextBox Grid.Row="8" Grid.Column="1" x:Name="simplify_tb" Height="22" Margin="0,8,0,0" Text="1" TextChanged="option_changed"
                                  ToolTip="Lines + curves: how far (in image pixels) the result may stray from the traced outline. Higher = fewer lines and curves, less detail. 0.5 tight, 1 normal, 2-3 very simple."/>
-                        <TextBlock Grid.Row="9" Text="Corner angle (°):" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="9" x:Name="corner_lbl" Text="Corner angle (°):" VerticalAlignment="Center" Margin="0,8,0,0"/>
                         <TextBox Grid.Row="9" Grid.Column="1" x:Name="corner_tb" Height="22" Margin="0,8,0,0" Text="50" TextChanged="option_changed"
                                  ToolTip="Lines + curves: a turn sharper than this is kept as a sharp corner; gentler turns are smoothed into curves. Lower = more corners."/>
                         <TextBlock Grid.Row="5" Text="Width (mm):" VerticalAlignment="Center" Margin="0,8,0,0"/>

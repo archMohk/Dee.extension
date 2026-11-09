@@ -138,6 +138,16 @@ def _picked(cb):
     return it.name if it is not None else u""
 
 
+def _level_settings(level):
+    """The one Detail <-> Simple slider (0..10) -> the four tracing
+    settings. Tuned on test logos: 0 follows every pixel step, 3 (the
+    default) keeps ~99% of the ink area with ~1/8 of the elements, 10 is
+    the fewest pieces (~95% of the area, small specks dropped)."""
+    s = max(0, min(10, int(round(level))))
+    return {"smooth": round(0.4 + 0.2 * s, 2), "simplify": round(0.3 * 1.35 ** s, 2),
+            "corner": 35 + 5 * s, "speck": round(1 + 0.3 * s * s, 1)}
+
+
 def _loop_pieces(loop):
     """Polyline loop (first == last) -> straight pieces."""
     return [("L", a, b) for a, b in zip(loop, loop[1:]) if a != b]
@@ -187,6 +197,7 @@ def _count(geo):
 # --------------------------------------------------------------------------
 class Conversion2DWindow(dee_branding.DeeBrandedWindow):
     _ready = False   # handlers fire while the XAML loads
+    _quiet = False   # True while the slider fills in the advanced boxes
 
     def __init__(self, xaml_file, uiapp):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
@@ -213,6 +224,11 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
         self.mode_cb.SelectedIndex = int(st.get("mode", 0))
         self.simplify_tb.Text = str(st.get("simplify", "1"))
         self.corner_tb.Text = str(st.get("corner", "50"))
+        self.level_sl.Value = float(st.get("level", 3))
+        if "level" not in st:            # first run: let the slider decide
+            self._apply_level()
+        self.advanced_cb.IsChecked = bool(st.get("advanced", False))
+        self._show_advanced()
         self.width_tb.Text = str(st.get("width", "100"))
         self.paper_cb.IsChecked = bool(st.get("paper", True))
         make = st.get("make")
@@ -238,6 +254,7 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
             "path": self.path_tb.Text, "thr": int(self.thr_sl.Value), "invert": bool(self.invert_cb.IsChecked),
             "res": self.res_tb.Text, "smooth": self.smooth_tb.Text, "speck": self.speck_tb.Text,
             "mode": self.mode_cb.SelectedIndex, "simplify": self.simplify_tb.Text, "corner": self.corner_tb.Text,
+            "level": int(self.level_sl.Value), "advanced": bool(self.advanced_cb.IsChecked),
             "width": self.width_tb.Text, "paper": bool(self.paper_cb.IsChecked),
             "lines": self._want_lines(), "regions": self._want_hatch(), "make": self._make(),
             "group": bool(self.group_cb.IsChecked), "pattern": bool(self.pattern_cb.IsChecked),
@@ -307,8 +324,46 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
         self._refresh()
 
     def option_changed(self, sender, args):
-        if self._ready:
+        if self._ready and not self._quiet:
             self._refresh()
+
+    # ---------------- the one Detail <-> Simple slider ----------------
+    def _apply_level(self):
+        st = _level_settings(self.level_sl.Value)
+        self._quiet = True
+        try:
+            self.smooth_tb.Text = E.fmt_num(st["smooth"], 2)
+            self.simplify_tb.Text = E.fmt_num(st["simplify"], 2)
+            self.corner_tb.Text = str(st["corner"])
+            self.speck_tb.Text = E.fmt_num(st["speck"], 1)
+        finally:
+            self._quiet = False
+
+    def _is_custom(self):
+        st = _level_settings(self.level_sl.Value)
+        try:
+            return (abs(_float(self.smooth_tb.Text, -1, False) - st["smooth"]) > 1e-6 or
+                    abs(_float(self.simplify_tb.Text, -1, False) - st["simplify"]) > 1e-6 or
+                    abs(_float(self.corner_tb.Text, -1, False) - st["corner"]) > 1e-6 or
+                    abs(_float(self.speck_tb.Text, -1, False) - st["speck"]) > 1e-6)
+        except Exception:
+            return True
+
+    def level_changed(self, sender, args):
+        if not self._ready:
+            return
+        self._apply_level()
+        self._refresh()
+
+    def _show_advanced(self):
+        vis = Visibility.Visible if self.advanced_cb.IsChecked else Visibility.Collapsed
+        for c in (self.smooth_lbl, self.smooth_tb, self.speck_lbl, self.speck_tb,
+                  self.simplify_lbl, self.simplify_tb, self.corner_lbl, self.corner_tb):
+            c.Visibility = vis
+
+    def advanced_changed(self, sender, args):
+        if self._ready:
+            self._show_advanced()
 
     # ---------------- Lines only / Hatch only / both ----------------
     def _make(self):
@@ -408,6 +463,9 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
                         ctx.BezierTo(Q(pc[2]), Q(pc[3]), Q(pc[4]), True, False)
         ctx.Close()
         n_l, n_c, n_loops = _count(geo)
+        self.level_info_tb.Text = u"Level {0}{1}: {2} line(s) + {3} curve(s) = {4} element(s)".format(
+            int(self.level_sl.Value), u" (advanced values edited)" if self._is_custom() else u"",
+            n_l, n_c, n_l + n_c)
         sg.Freeze()
         self.line_path.Data = sg if self._want_lines() else None
         self.fill_path.Data = sg if self._want_hatch() else None
