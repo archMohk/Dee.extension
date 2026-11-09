@@ -215,8 +215,11 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
         self.corner_tb.Text = str(st.get("corner", "50"))
         self.width_tb.Text = str(st.get("width", "100"))
         self.paper_cb.IsChecked = bool(st.get("paper", True))
-        self.lines_cb.IsChecked = bool(st.get("lines", True))
-        self.regions_cb.IsChecked = bool(st.get("regions", False))
+        make = st.get("make")
+        if make is None:      # settings saved before the Lines/Hatch choice
+            make = 2 if (st.get("lines", True) and st.get("regions")) else (1 if st.get("regions") else 0)
+        (self.make_lines_rb, self.make_hatch_rb, self.make_both_rb)[int(make) if make in (0, 1, 2) else 0].IsChecked = True
+        self._sync_make()
         self.group_cb.IsChecked = bool(st.get("group", False))
         self.one_region_cb.IsChecked = bool(st.get("one_region", True))
         self.pattern_cb.IsChecked = bool(st.get("pattern", False))
@@ -236,7 +239,7 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
             "res": self.res_tb.Text, "smooth": self.smooth_tb.Text, "speck": self.speck_tb.Text,
             "mode": self.mode_cb.SelectedIndex, "simplify": self.simplify_tb.Text, "corner": self.corner_tb.Text,
             "width": self.width_tb.Text, "paper": bool(self.paper_cb.IsChecked),
-            "lines": bool(self.lines_cb.IsChecked), "regions": bool(self.regions_cb.IsChecked),
+            "lines": self._want_lines(), "regions": self._want_hatch(), "make": self._make(),
             "group": bool(self.group_cb.IsChecked), "pattern": bool(self.pattern_cb.IsChecked),
             "one_region": bool(self.one_region_cb.IsChecked),
             "pat_model": bool(self.pat_model_rb.IsChecked), "pattern_name": self.pattern_name_tb.Text,
@@ -306,6 +309,34 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
     def option_changed(self, sender, args):
         if self._ready:
             self._refresh()
+
+    # ---------------- Lines only / Hatch only / both ----------------
+    def _make(self):
+        if self.make_hatch_rb.IsChecked:
+            return 1
+        if self.make_both_rb.IsChecked:
+            return 2
+        return 0
+
+    def _want_lines(self):
+        return self._make() in (0, 2)
+
+    def _want_hatch(self):
+        return self._make() in (1, 2)
+
+    def _sync_make(self):
+        """Grey out the settings the chosen output doesn't use."""
+        lines, hatch = self._want_lines(), self._want_hatch()
+        for c in (self.lines_lbl, self.line_style_cb):
+            c.IsEnabled = lines
+        for c in (self.regions_lbl, self.region_type_cb, self.region_line_lbl, self.region_line_cb, self.one_region_cb):
+            c.IsEnabled = hatch
+
+    def make_changed(self, sender, args):
+        if not self._ready:
+            return
+        self._sync_make()
+        self._refresh()
 
     def shapes(self, smooth=None):
         if self._mask is None:
@@ -378,8 +409,8 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
         ctx.Close()
         n_l, n_c, n_loops = _count(geo)
         sg.Freeze()
-        self.line_path.Data = sg if self.lines_cb.IsChecked or not self.regions_cb.IsChecked else None
-        self.fill_path.Data = sg if self.regions_cb.IsChecked else None
+        self.line_path.Data = sg if self._want_lines() else None
+        self.fill_path.Data = sg if self._want_hatch() else None
 
         scale = self._scale()
         width_mm = _float(self.width_tb.Text, 100.0)

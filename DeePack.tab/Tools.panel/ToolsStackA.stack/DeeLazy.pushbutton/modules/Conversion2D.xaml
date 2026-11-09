@@ -91,7 +91,15 @@
                     </Grid>
 
                     <TextBlock Text="Create" FontWeight="Bold" Margin="0,16,0,0"/>
-                    <Grid Margin="0,4,0,0">
+                    <WrapPanel Margin="0,6,0,0">
+                        <RadioButton x:Name="make_lines_rb" GroupName="make" Content="Lines only" IsChecked="True" FontWeight="Bold"
+                                     Checked="make_changed" ToolTip="Only Detail Lines / curves of the outlines - no hatch."/>
+                        <RadioButton x:Name="make_hatch_rb" GroupName="make" Content="Hatch only" Margin="18,0,0,0" FontWeight="Bold"
+                                     Checked="make_changed" ToolTip="Only Filled Regions (the hatch) - no separate Detail Lines."/>
+                        <RadioButton x:Name="make_both_rb" GroupName="make" Content="Hatch + lines" Margin="18,0,0,0" FontWeight="Bold"
+                                     Checked="make_changed" ToolTip="Filled Regions and Detail Lines on top of their outlines."/>
+                    </WrapPanel>
+                    <Grid Margin="0,8,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="190"/>
                             <ColumnDefinition Width="*"/>
@@ -102,14 +110,12 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
-                        <CheckBox x:Name="lines_cb" Content="Detail Lines (outlines)" IsChecked="True" VerticalAlignment="Center"
-                                  Checked="option_changed" Unchecked="option_changed"/>
+                        <TextBlock x:Name="lines_lbl" Text="Line style:" VerticalAlignment="Center"/>
                         <ComboBox Grid.Column="1" x:Name="line_style_cb" Height="24" ToolTip="Line style of the outlines."/>
-                        <CheckBox Grid.Row="1" x:Name="regions_cb" Content="Filled Regions (hatch)" Margin="0,8,0,0" VerticalAlignment="Center"
-                                  Checked="option_changed" Unchecked="option_changed"
-                                  ToolTip="Each ink shape becomes a Filled Region - white islands inside a shape stay open."/>
+                        <TextBlock Grid.Row="1" x:Name="regions_lbl" Text="Filled Region Type (hatch):" Margin="0,8,0,0" VerticalAlignment="Center"
+                                   ToolTip="Each ink shape becomes a Filled Region - white islands inside a shape stay open."/>
                         <ComboBox Grid.Row="1" Grid.Column="1" x:Name="region_type_cb" Height="24" Margin="0,8,0,0" ToolTip="Filled Region Type (its pattern is the hatch)."/>
-                        <TextBlock Grid.Row="2" Text="     Region boundary style:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                        <TextBlock Grid.Row="2" x:Name="region_line_lbl" Text="Region boundary style:" VerticalAlignment="Center" Margin="0,6,0,0"/>
                         <ComboBox Grid.Row="2" Grid.Column="1" x:Name="region_line_cb" Height="24" Margin="0,6,0,0"
                                   ToolTip="Line style of the Filled Regions' own edges ('Invisible lines' hides them)."/>
                         <CheckBox Grid.Row="3" Grid.Column="1" x:Name="one_region_cb" Content="All shapes in ONE Filled Region" Margin="0,6,0,0" IsChecked="True"
