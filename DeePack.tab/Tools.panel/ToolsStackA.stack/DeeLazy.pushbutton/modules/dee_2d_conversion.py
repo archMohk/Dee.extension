@@ -545,7 +545,7 @@ def place(uidoc, window, o):
             tries = [window.geometry()]
             if window.mode_cb.SelectedIndex != 1:
                 tries.append(window.geometry(False))
-            tries.append([(_loop_pieces(o), [_loop_pieces(hl) for hl in hs]) for o, hs in window.shapes(0.0)])
+            tries.append([(_loop_pieces(ol), [_loop_pieces(hl) for hl in hls]) for ol, hls in window.shapes(0.0)])
             done_as_one = False
             if o.get("one_region", True):
                 fr, note = _one_region(doc, view, rtype, tries, loop_lines)
