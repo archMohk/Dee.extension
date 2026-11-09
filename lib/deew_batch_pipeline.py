@@ -251,7 +251,16 @@ def worker(ctx, item):
     destination = dict(ctx.options.get("destination") or {})
     token = bgw.cloud_token(ctx)
     destination["token"] = token
+    model = bgw.local_model(ctx, item)
+    can_upload, why_not = bgw.ensure_cloud_upload(ctx)
+    if not can_upload:
+        # Fail before the (minutes-long) open/detach - the upload cannot work here.
+        row = reportgen.ReportRow(model.file_name, model.file_path,
+                                  _revit_version_text(ctx.app), model.model_type)
+        row.upload_status = "Failed - upload error"
+        row.errors = why_not
+        return bgw.row_to_result(row, STATUS_FIELD, SUCCESS)
     pipeline = BatchPipeline(ctx.app, destination, ctx.options, logger)
-    row = pipeline.process_one(bgw.local_model(ctx, item), token)
+    row = pipeline.process_one(model, token)
     ctx.log(u"  {0}{1}".format(row.upload_status, (" - " + row.errors) if row.errors else ""))
     return bgw.row_to_result(row, STATUS_FIELD, SUCCESS)

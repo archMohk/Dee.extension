@@ -146,6 +146,13 @@ def worker(ctx, item):
         version = str(ctx.app.VersionNumber)
     except Exception:
         version = "Unknown"
+    can_upload, why_not = bgw.ensure_cloud_upload(ctx)
+    if not can_upload:
+        # Fail before duplicating/opening - the upload cannot work here.
+        row = InitiatorReportRow(party.id, party.template_path, item["party_folder"], item["name"], version)
+        row.upload_status = "Failed - upload error"
+        row.errors = why_not
+        return bgw.row_to_result(row, STATUS_FIELD, SUCCESS)
     row = pipeline.process_one(party, item["name"], item["party_folder"], version)
     ctx.log(u"  {0}{1}".format(row.upload_status, (" - " + row.errors) if row.errors else ""))
     return bgw.row_to_result(row, STATUS_FIELD, SUCCESS)
