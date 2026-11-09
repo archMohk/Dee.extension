@@ -855,24 +855,54 @@ def _family_line_style(fdoc, pdoc, name):
         return None
 
 
+def _family_fill_pattern(fdoc, pdoc, pid):
+    """The family's fill pattern matching the project pattern `pid`
+    (same name and target) - created from the project's definition when
+    the family doesn't have it. Revit refuses copying elements from a
+    project into a family, so it is rebuilt, not copied."""
+    if pid is None or pid == ElementId.InvalidElementId:
+        return ElementId.InvalidElementId
+    src = pdoc.GetElement(pid)
+    if not isinstance(src, DB.FillPatternElement):
+        return ElementId.InvalidElementId
+    sfp = src.GetFillPattern()
+    for fpe in FilteredElementCollector(fdoc).OfClass(DB.FillPatternElement):
+        fp = fpe.GetFillPattern()
+        if fp.Target == sfp.Target and (fp.Name == sfp.Name or (fp.IsSolidFill and sfp.IsSolidFill)):
+            return fpe.Id
+    return DB.FillPatternElement.Create(fdoc, DB.FillPattern(sfp)).Id
+
+
 def _copy_region_type(fdoc, pdoc, rtype):
-    """Copies the project's Filled Region Type (with its fill patterns)
-    into the family; returns the family's copy."""
+    """Rebuilds the project's Filled Region Type in the family: duplicates
+    one of the family's own types under the same name, then sets the
+    same foreground / background patterns, colours, masking and line
+    weight."""
     if rtype is None:
         return None
     name = DB.Element.Name.GetValue(rtype)
-    for n, t in _region_types(fdoc):
+    types = _region_types(fdoc)
+    for n, t in types:
         if n == name:
             return t
-    ids = List[ElementId]([rtype.Id])
-    opts = DB.CopyPasteOptions()
-    new_ids = DB.ElementTransformUtils.CopyElements(pdoc, ids, fdoc, DB.Transform.Identity, opts)
-    for nid in new_ids:
-        e = fdoc.GetElement(nid)
-        if isinstance(e, FilledRegionType):
-            return e
-    types = _region_types(fdoc)
-    return types[0][1] if types else None
+    if not types:
+        raise ValueError("The Detail Item template has no Filled Region Type to start from.")
+    new = types[0][1].Duplicate(name)
+    try:
+        new.ForegroundPatternId = _family_fill_pattern(fdoc, pdoc, rtype.ForegroundPatternId)
+        new.BackgroundPatternId = _family_fill_pattern(fdoc, pdoc, rtype.BackgroundPatternId)
+        for attr in ("ForegroundPatternColor", "BackgroundPatternColor", "IsMasking", "LineWeight"):
+            try:
+                setattr(new, attr, getattr(rtype, attr))
+            except Exception:
+                pass
+    except AttributeError:      # Revit 2018 and older: one pattern + colour
+        try:
+            new.FillPatternId = _family_fill_pattern(fdoc, pdoc, rtype.FillPatternId)
+            new.Color = rtype.Color
+        except Exception:
+            pass
+    return new
 
 
 def _family_view(fdoc):
