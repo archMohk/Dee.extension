@@ -25,8 +25,16 @@ Placement follows the DeeLazy rule: Place closes the window, then the
 bottom-left corner is picked in the view - no pick from inside an open
 WPF dialog.
 
+Simplify (fewest elements): with "Lines + curves" every outline is cut
+at its real corners and each run between corners is drawn as ONE line
+if it is straight within the Simplify tolerance, else as the fewest
+cubic curves that stay within it (dee_hatch_engine.fit_loop - Schneider
+curve fitting). Each curve is an exact NurbSpline detail curve; a
+circle that was ~80 lines becomes 4 curves. "Straight lines only" keeps
+the polyline result (Smoothing tolerance), for DWG/CNC use.
+
 Revit's short-curve limit (~0.8 mm in the model) is handled like Text to
-Lines: corners closer than that to the previous kept corner are merged.
+Lines: a piece shorter than that is merged into the next one.
 A Filled Region that Revit still refuses after smoothing is retried with
 the exact (unsmoothed) pixel outline before it is counted as failed.
 
@@ -54,7 +62,7 @@ import deew_settings
 from Autodesk.Revit import DB
 from Autodesk.Revit.DB import (
     BuiltInCategory, CurveLoop, ElementId, FilledRegion, FilledRegionType, FilteredElementCollector,
-    GraphicsStyleType, Line, Plane, SketchPlane, Transaction, ViewType,
+    GraphicsStyleType, Line, NurbSpline, Plane, SketchPlane, Transaction, ViewType, XYZ,
 )
 from Autodesk.Revit.Exceptions import OperationCanceledException
 
@@ -130,17 +138,48 @@ def _picked(cb):
     return it.name if it is not None else u""
 
 
-def _thin(loop, tol):
-    """Closed loop -> corners at least `tol` apart (short pieces merged
-    into the next one). None if fewer than 3 corners remain."""
-    pts = loop[:-1] if loop[0] == loop[-1] else list(loop)
-    kept = [pts[0]]
-    for p in pts[1:]:
-        if math.hypot(p[0] - kept[-1][0], p[1] - kept[-1][1]) >= tol:
-            kept.append(p)
-    while len(kept) > 2 and math.hypot(kept[0][0] - kept[-1][0], kept[0][1] - kept[-1][1]) < tol:
-        kept.pop()
-    return kept if len(kept) >= 3 else None
+def _loop_pieces(loop):
+    """Polyline loop (first == last) -> straight pieces."""
+    return [("L", a, b) for a, b in zip(loop, loop[1:]) if a != b]
+
+
+def _merge_short(pieces, tol):
+    """Pieces of one closed loop -> the same loop with every piece at
+    least `tol` long: a short piece is dropped and the next one starts
+    where it started. None if too little is left to close a loop."""
+    if not pieces:
+        return None
+    start = cur = pieces[0][1]
+    out = []
+    for pc in pieces:
+        end = pc[-1]
+        if math.hypot(end[0] - cur[0], end[1] - cur[1]) < tol:
+            continue
+        out.append(("L", cur, end) if pc[0] == "L" else ("C", cur, pc[2], pc[3], end))
+        cur = end
+    if out and cur != start:
+        if math.hypot(start[0] - cur[0], start[1] - cur[1]) >= tol:
+            out.append(("L", cur, start))
+        else:
+            last = out[-1]
+            out[-1] = ("L", last[1], start) if last[0] == "L" else ("C", last[1], last[2], last[3], start)
+    curves = len([p for p in out if p[0] == "C"])
+    if len(out) < 2 or (curves == 0 and len(out) < 3):
+        return None
+    return out
+
+
+def _count(geo):
+    n_l = n_c = loops = 0
+    for outer, holes in geo:
+        for pcs in ([outer] + holes if outer else []):
+            loops += 1
+            for p in pcs:
+                if p[0] == "L":
+                    n_l += 1
+                else:
+                    n_c += 1
+    return n_l, n_c, loops
 
 
 # --------------------------------------------------------------------------
@@ -171,6 +210,9 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
         self.res_tb.Text = str(st.get("res", "150"))
         self.smooth_tb.Text = str(st.get("smooth", "0.75"))
         self.speck_tb.Text = str(st.get("speck", "2"))
+        self.mode_cb.SelectedIndex = int(st.get("mode", 0))
+        self.simplify_tb.Text = str(st.get("simplify", "1"))
+        self.corner_tb.Text = str(st.get("corner", "50"))
         self.width_tb.Text = str(st.get("width", "100"))
         self.paper_cb.IsChecked = bool(st.get("paper", True))
         self.lines_cb.IsChecked = bool(st.get("lines", True))
@@ -191,6 +233,7 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
         return {
             "path": self.path_tb.Text, "thr": int(self.thr_sl.Value), "invert": bool(self.invert_cb.IsChecked),
             "res": self.res_tb.Text, "smooth": self.smooth_tb.Text, "speck": self.speck_tb.Text,
+            "mode": self.mode_cb.SelectedIndex, "simplify": self.simplify_tb.Text, "corner": self.corner_tb.Text,
             "width": self.width_tb.Text, "paper": bool(self.paper_cb.IsChecked),
             "lines": bool(self.lines_cb.IsChecked), "regions": bool(self.regions_cb.IsChecked),
             "group": bool(self.group_cb.IsChecked), "pattern": bool(self.pattern_cb.IsChecked),
@@ -273,6 +316,25 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
             self._shapes[key] = E.image_shapes(self._mask, smooth, speck)
         return self._shapes[key]
 
+    def geometry(self, curves=None):
+        """[(outer_pieces, [hole_pieces])] - one entry per shape, in the
+        same order whatever the mode, so a refused shape can be retried
+        in a simpler form. curves None = the window's mode."""
+        if self._mask is None:
+            return []
+        if curves is None:
+            curves = self.mode_cb.SelectedIndex != 1
+        smooth = max(0.0, _float(self.smooth_tb.Text, 0.0, positive=False))
+        if not curves:
+            return [(_loop_pieces(o), [_loop_pieces(hl) for hl in hs]) for o, hs in self.shapes(smooth)]
+        tol = min(20.0, max(0.1, _float(self.simplify_tb.Text, 1.0)))
+        corner = min(170.0, max(5.0, _float(self.corner_tb.Text, 50.0)))
+        speck = max(0.0, _float(self.speck_tb.Text, 0.0, positive=False))
+        key = ("fit", smooth, speck, tol, corner)
+        if key not in self._shapes:
+            self._shapes[key] = E.fit_shapes(self.shapes(0.0), smooth, tol, corner)
+        return self._shapes[key]
+
     def _scale(self):
         if not self.paper_cb.IsChecked or self.view.ViewType == ViewType.DrawingSheet:
             return 1
@@ -295,23 +357,24 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
         self.canvas_grid.Height = h
         self.mask_im.Visibility = Visibility.Visible if self.show_img_cb.IsChecked else Visibility.Hidden
         self.line_path.StrokeThickness = max(w, h) / 450.0
-        shapes = self.shapes()
+        geo = self.geometry()
 
-        def add_loop(ctx, loop, filled):
-            ctx.BeginFigure(Point(loop[0][0], h - loop[0][1]), filled, True)
-            for x, y in loop[1:-1]:
-                ctx.LineTo(Point(x, h - y), True, False)
+        def Q(p):
+            return Point(p[0], h - p[1])
 
         sg = StreamGeometry()
         sg.FillRule = FillRule.EvenOdd
         ctx = sg.Open()
-        n_loops = n_corners = 0
-        for outer, holes in shapes:
-            for loop in [outer] + holes:
-                add_loop(ctx, loop, True)
-                n_loops += 1
-                n_corners += len(loop) - 1
+        for outer, holes in geo:
+            for pcs in ([outer] + holes if outer else []):
+                ctx.BeginFigure(Q(pcs[0][1]), True, True)
+                for pc in pcs:
+                    if pc[0] == "L":
+                        ctx.LineTo(Q(pc[2]), True, False)
+                    else:
+                        ctx.BezierTo(Q(pc[2]), Q(pc[3]), Q(pc[4]), True, False)
         ctx.Close()
+        n_l, n_c, n_loops = _count(geo)
         sg.Freeze()
         self.line_path.Data = sg if self.lines_cb.IsChecked or not self.regions_cb.IsChecked else None
         self.fill_path.Data = sg if self.regions_cb.IsChecked else None
@@ -320,8 +383,11 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
         width_mm = _float(self.width_tb.Text, 100.0)
         px_mm = width_mm * scale / w           # model mm per pixel
         self.height_tb.Text = u"height {0} mm".format(E.fmt_num(width_mm * h / w, 1))
-        self.info_tb.Text = u"{0} × {1} px (from {2} × {3}) · {4} shape(s), {5} outline loop(s), about {6} lines".format(
-            w, h, orig[0], orig[1], len(shapes), n_loops, n_corners)
+        info = u"{0} × {1} px (from {2} × {3}) · {4} shape(s), {5} outline loop(s) · {6} line(s) + {7} curve(s)".format(
+            w, h, orig[0], orig[1], len([g for g in geo if g[0]]), n_loops, n_l, n_c)
+        if self.mode_cb.SelectedIndex != 1:
+            info += u"  (straight lines only would be {0})".format(_count(self.geometry(False))[0])
+        self.info_tb.Text = info
         msg = u"Model size {0} × {1} mm in '{2}'{3}.".format(
             E.fmt_num(width_mm * scale, 0), E.fmt_num(width_mm * scale * h / w, 0), self.view.Name,
             u" (1:{0})".format(scale) if scale != 1 else u"")
@@ -349,7 +415,7 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
         if o["pattern"] and not (o["pattern_name"] or u"").strip():
             forms.alert("Type a name for the fill pattern.")
             return
-        if not self.shapes():
+        if not any(g[0] for g in self.geometry()):
             forms.alert("No ink found - move the threshold or tick Invert.")
             return
         o["scale"] = self._scale()
@@ -414,11 +480,32 @@ def place(uidoc, window, o):
     def P(p):
         return origin + right * (p[0] * k) + up * (p[1] * k)
 
-    def loop_lines(loop):
-        pts = _thin(loop, tol_px)
-        if pts is None:
+    knots = List[float]([0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+    counts = {"splines": 0, "flattened": 0}
+
+    def loop_lines(pieces):
+        """Pieces of one loop -> Revit curves (Line / exact NurbSpline)."""
+        pcs = _merge_short(pieces, tol_px)
+        if pcs is None:
             return None
-        return [Line.CreateBound(P(a), P(b)) for a, b in zip(pts, pts[1:] + pts[:1])]
+        out = []
+        for pc in pcs:
+            if pc[0] == "L":
+                out.append(Line.CreateBound(P(pc[1]), P(pc[2])))
+                continue
+            try:
+                out.append(NurbSpline.CreateCurve(3, knots, List[XYZ]([P(q) for q in pc[1:]])))
+                counts["splines"] += 1
+            except Exception:     # spline refused: same piece as short lines
+                counts["flattened"] += 1
+                pts = E.piece_points(pc, 6)
+                kept = [pts[0]]
+                for q in pts[1:-1]:
+                    if math.hypot(q[0] - kept[-1][0], q[1] - kept[-1][1]) >= tol_px:
+                        kept.append(q)
+                kept.append(pts[-1])
+                out.extend(Line.CreateBound(P(a), P(b)) for a, b in zip(kept, kept[1:]))
+        return out
 
     styles = dict(_line_styles(doc))
     region_types = dict(_region_types(doc))
@@ -431,8 +518,8 @@ def place(uidoc, window, o):
     try:
         if o["lines"]:
             style = styles.get(o["line_style"])
-            for outer, holes in window.shapes():
-                for loop in [outer] + holes:
+            for outer, holes in window.geometry():
+                for loop in ([outer] + holes if outer else []):
                     try:
                         curves = loop_lines(loop)
                     except Exception:
@@ -451,15 +538,21 @@ def place(uidoc, window, o):
             if rtype is None:
                 raise ValueError("Pick a Filled Region Type.")
             edge = styles.get(o["region_line"])
-            smooth_shapes = window.shapes()
-            exact_shapes = None
-            for i, (outer, holes) in enumerate(smooth_shapes):
-                fr = _region(doc, view, rtype, outer, holes, loop_lines)
-                if fr is None:
-                    if exact_shapes is None:
-                        exact_shapes = window.shapes(0.0)
-                    if i < len(exact_shapes):
-                        fr = _region(doc, view, rtype, exact_shapes[i][0], exact_shapes[i][1], loop_lines)
+            # a shape Revit refuses is retried simpler: straight lines,
+            # then the exact pixel outline
+            tries = [window.geometry()]
+            if window.mode_cb.SelectedIndex != 1:
+                tries.append(window.geometry(False))
+            tries.append([(_loop_pieces(o), [_loop_pieces(hl) for hl in hs]) for o, hs in window.shapes(0.0)])
+            for i in range(len(tries[0])):
+                fr = None
+                for geo in tries:
+                    if i < len(geo) and geo[i][0]:
+                        fr = _region(doc, view, rtype, geo[i][0], geo[i][1], loop_lines)
+                        if fr is not None:
+                            break
+                if not tries[0][i][0]:
+                    continue
                 if fr is None:
                     failed_regions += 1
                     continue
@@ -494,12 +587,14 @@ def place(uidoc, window, o):
         pass
     msg = []
     if o["lines"]:
-        msg.append(u"{0} detail line(s){1}.".format(n_lines, u", {0} too short to draw".format(failed_lines) if failed_lines else u""))
+        msg.append(u"{0} detail line(s) and curve(s){1}.".format(n_lines, u", {0} too short to draw".format(failed_lines) if failed_lines else u""))
+    if counts["flattened"]:
+        msg.append(u"{0} curve(s) Revit refused were drawn as short lines instead.".format(counts["flattened"]))
     if o["regions"]:
         msg.append(u"{0} filled region(s){1}.".format(
             n_regions, u", {0} shape(s) Revit refused (try more smoothing or a lower resolution)".format(failed_regions) if failed_regions else u""))
     msg.extend(report)
-    if failed_lines or failed_regions or o["pattern"]:
+    if failed_lines or failed_regions or o["pattern"] or counts["flattened"]:
         forms.alert(u"2D Conversion done:\n\n" + u"\n".join(msg))
 
 

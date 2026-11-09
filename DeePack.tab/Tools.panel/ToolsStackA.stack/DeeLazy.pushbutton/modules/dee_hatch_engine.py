@@ -794,6 +794,274 @@ def image_shapes(mask, smooth=0.75, min_area=0.0):
     return [(simp(o), [simp(h) for h in hs]) for o, hs in shapes]
 
 
+# --------------------------------------------------------------------------
+# Fewest elements: fit traced outlines with straight lines + cubic curves
+# --------------------------------------------------------------------------
+# A traced outline is a pixel staircase: hundreds of tiny steps. Drawn as
+# lines it costs one Revit element per step that survives smoothing. Here
+# each outline is cut at its real CORNERS (found on the smoothed polyline:
+# a turn sharper than corner_deg), and every run between two corners is
+# drawn with as few pieces as possible within `tol` pixels:
+#   * one straight Line if the whole run stays within tol of its chord
+#   * else cubic Bezier curves (Schneider's algorithm, Graphics Gems 1990:
+#     least-squares fit with fixed end tangents, Newton re-parameterising,
+#     split at the worst point only when one curve can't make it)
+# The staircase itself is fitted through the MIDPOINTS of its pixel edges,
+# which lie within ~0.35 px of the true edge. Neighbouring curves share
+# their joint tangent, so smooth parts stay smooth across pieces. A cubic
+# Bezier becomes one NurbSpline in Revit, exactly.
+
+def _unit(x, y):
+    L = math.hypot(x, y)
+    return (x / L, y / L) if L > 1e-12 else (0.0, 0.0)
+
+
+def _bez_pt(b, t):
+    p0, c1, c2, p3 = b
+    u = 1.0 - t
+    a, bb, c, d = u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t
+    return (a * p0[0] + bb * c1[0] + c * c2[0] + d * p3[0],
+            a * p0[1] + bb * c1[1] + c * c2[1] + d * p3[1])
+
+
+def _bez_d1(b, t):
+    p0, c1, c2, p3 = b
+    u = 1.0 - t
+    return (3 * u * u * (c1[0] - p0[0]) + 6 * u * t * (c2[0] - c1[0]) + 3 * t * t * (p3[0] - c2[0]),
+            3 * u * u * (c1[1] - p0[1]) + 6 * u * t * (c2[1] - c1[1]) + 3 * t * t * (p3[1] - c2[1]))
+
+
+def _bez_d2(b, t):
+    p0, c1, c2, p3 = b
+    u = 1.0 - t
+    return (6 * u * (c2[0] - 2 * c1[0] + p0[0]) + 6 * t * (p3[0] - 2 * c2[0] + c1[0]),
+            6 * u * (c2[1] - 2 * c1[1] + p0[1]) + 6 * t * (p3[1] - 2 * c2[1] + c1[1]))
+
+
+def _chord_params(d):
+    u = [0.0]
+    for i in range(1, len(d)):
+        u.append(u[-1] + math.hypot(d[i][0] - d[i - 1][0], d[i][1] - d[i - 1][1]))
+    total = u[-1] or 1.0
+    return [v / total for v in u]
+
+
+def _gen_bezier(d, u, t1, t2):
+    p0, p3 = d[0], d[-1]
+    c00 = c01 = c11 = x0 = x1 = 0.0
+    for (px, py), t in zip(d, u):
+        s = 1.0 - t
+        b0, b1, b2, b3 = s * s * s, 3 * t * s * s, 3 * t * t * s, t * t * t
+        a0 = (t1[0] * b1, t1[1] * b1)
+        a1 = (t2[0] * b2, t2[1] * b2)
+        c00 += a0[0] * a0[0] + a0[1] * a0[1]
+        c01 += a0[0] * a1[0] + a0[1] * a1[1]
+        c11 += a1[0] * a1[0] + a1[1] * a1[1]
+        tx = px - (p0[0] * (b0 + b1) + p3[0] * (b2 + b3))
+        ty = py - (p0[1] * (b0 + b1) + p3[1] * (b2 + b3))
+        x0 += a0[0] * tx + a0[1] * ty
+        x1 += a1[0] * tx + a1[1] * ty
+    det = c00 * c11 - c01 * c01
+    seg = math.hypot(p3[0] - p0[0], p3[1] - p0[1])
+    al = ar = 0.0
+    if abs(det) > 1e-12:
+        al = (x0 * c11 - x1 * c01) / det
+        ar = (c00 * x1 - c01 * x0) / det
+    if al < seg * 1e-6 or ar < seg * 1e-6:
+        al = ar = seg / 3.0
+    return (p0, (p0[0] + t1[0] * al, p0[1] + t1[1] * al),
+            (p3[0] + t2[0] * ar, p3[1] + t2[1] * ar), p3)
+
+
+def _max_err(d, b, u):
+    worst, split = 0.0, len(d) // 2
+    for i in range(1, len(d) - 1):
+        q = _bez_pt(b, u[i])
+        e = math.hypot(q[0] - d[i][0], q[1] - d[i][1])
+        if e >= worst:
+            worst, split = e, i
+    return worst, split
+
+
+def _reparam(d, u, b):
+    out = []
+    for p, t in zip(d, u):
+        q, q1, q2 = _bez_pt(b, t), _bez_d1(b, t), _bez_d2(b, t)
+        num = (q[0] - p[0]) * q1[0] + (q[1] - p[1]) * q1[1]
+        den = q1[0] * q1[0] + q1[1] * q1[1] + (q[0] - p[0]) * q2[0] + (q[1] - p[1]) * q2[1]
+        out.append(min(1.0, max(0.0, t - num / den)) if abs(den) > 1e-12 else t)
+    return out
+
+
+def _chord_dist(d):
+    """Largest distance of the run's points from its chord."""
+    (ax, ay), (bx, by) = d[0], d[-1]
+    L = math.hypot(bx - ax, by - ay)
+    if L < 1e-12:
+        return max(math.hypot(p[0] - ax, p[1] - ay) for p in d)
+    return max(abs((bx - ax) * (ay - p[1]) - (ax - p[0]) * (by - ay)) / L for p in d)
+
+
+def _center_tangent(d, i):
+    """Direction through point i, smoothed over ~2 px either side."""
+    j0, j1 = i, i
+    while j0 > 0 and math.hypot(d[i][0] - d[j0][0], d[i][1] - d[j0][1]) < 2.0:
+        j0 -= 1
+    while j1 < len(d) - 1 and math.hypot(d[i][0] - d[j1][0], d[i][1] - d[j1][1]) < 2.0:
+        j1 += 1
+    return _unit(d[j0][0] - d[j1][0], d[j0][1] - d[j1][1])
+
+
+def _fit_cubic(d, t1, t2, tol, depth):
+    if len(d) < 3:
+        return [("L", d[0], d[-1])]
+    if math.hypot(d[-1][0] - d[0][0], d[-1][1] - d[0][1]) < 1e-9:   # closed run: never one piece
+        mid = len(d) // 2
+        tc = _center_tangent(d, mid)
+        return (_fit_cubic(d[:mid + 1], t1, tc, tol, depth + 1) +
+                _fit_cubic(d[mid:], (-tc[0], -tc[1]), t2, tol, depth + 1))
+    u = _chord_params(d)
+    b = _gen_bezier(d, u, t1, t2)
+    err, split = _max_err(d, b, u)
+    if err <= tol:
+        return [_curve_or_line(b, d, tol)]
+    if err <= tol * 4:
+        for _i in range(6):
+            u = _reparam(d, u, b)
+            b = _gen_bezier(d, u, t1, t2)
+            err, split = _max_err(d, b, u)
+            if err <= tol:
+                return [_curve_or_line(b, d, tol)]
+    if depth > 16 or len(d) < 4:
+        return [_curve_or_line(b, d, tol)]
+    split = min(max(split, 1), len(d) - 2)
+    tc = _center_tangent(d, split)
+    if tc == (0.0, 0.0):
+        tc = _unit(d[split - 1][0] - d[split + 1][0], d[split - 1][1] - d[split + 1][1])
+    return (_fit_cubic(d[:split + 1], t1, tc, tol, depth + 1) +
+            _fit_cubic(d[split:], (-tc[0], -tc[1]), t2, tol, depth + 1))
+
+
+def _curve_or_line(b, d, tol):
+    # stricter than tol: a piece of a smooth run stays a curve unless it
+    # really is straight, so round shapes don't get flat spots
+    if _chord_dist(d) <= tol * 0.3:
+        return ("L", b[0], b[3])
+    return ("C",) + tuple(b)
+
+
+def _merge_lines(pieces, tol):
+    """Join neighbouring straight pieces that are one line within tol."""
+    out = []
+    for p in pieces:
+        if out and p[0] == "L" and out[-1][0] == "L":
+            a, m, c = out[-1][1], out[-1][2], p[2]
+            if _chord_dist([a, m, c]) <= tol * 0.5:
+                out[-1] = ("L", a, c)
+                continue
+        out.append(p)
+    return out
+
+
+def fit_loop(loop, smooth=0.75, tol=1.0, corner_deg=50.0):
+    """Closed EXACT pixel loop (first == last, from image_shapes(mask, 0))
+    -> pieces in order around the loop: ('L', p0, p1) or
+    ('C', p0, c1, c2, p3). Consecutive pieces share their end points."""
+    pts = list(loop[:-1])
+    n = len(pts)
+    if n < 3:
+        return []
+    sparse = simplify(loop, smooth if smooth > 0 else 0.5)[:-1]
+    m = len(sparse)
+    if m < 3:
+        sparse = pts
+        m = n
+    index = {}
+    for i, p in enumerate(pts):
+        index.setdefault(p, i)
+    # Turn angle measured between points ~reach px back and ahead along
+    # the outline - on the raw staircase every step is a 90 deg turn.
+    reach = 4.0
+
+    def walk(i, sign):
+        dist, j = 0.0, i
+        for _s in range(n):
+            k = (j + sign) % n
+            dist += math.hypot(pts[k][0] - pts[j][0], pts[k][1] - pts[j][1])
+            j = k
+            if dist >= reach:
+                break
+        return pts[j]
+
+    cos_lim = math.cos(math.radians(corner_deg))
+    cand = []
+    for j in range(m):
+        i = index[sparse[j]]
+        a, b, c = walk(i, -1), pts[i], walk(i, 1)
+        d1 = _unit(b[0] - a[0], b[1] - a[1])
+        d2 = _unit(c[0] - b[0], c[1] - b[1])
+        dot = d1[0] * d2[0] + d1[1] * d2[1]
+        if dot <= cos_lim:
+            cand.append((dot, j))
+    corners = []
+    for dot, j in sorted(cand):            # sharpest first, then thin out
+        p = sparse[j]
+        if all(math.hypot(p[0] - sparse[q][0], p[1] - sparse[q][1]) > reach for q in corners):
+            corners.append(j)
+    corners.sort()
+    is_corner = set(corners)
+    breaks = corners
+    if not breaks:         # one smooth loop: cut it in two (smooth) halves
+        far = max(range(m), key=lambda q: (sparse[q][0] - sparse[0][0]) ** 2 + (sparse[q][1] - sparse[0][1]) ** 2)
+        breaks = [0, far] if far else [0]
+
+    def tangent_out(j):     # leaving sparse vertex j, into the run
+        i = index[sparse[j]]
+        a = pts[i] if j in is_corner else walk(i, -1)
+        b = walk(i, 1)
+        return _unit(b[0] - a[0], b[1] - a[1])
+
+    def tangent_in(j):      # at sparse vertex j, pointing back into the run
+        i = index[sparse[j]]
+        a = pts[i] if j in is_corner else walk(i, 1)
+        b = walk(i, -1)
+        return _unit(b[0] - a[0], b[1] - a[1])
+    pieces = []
+    for k, j0 in enumerate(breaks):
+        j1 = breaks[(k + 1) % len(breaks)]
+        i0, i1 = index[sparse[j0]], index[sparse[j1]]
+        steps = (i1 - i0) % n or n
+        run = [pts[(i0 + s) % n] for s in range(steps + 1)]
+        dense = [run[0]]
+        for a, b in zip(run, run[1:]):
+            dense.append(((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0))
+        dense.append(run[-1])
+        if len(dense) <= 3 or _chord_dist(dense) <= tol:
+            pieces.append(("L", run[0], run[-1]))
+        else:
+            pieces.extend(_fit_cubic(dense, tangent_out(j0), tangent_in(j1), tol, 0))
+    return _merge_lines(pieces, tol)
+
+
+def fit_shapes(exact_shapes, smooth=0.75, tol=1.0, corner_deg=50.0):
+    """[(outer, [holes])] exact loops -> [(outer_pieces, [hole_pieces])]."""
+    out = []
+    for outer, holes in exact_shapes:
+        # one entry per input shape (pieces may be empty) so callers can
+        # line results up with other versions of the same shape list
+        out.append((fit_loop(outer, smooth, tol, corner_deg),
+                    [hp for hp in (fit_loop(h, smooth, tol, corner_deg) for h in holes) if hp]))
+    return out
+
+
+def piece_points(piece, segments=8):
+    """Points along a piece (for previews / straight-line fallback)."""
+    if piece[0] == "L":
+        return [piece[1], piece[2]]
+    b = piece[1:]
+    return [_bez_pt(b, float(i) / segments) for i in range(segments + 1)]
+
+
 def scan_fill(mask, step=1):
     """Horizontal hatch lines through the ink, one per `step` pixel rows
     (through each row's centre). Pixel units, y up."""
