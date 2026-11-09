@@ -1,0 +1,98 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeLazy — Text to Lines"
+        ShowInTaskbar="False"
+        MinHeight="520" MinWidth="820" Height="600" Width="920"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                   Text="Type a text, pick the font and size, then press Place and click a point in the active view. The letters are drawn as Detail Lines (straight parts) and spline Detail Curves (round parts), so they can be edited, exported or used as a sketch like any other line."/>
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="status_tb" Text="Ready." TextWrapping="Wrap"/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
+            <Button x:Name="place_b" Content="Place..." Width="150" Height="30" FontWeight="Bold" Click="place_click"
+                    ToolTip="Closes this window, then click the insertion point in the active view (Esc cancels)."/>
+            <Button x:Name="close_b" Content="Close" Width="100" Height="30" Margin="10,0,0,0" Click="close_click"/>
+        </StackPanel>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="330"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                <TextBlock Text="Text:" Margin="0,0,0,4"/>
+                <TextBox x:Name="text_tb" Height="90" AcceptsReturn="True" TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto" TextChanged="option_changed" Text="DEE"/>
+
+                <TextBlock Text="Font:" Margin="0,10,0,4"/>
+                <ComboBox x:Name="font_cb" Height="26" IsEditable="False" SelectionChanged="option_changed"/>
+
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <CheckBox x:Name="bold_cb" Content="Bold" Checked="option_changed" Unchecked="option_changed"/>
+                    <CheckBox x:Name="italic_cb" Content="Italic" Margin="16,0,0,0" Checked="option_changed" Unchecked="option_changed"/>
+                </StackPanel>
+
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="130"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="Text height (mm):" VerticalAlignment="Center"/>
+                    <TextBox Grid.Row="0" Grid.Column="1" x:Name="height_tb" Height="24" Text="5" TextChanged="option_changed"
+                             ToolTip="Height of a capital letter, like Revit's own Text Size."/>
+
+                    <CheckBox Grid.Row="1" Grid.ColumnSpan="2" x:Name="paper_cb" Margin="0,6,0,0" IsChecked="True"
+                              Content="Height is printed size (multiply by view scale)"
+                              ToolTip="On: 5 mm in a 1:100 view becomes 500 mm in the model, so it prints 5 mm high. Off: the height is the real model size. Ignored on sheets and drafting views at 1:1."/>
+
+                    <TextBlock Grid.Row="2" Text="Align at point:" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                    <ComboBox Grid.Row="2" Grid.Column="1" x:Name="align_cb" Height="24" Margin="0,8,0,0" SelectionChanged="option_changed">
+                        <ComboBoxItem Content="Left" IsSelected="True"/>
+                        <ComboBoxItem Content="Center"/>
+                        <ComboBoxItem Content="Right"/>
+                    </ComboBox>
+
+                    <TextBlock Grid.Row="3" Text="Line style:" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                    <ComboBox Grid.Row="3" Grid.Column="1" x:Name="style_cb" Height="24" Margin="0,8,0,0"/>
+
+                    <TextBlock Grid.Row="4" Text="Curves:" VerticalAlignment="Top" Margin="0,10,0,0"/>
+                    <StackPanel Grid.Row="4" Grid.Column="1" Margin="0,10,0,0">
+                        <RadioButton x:Name="mode_curves_rb" Content="Lines + spline curves" IsChecked="True" Checked="option_changed"
+                                     ToolTip="Round parts become real spline Detail Curves - smooth and fewer elements."/>
+                        <RadioButton x:Name="mode_lines_rb" Content="Straight lines only" Margin="0,4,0,0" Checked="option_changed"
+                                     ToolTip="Round parts are broken into short straight Detail Lines - best for DWG export / CNC / other tools that dislike splines."/>
+                        <StackPanel Orientation="Horizontal" Margin="18,4,0,0">
+                            <TextBlock Text="Segments per curve:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBox x:Name="segments_tb" Width="40" Height="22" Text="6" TextChanged="option_changed"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+
+                <CheckBox x:Name="group_cb" Content="Group the result (Detail Group)" Margin="0,12,0,0" IsChecked="True"/>
+            </StackPanel>
+
+            <DockPanel Grid.Column="1">
+                <TextBlock DockPanel.Dock="Top" Text="Preview (outline that will be drawn):" Margin="0,0,0,4"/>
+                <Border BorderBrush="Gray" BorderThickness="1" Background="White" Padding="16">
+                    <Path x:Name="preview_path" Stroke="Black" StrokeThickness="1" Stretch="Uniform"
+                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</Window>

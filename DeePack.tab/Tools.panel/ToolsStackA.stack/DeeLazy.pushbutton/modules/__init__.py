@@ -46,6 +46,7 @@ from modules import dee_links_into_views
 from modules import dee_dependent_views
 from modules import dee_urs_files
 from modules import dee_remove_links
+from modules import dee_text_to_lines
 
 REGISTERED_MODULES = [
     view_cropping.TOOL_INFO,
@@ -64,4 +65,5 @@ REGISTERED_MODULES = [
     dee_dependent_views.TOOL_INFO,
     dee_urs_files.TOOL_INFO,
     dee_remove_links.TOOL_INFO,
+    dee_text_to_lines.TOOL_INFO,
 ]
