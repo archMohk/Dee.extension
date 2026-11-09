@@ -72,6 +72,7 @@ _add("System.Windows.Media", """
     PixelFormats RotateTransform ScaleTransform SolidColorBrush StreamGeometry Stretch
     TransformGroup
     TranslateTransform VisualTreeHelper
+    EllipseGeometry GeometryGroup LineSegment PolyLineSegment SweepDirection ToleranceType
 """)
 _add("System.Windows.Controls", """
     Border Button Canvas CheckBox ColumnDefinition ComboBox ComboBoxItem

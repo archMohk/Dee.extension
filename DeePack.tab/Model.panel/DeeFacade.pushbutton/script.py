@@ -35,8 +35,8 @@ clr.AddReference("WindowsBase")
 clr.AddReference("System.Windows.Forms")
 from System import TimeSpan
 from System.Collections.Generic import List
-from System.Windows import Visibility
-from System.Windows.Media import Geometry
+from System.Windows import Visibility, Point
+from System.Windows.Media import Geometry, GeometryGroup, EllipseGeometry
 from System.Windows.Threading import DispatcherTimer
 from System.Windows.Forms import FolderBrowserDialog, OpenFileDialog, DialogResult
 
@@ -70,8 +70,10 @@ import facade_patterns as FP
 _XAML = os.path.join(_THIS_DIR, "ui.xaml")
 _TITLE = "DeeFacade"
 _MM = 304.8                         # mm per foot
-_PATTERNS = ["voronoi", "hexagon", "diamond", "grid", "circles"]
-_DIRS = ["top", "bottom", "left", "right", "edges", "centre"]
+# same order as the Pattern combo box
+_PATTERNS = ["voronoi", "hexagon", "diamond", "grid", "circles",
+             "stars", "triangles", "waves", "pixels"]
+_DIRS = ["top", "bottom", "left", "right", "edges", "centre", "points"]
 _MAT_PARAM = "Facade Material"
 
 # slider name -> how its value reads (mm / % / plain number)
@@ -82,11 +84,16 @@ _SLIDERS = [
     ("circ_spacing_sl", "mm"), ("circ_dia_sl", "%"), ("circ_jitter_sl", "%"),
     ("mullion_sl", "mm"), ("border_sl", "mm"), ("round_sl", "%"), ("fade_sl", "%"),
     ("min_sl", "mm"), ("fam_thick_sl", "mm"), ("fam_gap_sl", "mm"),
+    ("star_pitch_sl", "mm"), ("star_size_sl", "%"), ("star_sharp_sl", "%"),
+    ("tri_size_sl", "mm"), ("tri_jitter_sl", "%"),
+    ("wave_pitch_sl", "mm"), ("wave_amp_sl", "%"), ("wave_len_sl", "mm"), ("wave_shift_sl", "%"),
+    ("pix_size_sl", "mm"), ("pix_max_sl", "n"), ("pix_fill_sl", "%"),
+    ("att_strength_sl", "%"), ("att_radius_sl", "mm"),
 ]
 _CHECKS = ["replace_cb", "grid_stagger_cb", "circ_stagger_cb", "keep_partial_cb",
            "avoid_cb", "fam_cut_cb", "hex_pointy_rb", "hex_flat_rb",
-           "out_profile_rb", "out_family_rb"]
-_COMBOS = ["pattern_cb", "dir_cb", "fam_pos_cb", "fam_wall_cb"]
+           "out_profile_rb", "out_family_rb", "star_fill_cb", "wave_horiz_cb"]
+_COMBOS = ["pattern_cb", "dir_cb", "fam_pos_cb", "fam_wall_cb", "att_mode_cb"]
 _TEXTS = ["seed_tb", "fam_folder_tb"]
 
 
@@ -333,7 +340,7 @@ def _add_material_param(fm):
 # --------------------------------------------------------------------------
 # option 1: cut the openings into the wall's profile sketch
 # --------------------------------------------------------------------------
-def apply_profile(wd, holes, replace):
+def apply_profile(wd, holes, replace, arcs=True):
     doc = wd.doc
     wall = wd.wall
     if SketchEditScope is None or not hasattr(wall, "CreateProfileSketch"):
@@ -397,7 +404,7 @@ def apply_profile(wd, holes, replace):
                     doc.Delete(dels)
             sp = sketch.SketchPlane
             for h in holes:
-                for seg in FP.hole_segments(h, wd.tol):
+                for seg in FP.hole_segments(h, wd.tol, arcs):
                     doc.Create.NewModelCurve(_seg_curve(seg, P), sp)
                     made += 1
             t.Commit()
@@ -418,7 +425,7 @@ def apply_profile(wd, holes, replace):
 # --------------------------------------------------------------------------
 # option 2: a Generic Model family the shape of the wall
 # --------------------------------------------------------------------------
-def apply_family(wd, holes, o):
+def apply_family(wd, holes, o, arcs=True):
     doc = wd.doc
     app = doc.Application
     template = find_generic_template(app)
@@ -470,7 +477,7 @@ def apply_family(wd, holes, o):
             prof.Append(ca)
             for h in holes:
                 ca = CurveArray()
-                for seg in FP.hole_segments(h, wd.tol):
+                for seg in FP.hole_segments(h, wd.tol, arcs):
                     ca.Append(_seg_curve(seg, P))
                 prof.Append(ca)
             ext = fdoc.FamilyCreate.NewExtrusion(True, prof, sp, ly1 - ly0)
@@ -575,8 +582,10 @@ class FacadeWindow(dee_branding.DeeBrandedWindow):
         self.action = None
         self.holes = []
         self.stats = {}
+        self._att = []          # attractor points, wall (u, v) in feet
+        self._cache = {}        # raw pattern tiles, reused while only shape sliders move
         self._timer = DispatcherTimer()
-        self._timer.Interval = TimeSpan.FromMilliseconds(180)
+        self._timer.Interval = TimeSpan.FromMilliseconds(90)
         self._timer.Tick += self._on_tick
         self.Closed += self._on_closed
 
@@ -691,6 +700,33 @@ class FacadeWindow(dee_branding.DeeBrandedWindow):
         if dlg.ShowDialog() == DialogResult.OK:
             self.fam_folder_tb.Text = dlg.SelectedPath
 
+    # -- attractor points (click on the preview)
+    def _canvas_uv(self, args):
+        pos = args.GetPosition(self.canvas_grid)
+        b = FP.bbox(self.wd.outer)
+        u = (b[2] - pos.X) if self.wd.flip else (b[0] + pos.X)
+        return (u, b[3] - pos.Y)
+
+    def canvas_click(self, sender, args):
+        u, v = self._canvas_uv(args)
+        b = FP.bbox(self.wd.outer)
+        if b[0] <= u <= b[2] and b[1] <= v <= b[3]:
+            self._att.append((u, v))
+            self._recompute()
+
+    def canvas_rclick(self, sender, args):
+        if not self._att:
+            return
+        u, v = self._canvas_uv(args)
+        i = min(range(len(self._att)),
+                key=lambda k: (self._att[k][0] - u) ** 2 + (self._att[k][1] - v) ** 2)
+        self._att.pop(i)
+        self._recompute()
+
+    def att_clear_click(self, sender, args):
+        self._att = []
+        self._recompute()
+
     def repick_click(self, sender, args):
         self.action = "repick"
         self.Close()
@@ -716,7 +752,8 @@ class FacadeWindow(dee_branding.DeeBrandedWindow):
     def _sync_panels(self):
         idx = max(0, self.pattern_cb.SelectedIndex)
         for i, panel in enumerate([self.vor_panel, self.hex_panel, self.dia_panel,
-                                   self.grid_panel, self.circ_panel]):
+                                   self.grid_panel, self.circ_panel, self.star_panel,
+                                   self.tri_panel, self.wave_panel, self.pix_panel]):
             panel.Visibility = Visibility.Visible if i == idx else Visibility.Collapsed
         fam = bool(self.out_family_rb.IsChecked)
         self.profile_panel.Visibility = Visibility.Collapsed if fam else Visibility.Visible
@@ -771,6 +808,18 @@ class FacadeWindow(dee_branding.DeeBrandedWindow):
             "mullion": mm("mullion_sl"), "border": mm("border_sl"),
             "round": pct("round_sl"), "fade": pct("fade_sl"), "direction": direction,
             "min_open": mm("min_sl"), "keep_partial": bool(self.keep_partial_cb.IsChecked),
+            "star_pitch": mm("star_pitch_sl"), "star_size": pct("star_size_sl"),
+            "star_sharp": pct("star_sharp_sl"), "star_fill": bool(self.star_fill_cb.IsChecked),
+            "tri_size": mm("tri_size_sl"), "tri_jitter": pct("tri_jitter_sl"),
+            "wave_pitch": mm("wave_pitch_sl"), "wave_amp": pct("wave_amp_sl"),
+            "wave_len": mm("wave_len_sl"), "wave_shift": pct("wave_shift_sl"),
+            "wave_horizontal": bool(self.wave_horiz_cb.IsChecked),
+            "pix_size": mm("pix_size_sl"), "pix_max": int(self.pix_max_sl.Value),
+            "pix_fill": pct("pix_fill_sl"),
+            "attractors": list(self._att),
+            "att_mode": "close" if self.att_mode_cb.SelectedIndex == 1 else "grow",
+            "att_strength": pct("att_strength_sl"),
+            "att_radius": mm("att_radius_sl"),
             # output
             "family": fam,
             "replace": bool(self.replace_cb.IsChecked),
@@ -797,7 +846,8 @@ class FacadeWindow(dee_branding.DeeBrandedWindow):
     def _recompute(self):
         o = self._read()
         try:
-            self.holes, self.stats = FP.build(o, self.wd.outer, self._obstacles(o), self.wd.tol)
+            self.holes, self.stats = FP.build(o, self.wd.outer, self._obstacles(o), self.wd.tol,
+                                              self._cache)
         except Exception as e:
             self.holes, self.stats = [], {}
             self.info_tb.Text = u"Pattern error: {0}".format(e)
@@ -836,7 +886,7 @@ class FacadeWindow(dee_branding.DeeBrandedWindow):
         if not o["family"] and not o["replace"]:
             parts += [ring(p) for p in wd.inner]
         for h in self.holes:
-            parts.append(ring(FP.tessellate(FP.hole_segments(h, wd.tol))))
+            parts.append(ring(FP.tessellate(FP.hole_segments(h, wd.tol), 4)))
         if o["family"] and o["fam_cut"]:
             for r in wd.inserts:
                 parts.append(ring([(r[0], r[1]), (r[2], r[1]), (r[2], r[3]), (r[0], r[3])]))
@@ -852,7 +902,31 @@ class FacadeWindow(dee_branding.DeeBrandedWindow):
         obs = [ring([(r[0], r[1]), (r[2], r[1]), (r[2], r[3]), (r[0], r[3])]) for r in wd.inserts]
         self.obst_path.Data = Geometry.Parse(u" ".join(obs)) if obs else None
 
+        # attractor points: a dot each + a dashed circle at the radius
+        dots = GeometryGroup()
+        rings = GeometryGroup()
+        dot_r = max(W, H) / 120.0
+        for (u, v) in self._att:
+            c = Point(X(u), Y(v))
+            dots.Children.Add(EllipseGeometry(c, dot_r, dot_r))
+            rings.Children.Add(EllipseGeometry(c, o["att_radius"], o["att_radius"]))
+        self.att_path.Data = dots if self._att else None
+        self.att_ring_path.Data = rings if self._att else None
+        self.att_path.StrokeThickness = lw
+        self.att_ring_path.StrokeThickness = lw * 1.5
+        n = len(self._att)
+        self.att_count_tb.Text = (u"No points - click the preview" if not n else
+                                  u"{0} point{1}".format(n, u"" if n == 1 else u"s"))
+
     # -- apply
+    def _build(self, o, arcs):
+        if o["family"]:
+            return apply_family(self.wd, self.holes, o, arcs)
+        return apply_profile(self.wd, self.holes, o["replace"], arcs)
+
+    def _has_arcs(self, o):
+        return any(h["kind"] == "circle" or h.get("round", 0) > 0 for h in self.holes)
+
     def apply_click(self, sender, args):
         self._timer.Stop()
         o = self._recompute()
@@ -861,21 +935,32 @@ class FacadeWindow(dee_branding.DeeBrandedWindow):
             return
         self.status_tb.Text = u"Building {0} openings...".format(len(self.holes))
         try:
+            # Revit's geometry kernel sometimes refuses a big set of arcs
+            # ("Unexpected internal error"). Each attempt is rolled back on
+            # failure, so retry once with the arcs as short straight chords.
+            fallback = u""
+            try:
+                res = self._build(o, True)
+            except Exception as first:
+                if not self._has_arcs(o):
+                    raise
+                self.status_tb.Text = u"Revit refused the curved edges ({0}) - retrying with straight chords...".format(first)
+                res = self._build(o, False)
+                fallback = u"   (curves built as short straight lines - Revit refused the arcs)"
             if o["family"]:
-                res = apply_family(self.wd, self.holes, o)
                 if res is None:
                     self.status_tb.Text = u"Cancelled."
                     return
                 path, _inst, note = res
-                self.status_tb.Text = u"Family placed: {0}   {1}".format(os.path.basename(path), note)
+                self.status_tb.Text = u"Family placed: {0}   {1}{2}".format(os.path.basename(path), note, fallback)
                 if o["fam_wall"] == 2:
                     self.apply_b.IsEnabled = False
                     self.status_tb.Text += u"   Pick another wall to continue."
                 self._new_family_name()
             else:
-                n = apply_profile(self.wd, self.holes, o["replace"])
-                self.status_tb.Text = u"Done - {0} openings ({1} lines / arcs) cut into the wall's profile.".format(
-                    len(self.holes), n)
+                n = res
+                self.status_tb.Text = u"Done - {0} openings ({1} lines / arcs) cut into the wall's profile.{2}".format(
+                    len(self.holes), n, fallback)
                 # re-read the wall: it now has a profile sketch
                 self.wd = WallData(self.wd.doc, self.wd.wall)
                 self._show_wall_info()

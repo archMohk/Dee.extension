@@ -112,12 +112,16 @@
                         <ComboBoxItem Content="Diamonds"/>
                         <ComboBoxItem Content="Grid / slots"/>
                         <ComboBoxItem Content="Circles (perforated)"/>
+                        <ComboBoxItem Content="Mashrabiya stars"/>
+                        <ComboBoxItem Content="Triangles"/>
+                        <ComboBoxItem Content="Wave slots"/>
+                        <ComboBoxItem Content="Pixel / random blocks"/>
                     </ComboBox>
 
                     <Border x:Name="vor_panel" BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <TextBlock Text="Cells:" VerticalAlignment="Center"/>
                             <DockPanel Grid.Column="1">
                                 <TextBlock DockPanel.Dock="Right" x:Name="vor_count_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
@@ -136,12 +140,6 @@
                                 <TextBlock DockPanel.Dock="Right" x:Name="vor_density_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
                                 <Slider x:Name="vor_density_sl" Minimum="0" Maximum="100" Value="0" SmallChange="1" LargeChange="10" ValueChanged="option_changed"
                                         ToolTip="More, smaller cells toward the Direction below (0 = even everywhere)."/>
-                            </DockPanel>
-                            <TextBlock Grid.Row="3" Text="Random seed:" VerticalAlignment="Center" Margin="0,6,0,0"/>
-                            <DockPanel Grid.Row="3" Grid.Column="1" Margin="0,6,0,0">
-                                <Button DockPanel.Dock="Right" Content="Shuffle" Width="70" Height="24" Margin="6,0,0,0" Click="shuffle_click"
-                                        ToolTip="A new random arrangement (also used by Circles' size variation)."/>
-                                <TextBox x:Name="seed_tb" Height="24" Text="7" VerticalContentAlignment="Center" TextChanged="option_changed"/>
                             </DockPanel>
                         </Grid>
                     </Border>
@@ -227,6 +225,111 @@
                         </Grid>
                     </Border>
 
+                    <Border x:Name="star_panel" BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Text="Star spacing:" VerticalAlignment="Center"/>
+                            <DockPanel Grid.Column="1">
+                                <TextBlock DockPanel.Dock="Right" x:Name="star_pitch_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="star_pitch_sl" Minimum="100" Maximum="3000" Value="600" SmallChange="10" LargeChange="50" ValueChanged="option_changed"
+                                        ToolTip="Centre-to-centre distance of the stars (mm)."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="1" Text="Star size:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="star_size_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="star_size_sl" Minimum="20" Maximum="100" Value="90" SmallChange="1" LargeChange="5" ValueChanged="option_changed"
+                                        ToolTip="100% = star tips one mullion apart."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="2" Text="Star shape:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="2" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="star_sharp_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="star_sharp_sl" Minimum="30" Maximum="95" Value="77" SmallChange="1" LargeChange="5" ValueChanged="option_changed"
+                                        ToolTip="Inner radius of the 8-point star: low = sharp spiky points, 77% = classic two-squares star, high = almost an octagon."/>
+                            </DockPanel>
+                            <CheckBox Grid.Row="3" Grid.Column="1" x:Name="star_fill_cb" Content="Small octagons in the gaps between stars" Margin="0,6,0,0" IsChecked="True"
+                                      Checked="option_changed" Unchecked="option_changed"/>
+                        </Grid>
+                    </Border>
+
+                    <Border x:Name="tri_panel" BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Text="Triangle size:" VerticalAlignment="Center"/>
+                            <DockPanel Grid.Column="1">
+                                <TextBlock DockPanel.Dock="Right" x:Name="tri_size_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="tri_size_sl" Minimum="100" Maximum="4000" Value="900" SmallChange="10" LargeChange="100" ValueChanged="option_changed"
+                                        ToolTip="Side length of the triangles (mm), mullion included."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="1" Text="Randomness:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="tri_jitter_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="tri_jitter_sl" Minimum="0" Maximum="100" Value="0" SmallChange="1" LargeChange="10" ValueChanged="option_changed"
+                                        ToolTip="0 = regular equilateral triangles. Higher = irregular, faceted triangles (uses the random seed)."/>
+                            </DockPanel>
+                        </Grid>
+                    </Border>
+
+                    <Border x:Name="wave_panel" BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Text="Slot spacing:" VerticalAlignment="Center"/>
+                            <DockPanel Grid.Column="1">
+                                <TextBlock DockPanel.Dock="Right" x:Name="wave_pitch_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="wave_pitch_sl" Minimum="40" Maximum="2000" Value="300" SmallChange="5" LargeChange="25" ValueChanged="option_changed"
+                                        ToolTip="Centre-to-centre distance of the slots (mm)."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="1" Text="Wave depth:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="wave_amp_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="wave_amp_sl" Minimum="0" Maximum="100" Value="70" SmallChange="1" LargeChange="10" ValueChanged="option_changed"
+                                        ToolTip="How much the slot width swells and pinches (0 = straight slots)."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="2" Text="Wave length:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="2" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="wave_len_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="wave_len_sl" Minimum="300" Maximum="20000" Value="3000" SmallChange="50" LargeChange="500" ValueChanged="option_changed"
+                                        ToolTip="Length of one full wave along the slot (mm)."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="3" Text="Wave shift:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="3" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="wave_shift_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="wave_shift_sl" Minimum="0" Maximum="50" Value="8" SmallChange="1" LargeChange="5" ValueChanged="option_changed"
+                                        ToolTip="Phase shift from one slot to the next (% of a wave) - makes the diagonal ripple."/>
+                            </DockPanel>
+                            <CheckBox Grid.Row="4" Grid.Column="1" x:Name="wave_horiz_cb" Content="Horizontal slots" Margin="0,6,0,0"
+                                      Checked="option_changed" Unchecked="option_changed"/>
+                        </Grid>
+                    </Border>
+
+                    <Border x:Name="pix_panel" BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Text="Module size:" VerticalAlignment="Center"/>
+                            <DockPanel Grid.Column="1">
+                                <TextBlock DockPanel.Dock="Right" x:Name="pix_size_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="pix_size_sl" Minimum="50" Maximum="2000" Value="300" SmallChange="10" LargeChange="50" ValueChanged="option_changed"
+                                        ToolTip="Size of the smallest block (mm)."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="1" Text="Largest block:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="pix_max_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="pix_max_sl" Minimum="1" Maximum="8" Value="4" SmallChange="1" LargeChange="1" TickFrequency="1"
+                                        IsSnapToTickEnabled="True" ValueChanged="option_changed"
+                                        ToolTip="Blocks are 1 up to this many modules wide / tall."/>
+                            </DockPanel>
+                            <TextBlock Grid.Row="2" Text="Open blocks:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                            <DockPanel Grid.Row="2" Grid.Column="1" Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Right" x:Name="pix_fill_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <Slider x:Name="pix_fill_sl" Minimum="5" Maximum="100" Value="55" SmallChange="1" LargeChange="10" ValueChanged="option_changed"
+                                        ToolTip="Share of the blocks that become openings (the rest stay solid)."/>
+                            </DockPanel>
+                        </Grid>
+                    </Border>
+
                     <!-- ================= SHAPE ================= -->
                     <TextBlock Text="3.  Openings" FontWeight="Bold" FontSize="13" Margin="0,14,0,0"/>
                     <Grid Margin="0,6,0,0">
@@ -234,6 +337,7 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
                         <TextBlock Text="Mullion width:" VerticalAlignment="Center"/>
                         <DockPanel Grid.Column="1">
@@ -268,6 +372,7 @@
                             <ComboBoxItem Content="Toward the right"/>
                             <ComboBoxItem Content="Toward the edges"/>
                             <ComboBoxItem Content="Toward the centre"/>
+                            <ComboBoxItem Content="Toward the attractor points"/>
                         </ComboBox>
                         <TextBlock Grid.Row="5" Text="Smallest opening:" VerticalAlignment="Center" Margin="0,6,0,0"/>
                         <DockPanel Grid.Row="5" Grid.Column="1" Margin="0,6,0,0">
@@ -280,18 +385,59 @@
                                   ToolTip="Hexagons / Diamonds / Grid: keep the cells the border cuts through (off = whole cells only)."/>
                         <CheckBox Grid.Row="7" Grid.Column="1" x:Name="avoid_cb" Content="Keep clear of doors, windows and openings" Margin="0,6,0,0" IsChecked="True"
                                   Checked="option_changed" Unchecked="option_changed"/>
+                        <TextBlock Grid.Row="8" Text="Random seed:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                        <DockPanel Grid.Row="8" Grid.Column="1" Margin="0,6,0,0">
+                            <Button DockPanel.Dock="Right" Content="Shuffle" Width="70" Height="24" Margin="6,0,0,0" Click="shuffle_click"
+                                    ToolTip="A new random arrangement (Voronoi, circle sizes, triangles, pixel blocks)."/>
+                            <TextBox x:Name="seed_tb" Height="24" Text="7" VerticalContentAlignment="Center" TextChanged="option_changed"/>
+                        </DockPanel>
                     </Grid>
+
+                    <!-- ================= ATTRACTORS ================= -->
+                    <TextBlock Text="4.  Attractor points" FontWeight="Bold" FontSize="13" Margin="0,14,0,0"/>
+                    <TextBlock TextWrapping="Wrap" Opacity="0.75" Margin="0,4,0,0"
+                               Text="Click the preview to drop a point; right-click near a point to remove it. Around each point the openings grow or close."/>
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <TextBlock Text="Near the points:" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1" x:Name="att_mode_cb" Height="24" SelectedIndex="0" SelectionChanged="option_changed">
+                            <ComboBoxItem Content="Openings grow (more open)"/>
+                            <ComboBoxItem Content="Openings close (more solid)"/>
+                        </ComboBox>
+                        <TextBlock Grid.Row="1" Text="Strength:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                        <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,6,0,0">
+                            <TextBlock DockPanel.Dock="Right" x:Name="att_strength_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            <Slider x:Name="att_strength_sl" Minimum="0" Maximum="100" Value="80" SmallChange="1" LargeChange="10" ValueChanged="option_changed"
+                                    ToolTip="Grow: how much the openings FAR from the points close. Close: how much the openings AT the points close."/>
+                        </DockPanel>
+                        <TextBlock Grid.Row="2" Text="Radius:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                        <DockPanel Grid.Row="2" Grid.Column="1" Margin="0,6,0,0">
+                            <TextBlock DockPanel.Dock="Right" x:Name="att_radius_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            <Slider x:Name="att_radius_sl" Minimum="300" Maximum="30000" Value="4000" SmallChange="100" LargeChange="500" ValueChanged="option_changed"
+                                    ToolTip="How far each point reaches (mm) - the dashed circle in the preview."/>
+                        </DockPanel>
+                        <DockPanel Grid.Row="3" Grid.Column="1" Margin="0,6,0,0">
+                            <Button DockPanel.Dock="Right" Content="Clear points" Width="90" Height="24" Click="att_clear_click"/>
+                            <TextBlock x:Name="att_count_tb" VerticalAlignment="Center" Text="No points"/>
+                        </DockPanel>
+                    </Grid>
+
                 </StackPanel>
             </ScrollViewer>
 
             <DockPanel Grid.Column="1">
-                <TextBlock DockPanel.Dock="Top" Text="Preview - wall elevation (seen from the exterior side):" Margin="0,0,0,4"/>
+                <TextBlock DockPanel.Dock="Top" Margin="0,0,0,4" TextWrapping="Wrap"
+                           Text="Preview - wall elevation seen from the exterior side. Click to add an attractor point, right-click to remove one."/>
                 <TextBlock DockPanel.Dock="Bottom" x:Name="info_tb" Margin="0,6,0,0" TextWrapping="Wrap" FontWeight="Bold"/>
                 <Border BorderBrush="Gray" BorderThickness="1" Background="White" ClipToBounds="True">
                     <Viewbox Stretch="Uniform" Margin="12">
-                        <Grid x:Name="canvas_grid" Width="100" Height="100">
+                        <Grid x:Name="canvas_grid" Width="100" Height="100" Background="Transparent" Cursor="Cross"
+                              MouseLeftButtonUp="canvas_click" MouseRightButtonUp="canvas_rclick">
                             <Path x:Name="wall_path" Fill="#FF9AA3AD" Stroke="#FF404040" StrokeThickness="0.05"/>
-                            <Path x:Name="obst_path" Stroke="#FFF2994D" StrokeThickness="0.06" StrokeDashArray="3,2" Fill="#22F2994D"/>
+                            <Path x:Name="obst_path" Stroke="#FFF2994D" StrokeThickness="0.06" StrokeDashArray="3,2" Fill="#22F2994D" IsHitTestVisible="False"/>
+                            <Path x:Name="att_ring_path" Stroke="#FFE0457B" StrokeThickness="0.06" StrokeDashArray="4,3" IsHitTestVisible="False"/>
+                            <Path x:Name="att_path" Fill="#FFE0457B" Stroke="White" StrokeThickness="0.06" IsHitTestVisible="False"/>
                         </Grid>
                     </Viewbox>
                 </Border>
