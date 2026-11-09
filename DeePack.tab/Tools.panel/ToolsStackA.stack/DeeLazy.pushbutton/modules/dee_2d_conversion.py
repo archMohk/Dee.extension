@@ -218,6 +218,7 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
         self.lines_cb.IsChecked = bool(st.get("lines", True))
         self.regions_cb.IsChecked = bool(st.get("regions", False))
         self.group_cb.IsChecked = bool(st.get("group", False))
+        self.one_region_cb.IsChecked = bool(st.get("one_region", True))
         self.pattern_cb.IsChecked = bool(st.get("pattern", False))
         (self.pat_model_rb if st.get("pat_model") else self.pat_drafting_rb).IsChecked = True
 
@@ -237,6 +238,7 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
             "width": self.width_tb.Text, "paper": bool(self.paper_cb.IsChecked),
             "lines": bool(self.lines_cb.IsChecked), "regions": bool(self.regions_cb.IsChecked),
             "group": bool(self.group_cb.IsChecked), "pattern": bool(self.pattern_cb.IsChecked),
+            "one_region": bool(self.one_region_cb.IsChecked),
             "pat_model": bool(self.pat_model_rb.IsChecked), "pattern_name": self.pattern_name_tb.Text,
             "line_style": _picked(self.line_style_cb), "region_line": _picked(self.region_line_cb),
             "region_type": _picked(self.region_type_cb),
@@ -544,7 +546,21 @@ def place(uidoc, window, o):
             if window.mode_cb.SelectedIndex != 1:
                 tries.append(window.geometry(False))
             tries.append([(_loop_pieces(o), [_loop_pieces(hl) for hl in hs]) for o, hs in window.shapes(0.0)])
-            for i in range(len(tries[0])):
+            done_as_one = False
+            if o.get("one_region", True):
+                fr, note = _one_region(doc, view, rtype, tries, loop_lines)
+                if fr is not None:
+                    done_as_one = True
+                    if edge is not None:
+                        try:
+                            fr.SetLineStyleId(edge.Id)
+                        except Exception:
+                            pass
+                    ids.Add(fr.Id)
+                    n_regions = 1
+                if note:
+                    report.append(note)
+            for i in range(0 if done_as_one else len(tries[0])):
                 fr = None
                 for geo in tries:
                     if i < len(geo) and geo[i][0]:
@@ -596,6 +612,96 @@ def place(uidoc, window, o):
     msg.extend(report)
     if failed_lines or failed_regions or o["pattern"] or counts["flattened"]:
         forms.alert(u"2D Conversion done:\n\n" + u"\n".join(msg))
+
+
+def _create_region(doc, view, rtype, curve_lists):
+    loops = List[CurveLoop]()
+    for lines in curve_lists:
+        cl = CurveLoop()
+        for c in lines:
+            cl.Append(c)
+        loops.Add(cl)
+    return FilledRegion.Create(doc, rtype.Id, view.Id, loops)
+
+
+def _shape_curves(shape, loop_lines):
+    """(outer_pieces, [hole_pieces]) -> [curve list per loop] or None."""
+    outer, holes = shape
+    if not outer:
+        return None
+    try:
+        first = loop_lines(outer)
+    except Exception:
+        return None
+    if not first:
+        return None
+    out = [first]
+    for hp in holes:
+        try:
+            c = loop_lines(hp)
+        except Exception:
+            c = None
+        if c:
+            out.append(c)
+    return out
+
+
+def _works(doc, view, rtype, curve_lists):
+    """Would Revit accept this region? Tested and rolled back."""
+    st = DB.SubTransaction(doc)
+    st.Start()
+    try:
+        _create_region(doc, view, rtype, curve_lists)
+        return True
+    except Exception:
+        return False
+    finally:
+        st.RollBack()
+
+
+def _one_region(doc, view, rtype, tries, loop_lines):
+    """Every shape of the image in ONE Filled Region (all outlines and
+    holes as loops of one sketch). tries = the same shape list in
+    simpler and simpler forms. Returns (region or None, note)."""
+    n = len(tries[0])
+    for geo in tries:                    # 1. everything at once
+        lists = []
+        for shape in geo:
+            c = _shape_curves(shape, loop_lines)
+            if c:
+                lists.extend(c)
+        if lists:
+            try:
+                return _create_region(doc, view, rtype, lists), None
+            except Exception:
+                pass
+    # 2. some shape is the problem: per shape, take the first form Revit
+    #    accepts on its own, drop shapes it never accepts, then combine
+    chosen, dropped = [], 0
+    for i in range(n):
+        if not tries[0][i][0]:
+            continue
+        ok = None
+        for geo in tries:
+            if i < len(geo):
+                c = _shape_curves(geo[i], loop_lines)
+                if c and _works(doc, view, rtype, c):
+                    ok = c
+                    break
+        if ok is None:
+            dropped += 1
+        else:
+            chosen.extend(ok)
+    if chosen:
+        try:
+            fr = _create_region(doc, view, rtype, chosen)
+            note = (u"{0} tiny or broken shape(s) were left out of the Filled Region.".format(dropped)
+                    if dropped else None)
+            return fr, note
+        except Exception:
+            pass
+    return None, (u"Revit would not take all shapes as one Filled Region (some shapes touch "
+                  u"each other) - they were made as separate Filled Regions instead.")
 
 
 def _region(doc, view, rtype, outer, holes, loop_lines):
