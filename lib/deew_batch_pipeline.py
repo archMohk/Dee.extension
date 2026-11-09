@@ -248,7 +248,15 @@ class BatchPipeline(object):
 def worker(ctx, item):
     import deew_background_worker as bgw
     logger = bgw.setup(ctx, "DeeWBatchSaveToCloud")
-    destination = dict(ctx.options.get("destination") or {})
+    options = ctx.options
+    dest_index = item.get("dest_index")
+    if dest_index is not None:
+        # "Upload to several ACC projects": one item per (model, project)
+        options = dict(ctx.options)
+        destination = dict((ctx.options.get("destinations") or [])[dest_index])
+        options["resolved_names"] = (ctx.options.get("resolved_names_by_dest") or [{}] * (dest_index + 1))[dest_index]
+    else:
+        destination = dict(ctx.options.get("destination") or {})
     token = bgw.cloud_token(ctx)
     destination["token"] = token
     model = bgw.local_model(ctx, item)
@@ -260,7 +268,7 @@ def worker(ctx, item):
         row.upload_status = "Failed - upload error"
         row.errors = why_not
         return bgw.row_to_result(row, STATUS_FIELD, SUCCESS)
-    pipeline = BatchPipeline(ctx.app, destination, ctx.options, logger)
+    pipeline = BatchPipeline(ctx.app, destination, options, logger)
     row = pipeline.process_one(model, token)
     ctx.log(u"  {0}{1}".format(row.upload_status, (" - " + row.errors) if row.errors else ""))
     return bgw.row_to_result(row, STATUS_FIELD, SUCCESS)

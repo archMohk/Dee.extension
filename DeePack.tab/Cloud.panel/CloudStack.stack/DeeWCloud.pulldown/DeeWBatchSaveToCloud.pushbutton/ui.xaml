@@ -56,8 +56,15 @@
                         <StackPanel Margin="6">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
                                        Text="Hub, Project, and Folder are loaded from Autodesk Construction Cloud by name - you never need to know or type a GUID."/>
-                            <Button x:Name="pick_destination_b" Content="Pick ACC Destination..." Click="pick_destination_click" Width="180" Height="26" HorizontalAlignment="Left"/>
+                            <CheckBox x:Name="multi_project_cb" Content="Upload to several ACC projects (every selected model is uploaded to every destination in the list)"
+                                      Margin="0,0,0,8" Checked="multi_project_changed" Unchecked="multi_project_changed"/>
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="pick_destination_b" Content="Pick ACC Destination..." Click="pick_destination_click" Width="180" Height="26" HorizontalAlignment="Left"/>
+                                <Button x:Name="remove_destination_b" Content="Remove Selected" Click="remove_destination_click" Width="120" Height="26" Margin="8,0,0,0" Visibility="Collapsed"/>
+                                <Button x:Name="clear_destinations_b" Content="Clear List" Click="clear_destinations_click" Width="90" Height="26" Margin="8,0,0,0" Visibility="Collapsed"/>
+                            </StackPanel>
                             <TextBlock x:Name="destination_tb" Text="No destination selected yet." Margin="0,8,0,0" FontStyle="Italic" TextWrapping="Wrap"/>
+                            <ListBox x:Name="destinations_lb" Height="120" Margin="0,8,0,0" SelectionMode="Extended" Visibility="Collapsed"/>
                         </StackPanel>
                     </GroupBox>
 
@@ -106,6 +113,7 @@
                         <DataGrid x:Name="report_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" RowHeaderWidth="0">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="File" Binding="{Binding file_name}" Width="140"/>
+                                <DataGridTextColumn Header="ACC Project" Binding="{Binding acc_project}" Width="120"/>
                                 <DataGridTextColumn Header="Model Type" Binding="{Binding original_model_type}" Width="100"/>
                                 <DataGridTextColumn Header="Worksharing" Binding="{Binding worksharing_enabled}" Width="90"/>
                                 <DataGridTextColumn Header="Upload Status" Binding="{Binding upload_status}" Width="140"/>

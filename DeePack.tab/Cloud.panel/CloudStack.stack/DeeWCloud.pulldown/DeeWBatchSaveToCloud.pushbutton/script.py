@@ -77,6 +77,8 @@ _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
 _DEFAULT_SETTINGS = {
     "last_source_folder": "",
     "last_destination": None,
+    "multi_project": False,
+    "last_destinations": [],
     "options": {},
 }
 
@@ -84,6 +86,35 @@ from dee_ui import SafeProgress as _SafeProgress
 from deew_batch_pipeline import _revit_version_text
 import deew_background_ui
 from deew_batch_pipeline import BatchPipeline
+
+
+def _strip_token(destination):
+    d = dict(destination or {})
+    d.pop("token", None)
+    return d
+
+
+def _destination_label(destination):
+    return u"{0} / {1} / {2}".format(
+        destination.get("hub_name", "?"), destination.get("project_name", "?"),
+        destination.get("folder_name", "?"))
+
+
+def _combined_status(statuses, destination_count):
+    """One model's grid status: the plain status for a single project,
+    otherwise "Uploaded to n/m projects" plus the first problem."""
+    if destination_count <= 1 or len(statuses) == 1:
+        return statuses[0]
+    ok = sum(1 for s in statuses if s == "Uploaded")
+    text = "Uploaded to {0}/{1} projects".format(ok, destination_count)
+    problems = [s for s in statuses if s != "Uploaded"]
+    if problems:
+        text += " - " + problems[0]
+    return text
+
+
+def _destination_key(destination):
+    return (destination.get("project_id"), destination.get("folder_id"))
 
 
 class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
@@ -97,6 +128,7 @@ class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
         self.logger = deew_logger.DeeWLogger(_TOOL_NAME)
         self._models = []
         self._destination = None
+        self._destinations = []   # "Upload to several ACC projects" list
         self._report_rows = []
         self._status_lines = []
         self._dialog_handler = None
@@ -144,6 +176,8 @@ class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
         return {
             "last_source_folder": self.source_folder_tb.Text,
             "last_destination": self._destination,
+            "multi_project": bool(self.multi_project_cb.IsChecked),
+            "last_destinations": [_strip_token(d) for d in self._destinations],
             "options": self._current_options(),
         }
 
@@ -152,7 +186,9 @@ class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
             self.source_folder_tb.Text = settings["last_source_folder"]
         if settings.get("last_destination"):
             self._destination = settings["last_destination"]
-            self._refresh_destination_text()
+        self._destinations = [d for d in (settings.get("last_destinations") or []) if isinstance(d, dict)]
+        self.multi_project_cb.IsChecked = bool(settings.get("multi_project", False))
+        self._refresh_destination_text()
         self._apply_saved_options(settings.get("options", {}))
 
     def _save_settings(self):
@@ -287,14 +323,51 @@ class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
         self.models_grid.ItemsSource = self._models
 
     # ---------------- Destination tab ----------------
+    def _is_multi(self):
+        try:
+            return bool(self.multi_project_cb.IsChecked)
+        except Exception:
+            return False
+
+    def _active_destinations(self):
+        """Every destination the batch uploads to: the list in "several
+        ACC projects" mode, otherwise the single picked destination."""
+        if self._is_multi():
+            return list(self._destinations)
+        return [self._destination] if self._destination else []
+
     def _refresh_destination_text(self):
+        try:
+            from System.Windows import Visibility
+            multi = self._is_multi()
+            shown = Visibility.Visible if multi else Visibility.Collapsed
+            self.destinations_lb.Visibility = shown
+            self.remove_destination_b.Visibility = shown
+            self.clear_destinations_b.Visibility = shown
+            self.pick_destination_b.Content = "Add ACC Destination..." if multi else "Pick ACC Destination..."
+            self.destinations_lb.Items.Clear()
+            for d in self._destinations:
+                self.destinations_lb.Items.Add(_destination_label(d))
+        except Exception:
+            multi = False
+        if multi:
+            n = len(self._destinations)
+            self.destination_tb.Text = (
+                "No destinations in the list yet - click Add ACC Destination... once per project." if not n else
+                "{0} destination(s): every selected model is uploaded to each of them.".format(n))
+            return
         if not self._destination:
             self.destination_tb.Text = "No destination selected yet."
             return
-        self.destination_tb.Text = "{0} / {1} / {2}".format(
-            self._destination.get("hub_name", "?"),
-            self._destination.get("project_name", "?"),
-            self._destination.get("folder_name", "?"))
+        self.destination_tb.Text = _destination_label(self._destination)
+
+    def multi_project_changed(self, sender, args):
+        if not hasattr(self, "_destinations"):
+            return
+        # Seed the list with the single destination the first time it's switched on
+        if self._is_multi() and not self._destinations and self._destination:
+            self._destinations.append(_strip_token(self._destination))
+        self._refresh_destination_text()
 
     def pick_destination_click(self, sender, args):
         self._log("Loading ACC Hubs/Projects/Folders...")
@@ -305,9 +378,30 @@ class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
             return
         if not destination:
             return
+        if self._is_multi():
+            if any(_destination_key(d) == _destination_key(destination) for d in self._destinations):
+                forms.alert("That project/folder is already in the list.")
+                return
+            self._destinations.append(destination)
+            self._refresh_destination_text()
+            self._log("Destination added: {0}".format(_destination_label(destination)))
+            return
         self._destination = destination
         self._refresh_destination_text()
         self._log("Destination set: {0}".format(self.destination_tb.Text))
+
+    def remove_destination_click(self, sender, args):
+        picked = set(int(i) for i in [self.destinations_lb.Items.IndexOf(s)
+                                      for s in list(self.destinations_lb.SelectedItems)] if i >= 0)
+        if not picked:
+            forms.alert("Select destination(s) in the list to remove.")
+            return
+        self._destinations = [d for i, d in enumerate(self._destinations) if i not in picked]
+        self._refresh_destination_text()
+
+    def clear_destinations_click(self, sender, args):
+        self._destinations = []
+        self._refresh_destination_text()
 
     # ---------------- Run ----------------
     def run_click(self, sender, args):
@@ -315,15 +409,17 @@ class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
         if not selected:
             forms.alert("Scan a folder and select at least one model first.")
             return
-        if not self._destination:
-            forms.alert("Pick an ACC destination first.")
+        destinations = self._active_destinations()
+        if not destinations:
+            forms.alert("Add at least one ACC destination first." if self._is_multi()
+                        else "Pick an ACC destination first.")
             return
 
         options = self._current_options()
         self._save_settings()
 
         if deew_background_ui.is_background(self):
-            self._run_background(selected, options)
+            self._run_background(selected, options, destinations)
             return
 
         # Always attached: with "Automatically Resolve Dialogs" off, it still
@@ -340,25 +436,56 @@ class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
         except Exception as e:
             self.logger.exception("Could not attach dialog handler", e)
 
-        pipeline = BatchPipeline(self.application, self._destination, options, self.logger)
-        token = self._destination.get("token") or cloudsvc.get_token()
+        token = destinations[0].get("token") or cloudsvc.get_token()
+        multi = len(destinations) > 1
+        pipelines = []
+        for i, dest in enumerate(destinations):
+            dest = dict(dest)
+            dest["token"] = token
+            dest_options = dict(options)
+            if i < len(destinations) - 1:
+                # The file is reopened from disk for the next project, so it
+                # must be closed after each upload except the last one.
+                dest_options["close_after"] = True
+            pipelines.append(BatchPipeline(self.application, dest, dest_options, self.logger))
 
         report_rows = []
+        cancelled = False
         try:
-            with progsvc.DeeWProgressService(_TOOL_TITLE, len(selected)) as prog:
+            with progsvc.DeeWProgressService(_TOOL_TITLE, len(selected) * len(destinations)) as prog:
                 for model in selected:
-                    if prog.cancelled:
+                    statuses = []
+                    for i, pipeline in enumerate(pipelines):
+                        if prog.cancelled:
+                            cancelled = True
+                            break
+                        dest = pipeline.destination
+                        label = model.file_name + ((" -> " + dest.get("project_name", "?")) if multi else "")
+                        prog.step(label, "Processing")
+                        self._log("Processing '{0}' ({1})...".format(label, model.upload_mode))
+                        if i > 0 and model.live_document is not None:
+                            # The open document became a cloud model on its first upload.
+                            row = reportgen.ReportRow(model.file_name, model.file_path,
+                                                      _revit_version_text(self.application), model.model_type)
+                            row.upload_status = ("Skipped - open in this session, so it can only go to the "
+                                                 "first project; close it and re-add it from disk for several projects")
+                        else:
+                            row = pipeline.process_one(model, token)
+                        if not row.acc_project:
+                            row.acc_hub = dest.get("hub_name", "")
+                            row.acc_project = dest.get("project_name", "")
+                            row.acc_folder = dest.get("folder_name", "")
+                        report_rows.append(row)
+                        statuses.append(row.upload_status)
+                        outcome = "success" if "upload" in row.upload_status.lower() else (
+                            "skipped" if "skip" in row.upload_status.lower() else "failed")
+                        prog.finish_file(outcome)
+                        self._log("'{0}': {1}".format(label, row.upload_status))
+                    if statuses:
+                        model.status = _combined_status(statuses, len(destinations))
+                    if cancelled:
                         self._log("Cancelled by user.")
                         break
-                    prog.step(model.file_name, "Processing")
-                    self._log("Processing '{0}' ({1})...".format(model.file_name, model.upload_mode))
-                    row = pipeline.process_one(model, token)
-                    report_rows.append(row)
-                    model.status = row.upload_status
-                    outcome = "success" if "upload" in row.upload_status.lower() else (
-                        "skipped" if "skip" in row.upload_status.lower() else "failed")
-                    prog.finish_file(outcome)
-                    self._log("'{0}': {1}".format(model.file_name, row.upload_status))
         finally:
             if self._dialog_handler is not None:
                 try:
@@ -383,33 +510,56 @@ class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
         forms.alert(self.summary_tb.Text, title=_TOOL_TITLE)
 
     # ---------------- Background Revit ----------------
-    def _run_background(self, selected, options):
+    def _run_background(self, selected, options, destinations):
         stay = [m for m in selected if m.live_document is not None]
         if stay:
             self._log("{0} model(s) open in this session cannot go to a background Revit - untick them or "
                       "run them by this session: {1}".format(len(stay), ", ".join(m.file_name for m in stay)))
             selected = [m for m in selected if m.live_document is None]
-        token = self._destination.get("token") or cloudsvc.get_token()
-        pipeline = BatchPipeline(self.application, self._destination, options, self.logger)
+        token = destinations[0].get("token") or cloudsvc.get_token()
         self._log("Reserving cloud model names...")
-        options["resolved_names"] = pipeline.reserve_names(selected, token)
-        destination = dict(self._destination)
-        destination.pop("token", None)
-        options["destination"] = destination
+        self._bg_lookup = {}
+        self._bg_dest_count = len(destinations)
+        if len(destinations) == 1:
+            pipeline = BatchPipeline(self.application, destinations[0], options, self.logger)
+            options["resolved_names"] = pipeline.reserve_names(selected, token)
+            options["destination"] = _strip_token(destinations[0])
+            items = [deew_background_ui.local_item(m) for m in selected]
+            for m in selected:
+                self._bg_lookup[m.file_path] = m
+        else:
+            # One background item per (model, project); the worker picks its
+            # destination by dest_index and each item opens the file from disk.
+            options["close_after"] = True   # the same file is reopened for the next project
+            options["destinations"] = [_strip_token(d) for d in destinations]
+            options["resolved_names_by_dest"] = [
+                BatchPipeline(self.application, d, options, self.logger).reserve_names(selected, token)
+                for d in destinations]
+            items = []
+            for m in selected:
+                for i, d in enumerate(destinations):
+                    item = deew_background_ui.local_item(m)
+                    item["key"] = u"{0}|{1}".format(m.file_path, i)
+                    item["name"] = u"{0} -> {1}".format(m.file_name, d.get("project_name", "?"))
+                    item["dest_index"] = i
+                    items.append(item)
+                    self._bg_lookup[item["key"]] = m
         options["token"] = token
-        items = [deew_background_ui.local_item(m) for m in selected]
         for m in selected:
             m.status = "Queued (background)"
         self._refresh_models_grid()
-        self._bg_lookup = dict((m.file_path, m) for m in selected)
         deew_background_ui.launch(
             self, "DeeWBatchSaveToCloud", "deew_batch_pipeline", "worker", items, options, [_THIS_DIR],
             reportgen.ReportRow, "upload_status", ("Uploaded",), self._background_done, title=_TOOL_TITLE)
 
     def _background_done(self, rows, results, how):
+        per_model = {}
         for key, m in self._bg_lookup.items():
             res = results.get(key)
-            m.status = (res or {}).get("status") or "Failed - not processed"
+            per_model.setdefault(id(m), (m, []))[1].append(
+                (res or {}).get("status") or "Failed - not processed")
+        for m, statuses in per_model.values():
+            m.status = _combined_status(statuses, getattr(self, "_bg_dest_count", 1))
         self._refresh_models_grid()
         self._report_rows = rows
         uploaded, failed, skipped = deew_background_ui.count(rows, "upload_status", ("Uploaded",))
