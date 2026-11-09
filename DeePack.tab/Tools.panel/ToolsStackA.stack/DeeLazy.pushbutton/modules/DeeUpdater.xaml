@@ -1,0 +1,74 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeLazy - Updater"
+        ShowInTaskbar="False"
+        MinHeight="560" MinWidth="820" Height="760" Width="1000"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+            <Button DockPanel.Dock="Right" x:Name="close_b" Content="Close" Click="close_click" Width="90" Height="28" Margin="8,0,0,0" VerticalAlignment="Bottom"/>
+            <TextBox x:Name="log_tb" Height="140" IsReadOnly="True" TextWrapping="Wrap"
+                     VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="11"/>
+        </DockPanel>
+
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10"
+                   Text="Pick one or more ACC projects, tick the Revit files to update, then Run. Each file is opened in a background Revit, synchronized with central (everything relinquished), closed, and then published on ACC. Files that cannot be opened are skipped and reported - the batch carries on."/>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button x:Name="pick_b" Content="Pick ACC Project(s)..." Click="pick_click" Width="150" Height="26"/>
+            <CheckBox x:Name="cache_cb" IsChecked="True" VerticalAlignment="Center" Margin="10,0,0,0"
+                      Content="Use cached file lists" ToolTip="Untick to rescan every picked project from ACC (slower, but picks up new files)."/>
+            <TextBlock Text="Search:" VerticalAlignment="Center" Margin="16,0,6,0"/>
+            <TextBox x:Name="search_tb" Width="220" Height="26" VerticalContentAlignment="Center" TextChanged="search_changed"/>
+            <Button x:Name="all_b" Content="Select All" Click="all_click" Width="80" Height="26" Margin="12,0,0,0"/>
+            <Button x:Name="none_b" Content="Select None" Click="none_click" Width="90" Height="26" Margin="6,0,0,0"/>
+            <TextBlock x:Name="count_tb" VerticalAlignment="Center" Margin="12,0,0,0" Opacity="0.75" Text="0 of 0 ticked"/>
+        </StackPanel>
+        <TextBlock DockPanel.Dock="Top" x:Name="info_tb" Opacity="0.75" Margin="0,0,0,6" TextWrapping="Wrap" Text="No projects picked yet."/>
+
+        <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <CheckBox x:Name="sync_cb" IsChecked="True" VerticalAlignment="Center"
+                          Content="Synchronize (open in background Revit, sync, relinquish all, close)"/>
+                <TextBlock Text="Comment:" VerticalAlignment="Center" Margin="16,0,6,0"/>
+                <TextBox x:Name="comment_tb" Width="220" Height="24" VerticalContentAlignment="Center" Text="DeeLazy - Updater"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <CheckBox x:Name="publish_cb" IsChecked="True" VerticalAlignment="Center"
+                          Content="Publish on ACC after the sync"/>
+                <ComboBox x:Name="pubmode_cb" Width="170" Height="24" Margin="10,0,0,0" SelectedIndex="0">
+                    <ComboBoxItem Content="Normal (with links)"/>
+                    <ComboBoxItem Content="Without links"/>
+                </ComboBox>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                <CheckBox x:Name="audit_cb" IsChecked="False" VerticalAlignment="Center" Content="Audit when opening"/>
+                <TextBlock Text="Background Revits:" VerticalAlignment="Center" Margin="20,0,6,0"
+                           ToolTip="How many Revits run at the same time in the background. Each one needs its own memory - 2 to 3 is usually the sweet spot on a workstation."/>
+                <ComboBox x:Name="par_cb" Width="50" Height="24" SelectedIndex="1">
+                    <ComboBoxItem Content="1"/>
+                    <ComboBoxItem Content="2"/>
+                    <ComboBoxItem Content="3"/>
+                    <ComboBoxItem Content="4"/>
+                    <ComboBoxItem Content="6"/>
+                    <ComboBoxItem Content="8"/>
+                </ComboBox>
+                <Button x:Name="stop_b" Content="Stop Background Job" Click="stop_click" Width="150" Height="24" Margin="16,0,0,0" Visibility="Collapsed"
+                        ToolTip="Finishes the model being processed, then skips the rest."/>
+            </StackPanel>
+            <Button x:Name="run_b" Content="Run Updater" Click="run_click" Height="32"/>
+        </StackPanel>
+
+        <DataGrid x:Name="files_grid" AutoGenerateColumns="False" CanUserAddRows="False" RowHeaderWidth="0"
+                  CurrentCellChanged="grid_changed">
+            <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="Select" Width="55"
+                                        Binding="{Binding selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                <DataGridTextColumn Header="Project" Binding="{Binding project}" Width="180" IsReadOnly="True"/>
+                <DataGridTextColumn Header="File" Binding="{Binding name}" Width="*" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="140" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Detail" Binding="{Binding detail}" Width="260" IsReadOnly="True"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>

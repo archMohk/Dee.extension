@@ -77,3 +77,4 @@ __pycache__/
 *.log
 .deeursfiles_acc_cache.json
 .deeremovelinks_acc_cache.json
+.deeupdater_acc_cache.json
