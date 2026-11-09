@@ -139,6 +139,23 @@
                     </Grid>
                     <CheckBox x:Name="group_cb" Content="Group everything (Detail Group)" Margin="0,8,0,0"/>
 
+                    <TextBlock Text="Put the result" FontWeight="Bold" Margin="0,14,0,0"/>
+                    <WrapPanel Margin="0,6,0,0">
+                        <RadioButton x:Name="dest_view_rb" GroupName="dest" Content="In the active view" IsChecked="True" Checked="dest_changed"/>
+                        <RadioButton x:Name="dest_rfa_rb" GroupName="dest" Content="As a Detail Item family (.rfa)" Margin="18,0,0,0" Checked="dest_changed"
+                                     ToolTip="Builds the lines / hatch inside a new Detail Item family (Revit's own Metric Detail Item template), saves the .rfa - reusable in any project."/>
+                    </WrapPanel>
+                    <StackPanel x:Name="rfa_panel" Margin="18,6,0,0">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Save as..." Width="80" Height="24" Margin="6,0,0,0" Click="rfa_browse_click"/>
+                            <TextBox x:Name="rfa_path_tb" Height="24" VerticalContentAlignment="Center"
+                                     ToolTip="Where the .rfa is saved. The file name is the family name."/>
+                        </DockPanel>
+                        <CheckBox x:Name="rfa_load_cb" Content="Load it into this project and place it (click its centre)" Margin="0,6,0,0" IsChecked="True"/>
+                        <TextBlock Text="The family origin is the centre of the image. Size: the Width above (× the active view scale when 'printed size' is on)."
+                                   TextWrapping="Wrap" Opacity="0.7" Margin="0,4,0,0"/>
+                    </StackPanel>
+
                     <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,14,0,0">
                         <StackPanel>
                             <CheckBox x:Name="pattern_cb" Content="Also save the image as a fill pattern" FontWeight="Bold"

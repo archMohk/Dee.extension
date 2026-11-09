@@ -53,7 +53,7 @@ clr.AddReference("System.Windows.Forms")
 from System.Collections.Generic import List
 from System.Windows import Point, Visibility
 from System.Windows.Media import FillRule, StreamGeometry
-from System.Windows.Forms import DialogResult, OpenFileDialog
+from System.Windows.Forms import DialogResult, OpenFileDialog, SaveFileDialog
 
 from pyrevit import forms
 import dee_branding
@@ -238,6 +238,10 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
         self._sync_make()
         self.group_cb.IsChecked = bool(st.get("group", False))
         self.one_region_cb.IsChecked = bool(st.get("one_region", True))
+        (self.dest_rfa_rb if st.get("dest") == "family" else self.dest_view_rb).IsChecked = True
+        self.rfa_path_tb.Text = st.get("rfa_path", u"")
+        self.rfa_load_cb.IsChecked = bool(st.get("rfa_load", True))
+        self._sync_dest()
         self.pattern_cb.IsChecked = bool(st.get("pattern", False))
         (self.pat_model_rb if st.get("pat_model") else self.pat_drafting_rb).IsChecked = True
 
@@ -259,6 +263,8 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
             "lines": self._want_lines(), "regions": self._want_hatch(), "make": self._make(),
             "group": bool(self.group_cb.IsChecked), "pattern": bool(self.pattern_cb.IsChecked),
             "one_region": bool(self.one_region_cb.IsChecked),
+            "dest": "family" if self.dest_rfa_rb.IsChecked else "view",
+            "rfa_path": (self.rfa_path_tb.Text or u"").strip(), "rfa_load": bool(self.rfa_load_cb.IsChecked),
             "pat_model": bool(self.pat_model_rb.IsChecked), "pattern_name": self.pattern_name_tb.Text,
             "line_style": _picked(self.line_style_cb), "region_line": _picked(self.region_line_cb),
             "region_type": _picked(self.region_type_cb),
@@ -387,6 +393,35 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
         for c in (self.regions_lbl, self.region_type_cb, self.region_line_lbl, self.region_line_cb, self.one_region_cb):
             c.IsEnabled = hatch
 
+    # ---------------- destination: view or .rfa ----------------
+    def _sync_dest(self):
+        fam = bool(self.dest_rfa_rb.IsChecked)
+        self.rfa_panel.IsEnabled = fam
+        self.group_cb.IsEnabled = not fam
+        self.place_b.Content = "Create family..." if fam else "Place..."
+
+    def dest_changed(self, sender, args):
+        if self._ready:
+            self._sync_dest()
+            if self.dest_rfa_rb.IsChecked and not (self.rfa_path_tb.Text or u"").strip():
+                self.rfa_browse_click(None, None)
+
+    def _default_rfa_path(self):
+        name = (self.pattern_name_tb.Text or u"").strip() or u"Detail Item"
+        folder = os.path.dirname(self.rfa_path_tb.Text or u"") or os.path.dirname(self.path_tb.Text or u"")
+        return os.path.join(folder or os.path.expanduser("~"), H._safe_filename(name) + u".rfa")
+
+    def rfa_browse_click(self, sender, args):
+        dlg = SaveFileDialog()
+        dlg.Filter = "Revit family (*.rfa)|*.rfa"
+        dlg.Title = "2D Conversion - save the Detail Item family"
+        cur = (self.rfa_path_tb.Text or u"").strip() or self._default_rfa_path()
+        if os.path.isdir(os.path.dirname(cur)):
+            dlg.InitialDirectory = os.path.dirname(cur)
+        dlg.FileName = os.path.basename(cur)
+        if dlg.ShowDialog() == DialogResult.OK:
+            self.rfa_path_tb.Text = dlg.FileName
+
     def make_changed(self, sender, args):
         if not self._ready:
             return
@@ -499,7 +534,18 @@ class Conversion2DWindow(dee_branding.DeeBrandedWindow):
         if not (o["lines"] or o["regions"] or o["pattern"]):
             forms.alert("Tick at least one of Detail Lines, Filled Regions or fill pattern.")
             return
-        if (o["lines"] or o["regions"]) and self.view.ViewType in H._NO_DETAIL_VIEWS:
+        if o["dest"] == "family":
+            if not o["rfa_path"]:
+                self.rfa_browse_click(None, None)
+                o["rfa_path"] = (self.rfa_path_tb.Text or u"").strip()
+                if not o["rfa_path"]:
+                    return
+            if not o["rfa_path"].lower().endswith(".rfa"):
+                o["rfa_path"] += ".rfa"
+            if not (o["lines"] or o["regions"]):
+                forms.alert("Choose Lines, Hatch or both for the family.")
+                return
+        elif (o["lines"] or o["regions"]) and self.view.ViewType in H._NO_DETAIL_VIEWS:
             forms.alert("The active view can't hold detail lines or filled regions.\n"
                         "Open a plan, section, elevation, drafting view or sheet and run it again.")
             return
@@ -551,31 +597,12 @@ def _make_pattern(doc, window, o):
     return fpe.GetFillPattern().Name, how, len(rgrids)
 
 
-def place(uidoc, window, o):
-    doc = uidoc.Document
-    view = doc.ActiveView
-    want_2d = o["lines"] or o["regions"]
-    origin = None
-    if want_2d:
-        _ensure_work_plane(doc, view)
-        try:
-            origin = uidoc.Selection.PickPoint("2D Conversion: click the BOTTOM-LEFT corner of the image (Esc to cancel)")
-        except OperationCanceledException:
-            return
-
-    _rows, w, h, _orig = window._lum
-    k = _float(o["width"], 100.0) / _MM * o["scale"] / w      # feet per pixel
-    tol_px = doc.Application.ShortCurveTolerance * 1.01 / k
-    right, up = view.RightDirection, view.UpDirection
-
-    def P(p):
-        return origin + right * (p[0] * k) + up * (p[1] * k)
-
+def _curve_builder(P, tol_px, counts):
+    """-> loop_lines(pieces): pieces of one loop -> Revit curves (Line /
+    exact NurbSpline), short pieces merged, refused splines flattened."""
     knots = List[float]([0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
-    counts = {"splines": 0, "flattened": 0}
 
     def loop_lines(pieces):
-        """Pieces of one loop -> Revit curves (Line / exact NurbSpline)."""
         pcs = _merge_short(pieces, tol_px)
         if pcs is None:
             return None
@@ -597,87 +624,136 @@ def place(uidoc, window, o):
                 kept.append(pts[-1])
                 out.extend(Line.CreateBound(P(a), P(b)) for a, b in zip(kept, kept[1:]))
         return out
+    return loop_lines
 
+
+def _draw(doc, view, window, o, loop_lines, line_style, edge_style, rtype):
+    """Creates the lines and/or filled regions of the image in `view` of
+    `doc` (a project or a family). Runs inside the caller's transaction.
+    Returns a stats dict with the new element ids."""
+    factory = doc.FamilyCreate if doc.IsFamilyDocument else doc.Create
+    st = {"ids": List[ElementId](), "lines": 0, "regions": 0,
+          "failed_lines": 0, "failed_regions": 0, "notes": []}
+    if o["lines"]:
+        for outer, holes in window.geometry():
+            for loop in ([outer] + holes if outer else []):
+                try:
+                    curves = loop_lines(loop)
+                except Exception:
+                    curves = None
+                for c in curves or []:
+                    try:
+                        dc = factory.NewDetailCurve(view, c)
+                        if line_style is not None:
+                            try:
+                                dc.LineStyle = line_style
+                            except Exception:
+                                pass
+                        st["ids"].Add(dc.Id)
+                        st["lines"] += 1
+                    except Exception:
+                        st["failed_lines"] += 1
+    if o["regions"]:
+        if rtype is None:
+            raise ValueError("Pick a Filled Region Type.")
+        # a shape Revit refuses is retried simpler: straight lines, then
+        # the exact pixel outline
+        tries = [window.geometry()]
+        if window.mode_cb.SelectedIndex != 1:
+            tries.append(window.geometry(False))
+        tries.append([(_loop_pieces(ol), [_loop_pieces(hl) for hl in hls]) for ol, hls in window.shapes(0.0)])
+        made = []
+        done_as_one = False
+        if o.get("one_region", True):
+            fr, note = _one_region(doc, view, rtype, tries, loop_lines)
+            if fr is not None:
+                done_as_one = True
+                made.append(fr)
+            if note:
+                st["notes"].append(note)
+        for i in range(0 if done_as_one else len(tries[0])):
+            if not tries[0][i][0]:
+                continue
+            fr = None
+            for geo in tries:
+                if i < len(geo) and geo[i][0]:
+                    fr = _region(doc, view, rtype, geo[i][0], geo[i][1], loop_lines)
+                    if fr is not None:
+                        break
+            if fr is None:
+                st["failed_regions"] += 1
+            else:
+                made.append(fr)
+        for fr in made:
+            if edge_style is not None:
+                try:
+                    fr.SetLineStyleId(edge_style.Id)
+                except Exception:
+                    pass
+            st["ids"].Add(fr.Id)
+        st["regions"] = len(made)
+    return st
+
+
+def _summary(o, st, counts, extra):
+    msg = []
+    if o["lines"]:
+        msg.append(u"{0} detail line(s) and curve(s){1}.".format(
+            st["lines"], u", {0} too short to draw".format(st["failed_lines"]) if st["failed_lines"] else u""))
+    if counts["flattened"]:
+        msg.append(u"{0} curve(s) Revit refused were drawn as short lines instead.".format(counts["flattened"]))
+    if o["regions"]:
+        msg.append(u"{0} filled region(s){1}.".format(
+            st["regions"], u", {0} shape(s) Revit refused (try a higher Simplify level or a lower resolution)".format(
+                st["failed_regions"]) if st["failed_regions"] else u""))
+    return msg + st["notes"] + extra
+
+
+def place(uidoc, window, o):
+    if o.get("dest") == "family":
+        _make_family(uidoc, window, o)
+        return
+    doc = uidoc.Document
+    view = doc.ActiveView
+    want_2d = o["lines"] or o["regions"]
+    origin = None
+    if want_2d:
+        _ensure_work_plane(doc, view)
+        try:
+            origin = uidoc.Selection.PickPoint("2D Conversion: click the BOTTOM-LEFT corner of the image (Esc to cancel)")
+        except OperationCanceledException:
+            return
+
+    _rows, w, h, _orig = window._lum
+    k = _float(o["width"], 100.0) / _MM * o["scale"] / w      # feet per pixel
+    tol_px = doc.Application.ShortCurveTolerance * 1.01 / k
+    right, up = view.RightDirection, view.UpDirection
+
+    def P(p):
+        return origin + right * (p[0] * k) + up * (p[1] * k)
+
+    counts = {"splines": 0, "flattened": 0}
+    loop_lines = _curve_builder(P, tol_px, counts)
     styles = dict(_line_styles(doc))
     region_types = dict(_region_types(doc))
-    ids = List[ElementId]()
-    n_lines = n_regions = 0
-    failed_lines = failed_regions = 0
+    st = None
     report = []
     t = Transaction(doc, "DeeLazy - 2D Conversion")
     t.Start()
     try:
-        if o["lines"]:
-            style = styles.get(o["line_style"])
-            for outer, holes in window.geometry():
-                for loop in ([outer] + holes if outer else []):
-                    try:
-                        curves = loop_lines(loop)
-                    except Exception:
-                        curves = None
-                    for c in curves or []:
-                        try:
-                            dc = doc.Create.NewDetailCurve(view, c)
-                            if style is not None:
-                                dc.LineStyle = style
-                            ids.Add(dc.Id)
-                            n_lines += 1
-                        except Exception:
-                            failed_lines += 1
-        if o["regions"]:
-            rtype = region_types.get(o["region_type"])
-            if rtype is None:
-                raise ValueError("Pick a Filled Region Type.")
-            edge = styles.get(o["region_line"])
-            # a shape Revit refuses is retried simpler: straight lines,
-            # then the exact pixel outline
-            tries = [window.geometry()]
-            if window.mode_cb.SelectedIndex != 1:
-                tries.append(window.geometry(False))
-            tries.append([(_loop_pieces(ol), [_loop_pieces(hl) for hl in hls]) for ol, hls in window.shapes(0.0)])
-            done_as_one = False
-            if o.get("one_region", True):
-                fr, note = _one_region(doc, view, rtype, tries, loop_lines)
-                if fr is not None:
-                    done_as_one = True
-                    if edge is not None:
-                        try:
-                            fr.SetLineStyleId(edge.Id)
-                        except Exception:
-                            pass
-                    ids.Add(fr.Id)
-                    n_regions = 1
-                if note:
-                    report.append(note)
-            for i in range(0 if done_as_one else len(tries[0])):
-                fr = None
-                for geo in tries:
-                    if i < len(geo) and geo[i][0]:
-                        fr = _region(doc, view, rtype, geo[i][0], geo[i][1], loop_lines)
-                        if fr is not None:
-                            break
-                if not tries[0][i][0]:
-                    continue
-                if fr is None:
-                    failed_regions += 1
-                    continue
-                if edge is not None:
-                    try:
-                        fr.SetLineStyleId(edge.Id)
-                    except Exception:
-                        pass
-                ids.Add(fr.Id)
-                n_regions += 1
+        if want_2d:
+            st = _draw(doc, view, window, o, loop_lines, styles.get(o["line_style"]),
+                       styles.get(o["region_line"]), region_types.get(o["region_type"]))
         if o["pattern"]:
             try:
                 name, how, n = _make_pattern(doc, window, o)
                 report.append(u"Fill pattern '{0}' {1} ({2} lines) + Filled Region Type '{0}'.".format(name, how, n))
             except Exception as e:
                 report.append(u"Fill pattern failed: {0}".format(e))
-        if o["group"] and ids.Count > 1:
+        if st is not None and o["group"] and st["ids"].Count > 1:
             try:
-                grp = doc.Create.NewGroup(ids)
-                ids = List[ElementId]([grp.Id])
+                grp = doc.Create.NewGroup(st["ids"])
+                st["ids"] = List[ElementId]([grp.Id])
             except Exception:
                 pass
         t.Commit()
@@ -685,22 +761,230 @@ def place(uidoc, window, o):
         t.RollBack()
         forms.alert(u"2D Conversion failed - nothing was changed:\n{0}".format(e))
         return
+    st = st or {"ids": List[ElementId](), "lines": 0, "regions": 0, "failed_lines": 0,
+                "failed_regions": 0, "notes": []}
     try:
-        if ids.Count:
-            uidoc.Selection.SetElementIds(ids)
+        if st["ids"].Count:
+            uidoc.Selection.SetElementIds(st["ids"])
     except Exception:
         pass
-    msg = []
-    if o["lines"]:
-        msg.append(u"{0} detail line(s) and curve(s){1}.".format(n_lines, u", {0} too short to draw".format(failed_lines) if failed_lines else u""))
-    if counts["flattened"]:
-        msg.append(u"{0} curve(s) Revit refused were drawn as short lines instead.".format(counts["flattened"]))
-    if o["regions"]:
-        msg.append(u"{0} filled region(s){1}.".format(
-            n_regions, u", {0} shape(s) Revit refused (try more smoothing or a lower resolution)".format(failed_regions) if failed_regions else u""))
-    msg.extend(report)
-    if failed_lines or failed_regions or o["pattern"] or counts["flattened"]:
-        forms.alert(u"2D Conversion done:\n\n" + u"\n".join(msg))
+    if st["failed_lines"] or st["failed_regions"] or o["pattern"] or counts["flattened"] or st["notes"]:
+        forms.alert(u"2D Conversion done:\n\n" + u"\n".join(_summary(o, st, counts, report)))
+
+
+# --------------------------------------------------------------------------
+# Detail Item family (.rfa)
+# --------------------------------------------------------------------------
+def find_detail_item_template(app):
+    """Revit's own 'Metric Detail Item.rft' (or 'Detail Item.rft') from the
+    family template folder of this install - any language folder."""
+    roots = []
+    try:
+        base = app.FamilyTemplatePath
+        if base:
+            roots += [base, os.path.dirname(base.rstrip("\\/"))]
+    except Exception:
+        pass
+    pd = os.environ.get("ProgramData") or r"C:\ProgramData"
+    try:
+        roots.append(os.path.join(pd, "Autodesk", "RVT " + str(app.VersionNumber), "Family Templates"))
+    except Exception:
+        pass
+    found = []
+    for root in roots:
+        if not root or not os.path.isdir(root):
+            continue
+        for dirpath, _dirs, files in os.walk(root):
+            for f in files:
+                lf = f.lower()
+                if lf.endswith(".rft") and "detail item" in lf and "tag" not in lf and "line based" not in lf:
+                    found.append(os.path.join(dirpath, f))
+        if found:
+            break
+
+    def rank(p):
+        lf = os.path.basename(p).lower()
+        eng = "english" in p.lower()
+        return (0 if lf.startswith("metric") else 1, 0 if eng else 1, len(lf))
+    found.sort(key=rank)
+    return found[0] if found else None
+
+
+class _LoadOptions(DB.IFamilyLoadOptions):
+    """Reload over an older version of the same family."""
+
+    def OnFamilyFound(self, familyInUse, overwriteParameterValues):
+        overwriteParameterValues.Value = True
+        return True
+
+    def OnSharedFamilyFound(self, sharedFamily, familyInUse, source, overwriteParameterValues):
+        source.Value = DB.FamilySource.Family
+        overwriteParameterValues.Value = True
+        return True
+
+
+def _family_line_style(fdoc, pdoc, name):
+    """A Detail Items sub-category in the family with the same name,
+    weight and colour as the project line style `name`."""
+    if not name:
+        return None
+    try:
+        if name.startswith("<"):                      # <Invisible lines> etc.
+            for gs_name, gs in _line_styles(fdoc):
+                if gs_name == name:
+                    return gs
+            return None
+        fam_cat = fdoc.OwnerFamily.FamilyCategory
+        sub = None
+        for s in fam_cat.SubCategories:
+            if s.Name == name:
+                sub = s
+                break
+        if sub is None:
+            sub = fdoc.Settings.Categories.NewSubcategory(fam_cat, name)
+            try:
+                pcat = pdoc.Settings.Categories.get_Item(BuiltInCategory.OST_Lines).SubCategories.get_Item(name)
+                w = pcat.GetLineWeight(GraphicsStyleType.Projection)
+                if w:
+                    sub.SetLineWeight(w, GraphicsStyleType.Projection)
+                sub.LineColor = pcat.LineColor
+            except Exception:
+                pass
+        return sub.GetGraphicsStyle(GraphicsStyleType.Projection)
+    except Exception:
+        return None
+
+
+def _copy_region_type(fdoc, pdoc, rtype):
+    """Copies the project's Filled Region Type (with its fill patterns)
+    into the family; returns the family's copy."""
+    if rtype is None:
+        return None
+    name = DB.Element.Name.GetValue(rtype)
+    for n, t in _region_types(fdoc):
+        if n == name:
+            return t
+    ids = List[ElementId]([rtype.Id])
+    opts = DB.CopyPasteOptions()
+    new_ids = DB.ElementTransformUtils.CopyElements(pdoc, ids, fdoc, DB.Transform.Identity, opts)
+    for nid in new_ids:
+        e = fdoc.GetElement(nid)
+        if isinstance(e, FilledRegionType):
+            return e
+    types = _region_types(fdoc)
+    return types[0][1] if types else None
+
+
+def _family_view(fdoc):
+    for v in FilteredElementCollector(fdoc).OfClass(DB.ViewPlan):
+        if not v.IsTemplate:
+            return v
+    for v in FilteredElementCollector(fdoc).OfClass(DB.View):
+        if not v.IsTemplate and v.ViewType not in H._NO_DETAIL_VIEWS:
+            return v
+    return None
+
+
+def _make_family(uidoc, window, o):
+    doc = uidoc.Document
+    app = doc.Application
+    path = o.get("rfa_path") or u""
+    template = find_detail_item_template(app)
+    if not template:
+        dlg = OpenFileDialog()
+        dlg.Filter = "Family template (*.rft)|*.rft"
+        dlg.Title = "2D Conversion - pick the 'Metric Detail Item.rft' family template"
+        if dlg.ShowDialog() != DialogResult.OK:
+            return
+        template = dlg.FileName
+
+    _rows, w, h, _orig = window._lum
+    k = _float(o["width"], 100.0) / _MM * o["scale"] / w      # feet per pixel
+    tol_px = app.ShortCurveTolerance * 1.01 / k
+
+    def P(p):     # image centre = family origin (the insertion point)
+        return XYZ((p[0] - w / 2.0) * k, (p[1] - h / 2.0) * k, 0.0)
+
+    counts = {"splines": 0, "flattened": 0}
+    loop_lines = _curve_builder(P, tol_px, counts)
+    fdoc = None
+    st = None
+    try:
+        fdoc = app.NewFamilyDocument(template)
+        fview = _family_view(fdoc)
+        if fview is None:
+            raise ValueError(u"The template has no plan view to draw in:\n" + template)
+        t = Transaction(fdoc, "2D Conversion")
+        t.Start()
+        try:
+            line_style = _family_line_style(fdoc, doc, o["line_style"]) if o["lines"] else None
+            edge_style = _family_line_style(fdoc, doc, o["region_line"]) if o["regions"] else None
+            rtype = _copy_region_type(fdoc, doc, dict(_region_types(doc)).get(o["region_type"])) if o["regions"] else None
+            st = _draw(fdoc, fview, window, o, loop_lines, line_style, edge_style, rtype)
+            t.Commit()
+        except Exception:
+            t.RollBack()
+            raise
+        if not st["ids"].Count:
+            raise ValueError("Nothing could be drawn into the family.")
+        folder = os.path.dirname(path)
+        if folder and not os.path.isdir(folder):
+            os.makedirs(folder)
+        so = DB.SaveAsOptions()
+        so.OverwriteExistingFile = True
+        fdoc.SaveAs(path, so)
+        family = None
+        if o.get("rfa_load"):
+            family = fdoc.LoadFamily(doc, _LoadOptions())
+    except Exception as e:
+        forms.alert(u"Could not make the Detail Item family:\n{0}".format(e))
+        return
+    finally:
+        if fdoc is not None:
+            try:
+                fdoc.Close(False)
+            except Exception:
+                pass
+
+    extra = [u"Saved: " + path]
+    placed = False
+    if family is not None:
+        extra.append(u"Loaded into the project as '{0}'.".format(family.Name))
+        view = doc.ActiveView
+        if view.ViewType not in H._NO_DETAIL_VIEWS and view.ViewType != ViewType.DrawingSheet:
+            try:
+                _ensure_work_plane(doc, view)
+                pt = uidoc.Selection.PickPoint("2D Conversion: click where to place the Detail Item (its centre) - Esc to only load it")
+                t = Transaction(doc, "DeeLazy - 2D Conversion place Detail Item")
+                t.Start()
+                try:
+                    sym = doc.GetElement(list(family.GetFamilySymbolIds())[0])
+                    if not sym.IsActive:
+                        sym.Activate()
+                        doc.Regenerate()
+                    inst = doc.Create.NewFamilyInstance(pt, sym, view)
+                    t.Commit()
+                    placed = True
+                    uidoc.Selection.SetElementIds(List[ElementId]([inst.Id]))
+                except Exception as e:
+                    t.RollBack()
+                    extra.append(u"Could not place it: {0}".format(e))
+            except OperationCanceledException:
+                pass
+    if placed:
+        extra.append(u"Placed in '{0}'.".format(doc.ActiveView.Name))
+    report = []
+    if o["pattern"]:
+        t = Transaction(doc, "DeeLazy - 2D Conversion fill pattern")
+        t.Start()
+        try:
+            name, how, n = _make_pattern(doc, window, o)
+            t.Commit()
+            report.append(u"Fill pattern '{0}' {1} ({2} lines) + Filled Region Type '{0}'.".format(name, how, n))
+        except Exception as e:
+            t.RollBack()
+            report.append(u"Fill pattern failed: {0}".format(e))
+    forms.alert(u"Detail Item family done:\n\n" + u"\n".join(_summary(o, st, counts, extra + report)))
 
 
 def _create_region(doc, view, rtype, curve_lists):
