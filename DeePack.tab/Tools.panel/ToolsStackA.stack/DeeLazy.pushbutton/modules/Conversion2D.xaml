@@ -1,0 +1,139 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeLazy — 2D Conversion"
+        ShowInTaskbar="False"
+        MinHeight="600" MinWidth="960" Height="720" Width="1080"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                   Text="Turn a black-and-white image (logo, sign, plan sketch, signature, stamp...) into Revit 2D: traced Detail Lines and/or Filled Regions (the hatch) - and, if you like, a fill pattern too. Dark pixels are the ink. Press Place, then click the bottom-left corner in the active view."/>
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="status_tb" Text="Ready." TextWrapping="Wrap"/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
+            <Button x:Name="place_b" Content="Place..." Width="150" Height="30" FontWeight="Bold" Click="place_click"
+                    ToolTip="Closes this window, then click the bottom-left corner of the image in the active view (Esc cancels)."/>
+            <Button x:Name="close_b" Content="Close" Width="100" Height="30" Margin="10,0,0,0" Click="close_click"/>
+        </StackPanel>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="430"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" Margin="0,0,12,0">
+                <StackPanel>
+                    <TextBlock Text="Image" FontWeight="Bold"/>
+                    <DockPanel Margin="0,4,0,0">
+                        <Button DockPanel.Dock="Right" Content="Browse..." Width="80" Height="26" Margin="6,0,0,0" Click="browse_click"/>
+                        <TextBox x:Name="path_tb" Height="26" IsReadOnly="True" VerticalContentAlignment="Center"/>
+                    </DockPanel>
+
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="Threshold:" VerticalAlignment="Center"/>
+                        <DockPanel Grid.Column="1">
+                            <TextBlock DockPanel.Dock="Right" x:Name="thr_tb" Width="30" Text="128" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            <Slider x:Name="thr_sl" Minimum="1" Maximum="254" Value="128" SmallChange="1" LargeChange="16" ValueChanged="mask_changed"
+                                    ToolTip="Pixels darker than this are ink."/>
+                        </DockPanel>
+                        <CheckBox Grid.Row="1" Grid.Column="1" x:Name="invert_cb" Content="Invert (light pixels are the ink)" Margin="0,6,0,0"
+                                  Checked="mask_changed" Unchecked="mask_changed"/>
+                        <TextBlock Grid.Row="2" Text="Resolution (px):" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <TextBox Grid.Row="2" Grid.Column="1" x:Name="res_tb" Height="22" Margin="0,8,0,0" Text="150" TextChanged="res_changed"
+                                 ToolTip="The longer side of the image is resized to this many pixels before tracing (max 600). More = finer detail, more lines."/>
+                        <TextBlock Grid.Row="3" Text="Smoothing (px):" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <TextBox Grid.Row="3" Grid.Column="1" x:Name="smooth_tb" Height="22" Margin="0,8,0,0" Text="0.75" TextChanged="option_changed"
+                                 ToolTip="How far an outline may move to straighten the pixel steps. 0 = exact pixel edges (staircase)."/>
+                        <TextBlock Grid.Row="4" Text="Ignore specks under (px²):" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <TextBox Grid.Row="4" Grid.Column="1" x:Name="speck_tb" Height="22" Margin="0,8,0,0" Text="2" TextChanged="option_changed"
+                                 ToolTip="Ink dots and holes smaller than this many pixels are dropped (scan noise)."/>
+                        <TextBlock Grid.Row="5" Text="Width (mm):" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                        <DockPanel Grid.Row="5" Grid.Column="1" Margin="0,8,0,0">
+                            <TextBlock DockPanel.Dock="Right" x:Name="height_tb" Width="120" Margin="6,0,0,0" VerticalAlignment="Center" Opacity="0.75"/>
+                            <TextBox x:Name="width_tb" Height="22" Text="100" TextChanged="option_changed"/>
+                        </DockPanel>
+                        <CheckBox Grid.Row="6" Grid.Column="1" x:Name="paper_cb" Margin="0,6,0,0" IsChecked="True"
+                                  Content="Width is printed size (× view scale)" Checked="option_changed" Unchecked="option_changed"
+                                  ToolTip="On: 100 mm in a 1:50 view becomes 5 m in the model, so it prints 100 mm wide. Off: the width is the real model size."/>
+                    </Grid>
+
+                    <TextBlock Text="Create" FontWeight="Bold" Margin="0,16,0,0"/>
+                    <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="190"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <CheckBox x:Name="lines_cb" Content="Detail Lines (outlines)" IsChecked="True" VerticalAlignment="Center"
+                                  Checked="option_changed" Unchecked="option_changed"/>
+                        <ComboBox Grid.Column="1" x:Name="line_style_cb" Height="24" ToolTip="Line style of the outlines."/>
+                        <CheckBox Grid.Row="1" x:Name="regions_cb" Content="Filled Regions (hatch)" Margin="0,8,0,0" VerticalAlignment="Center"
+                                  Checked="option_changed" Unchecked="option_changed"
+                                  ToolTip="Each ink shape becomes a Filled Region - white islands inside a shape stay open."/>
+                        <ComboBox Grid.Row="1" Grid.Column="1" x:Name="region_type_cb" Height="24" Margin="0,8,0,0" ToolTip="Filled Region Type (its pattern is the hatch)."/>
+                        <TextBlock Grid.Row="2" Text="     Region boundary style:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                        <ComboBox Grid.Row="2" Grid.Column="1" x:Name="region_line_cb" Height="24" Margin="0,6,0,0"
+                                  ToolTip="Line style of the Filled Regions' own edges ('Invisible lines' hides them)."/>
+                    </Grid>
+                    <CheckBox x:Name="group_cb" Content="Group everything (Detail Group)" Margin="0,8,0,0"/>
+
+                    <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,14,0,0">
+                        <StackPanel>
+                            <CheckBox x:Name="pattern_cb" Content="Also save the image as a fill pattern" FontWeight="Bold"
+                                      Checked="option_changed" Unchecked="option_changed"
+                                      ToolTip="Same as DeeHATCH 'From Image': the image becomes one repeating tile of a new fill pattern (traced outlines), and a Filled Region Type that uses it."/>
+                            <DockPanel Margin="0,6,0,0">
+                                <TextBlock Text="Pattern name:" Width="100" VerticalAlignment="Center"/>
+                                <TextBox x:Name="pattern_name_tb" Height="22" VerticalContentAlignment="Center"/>
+                            </DockPanel>
+                            <WrapPanel Margin="0,6,0,0">
+                                <RadioButton x:Name="pat_drafting_rb" Content="Drafting" GroupName="pt" IsChecked="True"/>
+                                <RadioButton x:Name="pat_model_rb" Content="Model" GroupName="pt" Margin="12,0,0,0"/>
+                                <TextBlock Text="tile width = the Width above (printed size for Drafting)" Margin="12,0,0,0" Opacity="0.7"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <DockPanel Grid.Column="1">
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                    <CheckBox DockPanel.Dock="Right" x:Name="show_img_cb" Content="Show image" IsChecked="True" Checked="option_changed" Unchecked="option_changed"/>
+                    <TextBlock Text="Preview (traced shapes over the ink mask):"/>
+                </DockPanel>
+                <TextBlock DockPanel.Dock="Bottom" x:Name="info_tb" Margin="0,6,0,0" TextWrapping="Wrap" Opacity="0.85"/>
+                <Border BorderBrush="Gray" BorderThickness="1" Background="White" ClipToBounds="True">
+                    <Viewbox Stretch="Uniform" Margin="8">
+                        <Grid x:Name="canvas_grid" Width="100" Height="100">
+                            <Image x:Name="mask_im" Stretch="Fill" Opacity="0.35" RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                            <Path x:Name="fill_path" Fill="#55F2994D"/>
+                            <Path x:Name="line_path" Stroke="Black" StrokeThickness="0.3" StrokeLineJoin="Round"/>
+                        </Grid>
+                    </Viewbox>
+                </Border>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</Window>

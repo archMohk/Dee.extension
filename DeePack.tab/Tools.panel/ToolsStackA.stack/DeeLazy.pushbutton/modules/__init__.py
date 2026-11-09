@@ -48,6 +48,7 @@ from modules import dee_urs_files
 from modules import dee_remove_links
 from modules import dee_text_to_lines
 from modules import dee_hatch
+from modules import dee_2d_conversion
 
 REGISTERED_MODULES = [
     view_cropping.TOOL_INFO,
@@ -68,4 +69,5 @@ REGISTERED_MODULES = [
     dee_remove_links.TOOL_INFO,
     dee_text_to_lines.TOOL_INFO,
     dee_hatch.TOOL_INFO,
+    dee_2d_conversion.TOOL_INFO,
 ]

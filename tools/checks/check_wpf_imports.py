@@ -67,7 +67,7 @@ _add("System.Windows.Input", """
     MouseButtonEventArgs MouseButtonState MouseEventArgs MouseWheelEventArgs
 """)
 _add("System.Windows.Media", """
-    Brush Brushes Color ColorConverter DoubleCollection FontFamily Geometry
+    Brush Brushes Color ColorConverter DoubleCollection FillRule FontFamily Geometry
     ImageSource Matrix PathGeometry PointCollection RectangleGeometry
     PixelFormats RotateTransform ScaleTransform SolidColorBrush StreamGeometry Stretch
     TransformGroup

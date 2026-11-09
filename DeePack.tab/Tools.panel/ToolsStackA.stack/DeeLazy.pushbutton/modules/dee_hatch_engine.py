@@ -565,24 +565,37 @@ def mask_from_strings(rows, ink="#"):
     return [[c == ink for c in r] for r in rows]
 
 
-def trace_outlines(mask):
+def trace_outlines(mask, wrap=True):
     """Boundaries of the ink areas of a tile that REPEATS (the left edge
     touches the right one, top touches bottom). Returns polylines in
     pixel units, y up, origin bottom-left; each is a list of (x, y)
     corner points. A polyline that wraps around the whole tile ends one
-    tile away from where it started."""
+    tile away from where it started.
+
+    wrap=False traces a single picture instead: outside the image is
+    blank, every polyline is a closed loop (first point == last), ink
+    outlines run counter-clockwise and holes clockwise."""
     h = len(mask)
     w = len(mask[0]) if h else 0
     if not w or not h:
         return []
+    if wrap:
+        def ink(x, y):
+            return mask[y % h][x % w]
 
-    def ink(x, y):
-        return mask[y % h][x % w]
+        def vkey(vx, vy):
+            return (vx % w, vy % h)
+    else:
+        def ink(x, y):
+            return 0 <= x < w and 0 <= y < h and mask[y][x]
+
+        def vkey(vx, vy):
+            return (vx, vy)
 
     out_edges = {}
 
     def add(vx, vy, dx, dy):
-        out_edges.setdefault((vx % w, vy % h), []).append((dx, dy))
+        out_edges.setdefault(vkey(vx, vy), []).append((dx, dy))
 
     for y in range(h):
         Y0 = h - 1 - y
@@ -609,7 +622,7 @@ def trace_outlines(mask):
             while True:
                 cx, cy = cx + d[0], cy + d[1]
                 pts.append((cx, cy))
-                key = (cx % w, cy % h)
+                key = vkey(cx, cy)
                 if key == start:
                     break
                 outs = out_edges.get(key)
@@ -700,6 +713,85 @@ def polylines_to_segments(polys):
             if (x1, y1) != (x2, y2):
                 segs.append((float(x1), float(y1), float(x2), float(y2)))
     return segs
+
+
+def split_touching(loop):
+    """A closed loop (first == last) that passes the same corner twice
+    (two pixels of one shape touching diagonally) -> several simple
+    closed loops, cut at that corner. Revit's sketches reject loops that
+    touch themselves."""
+    pts = list(loop[:-1]) if loop and loop[0] == loop[-1] else list(loop)
+    out, stack, seen = [], [], {}
+    for p in pts:
+        if p in seen:
+            i = seen[p]
+            sub = stack[i:]
+            out.append(sub + [p])
+            for q in sub[1:]:
+                del seen[q]
+            stack = stack[:i + 1]
+        else:
+            seen[p] = len(stack)
+            stack.append(p)
+    if len(stack) >= 3:
+        out.append(stack + [stack[0]])
+    return [l for l in out if len(l) >= 4]
+
+
+def loop_area(loop):
+    """Signed area (shoelace): > 0 counter-clockwise."""
+    a = 0.0
+    for i in range(len(loop) - 1):
+        a += loop[i][0] * loop[i + 1][1] - loop[i + 1][0] * loop[i][1]
+    return a / 2.0
+
+
+def point_in_loop(x, y, loop):
+    inside = False
+    for i in range(len(loop) - 1):
+        x1, y1 = loop[i]
+        x2, y2 = loop[i + 1]
+        if (y1 > y) != (y2 > y):
+            if x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+                inside = not inside
+    return inside
+
+
+def _ink_side_point(loop):
+    """A point just beside the first edge, on its ink (left) side."""
+    (x1, y1), (x2, y2) = loop[0], loop[1]
+    L = math.hypot(x2 - x1, y2 - y1) or 1.0
+    return (x1 + x2) / 2.0 - (y2 - y1) / L * 1e-3, (y1 + y2) / 2.0 + (x2 - x1) / L * 1e-3
+
+
+def image_shapes(mask, smooth=0.75, min_area=0.0):
+    """A single (non-repeating) picture -> [(outer_loop, [hole_loops])]
+    in pixel units, y up. Ink outlines are outers, the white islands
+    inside them are holes; specks below min_area pixels are dropped.
+    Loops are closed (first == last) and simplified by `smooth` px."""
+    loops = []
+    for l in trace_outlines(mask, wrap=False):
+        loops.extend(split_touching(l))
+    outers, holes = [], []
+    for l in loops:
+        a = loop_area(l)
+        if abs(a) < max(min_area, 1e-9):
+            continue
+        (outers if a > 0 else holes).append((abs(a), l))
+    outers.sort()
+    shapes = [[o, []] for _a, o in outers]
+    for _a, h in holes:
+        px, py = _ink_side_point(h)
+        for s in shapes:          # smallest containing outer first
+            if point_in_loop(px, py, s[0]):
+                s[1].append(h)
+                break
+
+    def simp(l):
+        s = simplify(l, smooth)
+        return s if len(s) >= 4 and abs(loop_area(s)) > 1e-9 else l
+
+    return [(simp(o), [simp(h) for h in hs]) for o, hs in shapes]
 
 
 def scan_fill(mask, step=1):
