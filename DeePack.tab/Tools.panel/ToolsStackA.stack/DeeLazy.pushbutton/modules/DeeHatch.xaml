@@ -1,0 +1,337 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeLazy — DeeHATCH"
+        ShowInTaskbar="False"
+        MinHeight="640" MinWidth="1060" Height="780" Width="1220"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="status_tb" Text="Ready." TextWrapping="Wrap"/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="430"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- ======================= LEFT: tabs + output options ======================= -->
+            <DockPanel Grid.Column="0" Margin="0,0,10,0">
+
+                <!-- Shared output options (hidden on the Manage tab) -->
+                <Border x:Name="output_panel" DockPanel.Dock="Bottom" BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                    <StackPanel>
+                        <WrapPanel>
+                            <TextBlock Text="Pattern type:" VerticalAlignment="Center" FontWeight="Bold" Margin="0,0,8,0"/>
+                            <RadioButton x:Name="drafting_rb" Content="Drafting" GroupName="pat_target" IsChecked="True" VerticalAlignment="Center" Checked="option_changed"
+                                         ToolTip="Drafting (detail) pattern: keeps the same printed size at every view scale."/>
+                            <RadioButton x:Name="model_rb" Content="Model" GroupName="pat_target" Margin="12,0,0,0" VerticalAlignment="Center" Checked="option_changed"
+                                         ToolTip="Model pattern: real-world size (tiles, bricks, cladding) - grows and shrinks with the view scale."/>
+                            <TextBlock Text="Scale ×" VerticalAlignment="Center" Margin="22,0,4,0"/>
+                            <TextBox x:Name="scale_tb" Width="55" Height="22" Text="1" TextChanged="option_changed"
+                                     ToolTip="Multiplies every size in the pattern."/>
+                            <TextBlock Text="Rotate °" VerticalAlignment="Center" Margin="14,0,4,0"/>
+                            <TextBox x:Name="rotation_tb" Width="50" Height="22" Text="0" TextChanged="option_changed"/>
+                            <CheckBox x:Name="fliph_cb" Content="Flip H" Margin="14,0,0,0" VerticalAlignment="Center" Checked="option_changed" Unchecked="option_changed"/>
+                            <CheckBox x:Name="flipv_cb" Content="Flip V" Margin="10,0,0,0" VerticalAlignment="Center" Checked="option_changed" Unchecked="option_changed"/>
+                        </WrapPanel>
+                        <WrapPanel Margin="0,8,0,0">
+                            <TextBlock Text="If the name exists:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <ComboBox x:Name="exists_cb" Width="250" Height="22" SelectedIndex="0">
+                                <ComboBoxItem Content="Overwrite it (updates everywhere it is used)"/>
+                                <ComboBoxItem Content="Keep it, add a number to the new one"/>
+                                <ComboBoxItem Content="Skip"/>
+                            </ComboBox>
+                            <CheckBox x:Name="region_cb" Content="Also make a Filled Region Type" Margin="14,0,0,0" VerticalAlignment="Center"
+                                      ToolTip="Creates (or updates) a Filled Region Type with the same name that uses the new pattern."/>
+                        </WrapPanel>
+                        <DockPanel Margin="0,10,0,0">
+                            <Button x:Name="create_b" DockPanel.Dock="Left" Content="Create Pattern" Width="170" Height="30" FontWeight="Bold" Click="create_click"/>
+                            <Button x:Name="close_b" DockPanel.Dock="Right" Content="Close" Width="90" Height="30" Click="close_click"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,10,0">
+                                <Button x:Name="export_b" Content="Export .pat..." Width="110" Height="30" Click="export_click"
+                                        ToolTip="Save the pattern as an AutoCAD/Revit .pat file (file name = pattern name, as AutoCAD requires)."/>
+                                <ComboBox x:Name="export_units_cb" Width="70" Height="30" Margin="6,0,0,0" VerticalContentAlignment="Center" SelectedIndex="0">
+                                    <ComboBoxItem Content="MM"/>
+                                    <ComboBoxItem Content="INCH"/>
+                                </ComboBox>
+                            </StackPanel>
+                        </DockPanel>
+                    </StackPanel>
+                </Border>
+
+                <TabControl x:Name="tabs" SelectionChanged="tab_changed">
+
+                    <!-- ======================= 1. FROM LINES ======================= -->
+                    <TabItem Header="  From Lines  ">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="10">
+                                <TextBlock TextWrapping="Wrap" Margin="0,0,0,10"
+                                           Text="Same idea as pyRevit's Make Pattern: draw one tile of the pattern with Detail Lines (lines, arcs, splines - Model Lines work too) in a plan, section, elevation or drafting view. Press Pick, select the lines (or pre-select them before opening DeeLazy) and click the BOTTOM-LEFT then TOP-RIGHT corner of the tile. Lines that cross the tile edge, lines repeated on opposite edges and overlapping pieces are all handled."/>
+                                <Button x:Name="pick_b" Content="Pick lines &amp; tile in the view..." Height="32" FontWeight="Bold" Click="pick_click" HorizontalAlignment="Left" Width="260"/>
+                                <TextBlock x:Name="lines_info_tb" Margin="0,8,0,0" TextWrapping="Wrap" Opacity="0.85" Text="Nothing picked yet."/>
+
+                                <Grid Margin="0,14,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="130"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="Pattern name:" VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Column="1" x:Name="lines_name_cb" IsEditable="True" Height="26" VerticalContentAlignment="Center"
+                                              ToolTip="Type a new name, or pick an existing pattern to replace it."/>
+                                    <TextBlock Grid.Row="1" Text="Precision:" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                                    <ComboBox Grid.Row="1" Grid.Column="1" x:Name="lines_prec_cb" Height="24" Margin="0,8,0,0" SelectedIndex="2" SelectionChanged="option_changed"
+                                              ToolTip="How closely sloped lines keep their exact angle. A hatch can only repeat lines along certain angles of the tile; higher precision allows more of those angles (pyRevit's 'Use Highest Resolution')."/>
+                                </Grid>
+                                <TextBlock x:Name="lines_scale_tb" Margin="0,10,0,0" TextWrapping="Wrap" Opacity="0.75"
+                                           Text="Drafting: the tile is measured on paper (model size ÷ view scale). Model: the tile keeps its real size."/>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <!-- ======================= 2. FROM PAT ======================= -->
+                    <TabItem Header="  From AutoCAD .pat  ">
+                        <DockPanel Margin="10">
+                            <StackPanel DockPanel.Dock="Top">
+                                <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                           Text="Load any .pat file - AutoCAD's acad.pat / acadiso.pat, Revit's own, or a custom one - preview each hatch, tick the ones you want and press Import."/>
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Content="Browse..." Width="80" Height="26" Margin="6,0,0,0" Click="pat_browse_click"/>
+                                    <TextBox x:Name="pat_path_tb" Height="26" IsReadOnly="True" VerticalContentAlignment="Center"/>
+                                </DockPanel>
+                                <DockPanel Margin="0,6,0,0">
+                                    <Button DockPanel.Dock="Right" Content="Find .pat files on this PC" Width="170" Height="26" Margin="6,0,0,0" Click="pat_find_click"
+                                            ToolTip="Looks in the AutoCAD support folders and in every installed Revit (acdb.pat, acdbiso.pat, revit.pat, revit metric.pat)."/>
+                                    <ComboBox x:Name="pat_found_cb" Height="26" SelectionChanged="pat_found_changed"/>
+                                </DockPanel>
+                                <WrapPanel Margin="0,8,0,0">
+                                    <TextBlock Text="File units:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <ComboBox x:Name="pat_units_cb" Width="150" Height="24" SelectedIndex="0" SelectionChanged="option_changed">
+                                        <ComboBoxItem Content="Auto (from file)"/>
+                                        <ComboBoxItem Content="Millimetres"/>
+                                        <ComboBoxItem Content="Inches"/>
+                                    </ComboBox>
+                                    <TextBlock x:Name="pat_units_info_tb" VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.75"/>
+                                    <TextBlock Text="Name prefix:" VerticalAlignment="Center" Margin="18,0,6,0"/>
+                                    <TextBox x:Name="pat_prefix_tb" Width="110" Height="24" VerticalContentAlignment="Center"
+                                             ToolTip="Added in front of every imported name, e.g. ACAD_"/>
+                                </WrapPanel>
+                                <DockPanel Margin="0,8,0,4">
+                                    <Button DockPanel.Dock="Right" Content="None" Width="55" Height="24" Margin="4,0,0,0" Click="pat_none_click"/>
+                                    <Button DockPanel.Dock="Right" Content="All shown" Width="75" Height="24" Margin="6,0,0,0" Click="pat_all_click"/>
+                                    <TextBlock DockPanel.Dock="Left" Text="Search:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBox x:Name="pat_search_tb" Height="24" VerticalContentAlignment="Center" TextChanged="pat_search_changed"/>
+                                </DockPanel>
+                            </StackPanel>
+                            <TextBlock DockPanel.Dock="Bottom" x:Name="pat_count_tb" Margin="0,4,0,0" Opacity="0.75"/>
+                            <ListBox x:Name="pat_lb" SelectionChanged="pat_selected" HorizontalContentAlignment="Stretch">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <DockPanel>
+                                            <CheckBox DockPanel.Dock="Left" IsChecked="{Binding checked, Mode=OneWay}" Checked="pat_row_toggled" Unchecked="pat_row_toggled" VerticalAlignment="Center"/>
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding info}" Opacity="0.6" Margin="8,0,0,0"/>
+                                            <TextBlock Text="{Binding label}" Margin="6,0,0,0" TextTrimming="CharacterEllipsis"/>
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </TabItem>
+
+                    <!-- ======================= 3. FROM IMAGE ======================= -->
+                    <TabItem Header="  From Image  ">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="10">
+                                <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                           Text="Turn a black-and-white image (logo, texture, perforation, stone, pixel art...) into a hatch. The image is ONE tile: its left edge meets its right edge and its top meets its bottom, so seamless images give seamless hatches. Dark pixels are the ink."/>
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Content="Browse..." Width="80" Height="26" Margin="6,0,0,0" Click="img_browse_click"/>
+                                    <TextBox x:Name="img_path_tb" Height="26" IsReadOnly="True" VerticalContentAlignment="Center"/>
+                                </DockPanel>
+                                <Grid Margin="0,10,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="150"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="135"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Text="Hatch made of:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1" x:Name="img_mode_cb" Height="24" SelectedIndex="0" SelectionChanged="img_option_changed">
+                                            <ComboBoxItem Content="Outlines (traced edges)"/>
+                                            <ComboBoxItem Content="Fill (scan lines)"/>
+                                            <ComboBoxItem Content="Outlines + fill"/>
+                                        </ComboBox>
+                                        <TextBlock Grid.Row="1" Text="Threshold:" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                                        <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,8,0,0">
+                                            <TextBlock DockPanel.Dock="Right" x:Name="img_thr_tb" Width="30" Text="128" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                            <Slider x:Name="img_thr_sl" Minimum="1" Maximum="254" Value="128" SmallChange="1" LargeChange="16" ValueChanged="img_option_changed"
+                                                    ToolTip="Pixels darker than this are ink."/>
+                                        </DockPanel>
+                                        <CheckBox Grid.Row="2" Grid.Column="1" x:Name="img_invert_cb" Content="Invert (light pixels are the ink)" Margin="0,6,0,0"
+                                                  Checked="img_option_changed" Unchecked="img_option_changed"/>
+                                        <TextBlock Grid.Row="3" Text="Resolution (px):" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                                        <TextBox Grid.Row="3" Grid.Column="1" x:Name="img_res_tb" Height="22" Margin="0,8,0,0" Text="80" TextChanged="img_res_changed"
+                                                 ToolTip="The longer side of the image is resized to this many pixels before tracing. More = finer detail but more hatch lines (Revit gets slow above ~1500 lines)."/>
+                                        <TextBlock Grid.Row="4" Text="Smoothing (px):" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                                        <TextBox Grid.Row="4" Grid.Column="1" x:Name="img_smooth_tb" Height="22" Margin="0,8,0,0" Text="0.75" TextChanged="img_option_changed"
+                                                 ToolTip="How far a traced outline may move to straighten pixel steps. 0 keeps exact pixel edges (only horizontal/vertical lines)."/>
+                                        <TextBlock Grid.Row="5" Text="Fill line every (px):" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                                        <TextBox Grid.Row="5" Grid.Column="1" x:Name="img_step_tb" Height="22" Margin="0,8,0,0" Text="1" TextChanged="img_option_changed"
+                                                 ToolTip="Fill mode: one horizontal hatch line per this many pixel rows."/>
+                                        <TextBlock Grid.Row="6" Text="Tile width (mm):" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                                        <DockPanel Grid.Row="6" Grid.Column="1" Margin="0,8,0,0">
+                                            <TextBlock DockPanel.Dock="Right" x:Name="img_height_tb" Width="120" Margin="6,0,0,0" VerticalAlignment="Center" Opacity="0.75"/>
+                                            <TextBox x:Name="img_width_tb" Height="22" Text="100" TextChanged="img_option_changed"
+                                                     ToolTip="Size of one repeat of the image. Drafting: printed size on paper. Model: real size."/>
+                                        </DockPanel>
+                                        <TextBlock Grid.Row="7" Text="Precision:" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                                        <ComboBox Grid.Row="7" Grid.Column="1" x:Name="img_prec_cb" Height="24" Margin="0,8,0,0" SelectedIndex="2" SelectionChanged="img_option_changed"/>
+                                    </Grid>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="Ink mask:" Opacity="0.75"/>
+                                        <Border BorderBrush="Gray" BorderThickness="1" Background="White" Width="140" Height="140" Margin="0,4,0,0">
+                                            <Image x:Name="img_mask_im" Stretch="Uniform" RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                                        </Border>
+                                        <TextBlock x:Name="img_info_tb" TextWrapping="Wrap" Opacity="0.75" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+                                <DockPanel Margin="0,12,0,0">
+                                    <TextBlock Text="Pattern name:" Width="135" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="img_name_tb" Height="24" VerticalContentAlignment="Center"/>
+                                </DockPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <!-- ======================= 4. MANAGE ======================= -->
+                    <TabItem Header="  Manage Patterns  ">
+                        <DockPanel Margin="8">
+                            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                <Button DockPanel.Dock="Right" Content="Refresh" Width="70" Height="24" Margin="6,0,0,0" Click="mg_refresh_click"/>
+                                <CheckBox DockPanel.Dock="Right" x:Name="mg_unused_cb" Content="Unused only" Margin="10,0,0,0" VerticalAlignment="Center"
+                                          Checked="mg_filter_changed" Unchecked="mg_filter_changed"/>
+                                <ComboBox DockPanel.Dock="Right" x:Name="mg_target_cb" Width="95" Height="24" Margin="10,0,0,0" SelectedIndex="0" SelectionChanged="mg_filter_changed">
+                                    <ComboBoxItem Content="All types"/>
+                                    <ComboBoxItem Content="Drafting"/>
+                                    <ComboBoxItem Content="Model"/>
+                                </ComboBox>
+                                <TextBlock DockPanel.Dock="Left" Text="Search:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBox x:Name="mg_search_tb" Height="24" VerticalContentAlignment="Center" TextChanged="mg_filter_changed"/>
+                            </DockPanel>
+
+                            <Border DockPanel.Dock="Bottom" BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,6,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Bulk rename the ticked patterns" FontWeight="Bold" Margin="0,0,0,6"/>
+                                    <WrapPanel>
+                                        <TextBlock Text="Find" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                        <TextBox x:Name="rn_find_tb" Width="100" Height="22" TextChanged="rn_changed"/>
+                                        <TextBlock Text="Replace" VerticalAlignment="Center" Margin="10,0,4,0"/>
+                                        <TextBox x:Name="rn_replace_tb" Width="100" Height="22" TextChanged="rn_changed"/>
+                                        <TextBlock Text="Prefix" VerticalAlignment="Center" Margin="10,0,4,0"/>
+                                        <TextBox x:Name="rn_prefix_tb" Width="70" Height="22" TextChanged="rn_changed"/>
+                                        <TextBlock Text="Suffix" VerticalAlignment="Center" Margin="10,0,4,0"/>
+                                        <TextBox x:Name="rn_suffix_tb" Width="70" Height="22" TextChanged="rn_changed"/>
+                                    </WrapPanel>
+                                    <WrapPanel Margin="0,6,0,0">
+                                        <CheckBox x:Name="rn_case_cb" Content="Match case" VerticalAlignment="Center" Checked="rn_changed" Unchecked="rn_changed"/>
+                                        <CheckBox x:Name="rn_regex_cb" Content="RegEx" Margin="10,0,0,0" VerticalAlignment="Center" Checked="rn_changed" Unchecked="rn_changed"/>
+                                        <TextBlock Text="Case:" VerticalAlignment="Center" Margin="14,0,4,0"/>
+                                        <ComboBox x:Name="rn_casing_cb" Width="100" Height="22" SelectedIndex="0" SelectionChanged="rn_changed">
+                                            <ComboBoxItem Content="Keep"/>
+                                            <ComboBoxItem Content="UPPER"/>
+                                            <ComboBoxItem Content="lower"/>
+                                            <ComboBoxItem Content="Title Case"/>
+                                        </ComboBox>
+                                        <Button Content="Rename ticked" Width="110" Height="24" Margin="14,0,0,0" FontWeight="Bold" Click="rn_apply_click"/>
+                                    </WrapPanel>
+                                    <WrapPanel Margin="0,10,0,0">
+                                        <Button Content="Tick all shown" Width="95" Height="26" Click="mg_all_click"/>
+                                        <Button Content="Untick all" Width="70" Height="26" Margin="6,0,0,0" Click="mg_none_click"/>
+                                        <Button Content="Delete ticked unused..." Width="145" Height="26" Margin="14,0,0,0" Click="mg_delete_click"
+                                                ToolTip="Deletes only ticked patterns that nothing uses (Solid fill is never touched)."/>
+                                        <Button Content="Duplicate" Width="75" Height="26" Margin="6,0,0,0" Click="mg_duplicate_click"
+                                                ToolTip="Copies the selected row's pattern as '&lt;name&gt; copy'."/>
+                                        <Button Content="Make Filled Region Types" Width="160" Height="26" Margin="6,0,0,0" Click="mg_regions_click"
+                                                ToolTip="One Filled Region Type per ticked pattern, named after it (skips names that already exist)."/>
+                                        <Button Content="Export ticked .pat..." Width="125" Height="26" Margin="6,0,0,0" Click="mg_export_click"
+                                                ToolTip="Writes one .pat file per ticked pattern into a folder (units from the MM/INCH box)."/>
+                                        <ComboBox x:Name="mg_units_cb" Width="60" Height="26" Margin="4,0,0,0" SelectedIndex="0" VerticalContentAlignment="Center">
+                                            <ComboBoxItem Content="MM"/>
+                                            <ComboBoxItem Content="INCH"/>
+                                        </ComboBox>
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <DataGrid x:Name="mg_grid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                                      IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                      SelectionChanged="mg_selected">
+                                <DataGrid.Columns>
+                                    <DataGridTemplateColumn Header="" Width="28">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <CheckBox IsChecked="{Binding checked, Mode=OneWay}" Checked="mg_row_toggled" Unchecked="mg_row_toggled" HorizontalAlignment="Center"/>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTextColumn Header="Name" Binding="{Binding name}" Width="2*"/>
+                                    <DataGridTextColumn Header="New name" Binding="{Binding new_name}" Width="2*"/>
+                                    <DataGridTextColumn Header="Type" Binding="{Binding target}" Width="65"/>
+                                    <DataGridTextColumn Header="Lines" Binding="{Binding lines}" Width="45"/>
+                                    <DataGridTextColumn Header="Used" Binding="{Binding used}" Width="45"/>
+                                    <DataGridTextColumn Header="Regions" Binding="{Binding regions}" Width="58"/>
+                                    <DataGridTextColumn Header="Where used" Binding="{Binding where}" Width="3*"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </TabItem>
+                </TabControl>
+            </DockPanel>
+
+            <!-- ======================= RIGHT: preview ======================= -->
+            <DockPanel Grid.Column="1">
+                <TextBlock DockPanel.Dock="Top" Text="Preview" FontWeight="Bold" Margin="0,0,0,4"/>
+                <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Left" Text="Zoom out:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBlock DockPanel.Dock="Right" x:Name="zoom_tb" Width="70" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                        <Slider x:Name="zoom_sl" Minimum="1" Maximum="20" Value="4" SmallChange="1" LargeChange="2" IsSnapToTickEnabled="True" TickFrequency="1" ValueChanged="zoom_changed"/>
+                    </DockPanel>
+                    <WrapPanel Margin="0,4,0,0">
+                        <CheckBox x:Name="frame_cb" Content="Show tile" IsChecked="True" Checked="zoom_changed" Unchecked="zoom_changed"
+                                  ToolTip="Orange outline = one repeat of the tile (lines and image patterns)."/>
+                        <CheckBox x:Name="dark_cb" Content="Dark background" Margin="14,0,0,0" Checked="zoom_changed" Unchecked="zoom_changed"/>
+                    </WrapPanel>
+                    <TextBlock x:Name="preview_info_tb" Margin="0,6,0,0" TextWrapping="Wrap" Opacity="0.85"/>
+                </StackPanel>
+                <Border x:Name="preview_border" BorderBrush="Gray" BorderThickness="1" Background="White" ClipToBounds="True">
+                    <Viewbox Stretch="Uniform" Margin="4">
+                        <Canvas Width="1000" Height="1000">
+                            <Path x:Name="preview_path" Stroke="Black" StrokeThickness="2.2"/>
+                            <Path x:Name="frame_path" Stroke="#F2994D" StrokeThickness="3" StrokeDashArray="4 3"/>
+                        </Canvas>
+                    </Viewbox>
+                </Border>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</Window>

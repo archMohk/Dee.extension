@@ -32,7 +32,7 @@ from modules import REGISTERED_MODULES
 # "category" is not listed here still shows, in its own group at the end.
 CATEGORIES = [
     ("Views & Sheets", u"\U0001F5C2", "Crop, rename, stamp, template and convert views and sheets in bulk"),
-    ("Drafting & Annotation", u"✏", "Copy drafting between sheets, fit title lines, convert fill patterns"),
+    ("Drafting & Annotation", u"✏", "Copy drafting between sheets, fit title lines, make and convert fill patterns"),
     ("Selection & Editing", u"\U0001F3AF", "Select, colour, move and mirror elements"),
     ("Files, Links & ACC", u"☁", "Work on many models at once - local files, open models or ACC"),
 ]
