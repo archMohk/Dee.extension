@@ -13,10 +13,7 @@ Colours - three colours, one at a time ("Colour the: Accent / Lines /
   colour picker) and a hex box.
 Icon - the style every ribbon icon is drawn in (dee_accent.STYLES:
   Original, 3D, Glow, Tile, Inverted), each shown as a card drawn with
-  the colours picked above, so the colours drive every style. Below it,
-  Live motion (dee_icon_motion.MOTIONS: Off, Pulse, Breathe, Bob, Shimmer) -
-  on the ribbon only the hovered button moves, and the preview row works
-  the same way: point at an icon and a timer plays it, leave and it rests.
+  the colours picked above, so the colours drive every style.
 Effects - any combination of glass, accent outline, accent top line,
   fade in and accent title bar (lib/dee_effects.py).
 Theme & shape - the theme of every tool window (lib/dee_themes.py: Light,
@@ -54,7 +51,6 @@ import System.Drawing  # noqa: E402
 import dee_accent
 import dee_branding
 import dee_effects
-import dee_icon_motion
 import dee_shapes
 import dee_theme_motion
 import dee_themes
@@ -111,16 +107,10 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._saved_line = dee_accent.load_line()       # None = grey
         self._saved_bar = dee_accent.load_bar()         # None = follow accent
         self._saved_style = dee_accent.load_style()
-        self._saved_motion = dee_icon_motion.load_motion()
         self._accent = self._saved_accent
         self._line = self._saved_line
         self._bar = self._saved_bar
         self._style = self._saved_style
-        self._motion = self._saved_motion
-        self._motion_timer = None
-        self._motion_frames = {}     # preview Image -> (still, [frame BitmapImages])
-        self._motion_hover = None    # the preview Image under the mouse
-        self._motion_index = 0
         self._target = "accent"
         bundles = dee_accent._bundle_dirs()
         self._preview_sources = [os.path.join(bundles[n], "icon.png")
@@ -130,9 +120,6 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._style_cards = {}
         self._style_images = {}
         self._build_styles()
-        self._motion_cards = {}
-        self._build_motions()
-        self.Closed += self._on_closed
         self._saved_effects = dee_effects.load_effects()
         self._effects = dict(self._saved_effects)
         self._effect_boxes = {}
@@ -274,117 +261,6 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._style = sender.Tag
         self._sync_style_cards()
         self._refresh()
-
-    # ---- live motion ----
-    def _build_motions(self):
-        for key, label, desc in dee_icon_motion.MOTIONS:
-            card = Border()
-            card.Margin = Thickness(4)
-            card.Padding = Thickness(14, 6, 14, 6)
-            card.CornerRadius = CornerRadius(6)
-            card.Cursor = Cursors.Hand
-            card.ToolTip = desc
-            card.Tag = key
-            card.SetResourceReference(Border.BackgroundProperty, "DeeSurface")
-            name = TextBlock()
-            name.Text = label
-            name.HorizontalAlignment = HorizontalAlignment.Center
-            card.Child = name
-            card.MouseLeftButtonUp += self._motion_click
-            self._motion_cards[key] = card
-            self.motions_panel.Children.Add(card)
-        self._sync_motion_cards()
-
-    def _sync_motion_cards(self):
-        for key, card in self._motion_cards.items():
-            picked = key == self._motion
-            card.BorderThickness = Thickness(2 if picked else 1)
-            card.SetResourceReference(Border.BorderBrushProperty,
-                                      "DeeOrange" if picked else "DeeBorder")
-        for key, label, desc in dee_icon_motion.MOTIONS:
-            if key == self._motion:
-                self.motion_desc_tb.Text = "{0}: {1}".format(label, desc)
-
-    def _motion_click(self, sender, args):
-        if not self._ready:
-            return
-        self._motion = sender.Tag
-        self._sync_motion_cards()
-        self._refresh()
-
-    def _stop_preview_motion(self):
-        try:
-            if self._motion_timer is not None:
-                self._motion_timer.Stop()
-        except Exception:
-            pass
-        self._motion_timer = None
-        self._motion_frames = {}
-        self._motion_hover = None
-
-    def _start_preview_motion(self, images):
-        """Arms the preview row like the ribbon: each image gets its FRAMES
-        bitmaps, and one DispatcherTimer plays the image the mouse is over.
-        The pointer leaving puts the still icon back."""
-        self._stop_preview_motion()
-        if dee_icon_motion.is_off(self._motion):
-            return
-        frames = {}
-        for img, src in images:
-            try:
-                paths = dee_icon_motion.frame_paths(src, self._accent, self._line,
-                                               self._style, self._motion)
-                if paths:
-                    frames[img] = (img.Source, [_load_image(p) for p in paths])
-                    img.MouseEnter += self._preview_enter
-                    img.MouseLeave += self._preview_leave
-                    img.Cursor = Cursors.Hand
-            except Exception:
-                pass
-        if not frames:
-            return
-        self._motion_frames = frames
-        from System import TimeSpan
-        from System.Windows.Threading import DispatcherTimer
-        timer = DispatcherTimer()
-        timer.Interval = TimeSpan.FromMilliseconds(dee_icon_motion.INTERVAL_MS)
-        timer.Tick += self._preview_tick
-        self._motion_timer = timer
-
-    def _preview_enter(self, sender, args):
-        try:
-            if sender not in self._motion_frames or self._motion_timer is None:
-                return
-            self._motion_hover = sender
-            self._motion_index = 0
-            self._motion_timer.Start()
-        except Exception:
-            pass
-
-    def _preview_leave(self, sender, args):
-        try:
-            if self._motion_timer is not None:
-                self._motion_timer.Stop()
-            if sender in self._motion_frames:
-                sender.Source = self._motion_frames[sender][0]
-            if self._motion_hover is sender:
-                self._motion_hover = None
-        except Exception:
-            pass
-
-    def _preview_tick(self, sender, args):
-        try:
-            img = self._motion_hover
-            if img is None or img not in self._motion_frames:
-                return
-            bitmaps = self._motion_frames[img][1]
-            self._motion_index += 1
-            img.Source = bitmaps[self._motion_index % len(bitmaps)]
-        except Exception:
-            pass
-
-    def _on_closed(self, sender, args):
-        self._stop_preview_motion()
 
     # ---- shapes ----
     def _draw_shape(self, key):
@@ -616,9 +492,9 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._update_status()
 
     def _colours_changed(self):
-        return ((self._accent, self._line, self._bar, self._style, self._motion)
+        return ((self._accent, self._line, self._bar, self._style)
                 != (self._saved_accent, self._saved_line, self._saved_bar,
-                    self._saved_style, self._saved_motion))
+                    self._saved_style))
 
     def _update_status(self):
         changed = self._colours_changed() or self._effects != self._saved_effects
@@ -634,12 +510,10 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
                 self._effects.get("shape"), "Standard")
             style = dict((k, l) for k, l, _d in dee_accent.STYLES).get(
                 self._saved_style, "Original")
-            motion = dict((k, l) for k, l, _d in dee_icon_motion.MOTIONS).get(
-                self._saved_motion, "Off")
             self.status_tb.Text = ("Current: {4} theme, accent {0}, lines {1}, bar {5}, "
-                                   "icons {6}, motion {7}, shape {2}, effects: {3}").format(
+                                   "icons {6}, shape {2}, effects: {3}").format(
                 self._saved_accent, self._saved_line or "grey", shape, ", ".join(on) or "none",
-                dee_themes.label(self._effects.get("theme")), self._saved_bar or "accent", style, motion)
+                dee_themes.label(self._effects.get("theme")), self._saved_bar or "accent", style)
 
     def _refresh(self):
         current = self._target_value()
@@ -657,9 +531,7 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         # This window's own website bar + the sample progress bar.
         dee_branding.set_window_accent(self, dee_accent.window_accent(self._accent),
                                        dee_accent.bar_accent(self._accent, self._bar))
-        self._stop_preview_motion()
         self.preview_panel.Children.Clear()
-        shown = []
         for src in self._preview_sources:
             try:
                 img = Image()
@@ -669,10 +541,8 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
                 img.Source = _load_image(dee_accent.resolve(src, self._accent, self._line,
                                                             self._style))
                 self.preview_panel.Children.Add(img)
-                shown.append((img, src))
             except Exception:
                 pass
-        self._start_preview_motion(shown)
         self._refresh_style_images()
         self._update_status()
 
@@ -747,21 +617,13 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._saved_line = self._line
         self._saved_bar = self._bar
         self._saved_style = self._style
-        self._saved_motion = dee_icon_motion.save_motion(self._motion)
         count = 0
-        moving = 0
         if self._uiapp is not None:
             try:
-                dee_icon_motion.stop()          # still icons first, then the motion
                 count = dee_accent.apply_to_ribbon(self._uiapp, self._saved_accent,
                                                    self._saved_line, self._saved_style)
             except Exception:
                 count = 0
-            try:
-                moving = dee_icon_motion.apply(self._uiapp, self._saved_accent, self._saved_line,
-                                          self._saved_style, self._saved_motion)
-            except Exception:
-                moving = 0
         try:
             dee_branding.repaint_open_windows(dee_accent.window_accent(),
                                               dee_accent.bar_accent())
@@ -779,9 +641,8 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
             except Exception:
                 pass
         self._refresh()
-        self.status_tb.Text = ("Saved. {0} ribbon buttons repainted{1}, and every open "
-                               "Dee window updated.".format(
-                                   count, ", {0} in motion".format(moving) if moving else ""))
+        self.status_tb.Text = ("Saved. {0} ribbon buttons repainted, and every open "
+                               "Dee window updated.".format(count))
 
     def close_click(self, sender, args):
         self.Close()
