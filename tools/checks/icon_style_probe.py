@@ -68,3 +68,28 @@ with open(os.path.join(OUT, "report.txt"), "w") as f:
     f.write("\n".join(lines))
 print("\n".join(lines))
 print("sheet: " + os.path.join(OUT, "sheet.png"))
+
+
+# ---- live motion: one strip per motion (every frame of one icon, 3D style) ----
+import dee_icon_motion as dee_motion  # noqa: E402
+motion_lines = []
+if srcs:
+    kinds = [k for k, _l, _d in dee_motion.MOTIONS if not dee_motion.is_off(k)]
+    strip = Bitmap(CELL * dee_motion.FRAMES + 8, CELL * len(kinds) + 8, PixelFormat.Format32bppArgb)
+    g = Graphics.FromImage(strip)
+    g.FillRectangle(SolidBrush(Color.White), 0, 0, strip.Width, strip.Height)
+    for row, kind in enumerate(kinds):
+        try:
+            paths = dee_motion.frame_paths(srcs[0], dee_accent.ICON_ACCENT, None, "3d", kind)
+            for col, p in enumerate(paths):
+                bmp = Bitmap(p)
+                g.DrawImage(bmp, Rectangle(4 + col * CELL, 4 + row * CELL, CELL, CELL))
+                bmp.Dispose()
+            motion_lines.append("OK   motion %-8s %d frames" % (kind, len(paths)))
+        except Exception:
+            motion_lines.append("FAIL motion %-8s\n%s" % (kind, traceback.format_exc()))
+    g.Dispose()
+    strip.Save(os.path.join(OUT, "motion.png"), ImageFormat.Png)
+    strip.Dispose()
+print("\n".join(motion_lines))
+print("motion strip: " + os.path.join(OUT, "motion.png"))

@@ -85,3 +85,5 @@ tools/checks/compat_result_*.txt
 # Icon style probe output (tools/checks/icon_style_probe.py) - rendered
 # PNGs for looking at, regenerated on every run.
 tools/checks/icon_styles/
+# Theme probe output (tools/checks/theme_probe.py) - look, don't commit.
+tools/checks/themes/

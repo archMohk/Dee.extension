@@ -420,10 +420,12 @@ def _render(g, bmp, w, h, target_hex, line_hex, ink, style):
         _draw_recolored(g, bmp, w, h, base)
 
 
-def recolor_file(src, dst, target_hex, line_hex=None, style=DEFAULT_STYLE):
-    """Writes src recoloured (accent -> target_hex, grey lines -> line_hex)
-    and drawn in `style` as a PNG at dst. True on success."""
-    bmp = out = g = None
+def render_bitmap(src, target_hex, line_hex=None, style=DEFAULT_STYLE):
+    """src recoloured (accent -> target_hex, grey lines -> line_hex) and
+    drawn in `style`, as a new in-memory Bitmap the caller disposes.
+    Raises on failure (recolor_file turns that into False)."""
+    bmp = g = None
+    out = None
     try:
         bmp = Bitmap(src)
         w, h = bmp.Width, bmp.Height
@@ -435,20 +437,43 @@ def recolor_file(src, dst, target_hex, line_hex=None, style=DEFAULT_STYLE):
         g.InterpolationMode = InterpolationMode.HighQualityBicubic
         ink = ICON_INK_DARK if ".dark." in os.path.basename(src).lower() else ICON_INK
         _render(g, bmp, w, h, target_hex, line_hex, ink, style)
-        folder = os.path.dirname(dst)
-        if not os.path.isdir(folder):
-            os.makedirs(folder)
-        out.Save(dst, ImageFormat.Png)
-        return True
+        return out
     except Exception:
-        return False
+        if out is not None:
+            out.Dispose()
+        raise
     finally:
-        for obj in (g, out, bmp):
+        for obj in (g, bmp):
             try:
                 if obj is not None:
                     obj.Dispose()
             except Exception:
                 pass
+
+
+def save_png(bitmap, dst):
+    folder = os.path.dirname(dst)
+    if not os.path.isdir(folder):
+        os.makedirs(folder)
+    bitmap.Save(dst, ImageFormat.Png)
+
+
+def recolor_file(src, dst, target_hex, line_hex=None, style=DEFAULT_STYLE):
+    """Writes src recoloured (accent -> target_hex, grey lines -> line_hex)
+    and drawn in `style` as a PNG at dst. True on success."""
+    out = None
+    try:
+        out = render_bitmap(src, target_hex, line_hex, style)
+        save_png(out, dst)
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            if out is not None:
+                out.Dispose()
+        except Exception:
+            pass
 
 
 def _cache_root(target_hex, line_hex=None, style=DEFAULT_STYLE):

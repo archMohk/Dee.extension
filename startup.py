@@ -117,6 +117,15 @@ try:
 except Exception:
     pass
 
+# Live motion icons (About -> Interface -> Icon -> Live motion): the
+# saved motion starts on the same first Idling, after the still icons.
+try:
+    from pyrevit import HOST_APP
+    import dee_icon_motion
+    dee_icon_motion.apply_on_startup(HOST_APP.uiapp)
+except Exception:
+    pass
+
 try:
     from pyrevit import HOST_APP
     import dee_icon_service
