@@ -4,7 +4,7 @@ dee_theme_motion
 The motions behind the moving themes (lib/dee_themes.MOTION: Dynamic and
 Aurora). Applied to every Dee window (DeeBrandedWindow) as it opens, and
 to the ones already open when the user clicks Apply in About -> Interface.
-(Ribbon icon motion is a separate thing: lib/dee_motion.py.)
+(The ribbon icons are plain static images.)
 
 Five motions, all WPF animations that run on the compositor, so a tool's
 own code never sees them:

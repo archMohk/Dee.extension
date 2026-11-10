@@ -87,3 +87,7 @@ tools/checks/compat_result_*.txt
 tools/checks/icon_styles/
 # Theme probe output (tools/checks/theme_probe.py) - look, don't commit.
 tools/checks/themes/
+
+# Claude Code session worktrees / settings - per machine.
+.claude/
+NVIDIA Corporation/
