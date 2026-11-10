@@ -61,6 +61,12 @@
                     <WrapPanel x:Name="styles_panel"/>
                     <TextBlock x:Name="style_desc_tb" Margin="4,8,0,0" TextWrapping="Wrap"
                                Foreground="{DynamicResource DeeTextMuted}" Text=""/>
+                    <TextBlock Text="Live motion" FontWeight="Bold" Margin="0,12,0,2"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" Foreground="{DynamicResource DeeTextMuted}"
+                               Text="Icons that move on the ribbon, in the colours and style above. They only move while the DeePack tab is on screen. The preview below plays it."/>
+                    <WrapPanel x:Name="motions_panel"/>
+                    <TextBlock x:Name="motion_desc_tb" Margin="4,6,0,0" TextWrapping="Wrap"
+                               Foreground="{DynamicResource DeeTextMuted}" Text=""/>
                 </StackPanel>
             </TabItem>
 
@@ -90,15 +96,10 @@
                 <StackPanel Margin="10">
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
                                Text="The theme and shape of every tool window. They show on windows opened after Apply - Try it opens a sample straight away."/>
-                    <StackPanel Orientation="Horizontal" Margin="4,0,0,10">
-                        <TextBlock Text="Theme:" FontWeight="Bold" VerticalAlignment="Center"/>
-                        <RadioButton x:Name="theme_light_rb" Content="Light" GroupName="theme"
-                                     Margin="12,0,0,0" VerticalAlignment="Center" Checked="theme_changed"
-                                     ToolTip="Light windows (as before)."/>
-                        <RadioButton x:Name="theme_dark_rb" Content="Dark" GroupName="theme"
-                                     Margin="16,0,0,0" VerticalAlignment="Center" Checked="theme_changed"
-                                     ToolTip="Dark windows, easier on the eyes next to Revit's dark theme."/>
-                    </StackPanel>
+                    <TextBlock Text="Theme" FontWeight="Bold" Margin="4,0,0,4"/>
+                    <WrapPanel x:Name="themes_panel"/>
+                    <TextBlock x:Name="theme_desc_tb" Margin="4,4,0,10" TextWrapping="Wrap"
+                               Foreground="{DynamicResource DeeTextMuted}" Text=""/>
                     <TextBlock Text="Shape" FontWeight="Bold" Margin="4,0,0,4"/>
                     <WrapPanel x:Name="shapes_panel"/>
                     <DockPanel Margin="4,8,0,0">

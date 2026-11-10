@@ -205,17 +205,19 @@ def _build_bar():
 _THEME_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "DeeTheme.xaml")
 
 
-def _load_theme_dictionary(dark=False):
-    """Parse lib/DeeTheme.xaml into a fresh ResourceDictionary (with the
-    dark palette from lib/dee_dark.py when dark=True).
+def _load_theme_dictionary(theme="light"):
+    """Parse lib/DeeTheme.xaml into a fresh ResourceDictionary, with the
+    theme's palette (lib/dee_themes.py) swapped in when it has one.
 
     Fresh per window on purpose: a ResourceDictionary merged into one
     window and then into another is fine for brushes, but a parse costs
     a few ms and sharing one instance across windows opened at different
     times has bitten WPF before (frozen Freezables, ownership checks)."""
-    if dark:
+    import dee_themes
+    palette = dee_themes.palette(theme)
+    if palette:
         import dee_dark
-        return XamlReader.Parse(dee_dark.theme_text())
+        return XamlReader.Parse(dee_dark.theme_text(palette))
     stream = FileStream(_THEME_FILE, FileMode.Open, FileAccess.Read)
     try:
         return XamlReader.Load(stream)
@@ -224,7 +226,8 @@ def _load_theme_dictionary(dark=False):
 
 
 def theme_wanted():
-    """"light" or "dark", from About -> Interface -> Theme & shape."""
+    """The theme key from About -> Interface -> Theme & shape
+    (lib/dee_themes.py: light, dark, paper, midnight, dynamic, aurora)."""
     try:
         import dee_effects
         return dee_effects.load_theme()
@@ -232,30 +235,37 @@ def theme_wanted():
         return "light"
 
 
-def apply_theme(window, dark=False):
-    """Merge DeeTheme.xaml into a window's Resources (dark: the dark
-    palette, then DeeThemeDark.xaml on top).
+def apply_theme(window, dark=False, theme=None):
+    """Merge DeeTheme.xaml into a window's Resources with the theme's
+    palette (a dark-based theme: then DeeThemeDark.xaml on top).
+    theme=None: "dark" or "light" from the older dark flag.
 
     Implicit styles in the dictionary then apply to every control in the
     window that doesn't set the same property inline. Safe to call on any
     window; a failure leaves the window exactly as its own XAML drew it."""
     try:
-        theme = _load_theme_dictionary(dark)
+        import dee_themes
+        if theme is None:
+            theme = "dark" if dark else "light"
+        theme = dee_themes.normalize(theme)
+        dark = dee_themes.is_dark(theme)
+        palette = dee_themes.palette(theme)
+        theme_dict = _load_theme_dictionary(theme)
         try:
             # The user's accent replaces the theme's orange.
             accent = _accent_color()
-            theme["DeeOrangeColor"] = accent
-            theme["DeeOrange"] = SolidColorBrush(accent)
+            theme_dict["DeeOrangeColor"] = accent
+            theme_dict["DeeOrange"] = SolidColorBrush(accent)
             bar = _bar_color()
-            theme["DeeBarColor"] = bar
-            theme["DeeBar"] = SolidColorBrush(bar)
-            theme["DeeOnBar"] = SolidColorBrush(_text_on(bar))
+            theme_dict["DeeBarColor"] = bar
+            theme_dict["DeeBar"] = SolidColorBrush(bar)
+            theme_dict["DeeOnBar"] = SolidColorBrush(_text_on(bar))
         except Exception:
             pass
-        window.Resources.MergedDictionaries.Add(theme)
+        window.Resources.MergedDictionaries.Add(theme_dict)
         if dark:
             import dee_dark
-            window.Resources.MergedDictionaries.Add(XamlReader.Parse(dee_dark.extras_text()))
+            window.Resources.MergedDictionaries.Add(XamlReader.Parse(dee_dark.extras_text(palette)))
         return True
     except Exception:
         return False
@@ -455,16 +465,20 @@ def progress_cancel(window):
 
 
 class DeeBrandedWindow(forms.WPFWindow):
-    def __init__(self, xaml_file, theme=True, rounded=None, shape=None, dark=None):
+    def __init__(self, xaml_file, theme=True, rounded=None, shape=None, dark=None, look=None):
         # shape=None follows About -> Interface -> Shapes; rounded=True/False
         # is the older way of asking for "rounded" / "standard".
         if shape is None:
             shape = shape_wanted() if rounded is None else ("rounded" if rounded else "standard")
         rounded = shape != "standard"
-        # dark=None follows About -> Interface -> Theme & shape.
-        if dark is None:
-            dark = theme_wanted() == "dark"
-        dark = bool(dark and theme)
+        # look = a lib/dee_themes.py key (light, dark, paper, midnight,
+        # dynamic, aurora); None follows About -> Interface -> Theme &
+        # shape. dark=True/False is the older way of asking for dark/light.
+        import dee_themes
+        if look is None:
+            look = theme_wanted() if dark is None else ("dark" if dark else "light")
+        look = dee_themes.normalize(look)
+        dark = bool(theme and dee_themes.is_dark(look))
         source, literal = xaml_file, False
         if dark and os.path.isfile(xaml_file):
             # The tool's own written-in colours, turned dark before the
@@ -484,8 +498,9 @@ class DeeBrandedWindow(forms.WPFWindow):
         # input / grid look). theme=False is an escape hatch only - no
         # tool uses it.
         self._dee_dark = False
+        self._dee_theme = look if theme else "light"
         if theme:
-            apply_theme(self, dark)
+            apply_theme(self, theme=look)
             if dark:
                 self._dee_dark = True
                 try:
@@ -517,6 +532,13 @@ class DeeBrandedWindow(forms.WPFWindow):
             dee_effects.attach(self)
         except Exception:
             pass
+        if theme and dee_themes.has_motion(look):
+            try:
+                # The moving themes (Dynamic, Aurora): lib/dee_theme_motion.py.
+                import dee_theme_motion
+                dee_theme_motion.attach(self, look)
+            except Exception:
+                pass
         try:
             self.SourceInitialized += self._on_source_initialized
         except Exception:

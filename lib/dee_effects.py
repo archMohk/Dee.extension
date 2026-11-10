@@ -45,7 +45,7 @@ DEFAULTS = {
     "fade": False,
     "titlebar": False,
     "shape": "standard",
-    "theme": "light",
+    "theme": "light",       # a lib/dee_themes.py key
 }
 _SWITCHES = ("glass", "outline", "topline", "fade", "titlebar")
 
@@ -88,12 +88,14 @@ def load_effects():
         out["shape"] = "rounded"
     import dee_shapes
     out["shape"] = dee_shapes.normalize(out["shape"])
-    if out["theme"] not in ("light", "dark"):
-        out["theme"] = "light"
+    import dee_themes
+    out["theme"] = dee_themes.normalize(out["theme"])
     return out
 
 
 def load_theme():
+    """The theme key (lib/dee_themes.py: light, dark, paper, midnight,
+    dynamic, aurora)."""
     return load_effects()["theme"]
 
 

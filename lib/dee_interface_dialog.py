@@ -13,12 +13,19 @@ Colours - three colours, one at a time ("Colour the: Accent / Lines /
   colour picker) and a hex box.
 Icon - the style every ribbon icon is drawn in (dee_accent.STYLES:
   Original, 3D, Glow, Tile, Inverted), each shown as a card drawn with
-  the colours picked above, so the colours drive every style.
+  the colours picked above, so the colours drive every style. Below it,
+  Live motion (dee_icon_motion.MOTIONS: Off, Pulse, Breathe, Bob, Shimmer) -
+  the preview row plays the picked motion on a timer.
 Effects - any combination of glass, accent outline, accent top line,
   fade in and accent title bar (lib/dee_effects.py).
-Theme & shape - Light or Dark (lib/dee_dark.py), and the outline of every tool window: Standard, Rounded, Soft float,
-  Cut corners, Leaf or Ticket (lib/dee_shapes.py), each drawn as a card;
-  "Try it" opens a sample window in the picked shape.
+Theme & shape - the theme of every tool window (lib/dee_themes.py: Light,
+  Dark, Paper, Midnight, and the moving Dynamic and Aurora, whose motions
+  live in lib/dee_theme_motion.py), each drawn as a card in its own colours -
+  the moving ones drift on the card too, and this window itself starts
+  moving when one is picked; and the outline of every tool window:
+  Standard, Rounded, Soft float, Cut corners, Leaf or Ticket
+  (lib/dee_shapes.py), each drawn as a card; "Try it" opens a sample
+  window in the picked theme and shape.
 
 Everything previews live on real ribbon icons, a sample progress bar and
 this window itself. Apply saves it all (lib/.dee_accent.json) and
@@ -46,7 +53,10 @@ import System.Drawing  # noqa: E402
 import dee_accent
 import dee_branding
 import dee_effects
+import dee_icon_motion
 import dee_shapes
+import dee_theme_motion
+import dee_themes
 
 _XAML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "DeeInterface.xaml")
 _SAMPLE_XAML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "DeeShapeSample.xaml")
@@ -100,10 +110,15 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._saved_line = dee_accent.load_line()       # None = grey
         self._saved_bar = dee_accent.load_bar()         # None = follow accent
         self._saved_style = dee_accent.load_style()
+        self._saved_motion = dee_icon_motion.load_motion()
         self._accent = self._saved_accent
         self._line = self._saved_line
         self._bar = self._saved_bar
         self._style = self._saved_style
+        self._motion = self._saved_motion
+        self._motion_timer = None
+        self._motion_frames = []     # per preview image: list of BitmapImage
+        self._motion_index = 0
         self._target = "accent"
         bundles = dee_accent._bundle_dirs()
         self._preview_sources = [os.path.join(bundles[n], "icon.png")
@@ -113,16 +128,17 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._style_cards = {}
         self._style_images = {}
         self._build_styles()
+        self._motion_cards = {}
+        self._build_motions()
+        self.Closed += self._on_closed
         self._saved_effects = dee_effects.load_effects()
         self._effects = dict(self._saved_effects)
         self._effect_boxes = {}
         self._build_effects()
         self._shape_cards = {}
         self._build_shapes()
-        if self._effects.get("theme") == "dark":
-            self.theme_dark_rb.IsChecked = True
-        else:
-            self.theme_light_rb.IsChecked = True
+        self._theme_cards = {}
+        self._build_themes()
         dee_effects.when_ready(self, lambda: dee_effects.apply(self, self._effects))
         self._ready = True
         self.hex_tb.Text = self._target_value()
@@ -257,6 +273,89 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._sync_style_cards()
         self._refresh()
 
+    # ---- live motion ----
+    def _build_motions(self):
+        for key, label, desc in dee_icon_motion.MOTIONS:
+            card = Border()
+            card.Margin = Thickness(4)
+            card.Padding = Thickness(14, 6, 14, 6)
+            card.CornerRadius = CornerRadius(6)
+            card.Cursor = Cursors.Hand
+            card.ToolTip = desc
+            card.Tag = key
+            card.SetResourceReference(Border.BackgroundProperty, "DeeSurface")
+            name = TextBlock()
+            name.Text = label
+            name.HorizontalAlignment = HorizontalAlignment.Center
+            card.Child = name
+            card.MouseLeftButtonUp += self._motion_click
+            self._motion_cards[key] = card
+            self.motions_panel.Children.Add(card)
+        self._sync_motion_cards()
+
+    def _sync_motion_cards(self):
+        for key, card in self._motion_cards.items():
+            picked = key == self._motion
+            card.BorderThickness = Thickness(2 if picked else 1)
+            card.SetResourceReference(Border.BorderBrushProperty,
+                                      "DeeOrange" if picked else "DeeBorder")
+        for key, label, desc in dee_icon_motion.MOTIONS:
+            if key == self._motion:
+                self.motion_desc_tb.Text = "{0}: {1}".format(label, desc)
+
+    def _motion_click(self, sender, args):
+        if not self._ready:
+            return
+        self._motion = sender.Tag
+        self._sync_motion_cards()
+        self._refresh()
+
+    def _stop_preview_motion(self):
+        try:
+            if self._motion_timer is not None:
+                self._motion_timer.Stop()
+        except Exception:
+            pass
+        self._motion_timer = None
+        self._motion_frames = []
+
+    def _start_preview_motion(self, images):
+        """Plays the picked motion on the preview row: every image gets
+        its FRAMES bitmaps, one DispatcherTimer steps them all."""
+        self._stop_preview_motion()
+        if dee_icon_motion.is_off(self._motion):
+            return
+        frames = []
+        for img, src in images:
+            try:
+                paths = dee_icon_motion.frame_paths(src, self._accent, self._line,
+                                               self._style, self._motion)
+                if paths:
+                    frames.append((img, [_load_image(p) for p in paths]))
+            except Exception:
+                pass
+        if not frames:
+            return
+        self._motion_frames = frames
+        from System import TimeSpan
+        from System.Windows.Threading import DispatcherTimer
+        timer = DispatcherTimer()
+        timer.Interval = TimeSpan.FromMilliseconds(dee_icon_motion.INTERVAL_MS)
+        timer.Tick += self._preview_tick
+        timer.Start()
+        self._motion_timer = timer
+
+    def _preview_tick(self, sender, args):
+        try:
+            self._motion_index += 1
+            for img, bitmaps in self._motion_frames:
+                img.Source = bitmaps[self._motion_index % len(bitmaps)]
+        except Exception:
+            pass
+
+    def _on_closed(self, sender, args):
+        self._stop_preview_motion()
+
     # ---- shapes ----
     def _draw_shape(self, key):
         """A small window drawn in the shape: title strip, two lines of
@@ -348,16 +447,121 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._sync_shape_cards()
         self._effects_changed()
 
-    def theme_changed(self, sender, args):
+    # ---- themes ----
+    def _draw_theme(self, key):
+        """A small window drawn in the theme's own colours: title strip,
+        a line of text, a primary button, a progress bar and the website
+        bar. The moving themes' background drifts, as the real one does."""
+        pal = dee_themes.colors(key)
+
+        def _c(name):
+            return _brush(pal[name])
+
+        canvas = Canvas()
+        canvas.Width, canvas.Height = _CARD_W, _CARD_H
+        body = Border()
+        body.Width, body.Height = _CARD_W, _CARD_H
+        body.CornerRadius = CornerRadius(4)
+        body.BorderThickness = Thickness(1)
+        body.BorderBrush = _c("DeeBorderStrong")
+        spec = dee_themes.motion(key)
+        if spec:
+            stops = dee_theme_motion.glow_colors(
+                key, dee_theme_motion.hex_color(pal["DeeWindowBg"]),
+                dee_theme_motion.hex_color(self._accent))
+            body.Background = dee_theme_motion.gradient_brush(stops, spec.get("period", 9.0) * 0.5)
+        else:
+            body.Background = _c("DeeWindowBg")
+        canvas.Children.Add(body)
+        parts = Canvas()
+        parts.Width, parts.Height = _CARD_W, _CARD_H
+
+        def _rect(x, y, w, h, brush, radius=0):
+            r = Border()
+            r.Width, r.Height = w, h
+            r.Background = brush
+            r.CornerRadius = CornerRadius(radius)
+            Canvas.SetLeft(r, x)
+            Canvas.SetTop(r, y)
+            parts.Children.Add(r)
+
+        _rect(1, 1, _CARD_W - 2, 12, _c("DeeSurface"))                 # title strip
+        _rect(8, 4, 30, 5, _c("DeeTextMuted"), 2)                        # title text
+        _rect(8, 22, _CARD_W * 0.5, 4, _c("DeeText"), 2)                 # a line of text
+        _rect(8, 30, _CARD_W * 0.34, 4, _c("DeeTextMuted"), 2)
+        _rect(_CARD_W - 40, 24, 32, 12, _c("DeeAccentColor"), 3)        # primary button
+        _rect(8, 44, _CARD_W - 16, 5, _c("DeeButtonBg"), 2)              # progress bar
+        pb = Border()
+        pb.Width, pb.Height = (_CARD_W - 16) * 0.6, 5
+        pb.CornerRadius = CornerRadius(2)
+        pb.SetResourceReference(Border.BackgroundProperty, "DeeOrange")
+        Canvas.SetLeft(pb, 8)
+        Canvas.SetTop(pb, 44)
+        parts.Children.Add(pb)
+        bar = Border()
+        bar.Width, bar.Height = _CARD_W - 2, 8
+        bar.CornerRadius = CornerRadius(0, 0, 3, 3)
+        bar.SetResourceReference(Border.BackgroundProperty, "DeeBar")   # website bar
+        Canvas.SetLeft(bar, 1)
+        Canvas.SetTop(bar, _CARD_H - 9)
+        parts.Children.Add(bar)
+        canvas.Children.Add(parts)
+        return canvas
+
+    def _build_themes(self):
+        for key, label, desc in dee_themes.THEMES:
+            card = Border()
+            card.Width = 124
+            card.Margin = Thickness(3)
+            card.Padding = Thickness(5, 7, 5, 5)
+            card.CornerRadius = CornerRadius(6)
+            card.Cursor = Cursors.Hand
+            card.ToolTip = desc
+            card.Tag = key
+            card.SetResourceReference(Border.BackgroundProperty, "DeeSurface")
+            stack = StackPanel()
+            picture = self._draw_theme(key)
+            picture.HorizontalAlignment = HorizontalAlignment.Center
+            stack.Children.Add(picture)
+            name = TextBlock()
+            name.Text = label + (u"  ∿" if dee_themes.has_motion(key) else "")
+            name.ToolTip = "Moves" if dee_themes.has_motion(key) else None
+            name.Margin = Thickness(0, 6, 0, 0)
+            name.HorizontalAlignment = HorizontalAlignment.Center
+            stack.Children.Add(name)
+            card.Child = stack
+            card.MouseLeftButtonUp += self._theme_click
+            self._theme_cards[key] = card
+            self.themes_panel.Children.Add(card)
+        self._sync_theme_cards()
+
+    def _sync_theme_cards(self):
+        current = dee_themes.normalize(self._effects.get("theme"))
+        for key, card in self._theme_cards.items():
+            picked = key == current
+            card.BorderThickness = Thickness(2 if picked else 1)
+            card.SetResourceReference(Border.BorderBrushProperty,
+                                      "DeeOrange" if picked else "DeeBorder")
+        self.theme_desc_tb.Text = "{0}: {1}".format(dee_themes.label(current),
+                                                    dee_themes.description(current))
+
+    def _theme_click(self, sender, args):
         if not self._ready:
             return
-        self._effects["theme"] = "dark" if self.theme_dark_rb.IsChecked else "light"
+        self._effects["theme"] = sender.Tag
+        self._sync_theme_cards()
         self._effects_changed()
+        # This window moves (or stops) straight away; its colours follow
+        # on the next window opened, like the shape.
+        try:
+            dee_theme_motion.apply(self, self._effects["theme"], self._effects)
+        except Exception:
+            pass
 
     def try_shape_click(self, sender, args):
         try:
             sample = _ShapeSample(self._effects.get("shape", "standard"),
-                                  self._effects.get("theme") == "dark")
+                                  self._effects.get("theme", "light"))
             try:
                 sample.Owner = self
             except Exception:
@@ -382,9 +586,9 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._update_status()
 
     def _colours_changed(self):
-        return ((self._accent, self._line, self._bar, self._style)
+        return ((self._accent, self._line, self._bar, self._style, self._motion)
                 != (self._saved_accent, self._saved_line, self._saved_bar,
-                    self._saved_style))
+                    self._saved_style, self._saved_motion))
 
     def _update_status(self):
         changed = self._colours_changed() or self._effects != self._saved_effects
@@ -400,10 +604,12 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
                 self._effects.get("shape"), "Standard")
             style = dict((k, l) for k, l, _d in dee_accent.STYLES).get(
                 self._saved_style, "Original")
+            motion = dict((k, l) for k, l, _d in dee_icon_motion.MOTIONS).get(
+                self._saved_motion, "Off")
             self.status_tb.Text = ("Current: {4} theme, accent {0}, lines {1}, bar {5}, "
-                                   "icons {6}, shape {2}, effects: {3}").format(
+                                   "icons {6}, motion {7}, shape {2}, effects: {3}").format(
                 self._saved_accent, self._saved_line or "grey", shape, ", ".join(on) or "none",
-                self._effects.get("theme", "light"), self._saved_bar or "accent", style)
+                dee_themes.label(self._effects.get("theme")), self._saved_bar or "accent", style, motion)
 
     def _refresh(self):
         current = self._target_value()
@@ -421,7 +627,9 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         # This window's own website bar + the sample progress bar.
         dee_branding.set_window_accent(self, dee_accent.window_accent(self._accent),
                                        dee_accent.bar_accent(self._accent, self._bar))
+        self._stop_preview_motion()
         self.preview_panel.Children.Clear()
+        shown = []
         for src in self._preview_sources:
             try:
                 img = Image()
@@ -431,8 +639,10 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
                 img.Source = _load_image(dee_accent.resolve(src, self._accent, self._line,
                                                             self._style))
                 self.preview_panel.Children.Add(img)
+                shown.append((img, src))
             except Exception:
                 pass
+        self._start_preview_motion(shown)
         self._refresh_style_images()
         self._update_status()
 
@@ -507,37 +717,53 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._saved_line = self._line
         self._saved_bar = self._bar
         self._saved_style = self._style
+        self._saved_motion = dee_icon_motion.save_motion(self._motion)
         count = 0
+        moving = 0
         if self._uiapp is not None:
             try:
+                dee_icon_motion.stop()          # still icons first, then the motion
                 count = dee_accent.apply_to_ribbon(self._uiapp, self._saved_accent,
                                                    self._saved_line, self._saved_style)
             except Exception:
                 count = 0
+            try:
+                moving = dee_icon_motion.apply(self._uiapp, self._saved_accent, self._saved_line,
+                                          self._saved_style, self._saved_motion)
+            except Exception:
+                moving = 0
         try:
             dee_branding.repaint_open_windows(dee_accent.window_accent(),
                                               dee_accent.bar_accent())
         except Exception:
             pass
         self._saved_effects = dee_effects.save_effects(self._effects)
+        theme = self._saved_effects.get("theme", "light")
         for win in dee_branding.open_windows():
             if win is not self:
                 dee_effects.apply(win, self._saved_effects)
+            try:
+                # Repainting put plain brushes back; the moving themes
+                # start (or stop) on every open window now.
+                dee_theme_motion.apply(win, theme, self._saved_effects)
+            except Exception:
+                pass
         self._refresh()
-        self.status_tb.Text = ("Saved. {0} ribbon buttons repainted, and every open "
-                               "Dee window updated.".format(count))
+        self.status_tb.Text = ("Saved. {0} ribbon buttons repainted{1}, and every open "
+                               "Dee window updated.".format(
+                                   count, ", {0} in motion".format(moving) if moving else ""))
 
     def close_click(self, sender, args):
         self.Close()
 
 
 class _ShapeSample(dee_branding.DeeBrandedWindow):
-    """The small window "Try it" opens, in the shape being picked."""
+    """The small window "Try it" opens, in the shape and theme being picked."""
 
-    def __init__(self, shape, dark=False):
-        dee_branding.DeeBrandedWindow.__init__(self, _SAMPLE_XAML, shape=shape, dark=dark)
+    def __init__(self, shape, theme="light"):
+        dee_branding.DeeBrandedWindow.__init__(self, _SAMPLE_XAML, shape=shape, look=theme)
         label = dict((k, l) for k, l, _d in dee_shapes.SHAPES).get(shape, shape)
-        self.sample_tb.Text = "Shape: {0}, {1} theme".format(label, "dark" if dark else "light")
+        self.sample_tb.Text = "Shape: {0}, {1} theme".format(label, dee_themes.label(theme))
 
     def close_click(self, sender, args):
         self.Close()

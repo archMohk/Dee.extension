@@ -202,10 +202,11 @@ def dark_xaml_for(path):
 
 
 # ---------------- 1. the theme dictionaries ----------------
-def theme_text():
-    """DeeTheme.xaml with the dark palette."""
+def theme_text(palette=None):
+    """DeeTheme.xaml with the dark palette (or any other theme's palette
+    from lib/dee_themes.py: DeeTheme.xaml key -> hex)."""
     text = read(THEME_FILE)
-    for key, value in PALETTE.items():
+    for key, value in (palette or PALETTE).items():
         text = re.sub(r'(x:Key="{0}"(?:\s+Color=")?)(#[0-9A-Fa-f]{{3,8}})'.format(key),
                       lambda m, v=value: m.group(1) + v, text)
         text = re.sub(r'(<Color x:Key="{0}">)\s*#[0-9A-Fa-f]{{3,8}}\s*(</Color>)'.format(key),
@@ -214,8 +215,25 @@ def theme_text():
     return text
 
 
-def extras_text():
-    return read(EXTRAS_FILE)
+# Colours DeeThemeDark.xaml writes in that are not PALETTE values as such:
+# the key whose colour they follow when another dark theme swaps the palette.
+_EXTRAS_FOLLOW = {"#8A8F98": "DeeTextMuted", "#2F6FB0": "DeeAccentColor",
+                  "#45484F": "DeeButtonHover"}
+
+
+def extras_text(palette=None):
+    """DeeThemeDark.xaml; with another dark theme's palette, every dark
+    colour written in it is swapped for that theme's."""
+    text = read(EXTRAS_FILE)
+    if not palette or palette == PALETTE:
+        return text
+    swaps = dict((PALETTE[k], palette.get(k)) for k in PALETTE if palette.get(k))
+    for value, key in _EXTRAS_FOLLOW.items():
+        if palette.get(key):
+            swaps[value] = palette[key]
+    for old, new in swaps.items():
+        text = re.sub(re.escape(old) + r'(?![0-9A-Fa-f])', new, text, flags=re.I)
+    return text
 
 
 # ---------------- 3. colours set by scripts ----------------
