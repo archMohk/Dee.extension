@@ -78,3 +78,6 @@ __pycache__/
 .deeursfiles_acc_cache.json
 .deeremovelinks_acc_cache.json
 .deeupdater_acc_cache.json
+
+# Output of tools/checks/revit_compat_probe.py when run from the repo.
+tools/checks/compat_result_*.txt

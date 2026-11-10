@@ -94,7 +94,7 @@ for m, e in comp_fail:
     log("  FAIL %s: %s" % (m, e))
 
 # ---- 3. DeeLazy modules import (they need their own folder on sys.path) ---
-lazy = os.path.join(TAB, "Tools.panel", "DeeLazy.pulldown", "DeeLazy.pushbutton")
+lazy = os.path.join(TAB, "Lazy.panel", "DeeLazy.pulldown", "DeeLazy.pushbutton")
 sys.path.insert(0, lazy)
 lazy_fail = []
 try:

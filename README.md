@@ -23,7 +23,7 @@ A pyRevit extension for Revit (the **DeePack** ribbon tab), with a Supabase mirr
 
 ## Panels in `DeePack.tab`
 
-Ribbon order (folder name -> ribbon title): Mode, Models (Session), Cloud, Coordination (Links),
+Ribbon order (folder name -> ribbon title): Mode, Models (Session), Cloud, Lazy (DeeLazy), Coordination (Links),
 Masterplan, Model, Rooms (Rooms & QS), Datums, ViewsDatums (Views & Sheets), SheetsExport (Export),
 Health, Align, Tools (AI), About. Folder names are kept stable because `lib/` code and
 `dee_control_panel.json` refer to them; only the `title:` in each panel's `bundle.yaml` changes.

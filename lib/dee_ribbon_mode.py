@@ -53,10 +53,10 @@ ALWAYS_VISIBLE = set(["Mode", "About"])
 # "don't filter" rather than an explicit (and easily-stale) full list.
 CATEGORY_PANELS = {
     "All": None,
-    "Cloud & Sync": ["Session", "Cloud"],
+    "Cloud & Sync": ["Session", "Cloud", "DeeLazy"],
     "Coordination": ["Links", "Masterplan", "Datums"],
     "Design": ["Model", "Rooms & QS", "Align"],
-    "Documentation": ["Views & Sheets", "Export", "Rooms & QS"],
+    "Documentation": ["Views & Sheets", "Export", "Rooms & QS", "DeeLazy"],
     "Health": ["Health", "Session"],
     "AI": ["AI"],
 }
