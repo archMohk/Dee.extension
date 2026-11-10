@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DeeParam — DeePack Handbook</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="topbar"><div class="inner"><a class="home-link" href="../index.html">&larr; DeePack Handbook</a></div></div>
+<div class="wrap">
+  <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; HealthPack panel</div>
+  <span class="panel-chip">HealthPack</span>
+  <h1 class="tool-title">DeeParam</h1>
+  <p class="tagline">Audit every shared and project parameter in the model, find orphans, compare against the shared parameter file, remove or extend bindings, bind from the file, and export to Excel.</p>
+
+  <div class="callout warn"><strong>Risk level: Medium</strong> Removing a binding discards every value stored in that parameter, and deleting an orphan removes the shared parameter element from the model. Every change shows a preview and asks before it runs, and Revit's Undo reverts it.</div>
+
+  <div class="card">
+    <h2>What it does</h2>
+    <ul>
+      <li><strong>Scan</strong> &mdash; lists every parameter bound in the model (Manage &gt; Project Parameters) with Kind (Shared / Project), Scope (Instance / Type), Categories, Storage, Data Type, Group, GUID, and how many elements carry it, how many have a value, and how many distinct values there are. Usage is counted over at most the number of elements in the "Probe up to" box per parameter, so a large model stays scannable; the Used column says "x of y probed" when it hit the cap.</li>
+      <li><strong>Orphans</strong> &mdash; shared parameters loaded into the model but bound to nothing (left behind by a removed binding or a purged family) are listed as "Shared (unbound)" in orange. No other DeePack tool could see these.</li>
+      <li><strong>Shared parameter file</strong> &mdash; Load Shared Parameter File reads the file set under Manage &gt; Shared Parameters and fills the File Status column: In file, Not in file (red), or Name differs (yellow).</li>
+      <li><strong>Delete / Purge</strong> &mdash; Remove Binding (checked) and Delete Orphaned Shared (checked). Check Unused and Check Orphans pick the usual candidates in one click.</li>
+      <li><strong>Rebind / Repair</strong> &mdash; Extend Checked adds the selected categories to an existing binding, keeping its Instance/Type kind. Bind Checked Orphans and Bind File-Only Parameters create a new binding from the file's definition, Instance or Type per the radio.</li>
+      <li><strong>Export to Excel</strong> &mdash; writes the rows currently shown to a themed .xlsx.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>How to use it</h2>
+    <ol>
+      <li>Click Scan Parameters. Use Filter, Kind and Group by to narrow the grid.</li>
+      <li>Optionally click Load Shared Parameter File to see which shared parameters match the file.</li>
+      <li>Tick the rows to act on (double-click a row toggles it), or use Check Unused / Check Orphans.</li>
+      <li>For Extend or Bind, select one or more categories in the list first and pick Instance or Type.</li>
+      <li>Click the action. Read the preview in the log, then confirm.</li>
+      <li>Scan again to refresh the grid after a change.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Before you run it</h2>
+    <ul>
+      <li>"Unused" means no probed element carries a non-empty value. Raise the probe limit on a big model before trusting it for a delete.</li>
+      <li>A binding is removed by name and an orphan is deleted by GUID, each looked up fresh right before its own change, so a long list is safe to run in one go.</li>
+      <li>Binding from the file needs a shared parameter file set in Revit. The tool never creates or edits that file.</li>
+      <li>Each action is one transaction, so one Ctrl+Z reverts it.</li>
+    </ul>
+  </div>
+
+  <div class="footer-nav"><a href="../index.html">&larr; Back to the DeePack Handbook</a></div>
+</div>
+</body>
+</html>

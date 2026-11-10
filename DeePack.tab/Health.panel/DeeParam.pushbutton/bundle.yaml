@@ -1,0 +1,2 @@
+title: DeeParam
+tooltip: Audit every shared and project parameter in the model - list them with scope, categories, GUID and usage counts, find orphaned shared parameters, compare against the shared parameter file, remove bindings, delete orphans, extend bindings to more categories, bind parameters from the file, and export the audit to Excel. Every change previews first and asks before it runs.

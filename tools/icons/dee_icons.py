@@ -524,6 +524,15 @@ GLYPHS = {
         ln(30, 50, 54, 64, "ink", 0.8),
         cf(76, 34, 5), cf(84, 50, 4),
     ],
+    # A property sheet (three label/value rows) with a magnifier over it -
+    # "audit the parameters": the rows are the parameters, the accented
+    # magnifier is the scan.
+    "DeeParam": lambda: [
+        rc(16, 14, 64, 82, "ink", 1.0, 3),
+        ln(24, 32, 40, 32, "ink", 0.9), ln(46, 32, 56, 32, "accent", 1.1),
+        ln(24, 46, 40, 46, "ink", 0.9), ln(46, 46, 56, 46, "accent", 1.1),
+        ln(24, 60, 40, 60, "ink", 0.9),
+    ] + magnifier(68, 66, 13, "accent", 1.2),
     # CAD doc dragged back to the internal origin, so the origin has to read
     # as a real target rather than a bare arrowhead.
     "DeeGetDWG": lambda: doc(14, 14, 50, 60, "ink", 0.95, 11) + [

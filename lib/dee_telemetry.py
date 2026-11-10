@@ -164,6 +164,7 @@ TOOL_CATEGORIES = {
     "DeeHealth": "health",
     "DeeJoin": "health",
     "DeeOpener": "health",
+    "DeeParam": "health",
     "DeeRehoster": "health",
     "DeeSYNC": "health",
     # Rooms & Quantities (5 tools)

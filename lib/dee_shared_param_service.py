@@ -73,7 +73,7 @@ import tempfile
 from dee_ui import eid_int
 from Autodesk.Revit.DB import (
     Transaction, ExternalDefinitionCreationOptions, SpecTypeId,
-    GroupTypeId,
+    GroupTypeId, TypeBinding,
 )
 
 _SP_GROUP_NAME = "DeePack"
@@ -119,6 +119,42 @@ def _same_category(cat_a, cat_b):
         return eid_int(cat_a.Id) == eid_int(cat_b.Id)
     except Exception:
         return cat_a == cat_b
+
+
+def extend_binding_categories(doc, definition, existing_binding, target_cats,
+                              group_type_id=None):
+    """Extends an EXISTING binding so it also covers every category in
+    target_cats (a list of Category), via ReInsert with an enlarged
+    CategorySet - the one route Revit accepts once a parameter has ever
+    been bound. Keeps the binding's own kind: a TypeBinding stays a
+    TypeBinding, an InstanceBinding stays an InstanceBinding (the one
+    behaviour DeeParam needs that ensure_shared_parameters, instance-
+    only by design, did not offer). Must be called inside an open
+    Transaction. Returns (ok, detail); never raises."""
+    try:
+        have = list(existing_binding.Categories)
+        missing = [c for c in target_cats
+                   if not any(_same_category(c, h) for h in have)]
+        if not missing:
+            return True, "already bound to {0}".format(
+                ", ".join(c.Name for c in target_cats))
+        cats = doc.Application.Create.NewCategorySet()
+        for c in have:
+            cats.Insert(c)
+        for c in missing:
+            cats.Insert(c)
+        is_type = isinstance(existing_binding, TypeBinding)
+        new_binding = (doc.Application.Create.NewTypeBinding(cats) if is_type
+                       else doc.Application.Create.NewInstanceBinding(cats))
+        group = group_type_id if group_type_id is not None else GroupTypeId.IdentityData
+        reinserted = doc.ParameterBindings.ReInsert(definition, new_binding, group)
+        added = ", ".join(c.Name for c in missing)
+        if reinserted:
+            return True, "extended the existing {0} binding to also cover {1}".format(
+                "type" if is_type else "instance", added)
+        return False, "Revit refused to extend the binding to {0}".format(added)
+    except Exception as e:
+        return False, "{0}".format(e)
 
 
 def ensure_shared_parameters(doc, app, param_names, category_bic, category_label,
@@ -195,15 +231,12 @@ def ensure_shared_parameters(doc, app, param_names, category_bic, category_label
                         category_label, file_detail))
                     continue
 
-                cats = doc.Application.Create.NewCategorySet()
-                for c in existing_binding.Categories:
-                    cats.Insert(c)
-                cats.Insert(target_cat)
-                new_binding = doc.Application.Create.NewInstanceBinding(cats)
-                reinserted = bindings.ReInsert(definition, new_binding, GroupTypeId.IdentityData)
+                ok, _detail = extend_binding_categories(
+                    doc, definition, existing_binding, [target_cat])
                 results[name] = ((True, "extended the existing binding to also cover {0} ({1})".format(
-                    category_label, file_detail)) if reinserted else
-                    (False, "Revit refused to extend '{0}' to also cover {1}".format(name, category_label)))
+                    category_label, file_detail)) if ok else
+                    (False, "Revit refused to extend '{0}' to also cover {1}: {2}".format(
+                        name, category_label, _detail)))
             except Exception as e:
                 results[name] = (False, "{0}".format(e))
         t.Commit()
