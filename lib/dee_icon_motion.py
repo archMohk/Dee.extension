@@ -13,6 +13,12 @@ hovered button moves (from its first frame, the moment the pointer
 arrives); when the pointer leaves, its still icon comes back. Nothing is
 painted while the DeePack tab is off screen.
 
+Cost: the frames are rendered on a background thread (Revit's first
+Idling only lists the buttons - it used to draw ~2,700 PNGs there and
+froze Revit for 15-30 s per session), the WPF bitmaps are loaded the
+first time a button is hovered, and the timer only ticks while the mouse
+is over the ribbon (Autodesk.Windows RibbonControl MouseEnter/MouseLeave).
+
 Who is hovered: Revit's ribbon is WPF, so System.Windows.Input.Mouse
 .DirectlyOver gives the element under the pointer; its ancestors'
 DataContext is the Autodesk.Windows.RibbonItem of the button, and each
@@ -266,56 +272,130 @@ def hovered_ribbon_item():
 
 
 class _Entry(object):
-    __slots__ = ("item", "adw", "name", "frames", "still", "on_frames", "on_still")
+    """One ribbon button that can move. The PNG paths are produced on a
+    worker thread; the WPF bitmaps behind frames/still are only created
+    (on the UI thread) the first time the pointer reaches the button."""
+    __slots__ = ("item", "adw", "name", "src", "on_src",
+                 "frame_paths", "still_path", "on_frame_paths", "on_still_path",
+                 "frames", "still", "on_frames", "on_still")
 
-    def __init__(self, item, adw, name):
+    def __init__(self, item, adw, name, src, on_src=None):
         self.item = item
         self.adw = adw
         self.name = name
-        self.frames = []        # [(small, large)] per motion frame
-        self.still = None       # (small, large) of the plain styled icon
-        self.on_frames = []     # DeeForce: the same while auto-sync is on
+        self.src = src
+        self.on_src = on_src    # DeeForce: the icon while auto-sync is on
+        self.frame_paths = []
+        self.still_path = None
+        self.on_frame_paths = []
+        self.on_still_path = None
+        self.frames = None      # [(small, large)] per motion frame, lazy
+        self.still = None       # (small, large) of the plain styled icon, lazy
+        self.on_frames = None
         self.on_still = None
 
 
+def _icons(path):
+    from pyrevit.coreutils.ribbon import ButtonIcons
+    icons = ButtonIcons(path)
+    return (icons.small_bitmap, icons.large_bitmap)
+
+
 class _Animator(object):
+    """Startup cost on Revit's UI thread is one pass over the ribbon items
+    (no drawing). The FRAMES PNGs per icon are rendered on a background
+    thread, then the hover timer starts; the timer only ticks while the
+    mouse is over Revit's ribbon, so an idle Revit pays nothing."""
+
     def __init__(self):
         self.timer = None
         self.entries = []
         self.current = None     # the _Entry under the mouse, if any
         self.index = 0
+        self.generation = 0     # bumped by stop(); stale renders are dropped
+        self.ribbon = None      # Autodesk.Windows RibbonControl hooked for enter/leave
+        self._hooked = False
 
     @property
     def items(self):
         return self.entries
 
     def stop(self):
+        self.generation += 1
         try:
             if self.timer is not None:
                 self.timer.Stop()
         except Exception:
             pass
         self.timer = None
+        self._unhook_ribbon()
         self._rest(self.current)
         self.current = None
         self.entries = []
 
-    def _frames_for(self, src, accent_hex, line_hex, style, kind):
-        from pyrevit.coreutils.ribbon import ButtonIcons
-        frames = []
-        for path in frame_paths(src, accent_hex, line_hex, style, kind):
-            icons = ButtonIcons(path)
-            frames.append((icons.small_bitmap, icons.large_bitmap))
-        return frames
+    # ---- ribbon enter/leave gate ----
+    def _hook_ribbon(self):
+        try:
+            clr.AddReference("AdWindows")
+            from Autodesk.Windows import ComponentManager
+            ribbon = ComponentManager.Ribbon
+            if ribbon is None:
+                return False
+            ribbon.MouseEnter += self._on_ribbon_enter
+            ribbon.MouseLeave += self._on_ribbon_leave
+            self.ribbon = ribbon
+            self._hooked = True
+            return True
+        except Exception:
+            self.ribbon = None
+            self._hooked = False
+            return False
 
-    def _still_for(self, src, accent_hex, line_hex, style):
-        from pyrevit.coreutils.ribbon import ButtonIcons
-        icons = ButtonIcons(dee_accent.resolve(src, accent_hex, line_hex, style))
-        return (icons.small_bitmap, icons.large_bitmap)
+    def _unhook_ribbon(self):
+        if self.ribbon is not None and self._hooked:
+            try:
+                self.ribbon.MouseEnter -= self._on_ribbon_enter
+            except Exception:
+                pass
+            try:
+                self.ribbon.MouseLeave -= self._on_ribbon_leave
+            except Exception:
+                pass
+        self.ribbon = None
+        self._hooked = False
 
+    def _on_ribbon_enter(self, sender, args):
+        try:
+            if self.timer is not None and not self.timer.IsEnabled:
+                self.timer.Start()
+        except Exception:
+            pass
+
+    def _on_ribbon_leave(self, sender, args):
+        try:
+            if self.timer is not None:
+                self.timer.Stop()
+        except Exception:
+            pass
+        try:
+            self._rest(self.current)
+            self.current = None
+            self.index = 0
+        except Exception:
+            pass
+
+    def _ribbon_has_mouse(self):
+        try:
+            return bool(self.ribbon.IsMouseOver)
+        except Exception:
+            return True
+
+    # ---- start: collect on the UI thread, render on a worker ----
     def start(self, uiapp, accent_hex, line_hex, style, kind):
         self.stop()
+        generation = self.generation
         bundles = dee_accent._bundle_dirs()
+        pending = []
         for item in dee_accent._iter_items(uiapp):
             try:
                 name = item.Name
@@ -330,29 +410,67 @@ class _Animator(object):
             adw = _adwindows_item(item)
             if adw is None:
                 continue                      # no WPF twin, so no hover
-            try:
-                entry = _Entry(item, adw, name)
-                entry.frames = self._frames_for(src, accent_hex, line_hex, style, kind)
-                if not entry.frames:
-                    continue
-                entry.still = self._still_for(src, accent_hex, line_hex, style)
-                if name == "DeeForce":
-                    on_src = os.path.join(bundle_dir, "icon.on.png")
-                    if os.path.isfile(on_src):
-                        entry.on_frames = self._frames_for(
-                            on_src, accent_hex, line_hex, style, kind)
-                        entry.on_still = self._still_for(on_src, accent_hex, line_hex, style)
-                self.entries.append(entry)
-            except Exception:
-                continue
-        if not self.entries:
+            on_src = None
+            if name == "DeeForce":
+                candidate = os.path.join(bundle_dir, "icon.on.png")
+                if os.path.isfile(candidate):
+                    on_src = candidate
+            pending.append(_Entry(item, adw, name, src, on_src))
+        if not pending:
             return 0
-        from System.Windows.Threading import DispatcherTimer
-        self.timer = DispatcherTimer()
-        self.timer.Interval = TimeSpan.FromMilliseconds(INTERVAL_MS)
-        self.timer.Tick += self._tick
-        self.timer.Start()
-        return len(self.entries)
+
+        from System.Windows.Threading import Dispatcher
+        dispatcher = Dispatcher.CurrentDispatcher
+
+        def _render():
+            ready = []
+            for entry in pending:
+                if generation != self.generation:
+                    return
+                try:
+                    entry.frame_paths = frame_paths(
+                        entry.src, accent_hex, line_hex, style, kind)
+                    if not entry.frame_paths:
+                        continue
+                    entry.still_path = dee_accent.resolve(
+                        entry.src, accent_hex, line_hex, style)
+                    if entry.on_src:
+                        entry.on_frame_paths = frame_paths(
+                            entry.on_src, accent_hex, line_hex, style, kind)
+                        entry.on_still_path = dee_accent.resolve(
+                            entry.on_src, accent_hex, line_hex, style)
+                    ready.append(entry)
+                except Exception:
+                    continue
+            if generation != self.generation or not ready:
+                return
+            try:
+                from System import Action
+                dispatcher.BeginInvoke(Action(lambda: self._arm(generation, ready)))
+            except Exception:
+                pass
+
+        import threading
+        worker = threading.Thread(target=_render)
+        worker.daemon = True
+        worker.start()
+        return len(pending)
+
+    def _arm(self, generation, ready):
+        """UI thread, after the worker: keep the entries and start the
+        hover timer (gated by the ribbon's MouseEnter/MouseLeave)."""
+        try:
+            if generation != self.generation:
+                return
+            self.entries = ready
+            from System.Windows.Threading import DispatcherTimer
+            self.timer = DispatcherTimer()
+            self.timer.Interval = TimeSpan.FromMilliseconds(INTERVAL_MS)
+            self.timer.Tick += self._tick
+            if not self._hook_ribbon() or self._ribbon_has_mouse():
+                self.timer.Start()        # no gate available: tick as before
+        except Exception:
+            pass
 
     @staticmethod
     def _force_on():
@@ -376,10 +494,33 @@ class _Animator(object):
         except Exception:
             pass
 
+    @staticmethod
+    def _load(entry):
+        """UI thread: the WPF bitmaps for an entry, built once from its
+        PNG paths the first time the pointer reaches it."""
+        if entry.frames is None:
+            try:
+                entry.frames = [_icons(p) for p in entry.frame_paths]
+            except Exception:
+                entry.frames = []
+        if entry.still is None and entry.still_path:
+            try:
+                entry.still = _icons(entry.still_path)
+            except Exception:
+                entry.still = None
+        if entry.on_src and entry.on_frames is None:
+            try:
+                entry.on_frames = [_icons(p) for p in entry.on_frame_paths]
+                if entry.on_still_path:
+                    entry.on_still = _icons(entry.on_still_path)
+            except Exception:
+                entry.on_frames = []
+
     def _rest(self, entry):
         """Puts the still icon back on a button the pointer has left."""
         if entry is None:
             return
+        self._load(entry)
         still = entry.still
         if entry.on_still is not None and self._force_on():
             still = entry.on_still
@@ -395,6 +536,9 @@ class _Animator(object):
 
     def _tick(self, sender, args):
         try:
+            if self._hooked and not self._ribbon_has_mouse():
+                self._on_ribbon_leave(sender, args)   # missed MouseLeave: go quiet
+                return
             hovered = self._find(hovered_ribbon_item()) if _deepack_tab_active() else None
             if hovered is not self.current:
                 self._rest(self.current)
@@ -402,9 +546,12 @@ class _Animator(object):
                 self.index = 0                # every hover starts the loop afresh
             if hovered is None:
                 return
+            self._load(hovered)
             frames = hovered.frames
             if hovered.on_frames and self._force_on():
                 frames = hovered.on_frames
+            if not frames:
+                return
             self.index = (self.index + 1) % FRAMES
             self._paint(hovered, frames[self.index % len(frames)])
         except Exception:
