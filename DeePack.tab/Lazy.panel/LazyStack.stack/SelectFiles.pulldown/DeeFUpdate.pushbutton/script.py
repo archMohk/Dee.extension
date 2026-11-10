@@ -5,7 +5,8 @@ routes to it so the category dropdowns in Lazy.panel can list every module."""
 import os
 import sys
 
-_PANEL = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# script.py -> X.pushbutton -> Y.pulldown -> LazyStack.stack -> Lazy.panel
+_PANEL = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 _HOME = os.path.join(_PANEL, "DeeLazy.pushbutton")   # Lazy.panel/DeeLazy.pushbutton
 if _HOME not in sys.path:
     sys.path.insert(0, _HOME)
