@@ -185,13 +185,16 @@ def _get_parameter(element, is_shared, guid_text, name):
 
 
 def _probe_usage(doc, binding, is_shared, guid_text, name, probe_limit):
-    """Returns (elements_total, probed, used, distinct_count,
+    """Returns (elements_total, probed, carrying, used, distinct_count,
     storage_text). Walks every element of every bound category, up to
     probe_limit elements in total - a parameter bound to Walls in a big
-    model would otherwise cost a full-model walk per parameter."""
+    model would otherwise cost a full-model walk per parameter.
+    carrying = probed elements that actually expose the parameter;
+    used = those with a non-empty value; so carrying - used = empty."""
     is_type = isinstance(binding, TypeBinding)
     total = 0
     probed = 0
+    carrying = 0
     used = 0
     values = set()
     storage_text = ""
@@ -209,6 +212,7 @@ def _probe_usage(doc, binding, is_shared, guid_text, name, probe_limit):
                     p = _get_parameter(element, is_shared, guid_text, name)
                     if p is None:
                         continue
+                    carrying += 1
                     if not storage_text:
                         try:
                             storage_text = str(p.StorageType)
@@ -223,7 +227,7 @@ def _probe_usage(doc, binding, is_shared, guid_text, name, probe_limit):
                 continue
     except Exception:
         pass
-    return total, probed, used, len(values), storage_text
+    return total, probed, carrying, used, len(values), storage_text
 
 
 # ==========================================================================
@@ -243,6 +247,7 @@ def _new_info(name):
         "element_id": -1,
         "elements": 0,
         "probed": 0,
+        "carrying": 0,
         "used": 0,
         "distinct": 0,
         "is_bound": False,
@@ -298,10 +303,11 @@ def scan_parameters(doc, probe_limit=DEFAULT_PROBE_LIMIT, progress=None):
             info["datatype"] = _definition_datatype_text(definition)
             info["guid"] = guid_text
             info["element_id"] = pe_id
-            total, probed, used, distinct, storage = _probe_usage(
+            total, probed, carrying, used, distinct, storage = _probe_usage(
                 doc, binding, is_shared, guid_text, name, probe_limit)
             info["elements"] = total
             info["probed"] = probed
+            info["carrying"] = carrying
             info["used"] = used
             info["distinct"] = distinct
             info["storage"] = storage
@@ -776,3 +782,315 @@ def export_xlsx(path, infos, title="DeeParam - Parameter Audit"):
                       i.get("file_name", "")], status))
     write_themed_xlsx(path, title, EXPORT_HEADERS, EXPORT_WIDTHS, rows)
     return len(rows)
+
+
+# ==========================================================================
+# By Category tab
+# ==========================================================================
+def category_summary(infos, categories):
+    """[(name, id_int, bound_count)] for every bindable category - how
+    many scanned parameters are bound to it. categories comes from
+    bindable_categories()."""
+    counts = {}
+    for info in infos:
+        if not info.get("is_bound"):
+            continue
+        for cat_name in info.get("categories") or []:
+            counts[cat_name] = counts.get(cat_name, 0) + 1
+    return [(name, id_int, counts.get(name, 0)) for name, id_int in categories]
+
+
+def infos_for_category(infos, category_name):
+    return [i for i in infos
+            if i.get("is_bound") and category_name in (i.get("categories") or [])]
+
+
+def unbind_from_category(doc, names, category_id, dry_run=True):
+    """Takes ONE category out of each named parameter's binding, keeping
+    the binding's Instance/Type kind. When that was the parameter's
+    last category the whole binding is removed instead (Revit will not
+    hold an empty CategorySet). Returns [(name, ok, detail)]."""
+    results = []
+    if not names:
+        return results
+    cat = _category_by_id(doc, category_id)
+    if cat is None:
+        return [(n, False, "category could not be resolved") for n in names]
+    cat_name = cat.Name
+
+    def plan(name):
+        definition, binding = _find_binding(doc, name)
+        if definition is None:
+            return None, None, None, "no binding with this name"
+        have = _category_names(binding)
+        if cat_name not in have:
+            return definition, binding, None, "not bound to {0}".format(cat_name)
+        remaining = [c for c in have if c != cat_name]
+        return definition, binding, remaining, None
+
+    if dry_run:
+        for name in names:
+            definition, binding, remaining, problem = plan(name)
+            if problem:
+                results.append((name, False, problem))
+            elif remaining:
+                results.append((name, True, "would keep {0}".format(", ".join(remaining))))
+            else:
+                results.append((name, True, "would remove the whole binding ({0} was its only category)".format(cat_name)))
+            definition = None
+            binding = None
+        return results
+
+    t = None
+    try:
+        t = _start(doc, "DeeParam - Unbind from {0}".format(cat_name))
+        for name in names:
+            definition, binding, remaining, problem = plan(name)
+            if problem:
+                results.append((name, False, problem))
+                continue
+            try:
+                if not remaining:
+                    removed = doc.ParameterBindings.Remove(definition)
+                    results.append((name, bool(removed),
+                                    "binding removed" if removed else "Revit refused to remove it"))
+                else:
+                    cats = doc.Application.Create.NewCategorySet()
+                    for c in binding.Categories:
+                        if c.Name != cat_name:
+                            cats.Insert(c)
+                    is_type = isinstance(binding, TypeBinding)
+                    new_binding = (doc.Application.Create.NewTypeBinding(cats) if is_type
+                                   else doc.Application.Create.NewInstanceBinding(cats))
+                    group = GroupTypeId.IdentityData
+                    try:
+                        group = definition.GetGroupTypeId()
+                    except Exception:
+                        pass
+                    ok = doc.ParameterBindings.ReInsert(definition, new_binding, group)
+                    results.append((name, bool(ok),
+                                    "now bound to {0}".format(", ".join(remaining)) if ok
+                                    else "Revit refused to change the binding"))
+            except Exception as e:
+                results.append((name, False, "{0}".format(e)))
+            definition = None
+            binding = None
+        _finish(t, True)
+    except Exception as e:
+        _finish(t, False)
+        results.append(("(transaction)", False, "rolled back: {0}".format(e)))
+    return results
+
+
+# ==========================================================================
+# Validation tab
+# ==========================================================================
+def validation_rows(infos):
+    """[(info, filled, empty, percent)] for every bound parameter that at
+    least one probed element carries, worst fill first."""
+    out = []
+    for info in infos:
+        if not info.get("is_bound"):
+            continue
+        carrying = info.get("carrying", 0)
+        if carrying <= 0:
+            continue
+        filled = info.get("used", 0)
+        empty = max(0, carrying - filled)
+        percent = int(round(100.0 * filled / carrying)) if carrying else 0
+        out.append((info, filled, empty, percent))
+    out.sort(key=lambda t: (t[3], t[0]["name"].lower()))
+    return out
+
+
+def validation_totals(rows):
+    """(parameters, filled_slots, empty_slots, overall_percent,
+    fully_filled_count, fully_empty_count)."""
+    filled = sum(r[1] for r in rows)
+    empty = sum(r[2] for r in rows)
+    total = filled + empty
+    percent = int(round(100.0 * filled / total)) if total else 0
+    full = sum(1 for r in rows if r[2] == 0)
+    none = sum(1 for r in rows if r[1] == 0)
+    return len(rows), filled, empty, percent, full, none
+
+
+def empty_element_ids(doc, name, limit=5000):
+    """ElementIds of elements (or types, for a Type binding) that carry
+    the named parameter but hold no value. Bounded by limit."""
+    from System.Collections.Generic import List
+    ids = List[ElementId]()
+    definition, binding = _find_binding(doc, name)
+    if definition is None:
+        return ids
+    is_shared, guid_text, _pe = _definition_identity(doc, definition)
+    is_type = isinstance(binding, TypeBinding)
+    try:
+        for cat in binding.Categories:
+            try:
+                collector = FilteredElementCollector(doc).OfCategoryId(cat.Id)
+                collector = (collector.WhereElementIsElementType() if is_type
+                             else collector.WhereElementIsNotElementType())
+                for element in collector:
+                    if ids.Count >= limit:
+                        return ids
+                    p = _get_parameter(element, is_shared, guid_text, name)
+                    if p is None:
+                        continue
+                    if not _value_text(p):
+                        ids.Add(element.Id)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return ids
+
+
+# ==========================================================================
+# Add Parameter tab
+# ==========================================================================
+def _spec(path):
+    """SpecTypeId attribute by dotted path, or None when this Revit
+    version lacks it - the combo only offers what exists."""
+    from Autodesk.Revit.DB import SpecTypeId
+    obj = SpecTypeId
+    try:
+        for part in path.split("."):
+            obj = getattr(obj, part)
+        return obj
+    except Exception:
+        return None
+
+
+def data_type_options():
+    """[(label, ForgeTypeId)] in the order the combo shows them."""
+    candidates = [
+        ("Text", "String.Text"),
+        ("Multiline Text", "String.MultilineText"),
+        ("URL", "String.Url"),
+        ("Integer", "Int.Integer"),
+        ("Number", "Number"),
+        ("Length", "Length"),
+        ("Area", "Area"),
+        ("Volume", "Volume"),
+        ("Angle", "Angle"),
+        ("Currency", "Currency"),
+        ("Yes/No", "Boolean.YesNo"),
+        ("Material", "Reference.Material"),
+    ]
+    out = []
+    for label, path in candidates:
+        spec = _spec(path)
+        if spec is not None:
+            out.append((label, spec))
+    return out
+
+
+def group_options():
+    """[(label, ForgeTypeId)] of parameter groups (where the parameter
+    appears in the Properties palette)."""
+    names = ["IdentityData", "Data", "Text", "General", "Constraints", "Construction",
+             "Dimensions", "Graphics", "Materials", "Phasing", "Visibility",
+             "Mechanical", "Electrical", "Plumbing", "Structural", "AnalysisResults",
+             "Geometry", "Other"]
+    out = []
+    for n in names:
+        try:
+            gid = getattr(GroupTypeId, n)
+        except Exception:
+            continue
+        if gid is None:
+            continue
+        out.append((_label_for_group(gid) or n, gid))
+    return out
+
+
+def create_and_bind(doc, app, name, spec_type_id, group_type_id, category_ids,
+                    as_type=False, file_group="DeePack", vary_by_group=False, dry_run=True):
+    """Creates a shared parameter definition (in the shared parameter
+    file, under file_group - created when missing) and binds it to the
+    categories. Revit's API has no route to a NON-shared project
+    parameter - every parameter added through the API is shared-backed,
+    so the one on offer here is the one that can exist. An existing
+    definition with the same name in that group is reused, not
+    duplicated. Returns (ok, detail)."""
+    import dee_shared_param_service as sps
+    name = (name or "").strip()
+    if not name:
+        return False, "type a parameter name"
+    cats = [c for c in (_category_by_id(doc, i) for i in category_ids) if c is not None]
+    if not cats:
+        return False, "pick at least one category"
+    cat_label = ", ".join(c.Name for c in cats)
+    kind_label = "type" if as_type else "instance"
+
+    existing_def, _b = _find_binding(doc, name)
+    already_bound = existing_def is not None
+    existing_def = None
+    _b = None
+
+    if dry_run:
+        if already_bound:
+            return False, "'{0}' is already bound in this model - use Extend on the Parameters tab".format(name)
+        return True, "would create '{0}' in group '{1}' of the shared parameter file and bind it to {2} as an {3} parameter".format(
+            name, file_group, cat_label, kind_label)
+
+    if already_bound:
+        return False, "'{0}' is already bound in this model".format(name)
+
+    def_file, file_detail = sps._ensure_shared_param_file(app, doc)
+    if def_file is None:
+        return False, file_detail
+    try:
+        group = None
+        for g in def_file.Groups:
+            if g.Name == file_group:
+                group = g
+                break
+        if group is None:
+            group = def_file.Groups.Create(file_group)
+        definition = None
+        for d in group.Definitions:
+            if d.Name == name:
+                definition = d
+                break
+        if definition is None:
+            from Autodesk.Revit.DB import ExternalDefinitionCreationOptions
+            opts = ExternalDefinitionCreationOptions(name, spec_type_id)
+            definition = group.Definitions.Create(opts)
+    except Exception as e:
+        return False, "could not create the definition in the shared parameter file: {0}".format(e)
+
+    t = None
+    try:
+        t = _start(doc, "DeeParam - Add Parameter '{0}'".format(name))
+        cat_set = app.Create.NewCategorySet()
+        for c in cats:
+            cat_set.Insert(c)
+        binding = (app.Create.NewTypeBinding(cat_set) if as_type
+                   else app.Create.NewInstanceBinding(cat_set))
+        bindings = doc.ParameterBindings
+        if bindings.Contains(definition):
+            ok = bindings.ReInsert(definition, binding, group_type_id)
+        else:
+            ok = bindings.Insert(definition, binding, group_type_id)
+        if not ok:
+            _finish(t, False)
+            return False, "Revit refused to bind '{0}'".format(name)
+        vary_note = ""
+        if vary_by_group and not as_type:
+            try:
+                fresh, _fb = _find_binding(doc, name)
+                if fresh is not None:
+                    fresh.SetAllowVaryBetweenGroups(doc, True)
+                    vary_note = ", values can vary by group instance"
+                fresh = None
+                _fb = None
+            except Exception as e:
+                vary_note = " (could not set vary-by-group: {0})".format(e)
+        _finish(t, True)
+        return True, "created '{0}' and bound it to {1} as an {2} parameter ({3}){4}".format(
+            name, cat_label, kind_label, file_detail, vary_note)
+    except Exception as e:
+        _finish(t, False)
+        return False, "{0}".format(e)

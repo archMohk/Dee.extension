@@ -16,26 +16,33 @@ window only (DeeCleaner / DeeLinkDist shape: DeeBrandedWindow, flat row
 view-models, _guard around every handler, SafeProgress for the scan).
 
 --------------------------------------------------------------------
-Three groups of actions, all on the one grid
+Four tabs over ONE scan
 --------------------------------------------------------------------
-Scan        - lists bound parameters (Shared / Project, Instance / Type,
-              categories, storage, data type, group, GUID, element /
-              used / distinct counts) plus unbound orphans. Usage is
-              counted over at most N elements per parameter (the probe
-              box) so a big model stays scannable - the Used column
-              says "x of y probed" when it hit the cap.
-Delete      - Remove Binding (checked) and Delete Orphaned Shared
-              (checked). Both run the service's dry run first, show the
-              result, and ask before the real transaction.
-Rebind      - Load Shared Parameter File fills the File Status column
-              (In file / Not in file / Name differs). Extend Checked
-              adds the selected categories to an existing binding,
-              keeping its Instance/Type kind. Bind Checked Orphans and
-              Bind File-Only Parameters create a new binding from the
-              file's definition, Instance or Type per the radio.
+Scan Parameters (top bar) walks the model once; every tab is a view of
+that same list of info dicts, so switching tabs never re-reads Revit.
 
-Row colours: orange = orphan, red = shared but not in the file,
-yellow = name differs from the file, grey = bound but unused.
+Parameters  - the audit grid: bound parameters (Shared / Project,
+              Instance / Type, categories, storage, data type, group,
+              GUID, element / used / distinct counts) plus unbound
+              orphans. Delete / Purge and Rebind / Repair live here.
+By Category - pick a category, see the parameters bound to it, take
+              checked ones OFF this category (ReInsert with the reduced
+              CategorySet, or Remove when it was the last category), or
+              add the parameters checked on the Parameters tab to it.
+Validation  - a small dashboard: for every bound parameter, how many
+              probed elements carry it, how many hold a value (filled)
+              and how many do not (empty), as counts, a percentage and
+              a two-colour bar; six summary tiles on top; Select Empty
+              Elements in Revit hands the empties to the selection so
+              they can be filled from the Properties palette.
+Add Parameter - name, data type, group, Instance/Type, categories.
+              Revit's API cannot create a NON-shared project parameter,
+              so this writes the definition to the shared parameter
+              file (group of the user's choosing) and binds it.
+
+Row colours on the Parameters tab: orange = orphan, red = shared but
+not in the file, yellow = name differs from the file, grey = bound but
+unused.
 
 Rules kept from the rest of the codebase: no second WPF window and no
 PickObject from inside this one (native Save dialog and pyRevit's
@@ -50,6 +57,7 @@ import clr
 clr.AddReference("System.Windows.Forms")
 clr.AddReference("PresentationFramework")
 from System.Windows.Forms import SaveFileDialog, DialogResult
+from System.Windows import GridLength, GridUnitType
 from System.Windows.Data import CollectionViewSource, PropertyGroupDescription
 
 from pyrevit import forms, script
@@ -74,8 +82,16 @@ _GROUP_FIELDS = {
 }
 
 
+def _used_text(info):
+    if not info["is_bound"]:
+        return ""
+    if info["probed"] < info["elements"]:
+        return "{0} of {1} probed".format(info["used"], info["probed"])
+    return "{0}".format(info["used"])
+
+
 class ParamRow(object):
-    """Flat view-model over one service info dict."""
+    """Flat view-model over one service info dict (Parameters tab)."""
     def __init__(self, info):
         self.info = info
         self.selected = False
@@ -92,12 +108,7 @@ class ParamRow(object):
         self.is_bound = info["is_bound"]
         self.is_shared = info["is_shared"]
         self.is_unused = bool(info["is_bound"] and info["elements"] > 0 and info["used"] == 0)
-        if not info["is_bound"]:
-            self.used_text = ""
-        elif info["probed"] < info["elements"]:
-            self.used_text = "{0} of {1} probed".format(info["used"], info["probed"])
-        else:
-            self.used_text = "{0}".format(info["used"])
+        self.used_text = _used_text(info)
         self.refresh_file_status()
 
     def refresh_file_status(self):
@@ -119,18 +130,80 @@ class ParamRow(object):
             self.highlight = ""
 
 
+class CatRow(object):
+    def __init__(self, name, id_int, count):
+        self.name = name
+        self.id_int = id_int
+        self.count = count
+
+
+class CatParamRow(object):
+    """One parameter as seen from one category (By Category tab)."""
+    def __init__(self, info, cat_name):
+        self.info = info
+        self.selected = False
+        self.name = info["name"]
+        self.kind = info["kind"]
+        self.scope = info["scope"]
+        self.datatype = info["datatype"]
+        self.group = info["group"]
+        self.used_text = _used_text(info)
+        others = [c for c in info.get("categories") or [] if c != cat_name]
+        self.other_categories_text = ", ".join(others) or "(only this category)"
+
+
+class ValRow(object):
+    """One parameter's fill state (Validation tab)."""
+    def __init__(self, info, filled, empty, percent):
+        self.info = info
+        self.name = info["name"]
+        self.kind = info["kind"]
+        self.scope = info["scope"]
+        self.categories_text = info["categories_text"]
+        self.categories = info.get("categories") or []
+        self.carrying = info.get("carrying", 0)
+        self.filled = filled
+        self.empty = empty
+        self.percent = percent
+        self.percent_text = "{0}%".format(percent)
+        # Star-sized grid columns draw the bar; a zero star collapses
+        # that half, so a never-filled parameter is all red.
+        self.filled_star = GridLength(float(filled), GridUnitType.Star)
+        self.empty_star = GridLength(float(empty), GridUnitType.Star)
+
+
 class DeeParamWindow(dee_branding.DeeBrandedWindow):
     _ready = False
 
-    def __init__(self, xaml_file, doc, app):
+    def __init__(self, xaml_file, uidoc, app):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
-        self.doc = doc
+        self.uidoc = uidoc
+        self.doc = uidoc.Document
         self.app = app
         self._rows = []
         self._shown = []
         self._file_defs = None
-        self._categories = core.bindable_categories(doc)
-        self._fill_categories("")
+        self._cat_rows = []
+        self._cat_param_rows = []
+        self._current_cat = None
+        self._val_rows = []
+        self._categories = core.bindable_categories(self.doc)
+        self._cat_ids_by_name = dict((n, i) for n, i in self._categories)
+        self._fill_listbox(self.cat_lb, "")
+        self._fill_listbox(self.add_cat_lb, "")
+        self._type_opts = core.data_type_options()
+        self._group_opts = core.group_options()
+        for label, _spec in self._type_opts:
+            self.add_type_cb.Items.Add(label)
+        if self._type_opts:
+            self.add_type_cb.SelectedIndex = 0
+        for label, _gid in self._group_opts:
+            self.add_group_cb.Items.Add(label)
+        if self._group_opts:
+            self.add_group_cb.SelectedIndex = 0
+        self.val_cat_cb.Items.Add("(all)")
+        self.val_cat_cb.SelectedIndex = 0
+        self._refresh_cat_rows()
         self._ready = True
 
     # ---------------- helpers ----------------
@@ -162,34 +235,44 @@ class DeeParamWindow(dee_branding.DeeBrandedWindow):
     def _checked(self):
         return [r for r in self._shown if r.selected]
 
-    def _selected_category_ids(self):
+    def _infos(self):
+        return [r.info for r in self._rows]
+
+    def _fill_listbox(self, listbox, filter_text):
+        listbox.Items.Clear()
+        ft = (filter_text or "").strip().lower()
+        for name, _id in self._categories:
+            if not ft or ft in name.lower():
+                listbox.Items.Add(name)
+
+    def _listbox_ids(self, listbox):
         ids = []
-        for item in self.cat_lb.SelectedItems:
+        for item in listbox.SelectedItems:
             try:
                 ids.append(self._cat_ids_by_name[str(item)])
             except Exception:
                 continue
         return ids
 
-    def _fill_categories(self, filter_text):
-        self._cat_ids_by_name = dict((n, i) for n, i in self._categories)
-        self.cat_lb.Items.Clear()
-        ft = (filter_text or "").strip().lower()
-        for name, _id in self._categories:
-            if not ft or ft in name.lower():
-                self.cat_lb.Items.Add(name)
+    def _selected_category_ids(self):
+        return self._listbox_ids(self.cat_lb)
 
     def cat_filter_changed(self, sender, args):
         if not self._ready:
             return
-        self._guard(self._fill_categories, self.cat_filter_tb.Text)
+        self._guard(self._fill_listbox, self.cat_lb, self.cat_filter_tb.Text)
 
     def _combo_text(self, combo):
         try:
             item = combo.SelectedItem
-            return str(item.Content) if item is not None else ""
+            if item is None:
+                return ""
+            return str(getattr(item, "Content", item))
         except Exception:
             return ""
+
+    def _after_change(self, note):
+        self.status_tb.Text = note + " Scan again to refresh."
 
     # ---------------- scan / view ----------------
     def scan_click(self, sender, args):
@@ -208,6 +291,8 @@ class DeeParamWindow(dee_branding.DeeBrandedWindow):
             self._log("Scanned: {0} bound, {1} orphaned, {2} unused (probe limit {3}).".format(
                 bound, orphans, unused, limit))
             self._apply_view()
+            self._refresh_cat_rows()
+            self._refresh_validation()
         self._guard(run)
 
     def _apply_view(self):
@@ -242,8 +327,6 @@ class DeeParamWindow(dee_branding.DeeBrandedWindow):
             pass
 
     def _refresh_grid(self):
-        self.grid.ItemsSource = None
-        self.grid.ItemsSource = self._shown
         self._apply_view()
 
     def filter_changed(self, sender, args):
@@ -281,7 +364,7 @@ class DeeParamWindow(dee_branding.DeeBrandedWindow):
             r.selected = not r.is_bound
         self._refresh_grid()
 
-    # ---------------- delete / purge ----------------
+    # ---------------- preview -> confirm -> run ----------------
     def _preview_then_run(self, title, preview, commit, warning):
         """Dry run -> show -> confirm -> real run -> log. Returns the
         real results or None when cancelled."""
@@ -302,6 +385,7 @@ class DeeParamWindow(dee_branding.DeeBrandedWindow):
         self._log_results(title, real)
         return real
 
+    # ---------------- delete / purge ----------------
     def remove_binding_click(self, sender, args):
         def run():
             names = [r.name for r in self._checked() if r.is_bound]
@@ -314,7 +398,7 @@ class DeeParamWindow(dee_branding.DeeBrandedWindow):
                 lambda: core.remove_bindings(self.doc, names, dry_run=False),
                 "Removing a binding discards every value stored in that parameter.")
             if real is not None:
-                self.status_tb.Text = "Bindings removed. Scan again to refresh."
+                self._after_change("Bindings removed.")
         self._guard(run)
 
     def delete_orphans_click(self, sender, args):
@@ -330,7 +414,7 @@ class DeeParamWindow(dee_branding.DeeBrandedWindow):
                 "Deleting a shared parameter element removes it from the model. "
                 "It can be reloaded from the shared parameter file later.")
             if real is not None:
-                self.status_tb.Text = "Orphans deleted. Scan again to refresh."
+                self._after_change("Orphans deleted.")
         self._guard(run)
 
     # ---------------- rebind / repair ----------------
@@ -344,7 +428,7 @@ class DeeParamWindow(dee_branding.DeeBrandedWindow):
                 forms.alert(detail, title=_TOOL)
                 return
             if self._rows:
-                core.compare_to_file([r.info for r in self._rows], defs)
+                core.compare_to_file(self._infos(), defs)
                 for r in self._rows:
                     r.refresh_file_status()
                 self._refresh_grid()
@@ -356,6 +440,15 @@ class DeeParamWindow(dee_branding.DeeBrandedWindow):
         except Exception:
             return False
 
+    def _extend(self, names, cat_ids, note):
+        real = self._preview_then_run(
+            "Extend bindings",
+            lambda: core.extend_bindings(self.doc, names, cat_ids, dry_run=True),
+            lambda: core.extend_bindings(self.doc, names, cat_ids, dry_run=False),
+            note)
+        if real is not None:
+            self._after_change("Bindings extended.")
+
     def extend_click(self, sender, args):
         def run():
             names = [r.name for r in self._checked() if r.is_bound]
@@ -366,13 +459,8 @@ class DeeParamWindow(dee_branding.DeeBrandedWindow):
             if not cat_ids:
                 forms.alert("Select at least one category in the list.", title=_TOOL)
                 return
-            real = self._preview_then_run(
-                "Extend bindings",
-                lambda: core.extend_bindings(self.doc, names, cat_ids, dry_run=True),
-                lambda: core.extend_bindings(self.doc, names, cat_ids, dry_run=False),
-                "Each checked parameter's binding will also cover the selected categories.")
-            if real is not None:
-                self.status_tb.Text = "Bindings extended. Scan again to refresh."
+            self._extend(names, cat_ids,
+                         "Each checked parameter's binding will also cover the selected categories.")
         self._guard(run)
 
     def _bind_guids(self, guids):
@@ -388,7 +476,7 @@ class DeeParamWindow(dee_branding.DeeBrandedWindow):
             "Each parameter will be bound to the selected categories as {0} parameters.".format(
                 "type" if as_type else "instance"))
         if real is not None:
-            self.status_tb.Text = "Parameters bound. Scan again to refresh."
+            self._after_change("Parameters bound.")
 
     def bind_file_click(self, sender, args):
         def run():
@@ -410,7 +498,7 @@ class DeeParamWindow(dee_branding.DeeBrandedWindow):
             if not self._selected_category_ids():
                 forms.alert("Select at least one category in the list first.", title=_TOOL)
                 return
-            entries = core.file_only_definitions([r.info for r in self._rows], self._file_defs)
+            entries = core.file_only_definitions(self._infos(), self._file_defs)
             if not entries:
                 forms.alert("Every parameter in the shared parameter file is already in this model.",
                             title=_TOOL)
@@ -424,6 +512,255 @@ class DeeParamWindow(dee_branding.DeeBrandedWindow):
                 return
             guids = [by_label[p]["guid"] for p in picked if p in by_label]
             self._bind_guids(guids)
+        self._guard(run)
+
+    # ---------------- By Category tab ----------------
+    def _refresh_cat_rows(self):
+        summary = core.category_summary(self._infos(), self._categories)
+        ft = (self.bycat_filter_tb.Text or "").strip().lower()
+        only_bound = bool(self.bycat_only_bound_cb.IsChecked)
+        rows = []
+        for name, id_int, count in summary:
+            if only_bound and count == 0:
+                continue
+            if ft and ft not in name.lower():
+                continue
+            rows.append(CatRow(name, id_int, count))
+        self._cat_rows = rows
+        self.bycat_grid.ItemsSource = None
+        self.bycat_grid.ItemsSource = rows
+        # keep the current category's parameter list in step with a rescan
+        if self._current_cat is not None:
+            self._show_category(self._current_cat)
+
+    def bycat_filter_changed(self, sender, args):
+        if not self._ready:
+            return
+        self._guard(self._refresh_cat_rows)
+
+    def bycat_selected(self, sender, args):
+        def run():
+            row = self.bycat_grid.SelectedItem
+            if row is None:
+                return
+            self._show_category(row.name)
+        self._guard(run)
+
+    def _show_category(self, cat_name):
+        self._current_cat = cat_name
+        infos = core.infos_for_category(self._infos(), cat_name)
+        self._cat_param_rows = [CatParamRow(i, cat_name) for i in infos]
+        self.bycat_params_grid.ItemsSource = None
+        self.bycat_params_grid.ItemsSource = self._cat_param_rows
+        self.bycat_title_tb.Text = "{0} - {1} parameter(s) bound".format(cat_name, len(infos))
+
+    def _refresh_cat_params(self):
+        self.bycat_params_grid.ItemsSource = None
+        self.bycat_params_grid.ItemsSource = self._cat_param_rows
+
+    def bycat_check_all_click(self, sender, args):
+        for r in self._cat_param_rows:
+            r.selected = True
+        self._refresh_cat_params()
+
+    def bycat_check_none_click(self, sender, args):
+        for r in self._cat_param_rows:
+            r.selected = False
+        self._refresh_cat_params()
+
+    def bycat_unbind_click(self, sender, args):
+        def run():
+            if self._current_cat is None:
+                forms.alert("Pick a category first.", title=_TOOL)
+                return
+            names = [r.name for r in self._cat_param_rows if r.selected]
+            if not names:
+                forms.alert("Check at least one parameter.", title=_TOOL)
+                return
+            cat_id = self._cat_ids_by_name.get(self._current_cat)
+            real = self._preview_then_run(
+                "Unbind from {0}".format(self._current_cat),
+                lambda: core.unbind_from_category(self.doc, names, cat_id, dry_run=True),
+                lambda: core.unbind_from_category(self.doc, names, cat_id, dry_run=False),
+                "Each checked parameter will no longer cover {0}. Values stored on {0} "
+                "elements are discarded. A parameter whose only category this was loses "
+                "its whole binding.".format(self._current_cat))
+            if real is not None:
+                self._after_change("Category unbound.")
+        self._guard(run)
+
+    def bycat_add_click(self, sender, args):
+        def run():
+            if self._current_cat is None:
+                forms.alert("Pick a category first.", title=_TOOL)
+                return
+            names = [r.name for r in self._rows if r.selected and r.is_bound]
+            if not names:
+                forms.alert("Check at least one bound parameter on the Parameters tab first.",
+                            title=_TOOL)
+                return
+            cat_id = self._cat_ids_by_name.get(self._current_cat)
+            self._extend(names, [cat_id],
+                         "Each parameter checked on the Parameters tab will also cover {0}.".format(
+                             self._current_cat))
+        self._guard(run)
+
+    # ---------------- Validation tab ----------------
+    def _refresh_validation(self):
+        rows = core.validation_rows(self._infos())
+        self._val_rows = [ValRow(*r) for r in rows]
+        params, filled, empty, percent, full, none = core.validation_totals(rows)
+        self.val_params_tb.Text = "{0}".format(params)
+        self.val_filled_tb.Text = "{0}".format(filled)
+        self.val_empty_tb.Text = "{0}".format(empty)
+        self.val_percent_tb.Text = "{0}%".format(percent)
+        self.val_percent_pb.Value = percent
+        self.val_full_tb.Text = "{0}".format(full)
+        self.val_none_tb.Text = "{0}".format(none)
+        capped = sum(1 for r in self._val_rows if r.info.get("probed", 0) < r.info.get("elements", 0))
+        self.val_note_tb.Text = ("{0} parameter(s) hit the probe limit - raise it for exact counts."
+                                 .format(capped) if capped else "")
+        # category combo: only categories that appear in the rows
+        current = self._combo_text(self.val_cat_cb)
+        names = sorted(set(c for r in self._val_rows for c in r.categories), key=lambda s: s.lower())
+        self.val_cat_cb.Items.Clear()
+        self.val_cat_cb.Items.Add("(all)")
+        for n in names:
+            self.val_cat_cb.Items.Add(n)
+        idx = 0
+        for i in range(self.val_cat_cb.Items.Count):
+            if str(self.val_cat_cb.Items[i]) == current:
+                idx = i
+                break
+        self.val_cat_cb.SelectedIndex = idx
+        self._apply_val_view()
+
+    def _apply_val_view(self):
+        show = self._combo_text(self.val_show_cb)
+        cat = self._combo_text(self.val_cat_cb)
+        shown = []
+        for r in self._val_rows:
+            if show == "Below 100%" and r.percent >= 100:
+                continue
+            if show == "Below 50%" and r.percent >= 50:
+                continue
+            if show == "Never filled" and r.filled > 0:
+                continue
+            if cat and cat != "(all)" and cat not in r.categories:
+                continue
+            shown.append(r)
+        self._val_shown = shown
+        self.val_grid.ItemsSource = None
+        self.val_grid.ItemsSource = shown
+
+    def val_filter_changed(self, sender, args):
+        if not self._ready:
+            return
+        self._guard(self._apply_val_view)
+
+    def val_select_click(self, sender, args):
+        def run():
+            row = self.val_grid.SelectedItem
+            if row is None:
+                forms.alert("Highlight a parameter row first.", title=_TOOL)
+                return
+            with _SafeProgress(title="DeeParam - finding empty elements...", indeterminate=True):
+                ids = core.empty_element_ids(self.doc, row.name, limit=self._probe_limit())
+            if ids.Count == 0:
+                forms.alert("No empty elements found for '{0}'.".format(row.name), title=_TOOL)
+                return
+            self.uidoc.Selection.SetElementIds(ids)
+            self._log("Selected {0} element(s) with '{1}' empty.".format(ids.Count, row.name))
+            self.status_tb.Text = "{0} element(s) selected in Revit.".format(ids.Count)
+        self._guard(run)
+
+    def val_export_click(self, sender, args):
+        def run():
+            rows = getattr(self, "_val_shown", None) or []
+            if not rows:
+                forms.alert("Scan first.", title=_TOOL)
+                return
+            dlg = SaveFileDialog()
+            dlg.Filter = "Excel Workbook (*.xlsx)|*.xlsx"
+            dlg.FileName = "DeeParam_Validation.xlsx"
+            if dlg.ShowDialog() != DialogResult.OK:
+                return
+            from xlsx_writer import write_themed_xlsx
+            headers = ["Name", "Kind", "Scope", "Categories", "Carrying", "Filled", "Empty", "Filled %"]
+            widths = [34, 12, 10, 48, 10, 10, 10, 10]
+            data = []
+            for r in rows:
+                status = "ok" if r.empty == 0 else ("fail" if r.filled == 0 else None)
+                data.append(([r.name, r.kind, r.scope, r.categories_text, r.carrying,
+                              r.filled, r.empty, r.percent], status))
+            write_themed_xlsx(dlg.FileName, "DeeParam - Validation", headers, widths, data)
+            self._log("Exported {0} validation row(s) to {1}".format(len(data), dlg.FileName))
+        self._guard(run)
+
+    # ---------------- Add Parameter tab ----------------
+    def add_cat_filter_changed(self, sender, args):
+        if not self._ready:
+            return
+        self._guard(self._fill_listbox, self.add_cat_lb, self.add_cat_filter_tb.Text)
+
+    def add_cat_selection_changed(self, sender, args):
+        if not self._ready:
+            return
+        try:
+            self.add_cat_count_tb.Text = "{0} selected".format(self.add_cat_lb.SelectedItems.Count)
+        except Exception:
+            pass
+
+    def add_cat_all_click(self, sender, args):
+        self.add_cat_lb.SelectAll()
+
+    def add_cat_none_click(self, sender, args):
+        self.add_cat_lb.UnselectAll()
+
+    def add_create_click(self, sender, args):
+        def run():
+            name = (self.add_name_tb.Text or "").strip()
+            cat_ids = self._listbox_ids(self.add_cat_lb)
+            ti = self.add_type_cb.SelectedIndex
+            gi = self.add_group_cb.SelectedIndex
+            if not name:
+                forms.alert("Type a parameter name.", title=_TOOL)
+                return
+            if not cat_ids:
+                forms.alert("Select at least one category.", title=_TOOL)
+                return
+            if ti < 0 or gi < 0:
+                forms.alert("Pick a data type and a group.", title=_TOOL)
+                return
+            spec = self._type_opts[ti][1]
+            group_id = self._group_opts[gi][1]
+            as_type = bool(self.add_type_rb.IsChecked)
+            vary = bool(self.add_vary_cb.IsChecked)
+            file_group = (self.add_file_group_tb.Text or "").strip() or "DeePack"
+
+            ok, detail = core.create_and_bind(self.doc, self.app, name, spec, group_id, cat_ids,
+                                              as_type=as_type, file_group=file_group,
+                                              vary_by_group=vary, dry_run=True)
+            self._log("Add parameter (preview): {0}".format(detail))
+            if not ok:
+                self.add_status_tb.Text = detail
+                forms.alert(detail, title=_TOOL)
+                return
+            if not forms.alert("{0}.\n\nCreate it now?".format(detail),
+                               title="DeeParam - Confirm", yes=True, no=True):
+                self._log("Cancelled.")
+                return
+            with _SafeProgress(title="DeeParam - creating parameter...", indeterminate=True):
+                ok, detail = core.create_and_bind(self.doc, self.app, name, spec, group_id, cat_ids,
+                                                  as_type=as_type, file_group=file_group,
+                                                  vary_by_group=vary, dry_run=False)
+            self._log("Add parameter: {0} {1}".format("OK" if ok else "ERR", detail))
+            self.add_status_tb.Text = detail
+            if ok:
+                self.add_name_tb.Text = ""
+                self._after_change("Parameter '{0}' created.".format(name))
+            else:
+                forms.alert(detail, title=_TOOL)
         self._guard(run)
 
     # ---------------- export ----------------
@@ -447,8 +784,8 @@ class DeeParamWindow(dee_branding.DeeBrandedWindow):
 
 
 def main():
-    doc = require_doc(_TOOL, __revit__, allow_family=False)
-    window = DeeParamWindow(_XAML_FILE, doc, __revit__.Application)
+    require_doc(_TOOL, __revit__, allow_family=False)
+    window = DeeParamWindow(_XAML_FILE, __revit__.ActiveUIDocument, __revit__.Application)
     window.ShowDialog()
 
 

@@ -25,6 +25,13 @@
       <li><strong>Rebind / Repair</strong> &mdash; Extend Checked adds the selected categories to an existing binding, keeping its Instance/Type kind. Bind Checked Orphans and Bind File-Only Parameters create a new binding from the file's definition, Instance or Type per the radio.</li>
       <li><strong>Export to Excel</strong> &mdash; writes the rows currently shown to a themed .xlsx.</li>
     </ul>
+    <p>Four tabs sit over the one scan:</p>
+    <ul>
+      <li><strong>Parameters</strong> &mdash; the audit grid above, with Delete / Purge and Rebind / Repair.</li>
+      <li><strong>By Category</strong> &mdash; pick a category on the left to see every parameter bound to it, what else each one is bound to, and its usage. Unbind Checked takes this one category out of a binding (a parameter whose only category this was loses its whole binding). Add Parameters Checked on the Parameters Tab extends those parameters to this category.</li>
+      <li><strong>Validation</strong> &mdash; a small dashboard: six tiles (parameters, filled values, empty values, overall filled %, fully filled and never filled parameters) and a grid with Carrying / Filled / Empty / % and a green-red bar per parameter. Filter to Below 100%, Below 50% or Never filled, or by category. Select Empty Elements in Revit hands the empty elements of the highlighted parameter to Revit's selection so they can be filled from the Properties palette. Export Validation writes the shown rows to Excel.</li>
+      <li><strong>Add Parameter</strong> &mdash; name, data type, Properties-palette group, shared parameter file group, Instance or Type, vary-by-group, and the categories to bind to. Revit's API only creates shared-backed parameters, so the definition goes into the shared parameter file and is then bound to the model.</li>
+    </ul>
   </div>
 
   <div class="card">

@@ -2,11 +2,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeParam — Shared &amp; Project Parameter Audit"
         ShowInTaskbar="False"
-        MinHeight="680" MinWidth="1100" Height="780" Width="1240"
+        MinHeight="700" MinWidth="1120" Height="800" Width="1260"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
 
-        <!-- top bar: scan, filter, grouping -->
+        <!-- top bar: scan, filter, grouping (applies to every tab) -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Button x:Name="scan_b" Content="Scan Parameters" Click="scan_click" Width="130" Height="26"
                     Style="{DynamicResource DeePrimary}"/>
@@ -45,124 +45,320 @@
 
         <!-- bottom: log -->
         <GroupBox DockPanel.Dock="Bottom" Header="Log" Margin="0,8,0,0">
-            <TextBox x:Name="log_tb" IsReadOnly="True" TextWrapping="NoWrap" Height="110"
+            <TextBox x:Name="log_tb" IsReadOnly="True" TextWrapping="NoWrap" Height="96"
                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                      FontFamily="Consolas" FontSize="11"/>
         </GroupBox>
 
-        <!-- bottom: actions -->
-        <Grid DockPanel.Dock="Bottom" Margin="0,8,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="12"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
+        <TabControl x:Name="main_tabs">
 
-            <GroupBox Grid.Column="0" Header="Delete / Purge">
-                <StackPanel Margin="6">
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
-                               Text="Removing a binding takes the parameter off its categories and discards every value stored in it. Deleting an orphan removes the shared parameter element that nothing is bound to. Both preview first and ask before running."/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                        <Button x:Name="check_all_b" Content="Check All Shown" Click="check_all_click" Width="110" Height="24"/>
-                        <Button x:Name="check_none_b" Content="Uncheck All" Click="check_none_click" Width="90" Height="24" Margin="6,0,0,0"/>
-                        <Button x:Name="check_unused_b" Content="Check Unused" Click="check_unused_click" Width="100" Height="24" Margin="12,0,0,0"
-                                ToolTip="Checks every bound parameter whose Used count is zero across the probed elements."/>
-                        <Button x:Name="check_orphans_b" Content="Check Orphans" Click="check_orphans_click" Width="100" Height="24" Margin="6,0,0,0"
-                                ToolTip="Checks every shared parameter that is in the model but bound to nothing."/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal">
-                        <Button x:Name="remove_binding_b" Content="Remove Binding (checked)" Click="remove_binding_click" Width="170" Height="26"
-                                Style="{DynamicResource DeeDanger}"/>
-                        <Button x:Name="delete_orphans_b" Content="Delete Orphaned Shared (checked)" Click="delete_orphans_click" Width="210" Height="26" Margin="8,0,0,0"
-                                Style="{DynamicResource DeeDanger}"/>
-                    </StackPanel>
-                </StackPanel>
-            </GroupBox>
+            <!-- ================= TAB 1: Parameters ================= -->
+            <TabItem Header="Parameters">
+                <DockPanel Margin="6">
+                    <Grid DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
 
-            <GroupBox Grid.Column="2" Header="Rebind / Repair">
+                        <GroupBox Grid.Column="0" Header="Delete / Purge">
+                            <StackPanel Margin="6">
+                                <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
+                                           Text="Removing a binding takes the parameter off its categories and discards every value stored in it. Deleting an orphan removes the shared parameter element that nothing is bound to. Both preview first and ask before running."/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <Button x:Name="check_all_b" Content="Check All Shown" Click="check_all_click" Width="110" Height="24"/>
+                                    <Button x:Name="check_none_b" Content="Uncheck All" Click="check_none_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                                    <Button x:Name="check_unused_b" Content="Check Unused" Click="check_unused_click" Width="100" Height="24" Margin="12,0,0,0"
+                                            ToolTip="Checks every bound parameter whose Used count is zero across the probed elements."/>
+                                    <Button x:Name="check_orphans_b" Content="Check Orphans" Click="check_orphans_click" Width="100" Height="24" Margin="6,0,0,0"
+                                            ToolTip="Checks every shared parameter that is in the model but bound to nothing."/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button x:Name="remove_binding_b" Content="Remove Binding (checked)" Click="remove_binding_click" Width="170" Height="26"
+                                            Style="{DynamicResource DeeDanger}"/>
+                                    <Button x:Name="delete_orphans_b" Content="Delete Orphaned Shared (checked)" Click="delete_orphans_click" Width="210" Height="26" Margin="8,0,0,0"
+                                            Style="{DynamicResource DeeDanger}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Grid.Column="2" Header="Rebind / Repair">
+                            <Grid Margin="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="220"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <DockPanel Grid.Column="0" Margin="0,0,10,0">
+                                    <TextBlock DockPanel.Dock="Top" Text="Categories to bind to" FontWeight="Bold" Margin="0,0,0,4"/>
+                                    <TextBox DockPanel.Dock="Top" x:Name="cat_filter_tb" Height="22" Margin="0,0,0,4"
+                                             TextChanged="cat_filter_changed" ToolTip="Type to narrow the category list."/>
+                                    <ListBox x:Name="cat_lb" Height="96" SelectionMode="Extended"/>
+                                </DockPanel>
+                                <StackPanel Grid.Column="1">
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                        <Button x:Name="load_file_b" Content="Load Shared Parameter File" Click="load_file_click" Width="180" Height="24"
+                                                ToolTip="Reads the shared parameter file set under Manage > Shared Parameters and fills the File Status column."/>
+                                        <TextBlock x:Name="file_tb" Text="(not loaded)" VerticalAlignment="Center" Margin="8,0,0,0"
+                                                   FontStyle="Italic" TextTrimming="CharacterEllipsis" MaxWidth="260"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                        <TextBlock Text="New bindings as" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <RadioButton x:Name="instance_rb" Content="Instance" IsChecked="True" VerticalAlignment="Center"/>
+                                        <RadioButton x:Name="type_rb" Content="Type" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                    </StackPanel>
+                                    <Button x:Name="extend_b" Content="Extend Checked to Selected Categories" Click="extend_click" Height="26" Margin="0,0,0,6"
+                                            ToolTip="Adds the selected categories to each checked parameter's existing binding. Instance stays instance, type stays type."/>
+                                    <Button x:Name="bind_file_b" Content="Bind Checked Orphans from File" Click="bind_file_click" Height="26" Margin="0,0,0,6"
+                                            ToolTip="Binds each checked unbound shared parameter (found in the shared parameter file by GUID) to the selected categories."/>
+                                    <Button x:Name="bind_missing_b" Content="Bind File-Only Parameters..." Click="bind_missing_click" Height="26"
+                                            ToolTip="Lists the shared parameters that are in the file but not in this model, and binds the ones you pick to the selected categories."/>
+                                </StackPanel>
+                            </Grid>
+                        </GroupBox>
+                    </Grid>
+
+                    <DataGrid x:Name="grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                              SelectionMode="Extended" SelectionUnit="FullRow" RowHeaderWidth="0"
+                              MouseDoubleClick="grid_double_click">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding highlight}" Value="orphan">
+                                        <Setter Property="Background" Value="#FFE0B2"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding highlight}" Value="missing">
+                                        <Setter Property="Background" Value="#FFCDD2"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding highlight}" Value="differs">
+                                        <Setter Property="Background" Value="#FFF9C4"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding highlight}" Value="unused">
+                                        <Setter Property="Background" Value="#ECEFF1"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+                        <DataGrid.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Background="#E0E0E0" Margin="0,2,0,2">
+                                            <TextBlock Text="{Binding Path=Name}" FontWeight="Bold" Margin="4,2,4,2"/>
+                                            <TextBlock Text="{Binding Path=ItemCount, StringFormat=' ({0})'}" Margin="0,2,4,2" Foreground="#555555"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </DataGrid.GroupStyle>
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="" Binding="{Binding selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="34"/>
+                            <DataGridTextColumn Header="Name" Binding="{Binding name}" IsReadOnly="True" Width="190"/>
+                            <DataGridTextColumn Header="Kind" Binding="{Binding kind}" IsReadOnly="True" Width="110"/>
+                            <DataGridTextColumn Header="Scope" Binding="{Binding scope}" IsReadOnly="True" Width="64"/>
+                            <DataGridTextColumn Header="Categories" Binding="{Binding categories_text}" IsReadOnly="True" Width="230"/>
+                            <DataGridTextColumn Header="Storage" Binding="{Binding storage}" IsReadOnly="True" Width="70"/>
+                            <DataGridTextColumn Header="Data Type" Binding="{Binding datatype}" IsReadOnly="True" Width="90"/>
+                            <DataGridTextColumn Header="Group" Binding="{Binding group}" IsReadOnly="True" Width="110"/>
+                            <DataGridTextColumn Header="Elements" Binding="{Binding elements}" IsReadOnly="True" Width="66"/>
+                            <DataGridTextColumn Header="Used" Binding="{Binding used_text}" IsReadOnly="True" Width="80"/>
+                            <DataGridTextColumn Header="Distinct" Binding="{Binding distinct}" IsReadOnly="True" Width="58"/>
+                            <DataGridTextColumn Header="File Status" Binding="{Binding file_status_text}" IsReadOnly="True" Width="150"/>
+                            <DataGridTextColumn Header="GUID" Binding="{Binding guid}" IsReadOnly="True" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- ================= TAB 2: By Category ================= -->
+            <TabItem Header="By Category">
                 <Grid Margin="6">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="220"/>
+                        <ColumnDefinition Width="300"/>
+                        <ColumnDefinition Width="10"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <DockPanel Grid.Column="0" Margin="0,0,10,0">
-                        <TextBlock DockPanel.Dock="Top" Text="Categories to bind to" FontWeight="Bold" Margin="0,0,0,4"/>
-                        <TextBox DockPanel.Dock="Top" x:Name="cat_filter_tb" Height="22" Margin="0,0,0,4"
-                                 TextChanged="cat_filter_changed" ToolTip="Type to narrow the category list."/>
-                        <ListBox x:Name="cat_lb" Height="96" SelectionMode="Extended"/>
-                    </DockPanel>
-                    <StackPanel Grid.Column="1">
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                            <Button x:Name="load_file_b" Content="Load Shared Parameter File" Click="load_file_click" Width="180" Height="24"
-                                    ToolTip="Reads the shared parameter file set under Manage > Shared Parameters and fills the File Status column."/>
-                            <TextBlock x:Name="file_tb" Text="(not loaded)" VerticalAlignment="Center" Margin="8,0,0,0"
-                                       FontStyle="Italic" TextTrimming="CharacterEllipsis" MaxWidth="260"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                            <TextBlock Text="New bindings as" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <RadioButton x:Name="instance_rb" Content="Instance" IsChecked="True" VerticalAlignment="Center"/>
-                            <RadioButton x:Name="type_rb" Content="Type" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                        </StackPanel>
-                        <Button x:Name="extend_b" Content="Extend Checked to Selected Categories" Click="extend_click" Height="26" Margin="0,0,0,6"
-                                ToolTip="Adds the selected categories to each checked parameter's existing binding. Instance stays instance, type stays type."/>
-                        <Button x:Name="bind_file_b" Content="Bind Checked Orphans from File" Click="bind_file_click" Height="26" Margin="0,0,0,6"
-                                ToolTip="Binds each checked unbound shared parameter (found in the shared parameter file by GUID) to the selected categories."/>
-                        <Button x:Name="bind_missing_b" Content="Bind File-Only Parameters..." Click="bind_missing_click" Height="26"
-                                ToolTip="Lists the shared parameters that are in the file but not in this model, and binds the ones you pick to the selected categories."/>
-                    </StackPanel>
-                </Grid>
-            </GroupBox>
-        </Grid>
 
-        <!-- main grid -->
-        <DataGrid x:Name="grid" AutoGenerateColumns="False" CanUserAddRows="False"
-                  SelectionMode="Extended" SelectionUnit="FullRow" RowHeaderWidth="0"
-                  MouseDoubleClick="grid_double_click">
-            <DataGrid.RowStyle>
-                <Style TargetType="DataGridRow">
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding highlight}" Value="orphan">
-                            <Setter Property="Background" Value="#FFE0B2"/>
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding highlight}" Value="missing">
-                            <Setter Property="Background" Value="#FFCDD2"/>
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding highlight}" Value="differs">
-                            <Setter Property="Background" Value="#FFF9C4"/>
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding highlight}" Value="unused">
-                            <Setter Property="Background" Value="#ECEFF1"/>
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </DataGrid.RowStyle>
-            <DataGrid.GroupStyle>
-                <GroupStyle>
-                    <GroupStyle.HeaderTemplate>
-                        <DataTemplate>
-                            <StackPanel Orientation="Horizontal" Background="#E0E0E0" Margin="0,2,0,2">
-                                <TextBlock Text="{Binding Path=Name}" FontWeight="Bold" Margin="4,2,4,2"/>
-                                <TextBlock Text="{Binding Path=ItemCount, StringFormat=' ({0})'}" Margin="0,2,4,2" Foreground="#555555"/>
+                    <DockPanel Grid.Column="0">
+                        <TextBlock DockPanel.Dock="Top" Text="Categories" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <TextBox DockPanel.Dock="Top" x:Name="bycat_filter_tb" Height="22" Margin="0,0,0,4"
+                                 TextChanged="bycat_filter_changed" ToolTip="Type to narrow the category list."/>
+                        <CheckBox DockPanel.Dock="Top" x:Name="bycat_only_bound_cb" Content="Only categories with parameters" IsChecked="True"
+                                  Margin="0,0,0,4" Click="bycat_filter_changed"/>
+                        <DataGrid x:Name="bycat_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
+                                  SelectionMode="Single" SelectionUnit="FullRow" RowHeaderWidth="0"
+                                  SelectionChanged="bycat_selected">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Category" Binding="{Binding name}" Width="*"/>
+                                <DataGridTextColumn Header="Params" Binding="{Binding count}" Width="60"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+
+                    <DockPanel Grid.Column="2">
+                        <TextBlock DockPanel.Dock="Top" x:Name="bycat_title_tb" Text="Pick a category on the left." FontWeight="Bold" Margin="0,0,0,4"/>
+                        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+                            <Button x:Name="bycat_check_all_b" Content="Check All" Click="bycat_check_all_click" Width="90" Height="24"/>
+                            <Button x:Name="bycat_check_none_b" Content="Uncheck All" Click="bycat_check_none_click" Width="90" Height="24" Margin="6,0,0,0"/>
+                            <Button x:Name="bycat_unbind_b" Content="Unbind Checked from This Category" Click="bycat_unbind_click" Width="230" Height="26" Margin="16,0,0,0"
+                                    Style="{DynamicResource DeeDanger}"
+                                    ToolTip="Takes this one category out of each checked parameter's binding. A parameter whose only category this was loses its whole binding."/>
+                            <Button x:Name="bycat_add_b" Content="Add Parameters Checked on the Parameters Tab" Click="bycat_add_click" Width="290" Height="26" Margin="8,0,0,0"
+                                    ToolTip="Extends every parameter checked on the Parameters tab so it also covers this category."/>
+                        </StackPanel>
+                        <DataGrid x:Name="bycat_params_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                                  SelectionMode="Extended" SelectionUnit="FullRow" RowHeaderWidth="0">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="" Binding="{Binding selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="34"/>
+                                <DataGridTextColumn Header="Name" Binding="{Binding name}" IsReadOnly="True" Width="220"/>
+                                <DataGridTextColumn Header="Kind" Binding="{Binding kind}" IsReadOnly="True" Width="80"/>
+                                <DataGridTextColumn Header="Scope" Binding="{Binding scope}" IsReadOnly="True" Width="64"/>
+                                <DataGridTextColumn Header="Data Type" Binding="{Binding datatype}" IsReadOnly="True" Width="90"/>
+                                <DataGridTextColumn Header="Group" Binding="{Binding group}" IsReadOnly="True" Width="110"/>
+                                <DataGridTextColumn Header="Used" Binding="{Binding used_text}" IsReadOnly="True" Width="90"/>
+                                <DataGridTextColumn Header="Also bound to" Binding="{Binding other_categories_text}" IsReadOnly="True" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- ================= TAB 3: Validation ================= -->
+            <TabItem Header="Validation">
+                <DockPanel Margin="6">
+                    <UniformGrid DockPanel.Dock="Top" Rows="1" Columns="6" Margin="0,0,0,8">
+                        <Border Background="#EEF3F8" Margin="0,0,6,0" Padding="8" CornerRadius="4">
+                            <StackPanel>
+                                <TextBlock Text="Parameters" FontSize="11" Foreground="#555555"/>
+                                <TextBlock x:Name="val_params_tb" Text="-" FontSize="22" FontWeight="Bold"/>
                             </StackPanel>
-                        </DataTemplate>
-                    </GroupStyle.HeaderTemplate>
-                </GroupStyle>
-            </DataGrid.GroupStyle>
-            <DataGrid.Columns>
-                <DataGridCheckBoxColumn Header="" Binding="{Binding selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="34"/>
-                <DataGridTextColumn Header="Name" Binding="{Binding name}" IsReadOnly="True" Width="190"/>
-                <DataGridTextColumn Header="Kind" Binding="{Binding kind}" IsReadOnly="True" Width="110"/>
-                <DataGridTextColumn Header="Scope" Binding="{Binding scope}" IsReadOnly="True" Width="64"/>
-                <DataGridTextColumn Header="Categories" Binding="{Binding categories_text}" IsReadOnly="True" Width="230"/>
-                <DataGridTextColumn Header="Storage" Binding="{Binding storage}" IsReadOnly="True" Width="70"/>
-                <DataGridTextColumn Header="Data Type" Binding="{Binding datatype}" IsReadOnly="True" Width="90"/>
-                <DataGridTextColumn Header="Group" Binding="{Binding group}" IsReadOnly="True" Width="110"/>
-                <DataGridTextColumn Header="Elements" Binding="{Binding elements}" IsReadOnly="True" Width="66"/>
-                <DataGridTextColumn Header="Used" Binding="{Binding used_text}" IsReadOnly="True" Width="80"/>
-                <DataGridTextColumn Header="Distinct" Binding="{Binding distinct}" IsReadOnly="True" Width="58"/>
-                <DataGridTextColumn Header="File Status" Binding="{Binding file_status_text}" IsReadOnly="True" Width="150"/>
-                <DataGridTextColumn Header="GUID" Binding="{Binding guid}" IsReadOnly="True" Width="*"/>
-            </DataGrid.Columns>
-        </DataGrid>
+                        </Border>
+                        <Border Background="#E8F5E9" Margin="0,0,6,0" Padding="8" CornerRadius="4">
+                            <StackPanel>
+                                <TextBlock Text="Filled values" FontSize="11" Foreground="#555555"/>
+                                <TextBlock x:Name="val_filled_tb" Text="-" FontSize="22" FontWeight="Bold" Foreground="#2E7D32"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Background="#FFEBEE" Margin="0,0,6,0" Padding="8" CornerRadius="4">
+                            <StackPanel>
+                                <TextBlock Text="Empty values" FontSize="11" Foreground="#555555"/>
+                                <TextBlock x:Name="val_empty_tb" Text="-" FontSize="22" FontWeight="Bold" Foreground="#C62828"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Background="#EEF3F8" Margin="0,0,6,0" Padding="8" CornerRadius="4">
+                            <StackPanel>
+                                <TextBlock Text="Overall filled" FontSize="11" Foreground="#555555"/>
+                                <TextBlock x:Name="val_percent_tb" Text="-" FontSize="22" FontWeight="Bold"/>
+                                <ProgressBar x:Name="val_percent_pb" Height="8" Minimum="0" Maximum="100" Value="0" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Background="#E8F5E9" Margin="0,0,6,0" Padding="8" CornerRadius="4">
+                            <StackPanel>
+                                <TextBlock Text="Fully filled params" FontSize="11" Foreground="#555555"/>
+                                <TextBlock x:Name="val_full_tb" Text="-" FontSize="22" FontWeight="Bold" Foreground="#2E7D32"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Background="#FFEBEE" Padding="8" CornerRadius="4">
+                            <StackPanel>
+                                <TextBlock Text="Never filled params" FontSize="11" Foreground="#555555"/>
+                                <TextBlock x:Name="val_none_tb" Text="-" FontSize="22" FontWeight="Bold" Foreground="#C62828"/>
+                            </StackPanel>
+                        </Border>
+                    </UniformGrid>
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBlock Text="Show" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ComboBox x:Name="val_show_cb" Width="150" Height="24" SelectionChanged="val_filter_changed">
+                            <ComboBoxItem Content="All" IsSelected="True"/>
+                            <ComboBoxItem Content="Below 100%"/>
+                            <ComboBoxItem Content="Below 50%"/>
+                            <ComboBoxItem Content="Never filled"/>
+                        </ComboBox>
+                        <TextBlock Text="Category" VerticalAlignment="Center" Margin="14,0,6,0"/>
+                        <ComboBox x:Name="val_cat_cb" Width="200" Height="24" SelectionChanged="val_filter_changed"/>
+                        <Button x:Name="val_select_b" Content="Select Empty Elements in Revit" Click="val_select_click" Width="200" Height="24" Margin="20,0,0,0"
+                                ToolTip="Selects, in Revit, the elements that carry the highlighted parameter but hold no value, so you can fill them from the Properties palette."/>
+                        <Button x:Name="val_export_b" Content="Export Validation..." Click="val_export_click" Width="140" Height="24" Margin="8,0,0,0"/>
+                        <TextBlock x:Name="val_note_tb" Text="" VerticalAlignment="Center" Margin="14,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+
+                    <DataGrid x:Name="val_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
+                              SelectionMode="Single" SelectionUnit="FullRow" RowHeaderWidth="0">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Name" Binding="{Binding name}" Width="220"/>
+                            <DataGridTextColumn Header="Kind" Binding="{Binding kind}" Width="70"/>
+                            <DataGridTextColumn Header="Scope" Binding="{Binding scope}" Width="64"/>
+                            <DataGridTextColumn Header="Categories" Binding="{Binding categories_text}" Width="220"/>
+                            <DataGridTextColumn Header="Carrying" Binding="{Binding carrying}" Width="66"/>
+                            <DataGridTextColumn Header="Filled" Binding="{Binding filled}" Width="60"/>
+                            <DataGridTextColumn Header="Empty" Binding="{Binding empty}" Width="60"/>
+                            <DataGridTextColumn Header="%" Binding="{Binding percent_text}" Width="54"/>
+                            <DataGridTemplateColumn Header="Filled / Empty" Width="*">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="4,3,4,3" Height="12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="{Binding filled_star}"/>
+                                                <ColumnDefinition Width="{Binding empty_star}"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="0" Background="#43A047" CornerRadius="2,0,0,2"/>
+                                            <Border Grid.Column="1" Background="#E53935" CornerRadius="0,2,2,0"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- ================= TAB 4: Add Parameter ================= -->
+            <TabItem Header="Add Parameter">
+                <Grid Margin="6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="420"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,10"
+                                   Text="Creates a new parameter and binds it to the chosen categories. Revit's API only creates shared-backed parameters, so the definition is written to the shared parameter file (under the group below, created if missing) and then bound to this model. To bind a parameter that is already in the file, use Bind File-Only Parameters on the Parameters tab."/>
+                        <TextBlock Text="Parameter name" FontWeight="Bold"/>
+                        <TextBox x:Name="add_name_tb" Height="24" Margin="0,2,0,8" VerticalContentAlignment="Center"/>
+                        <TextBlock Text="Data type" FontWeight="Bold"/>
+                        <ComboBox x:Name="add_type_cb" Height="24" Margin="0,2,0,8"/>
+                        <TextBlock Text="Group under (Properties palette)" FontWeight="Bold"/>
+                        <ComboBox x:Name="add_group_cb" Height="24" Margin="0,2,0,8"/>
+                        <TextBlock Text="Group in the shared parameter file" FontWeight="Bold"/>
+                        <TextBox x:Name="add_file_group_tb" Text="DeePack" Height="24" Margin="0,2,0,8" VerticalContentAlignment="Center"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <TextBlock Text="Bind as" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <RadioButton x:Name="add_instance_rb" Content="Instance" IsChecked="True" VerticalAlignment="Center"/>
+                            <RadioButton x:Name="add_type_rb" Content="Type" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                        </StackPanel>
+                        <CheckBox x:Name="add_vary_cb" Content="Values can vary by group instance (instance parameters only)" Margin="0,0,0,12"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="add_create_b" Content="Create Parameter" Click="add_create_click" Width="150" Height="28"
+                                    Style="{DynamicResource DeePrimary}"/>
+                            <TextBlock x:Name="add_status_tb" Text="" VerticalAlignment="Center" Margin="12,0,0,0" FontStyle="Italic"
+                                       TextWrapping="Wrap" MaxWidth="240"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <DockPanel Grid.Column="2">
+                        <TextBlock DockPanel.Dock="Top" Text="Categories to bind to" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <TextBox DockPanel.Dock="Top" x:Name="add_cat_filter_tb" Height="22" Margin="0,0,0,4"
+                                 TextChanged="add_cat_filter_changed" ToolTip="Type to narrow the category list."/>
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+                            <Button x:Name="add_cat_all_b" Content="Select All Shown" Click="add_cat_all_click" Width="110" Height="22"/>
+                            <Button x:Name="add_cat_none_b" Content="Clear" Click="add_cat_none_click" Width="70" Height="22" Margin="6,0,0,0"/>
+                            <TextBlock x:Name="add_cat_count_tb" Text="0 selected" VerticalAlignment="Center" Margin="12,0,0,0" FontStyle="Italic"/>
+                        </StackPanel>
+                        <ListBox x:Name="add_cat_lb" SelectionMode="Extended" SelectionChanged="add_cat_selection_changed"/>
+                    </DockPanel>
+                </Grid>
+            </TabItem>
+        </TabControl>
     </DockPanel>
 </Window>
