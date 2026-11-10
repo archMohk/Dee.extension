@@ -1,0 +1,11 @@
+title: "Select & Files"
+tooltip: "Selection & Editing, then Files, Links & ACC - select, colour, move and mirror elements; work on many models at once. Each entry opens that DeeLazy tool straight away."
+layout:
+  - DeeSSelect
+  - DeeMoveMirror
+  - "---"
+  - DeeFUpdate
+  - DeeParaValue
+  - RemoveLinks
+  - Updater
+  - URSFiles

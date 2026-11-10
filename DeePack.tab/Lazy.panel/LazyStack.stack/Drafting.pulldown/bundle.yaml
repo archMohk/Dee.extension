@@ -1,0 +1,9 @@
+title: "Drafting"
+tooltip: "Drafting & Annotation - copy drafting between sheets, fit title lines, make and convert fill patterns. Each entry opens that DeeLazy tool straight away."
+layout:
+  - DeeDraftCoper
+  - LazyLineTag
+  - TextToLines
+  - DeeHATCH
+  - FillConversion
+  - Conversion2D

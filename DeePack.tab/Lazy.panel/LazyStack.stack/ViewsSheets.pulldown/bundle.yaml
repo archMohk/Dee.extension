@@ -1,0 +1,11 @@
+title: "Views & Sheets"
+tooltip: "Crop, rename, stamp, template and convert views and sheets in bulk. Each entry opens that DeeLazy tool straight away; DeeLazy (the big button) shows all of them as cards with search."
+# Same order as the Views & Sheets group in DeeLazy.pushbutton/controller.py.
+layout:
+  - ViewCropping
+  - DeeBulkRename
+  - DeeViewSelect
+  - DeeViewsheet
+  - DeeVTEMP
+  - LinksIntoViews
+  - DependentViews

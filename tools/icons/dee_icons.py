@@ -547,6 +547,137 @@ GLYPHS = {
         rc(14, 18, 44, 44, "ink", 0.9, 3), rc(52, 18, 82, 44, "ink", 0.9, 3),
         rc(14, 52, 44, 78, "ink", 0.9, 3), rf(52, 52, 82, 78, "accent", 3),
     ],
+    # ---- Lazy.panel: the three category pulldowns (LazyStack.stack) ----
+    # Two stacked sheets, the front one accent - "many views and sheets".
+    "ViewsSheets": lambda: [
+        rc(14, 12, 60, 64, "ink", 0.95, 3),
+        ln(42, 50, 60, 50, "ink", 0.75), ln(42, 50, 42, 64, "ink", 0.75),
+        rc(36, 32, 84, 86, "accent", 1.15, 3),
+        ln(66, 72, 84, 72, "accent", 0.9), ln(66, 72, 66, 86, "accent", 0.9),
+    ],
+    # A pencil with an accent tip - drafting & annotation.
+    "Drafting": lambda: [
+        pl([(30, 66), (66, 30), (76, 40), (40, 76)], "ink", 1.0, True),
+        ln(62, 34, 72, 44, "ink", 0.8),
+        pf([(30, 66), (40, 76), (20, 86)]),
+        ln(46, 88, 86, 88, "ink", 0.9),
+    ],
+    # Folder (files) with the selection crosshair over it.
+    "SelectFiles": lambda: [
+        pl([(12, 26), (38, 26), (44, 34), (84, 34), (84, 80), (12, 80)], "ink", 1.0, True),
+    ] + crosshair(62, 60, 12, "accent", 1.2),
+    # ---- Lazy.panel: the 20 DeeLazy modules, one button each ----
+    # Views & Sheets
+    "ViewCropping": lambda: [
+        pl([(30, 12), (30, 66), (84, 66)], "ink", 1.05),
+        pl([(12, 30), (66, 30), (66, 84)], "ink", 1.05),
+        rf(40, 40, 56, 56, "accent", 1),
+    ],
+    # A name tag with an accent text cursor - rename in bulk.
+    "DeeBulkRename": lambda: [
+        pl([(12, 30), (60, 30), (78, 48), (60, 66), (12, 66)], "ink", 1.0, True),
+        cf(26, 48, 4, "ink"),
+        ln(38, 44, 58, 44, "ink", 0.8), ln(38, 54, 52, 54, "ink", 0.8),
+        ln(84, 24, 84, 72, "accent", 1.3), ln(78, 24, 90, 24, "accent", 1.0),
+        ln(78, 72, 90, 72, "accent", 1.0),
+    ],
+    # A sheet with an accent tick - pick views.
+    "DeeViewSelect": lambda: sheet(14, 14, 70, 76, "ink", 0.95) + [
+        pl([(46, 58), (60, 72), (88, 40)], "accent", 1.5),
+    ],
+    # Sheet with a viewport inside and the accent title block - view on sheet.
+    "DeeViewsheet": lambda: [
+        rc(10, 20, 86, 76, "ink", 1.0, 2),
+        rc(18, 28, 54, 60, "ink", 0.8, 1),
+        pl([(24, 54), (34, 42), (42, 48), (50, 38)], "ink", 0.8),
+        rf(60, 60, 80, 70, "accent", 1),
+    ],
+    # A sheet of rows with an accent stamp - view template.
+    "DeeVTEMP": lambda: [
+        rc(18, 10, 78, 86, "ink", 1.0, 3),
+    ] + bars([30, 46, 62], 28, 68, "ink", 0.8, 6) + [
+        cf(70, 72, 12, "accent"), ln(64, 72, 68, 77, "white", 1.4), ln(68, 77, 77, 66, "white", 1.4),
+    ],
+    # A sheet with an accent link going into it.
+    "LinksIntoViews": lambda: sheet(12, 12, 66, 76, "ink", 0.95) + [
+        rc(44, 54, 66, 68, "accent", 1.2, 7), rc(60, 54, 82, 68, "accent", 1.2, 7),
+    ] + arrow(84, 30, 66, 46, "accent", 1.2, 9),
+    # Parent view above, two dependents below (the right one accent).
+    "DependentViews": lambda: [
+        rc(34, 8, 62, 32, "ink", 1.0, 2),
+        rc(10, 56, 40, 84, "ink", 1.0, 2), rc(56, 56, 86, 84, "accent", 1.2, 2),
+        ln(48, 32, 48, 44, "ink", 0.9),
+        pl([(25, 56), (25, 44), (71, 44), (71, 56)], "ink", 0.9),
+    ],
+    # Drafting & Annotation
+    # Two sheets of drafting, the copy accent - copy drafting between sheets.
+    "DeeDraftCoper": lambda: [
+        rc(10, 10, 54, 62, "ink", 0.95, 2),
+        ln(18, 24, 44, 24, "ink", 0.8), ln(18, 34, 38, 34, "ink", 0.8), ln(18, 44, 42, 44, "ink", 0.8),
+        rc(40, 34, 86, 88, "accent", 1.15, 2),
+        ln(50, 50, 76, 50, "accent", 0.9), ln(50, 60, 70, 60, "accent", 0.9), ln(50, 70, 74, 70, "accent", 0.9),
+    ],
+    # A title, its accent underline fitted to it, and the tag bubble.
+    "LazyLineTag": lambda: [
+        rc(12, 24, 62, 38, "ink", 0.9, 2),
+        ln(12, 50, 62, 50, "accent", 1.5),
+        ln(62, 50, 70, 60, "accent", 1.0),
+        ci(78, 68, 10, "accent", 1.2),
+    ],
+    # The letter A turning into lines.
+    "TextToLines": lambda: [
+        pl([(10, 74), (28, 22), (46, 74)], "ink", 1.1), ln(18, 56, 38, 56, "ink", 1.0),
+    ] + arrow(50, 48, 64, 48, "accent", 1.2, 9) + [
+        ln(70, 30, 88, 30, "accent", 1.1), ln(70, 48, 88, 48, "accent", 1.1),
+        ln(70, 66, 88, 66, "accent", 1.1),
+    ],
+    # A hatched square with one accent hatch line.
+    "DeeHATCH": lambda: [
+        rc(14, 14, 82, 82, "ink", 1.0, 2),
+        ln(14, 48, 48, 14, "ink", 0.75), ln(48, 82, 82, 48, "ink", 0.75),
+        ln(14, 82, 82, 14, "accent", 1.3),
+        ln(14, 65, 65, 14, "ink", 0.75), ln(31, 82, 82, 31, "ink", 0.75),
+    ],
+    # Hatched square -> solid accent square: fill pattern conversion.
+    "FillConversion": lambda: [
+        rc(8, 30, 40, 62, "ink", 1.0, 2),
+        ln(8, 46, 24, 30, "ink", 0.75), ln(8, 62, 40, 30, "ink", 0.75), ln(24, 62, 40, 46, "ink", 0.75),
+    ] + arrow(44, 46, 58, 46, "accent", 1.2, 8) + [
+        rf(60, 30, 90, 62, "accent", 2),
+    ],
+    # The 3D cube flattened to an accent 2D square.
+    "Conversion2D": lambda: cube(30, 46, 17, "ink", 0.95) + arrow(50, 46, 62, 46, "accent", 1.2, 8) + [
+        rc(64, 32, 90, 60, "accent", 1.3, 2),
+    ],
+    # Selection & Editing
+    # A selection box with the accent pointer.
+    "DeeSSelect": lambda: [
+        rc(10, 12, 58, 60, "ink", 1.0, 2),
+        pf([(44, 42), (86, 58), (68, 64), (80, 82), (70, 88), (58, 70), (46, 82)]),
+    ],
+    # Two shapes mirrored about an accent axis.
+    "DeeMoveMirror": lambda: [
+        pl([(10, 28), (38, 28), (38, 72), (10, 56)], "ink", 1.0, True),
+        pl([(86, 28), (58, 28), (58, 72), (86, 56)], "ink", 1.0, True),
+        ln(48, 10, 48, 36, "accent", 1.3), ln(48, 44, 48, 60, "accent", 1.3),
+        ln(48, 68, 48, 90, "accent", 1.3),
+    ],
+    # Files, Links & ACC
+    # A family (cube) with the shared refresh accent - update families.
+    "DeeFUpdate": lambda: cube(36, 42, 18, "ink", 0.95) + refresh(68, 68, 14),
+    # A parameter table with the accent value cell.
+    "DeeParaValue": lambda: table(12, 18, 84, 78, 3, 2, "ink", 1.0) + [
+        rf(52, 60, 80, 74, "accent", 1),
+    ],
+    # The link motif struck out with an accent cross.
+    "RemoveLinks": lambda: [
+        rc(12, 36, 46, 56, "ink", 1.0, 10), rc(34, 36, 68, 56, "ink", 1.0, 10),
+        ln(64, 58, 86, 80, "accent", 1.5), ln(86, 58, 64, 80, "accent", 1.5),
+    ],
+    # A document with the accent arrow pushing up through it - update models.
+    "Updater": lambda: doc(22, 12, 70, 84, "ink", 1.0) + arrow(46, 72, 46, 36, "accent", 1.35, 12),
+    # Two documents, the front one accent - a set of files to process.
+    "URSFiles": lambda: doc(12, 26, 52, 86, "ink", 0.95, 11) + doc(40, 10, 84, 70, "accent", 1.1, 12),
     "DeeBlocktoFamily": lambda: [
         rc(12, 34, 40, 62, "ink", 1.0, 2),
     ] + arrow(46, 48, 62, 48, "accent", 1.3, 11) + [
