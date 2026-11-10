@@ -15,7 +15,8 @@ Icon - the style every ribbon icon is drawn in (dee_accent.STYLES:
   Original, 3D, Glow, Tile, Inverted), each shown as a card drawn with
   the colours picked above, so the colours drive every style. Below it,
   Live motion (dee_icon_motion.MOTIONS: Off, Pulse, Breathe, Bob, Shimmer) -
-  the preview row plays the picked motion on a timer.
+  on the ribbon only the hovered button moves, and the preview row works
+  the same way: point at an icon and a timer plays it, leave and it rests.
 Effects - any combination of glass, accent outline, accent top line,
   fade in and accent title bar (lib/dee_effects.py).
 Theme & shape - the theme of every tool window (lib/dee_themes.py: Light,
@@ -117,7 +118,8 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._style = self._saved_style
         self._motion = self._saved_motion
         self._motion_timer = None
-        self._motion_frames = []     # per preview image: list of BitmapImage
+        self._motion_frames = {}     # preview Image -> (still, [frame BitmapImages])
+        self._motion_hover = None    # the preview Image under the mouse
         self._motion_index = 0
         self._target = "accent"
         bundles = dee_accent._bundle_dirs()
@@ -317,21 +319,26 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         except Exception:
             pass
         self._motion_timer = None
-        self._motion_frames = []
+        self._motion_frames = {}
+        self._motion_hover = None
 
     def _start_preview_motion(self, images):
-        """Plays the picked motion on the preview row: every image gets
-        its FRAMES bitmaps, one DispatcherTimer steps them all."""
+        """Arms the preview row like the ribbon: each image gets its FRAMES
+        bitmaps, and one DispatcherTimer plays the image the mouse is over.
+        The pointer leaving puts the still icon back."""
         self._stop_preview_motion()
         if dee_icon_motion.is_off(self._motion):
             return
-        frames = []
+        frames = {}
         for img, src in images:
             try:
                 paths = dee_icon_motion.frame_paths(src, self._accent, self._line,
                                                self._style, self._motion)
                 if paths:
-                    frames.append((img, [_load_image(p) for p in paths]))
+                    frames[img] = (img.Source, [_load_image(p) for p in paths])
+                    img.MouseEnter += self._preview_enter
+                    img.MouseLeave += self._preview_leave
+                    img.Cursor = Cursors.Hand
             except Exception:
                 pass
         if not frames:
@@ -342,14 +349,37 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         timer = DispatcherTimer()
         timer.Interval = TimeSpan.FromMilliseconds(dee_icon_motion.INTERVAL_MS)
         timer.Tick += self._preview_tick
-        timer.Start()
         self._motion_timer = timer
+
+    def _preview_enter(self, sender, args):
+        try:
+            if sender not in self._motion_frames or self._motion_timer is None:
+                return
+            self._motion_hover = sender
+            self._motion_index = 0
+            self._motion_timer.Start()
+        except Exception:
+            pass
+
+    def _preview_leave(self, sender, args):
+        try:
+            if self._motion_timer is not None:
+                self._motion_timer.Stop()
+            if sender in self._motion_frames:
+                sender.Source = self._motion_frames[sender][0]
+            if self._motion_hover is sender:
+                self._motion_hover = None
+        except Exception:
+            pass
 
     def _preview_tick(self, sender, args):
         try:
+            img = self._motion_hover
+            if img is None or img not in self._motion_frames:
+                return
+            bitmaps = self._motion_frames[img][1]
             self._motion_index += 1
-            for img, bitmaps in self._motion_frames:
-                img.Source = bitmaps[self._motion_index % len(bitmaps)]
+            img.Source = bitmaps[self._motion_index % len(bitmaps)]
         except Exception:
             pass
 

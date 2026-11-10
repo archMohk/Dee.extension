@@ -63,7 +63,7 @@
                                Foreground="{DynamicResource DeeTextMuted}" Text=""/>
                     <TextBlock Text="Live motion" FontWeight="Bold" Margin="0,12,0,2"/>
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,6" Foreground="{DynamicResource DeeTextMuted}"
-                               Text="Icons that move on the ribbon, in the colours and style above. They only move while the DeePack tab is on screen. The preview below plays it."/>
+                               Text="Icons that move when you point at them on the ribbon, in the colours and style above. Point at an icon in the preview below to see it."/>
                     <WrapPanel x:Name="motions_panel"/>
                     <TextBlock x:Name="motion_desc_tb" Margin="4,6,0,0" TextWrapping="Wrap"
                                Foreground="{DynamicResource DeeTextMuted}" Text=""/>

@@ -8,9 +8,16 @@ LargeImage can be swapped at will (dee_force_state does it for DeeForce's
 on/off icon). So a motion is a short loop of FRAMES still images per icon,
 pre-rendered once from the recoloured, restyled icon (lib/dee_accent.py)
 and cached next to the accent icons, and a WPF DispatcherTimer on Revit's
-UI thread that steps every DeePack button to the next frame. The timer
-only paints while the DeePack tab is the active ribbon tab, so a hidden
-ribbon costs nothing.
+UI thread that plays them on the button the mouse is over. Only the
+hovered button moves (from its first frame, the moment the pointer
+arrives); when the pointer leaves, its still icon comes back. Nothing is
+painted while the DeePack tab is off screen.
+
+Who is hovered: Revit's ribbon is WPF, so System.Windows.Input.Mouse
+.DirectlyOver gives the element under the pointer; its ancestors'
+DataContext is the Autodesk.Windows.RibbonItem of the button, and each
+Revit API item knows its Autodesk.Windows twin through the private
+getRibbonItem method pyRevit itself relies on.
 
 Motions (MOTIONS): pulse - the accent halo breathes; breathe - the icon
 gently grows and shrinks; bob - it floats up and down; shimmer - a light
@@ -38,10 +45,10 @@ import dee_accent
 # (key, label, description)
 MOTIONS = [
     ("none", "Off", "Still icons (the default)."),
-    ("pulse", "Pulse", "The accent halo around every icon breathes in and out."),
-    ("breathe", "Breathe", "Every icon gently grows and shrinks."),
-    ("bob", "Bob", "Every icon floats up and down."),
-    ("shimmer", "Shimmer", "A soft light sweeps across every icon."),
+    ("pulse", "Pulse", "Point at an icon and its accent halo breathes in and out."),
+    ("breathe", "Breathe", "Point at an icon and it gently grows and shrinks."),
+    ("bob", "Bob", "Point at an icon and it floats up and down."),
+    ("shimmer", "Shimmer", "Point at an icon and a soft light sweeps across it."),
 ]
 DEFAULT_MOTION = "none"
 _KEYS = [k for k, _l, _d in MOTIONS]
@@ -183,12 +190,104 @@ def _deepack_tab_active():
         return True
 
 
+def _adwindows_item(item):
+    """The Autodesk.Windows.RibbonItem behind a Revit API ribbon item - the
+    WPF side, the one the mouse can be over. None when it can't be had."""
+    try:
+        from System.Reflection import BindingFlags
+        method = item.GetType().GetMethod(
+            "getRibbonItem", BindingFlags.NonPublic | BindingFlags.Instance)
+        if method is not None:
+            return method.Invoke(item, None)
+    except Exception:
+        pass
+    return None
+
+
+def _same_item(a, b):
+    if a is None or b is None:
+        return False
+    try:
+        ia, ib = (a.Id or ""), (b.Id or "")
+        if ia and ib:
+            return ia == ib
+    except Exception:
+        pass
+    try:
+        from System import Object
+        return Object.ReferenceEquals(a, b)
+    except Exception:
+        return a is b
+
+
+def hovered_ribbon_item():
+    """The Autodesk.Windows.RibbonItem under the mouse pointer, or None
+    (pointer elsewhere, nothing hovered, or the ribbon can't be asked)."""
+    try:
+        clr.AddReference("PresentationCore")
+        clr.AddReference("PresentationFramework")
+        clr.AddReference("AdWindows")
+        from System.Windows import FrameworkElement, FrameworkContentElement
+        from System.Windows.Input import Mouse
+        from System.Windows.Media import VisualTreeHelper
+        from Autodesk.Windows import RibbonItem
+        el = Mouse.DirectlyOver
+        depth = 0
+        while el is not None and depth < 48:
+            ctx = None
+            try:
+                if isinstance(el, (FrameworkElement, FrameworkContentElement)):
+                    ctx = el.DataContext
+            except Exception:
+                ctx = None
+            if isinstance(ctx, RibbonItem):
+                return ctx
+            try:
+                ctx = el.RibbonItem        # some Autodesk item controls expose it
+                if isinstance(ctx, RibbonItem):
+                    return ctx
+            except Exception:
+                pass
+            parent = None
+            try:
+                parent = VisualTreeHelper.GetParent(el)
+            except Exception:
+                parent = None
+            if parent is None:
+                try:
+                    parent = el.Parent
+                except Exception:
+                    parent = None
+            el = parent
+            depth += 1
+    except Exception:
+        pass
+    return None
+
+
+class _Entry(object):
+    __slots__ = ("item", "adw", "name", "frames", "still", "on_frames", "on_still")
+
+    def __init__(self, item, adw, name):
+        self.item = item
+        self.adw = adw
+        self.name = name
+        self.frames = []        # [(small, large)] per motion frame
+        self.still = None       # (small, large) of the plain styled icon
+        self.on_frames = []     # DeeForce: the same while auto-sync is on
+        self.on_still = None
+
+
 class _Animator(object):
     def __init__(self):
         self.timer = None
-        self.items = []        # (ribbon item, frames (small, large) list, bundle name)
-        self.on_frames = {}    # DeeForce: frames while auto-sync is on
+        self.entries = []
+        self.current = None     # the _Entry under the mouse, if any
         self.index = 0
+
+    @property
+    def items(self):
+        return self.entries
 
     def stop(self):
         try:
@@ -197,8 +296,9 @@ class _Animator(object):
         except Exception:
             pass
         self.timer = None
-        self.items = []
-        self.on_frames = {}
+        self._rest(self.current)
+        self.current = None
+        self.entries = []
 
     def _frames_for(self, src, accent_hex, line_hex, style, kind):
         from pyrevit.coreutils.ribbon import ButtonIcons
@@ -207,6 +307,11 @@ class _Animator(object):
             icons = ButtonIcons(path)
             frames.append((icons.small_bitmap, icons.large_bitmap))
         return frames
+
+    def _still_for(self, src, accent_hex, line_hex, style):
+        from pyrevit.coreutils.ribbon import ButtonIcons
+        icons = ButtonIcons(dee_accent.resolve(src, accent_hex, line_hex, style))
+        return (icons.small_bitmap, icons.large_bitmap)
 
     def start(self, uiapp, accent_hex, line_hex, style, kind):
         self.stop()
@@ -222,50 +327,86 @@ class _Animator(object):
             src = dee_accent._theme_icon(bundle_dir)
             if not src:
                 continue
+            adw = _adwindows_item(item)
+            if adw is None:
+                continue                      # no WPF twin, so no hover
             try:
-                frames = self._frames_for(src, accent_hex, line_hex, style, kind)
-                if frames:
-                    self.items.append((item, frames, name))
+                entry = _Entry(item, adw, name)
+                entry.frames = self._frames_for(src, accent_hex, line_hex, style, kind)
+                if not entry.frames:
+                    continue
+                entry.still = self._still_for(src, accent_hex, line_hex, style)
                 if name == "DeeForce":
                     on_src = os.path.join(bundle_dir, "icon.on.png")
                     if os.path.isfile(on_src):
-                        self.on_frames[name] = self._frames_for(
+                        entry.on_frames = self._frames_for(
                             on_src, accent_hex, line_hex, style, kind)
+                        entry.on_still = self._still_for(on_src, accent_hex, line_hex, style)
+                self.entries.append(entry)
             except Exception:
                 continue
-        if not self.items:
+        if not self.entries:
             return 0
         from System.Windows.Threading import DispatcherTimer
         self.timer = DispatcherTimer()
         self.timer.Interval = TimeSpan.FromMilliseconds(INTERVAL_MS)
         self.timer.Tick += self._tick
         self.timer.Start()
-        return len(self.items)
+        return len(self.entries)
+
+    @staticmethod
+    def _force_on():
+        try:
+            import dee_force_state
+            return bool(dee_force_state.is_active())
+        except Exception:
+            return False
+
+    @staticmethod
+    def _paint(entry, pair):
+        if pair is None:
+            return
+        small, large = pair
+        try:
+            entry.item.Image = small
+        except Exception:
+            pass
+        try:
+            entry.item.LargeImage = large
+        except Exception:
+            pass
+
+    def _rest(self, entry):
+        """Puts the still icon back on a button the pointer has left."""
+        if entry is None:
+            return
+        still = entry.still
+        if entry.on_still is not None and self._force_on():
+            still = entry.on_still
+        self._paint(entry, still)
+
+    def _find(self, adw):
+        if adw is None:
+            return None
+        for entry in self.entries:
+            if _same_item(entry.adw, adw):
+                return entry
+        return None
 
     def _tick(self, sender, args):
         try:
-            if not _deepack_tab_active():
+            hovered = self._find(hovered_ribbon_item()) if _deepack_tab_active() else None
+            if hovered is not self.current:
+                self._rest(self.current)
+                self.current = hovered
+                self.index = 0                # every hover starts the loop afresh
+            if hovered is None:
                 return
+            frames = hovered.frames
+            if hovered.on_frames and self._force_on():
+                frames = hovered.on_frames
             self.index = (self.index + 1) % FRAMES
-            force_on = False
-            if self.on_frames:
-                try:
-                    import dee_force_state
-                    force_on = dee_force_state.is_active()
-                except Exception:
-                    force_on = False
-            for item, frames, name in self.items:
-                if force_on and name in self.on_frames and self.on_frames[name]:
-                    frames = self.on_frames[name]
-                small, large = frames[self.index % len(frames)]
-                try:
-                    item.Image = small
-                except Exception:
-                    pass
-                try:
-                    item.LargeImage = large
-                except Exception:
-                    pass
+            self._paint(hovered, frames[self.index % len(frames)])
         except Exception:
             pass
 
@@ -285,7 +426,8 @@ def apply(uiapp, accent_hex=None, line_hex=dee_accent._SAVED,
           style=dee_accent._SAVED, kind=None):
     """(Re)starts the live motion for the given settings, or stops it when
     the motion is off. Call AFTER dee_accent.apply_to_ribbon, which puts
-    the still icons back. Returns how many buttons move."""
+    the still icons back. Returns how many buttons will move when the
+    pointer is over them."""
     try:
         kind = normalize(kind or load_motion())
         _animator.stop()
