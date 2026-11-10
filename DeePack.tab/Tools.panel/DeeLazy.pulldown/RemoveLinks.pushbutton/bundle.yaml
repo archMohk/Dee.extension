@@ -1,0 +1,3 @@
+title: "Remove Links"
+tooltip: "Find the Revit links in open models, ACC files or local files - export their paths to Excel, unload or remove them in bulk."
+context: zero-doc

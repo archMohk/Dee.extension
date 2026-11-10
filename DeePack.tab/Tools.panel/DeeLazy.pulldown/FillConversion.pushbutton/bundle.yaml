@@ -1,0 +1,3 @@
+title: "Fill Pattern Conversion"
+tooltip: "Convert Fill Patterns between Model and Drafting Target - creates a new, scaled pattern; originals are never touched."
+context: zero-doc

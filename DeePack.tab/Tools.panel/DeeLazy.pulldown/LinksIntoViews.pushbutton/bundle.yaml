@@ -1,0 +1,3 @@
+title: "Links Into Views"
+tooltip: "Pick a view with Revit Links, then create one isolated duplicate view per selected link (same view properties, only that link visible)."
+context: zero-doc

@@ -1,0 +1,3 @@
+title: "DeeVTEMP"
+tooltip: "Apply one change to many View Templates at once. First action - set the Revit Links Display Setting (By Host View / By Linked View) across every selected View Template and link in one run."
+context: zero-doc

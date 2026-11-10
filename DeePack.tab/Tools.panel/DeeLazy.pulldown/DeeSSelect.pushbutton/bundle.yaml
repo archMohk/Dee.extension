@@ -1,0 +1,3 @@
+title: "DeeSSelect"
+tooltip: "Color elements in the active view by parameter value (like pyRevit's Color Splasher), plus select elements by checked value-groups."
+context: zero-doc

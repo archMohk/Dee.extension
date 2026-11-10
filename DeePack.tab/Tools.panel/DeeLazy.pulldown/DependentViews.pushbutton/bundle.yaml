@@ -1,0 +1,3 @@
+title: "Dependent / Non-Dependent Views"
+tooltip: "Scan all views, then turn selected dependent views into independent ones - keeping each one's name and its place on the sheet."
+context: zero-doc
