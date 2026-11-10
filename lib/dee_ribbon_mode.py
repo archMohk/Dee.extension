@@ -3,7 +3,7 @@
 dee_ribbon_mode
 Backs DeePack's "View" combo box (Mode.panel/CategorySwitch.combobox) -
 picking a category shows only the DeePack.tab panels relevant to that
-workflow, decluttering the ~13-panel tab. "All" (the default) restores
+workflow, decluttering the 14-panel tab. "All" (the default) restores
 today's behavior with nothing hidden.
 
 The combo box itself is pyRevit's native declarative .combobox bundle
@@ -53,11 +53,12 @@ ALWAYS_VISIBLE = set(["Mode", "About"])
 # "don't filter" rather than an explicit (and easily-stale) full list.
 CATEGORY_PANELS = {
     "All": None,
-    "Cloud & Sync": ["Models", "Cloud"],
-    "Coordination": ["Coordination", "Masterplan"],
-    "Design": ["Align", "Rooms", "Tools", "Model", "Topography"],
-    "Documentation": ["Views & Datums", "Sheets & Export", "Quantities", "Model"],
-    "Health": ["Health"],
+    "Cloud & Sync": ["Session", "Cloud"],
+    "Coordination": ["Links", "Masterplan", "Datums"],
+    "Design": ["Model", "Rooms & QS", "Align"],
+    "Documentation": ["Views & Sheets", "Export", "Rooms & QS"],
+    "Health": ["Health", "Session"],
+    "AI": ["AI"],
 }
 
 # Handled separately from CATEGORY_PANELS - see the module docstring.

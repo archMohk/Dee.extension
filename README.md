@@ -23,9 +23,12 @@ A pyRevit extension for Revit (the **DeePack** ribbon tab), with a Supabase mirr
 
 ## Panels in `DeePack.tab`
 
-About, Align, Cloud, Coordination, Family, Health, Masterplan, Mode, Model, Models,
-Quantities, Rooms, SheetsExport, Tools, Topography, ViewsDatums.
-Each tool has a help page in `docs/pages/<ToolName>.html`.
+Ribbon order (folder name -> ribbon title): Mode, Models (Session), Cloud, Coordination (Links),
+Masterplan, Model, Rooms (Rooms & QS), Datums, ViewsDatums (Views & Sheets), SheetsExport (Export),
+Health, Align, Tools (AI), About. Folder names are kept stable because `lib/` code and
+`dee_control_panel.json` refer to them; only the `title:` in each panel's `bundle.yaml` changes.
+Retired bundles live in `_archive/` (currently DeeCoord, superseded by DeeBIMview).
+Each documented tool has a help page in `docs/pages/<ToolName>.html`.
 
 ## Before you push
 

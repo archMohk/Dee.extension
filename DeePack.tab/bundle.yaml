@@ -1,20 +1,20 @@
 title: "DeePack"
 # A panel MUST be listed here to appear on the ribbon at all (pyRevit
 # drops unlisted bundles when a layout is defined) - keep About LAST.
+# Order follows a modeller's day: open -> cloud -> links -> model ->
+# document -> export -> health -> settings.
 layout:
   - Mode
   - Models
   - Cloud
-  - Masterplan
   - Coordination
-  - SheetsExport
-  - ViewsDatums
+  - Masterplan
   - Model
-  - Topography
   - Rooms
-  - Quantities
-  - Align
+  - Datums
+  - ViewsDatums
+  - SheetsExport
   - Health
+  - Align
   - Tools
-  - Family
   - About

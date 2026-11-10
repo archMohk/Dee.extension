@@ -8,7 +8,7 @@
 <body>
 <div class="topbar"><div class="inner"><h1>DeePack Handbook</h1></div></div>
 <div class="wrap">
-  <p class="tagline">One page per button on the <strong>DeePack</strong> ribbon tab &mdash; what it does, how to use it, and what to watch out for. Grouped by panel, in the same order they appear on the ribbon.</p>
+  <p class="tagline">One page per button on the <strong>DeePack</strong> ribbon tab &mdash; what it does, how to use it, and what to watch out for. Grouped by panel, in the same order they appear on the ribbon. Tools without a page yet are listed with a short description only.</p>
 
   <div class="callout danger">
     <strong>Read this first: <a href="pages/DeeAI.html">DeeAI</a> is the highest-risk tool in this handbook</strong>
@@ -16,31 +16,130 @@
   </div>
 
   <div class="callout warn">
-    <strong>Read this first if you're new to the BatchPack tools</strong>
-    Several BatchPack tools can Synchronize With Central or Publish across many files in one run, with little or no per-file confirmation. Ranked by blast radius: <a href="pages/DeeSPublish.html">DeeS.Publish</a> (publishes every file in whole projects) &gt; <a href="pages/DeeSYNC.html">DeeSYNC</a> (syncs every open model, no file picker) &gt; <a href="pages/DeeCoord.html">DeeCoord</a> and <a href="pages/DeeCloseAll.html">DeeCloseAll</a>'s Relinquish mode &gt; <a href="pages/DeePublisher.html">DeePublisher</a> &gt; everything else (opens/links/reads only).
+    <strong>Read this first if you're new to the Session and Cloud tools</strong>
+    Several Session and Cloud tools can Synchronize With Central or Publish across many files in one run, with little or no per-file confirmation. Ranked by blast radius: <a href="pages/DeeSPublish.html">DeeS.Publish</a> (publishes every file in whole projects) &gt; <a href="pages/DeeSYNC.html">DeeSYNC</a> (syncs every open model, no file picker) &gt; <a href="pages/DeeCloseAll.html">DeeCloseAll</a>'s Relinquish mode &gt; <a href="pages/DeePublisher.html">DeePublisher</a> &gt; everything else (opens/links/reads only).
   </div>
 
   <div class="panel-group">
-    <h2>CreatePack panel</h2>
+    <h2>Session panel</h2>
     <div class="tool-grid">
-      <a class="tool-card" href="pages/DeeAligner.html"><div class="name">DeeAligner</div><div class="desc">Align/distribute Viewports and Images on sheets, or auto-arrange Images into a grid.</div><span class="risk-badge risk-low">Low</span></a>
+      <a class="tool-card" href="pages/DeeOpener.html"><div class="name">DeeOpener</div><div class="desc">Batch-open ACC/BIM360 cloud files by checkbox.</div><span class="risk-badge risk-low">Low</span></a>
+      <a class="tool-card" href="pages/DeeSYNC.html"><div class="name">DeeSYNC</div><div class="desc">Synchronize every workshared model open in this session &mdash; no file picker.</div><span class="risk-badge risk-high">High</span></a>
+      <div class="tool-card"><div class="name">DeeForce</div><div class="desc">Toggle timed background auto-sync of every open workshared model, with a 30-second countdown before each sync. SHIFT+Click sets the interval.</div><span class="risk-badge risk-high">High</span></div>
+      <a class="tool-card" href="pages/DeeCloseAll.html"><div class="name">DeeCloseAll</div><div class="desc">Close open documents: Sync &amp; Close, Relinquish &amp; Close, or Close without Relinquish.</div><span class="risk-badge risk-high">High*</span></a>
+    </div>
+  </div>
+
+  <div class="panel-group">
+    <h2>Cloud panel</h2>
+    <div class="tool-grid">
+      <a class="tool-card" href="pages/DeePublisher.html"><div class="name">DeePublisher</div><div class="desc">Batch-publish selected cloud files.</div><span class="risk-badge risk-medium">Medium</span></a>
+      <div class="tool-card"><div class="name">DeeRelinquish</div><div class="desc">Scan an ACC project for workset ownership across every model without opening them, then release everything you own in the models you pick.</div><span class="risk-badge risk-medium">Medium</span></div>
+      <div class="tool-card"><div class="name">DeePubCheck</div><div class="desc">Ask ACC which cloud models have synced-but-unpublished changes and publish only those. No file needs to be open.</div><span class="risk-badge risk-medium">Medium</span></div>
+      <a class="tool-card" href="pages/DeeSPublish.html"><div class="name">DeeS.Publish</div><div class="desc">Publish ALL files in one or more entire selected projects.</div><span class="risk-badge risk-high">Highest</span></a>
+      <div class="tool-card"><div class="name">DeeInitiator</div><div class="desc">Batch-create new project files from templates per Zone, upload each as a worksharing Cloud Model, then wire Revit links between them.</div><span class="risk-badge risk-high">High</span></div>
+      <a class="tool-card" href="pages/DeeWSharing.html"><div class="name">DeeW.Cloud &rsaquo; DeeW.Sharing</div><div class="desc">Convert Revit models into ACC Cloud Models - detect type, detach/enable worksharing, upload, and report.</div><span class="risk-badge risk-high">High</span></a>
+      <a class="tool-card" href="pages/DeeWBatchSaveToCloud.html"><div class="name">DeeW.Cloud &rsaquo; DeeW.Batch Save to Cloud</div><div class="desc">Bulk-convert hundreds of local models into ACC Cloud Models, fully automatic and optimized for large batches.</div><span class="risk-badge risk-high">High</span></a>
+      <a class="tool-card" href="pages/DeeWClean.html"><div class="name">DeeW.Cloud &rsaquo; DeeW.Clean</div><div class="desc">Batch-clean local and cloud models - purge unused elements, delete zero-area rooms and unused groups, flag in-place families - then save/sync back automatically.</div><span class="risk-badge risk-high">High</span></a>
+      <div class="tool-card"><div class="name">DeeW.Cloud &rsaquo; DeeW.Transmit</div><div class="desc">Issue cleaned copies of local or cloud models to a folder - detached, purged, optionally stripped of views and sheets. Originals are never modified.</div><span class="risk-badge risk-medium">Medium</span></div>
+      <a class="tool-card" href="pages/DeeWCloudComingSoon.html"><div class="name">DeeW.Cloud &rsaquo; 7 planned tools (not on the ribbon)</div><div class="desc">Publish, Consume, Transfer, Batch Upgrade, Audit, Sync, Package - scaffolded, not yet implemented.</div><span class="risk-badge risk-low">None</span></a>
+    </div>
+  </div>
+
+  <div class="panel-group">
+    <h2>Links panel</h2>
+    <div class="tool-grid">
+      <div class="tool-card"><div class="name">DeeLinkManagement</div><div class="desc">Links in the open file: reference type (Overlay / Attachment), load status, source, placements. Switch type, reload, add from ACC or local.</div><span class="risk-badge risk-medium">Medium</span></div>
+      <div class="tool-card"><div class="name">DeeLinkMAP</div><div class="desc">Who-links-whom map of a whole ACC project or local folder as an interactive HTML page, colour-coded by discipline.</div><span class="risk-badge risk-low">Low</span></div>
+      <a class="tool-card" href="pages/DeeLINK.html"><div class="name">DeeLINK</div><div class="desc">Batch-link cloud files into the active document with 4 positioning methods.</div><span class="risk-badge risk-medium">Low-Med</span></a>
+      <div class="tool-card"><div class="name">DeeSuperLINK</div><div class="desc">Link cloud models into each other with no file open: one into many or many into one; each host is opened, linked and synced.</div><span class="risk-badge risk-high">High</span></div>
+      <div class="tool-card"><div class="name">DeeMAPLink</div><div class="desc">Many-to-many link map between two lists of ACC or local files; every target host is linked and synced headless.</div><span class="risk-badge risk-high">High</span></div>
+      <a class="tool-card" href="pages/DeeBIMview.html"><div class="name">DeeBIMview</div><div class="desc">Batch-open cloud files and create BIM Coordination/NAVIS views (no sync/publish).</div><span class="risk-badge risk-low">Low</span></a>
+      <a class="tool-card" href="pages/DeeLinkReview.html"><div class="name">DeeLinkReview</div><div class="desc">Find shared linked models across files and open Coordination Review for one.</div><span class="risk-badge risk-low">Low</span></a>
+      <a class="tool-card" href="pages/DeeRelink.html"><div class="name">DeeRelink</div><div class="desc">Scan every Revit Link in each open document and batch-update their file paths - one tab per open document, edit New Path per row, then Apply.</div><span class="risk-badge risk-medium">Medium</span></a>
+    </div>
+  </div>
+
+  <div class="panel-group">
+    <h2>Masterplan panel</h2>
+    <div class="tool-grid">
+      <div class="tool-card"><div class="name">DeeLinkDist</div><div class="desc">Place Revit link instances across a masterplan from an Excel sheet (X/Y/Z, rotation, typology). Never moves existing links.</div><span class="risk-badge risk-medium">Medium</span></div>
+      <div class="tool-card"><div class="name">DeeSheetLinks</div><div class="desc">One Sheet plus one cropped plan view per placed link copy, per Sheet Type you define.</div><span class="risk-badge risk-low">Low</span></div>
+    </div>
+  </div>
+
+  <div class="panel-group">
+    <h2>Model panel</h2>
+    <div class="tool-grid">
+      <div class="tool-card"><div class="name">DeeFacade</div><div class="desc">Design a perforated facade pattern on a wall with live preview, then cut it into the wall profile or build a Generic Model panel.</div><span class="risk-badge risk-medium">Medium</span></div>
+      <div class="tool-card"><div class="name">DeeFamily</div><div class="desc">Browse every loaded family type with real thumbnails and drag a tile into the model to place it.</div><span class="risk-badge risk-low">Low</span></div>
+      <div class="tool-card"><div class="name">Dee3DView</div><div class="desc">Hub for the 3D-view helpers: DeeMono presentation themes and DeeClear3D (hide levels, grids, reference planes from chosen 3D views, reversibly).</div><span class="risk-badge risk-low">Low</span></div>
+      <div class="tool-card"><div class="name">DeeJoin</div><div class="desc">Batch Join Geometry - everything overlapping in the current view, or chosen categories across the model.</div><span class="risk-badge risk-medium">Medium</span></div>
+      <div class="tool-card"><div class="name">DeeBlocktoFamily</div><div class="desc">Click one CAD block occurrence and place a Revit family at every other occurrence of that block.</div><span class="risk-badge risk-low">Low</span></div>
+      <a class="tool-card" href="pages/DeeDistributor.html"><div class="name">DeeDistributor</div><div class="desc">Auto-distribute family instances across room/space boundaries.</div><span class="risk-badge risk-low">Low</span></a>
+      <div class="tool-card"><div class="name">DeeCtotopo</div><div class="desc">Convert a Civil 3D surface (DWG mesh, linked topography or legacy toposurface) into native Toposolids. Revit 2024+.</div><span class="risk-badge risk-medium">Medium</span></div>
+      <div class="tool-card"><div class="name">DeeDropToSurface</div><div class="desc">Drop picked elements onto a Floor or Toposolid; straight walls are rebuilt with a stepped base to follow the slope (asks first).</div><span class="risk-badge risk-high">High</span></div>
+    </div>
+  </div>
+
+  <div class="panel-group">
+    <h2>Rooms &amp; QS panel</h2>
+    <div class="tool-grid">
+      <a class="tool-card" href="pages/DeeFinisher.html"><div class="name">DeeFinisher</div><div class="desc">Batch-generate Floor/Wall/Ceiling finishes from room boundaries.</div><span class="risk-badge risk-low">Low</span></a>
+      <div class="tool-card"><div class="name">DeeQs</div><div class="desc">Measured quantities per category, grouped by a chosen parameter into an editable Bill of Quantities, exported to Excel.</div><span class="risk-badge risk-low">Low</span></div>
+      <div class="tool-card"><div class="name">DeeRoomStamp</div><div class="desc">Write the name of the Room each element sits in into a chosen text parameter.</div><span class="risk-badge risk-medium">Medium</span></div>
+      <a class="tool-card" href="pages/DeeRoomXYD.html"><div class="name">DeeRoomXYD</div><div class="desc">Scan Rooms in the active view for their longest X/Y boundary edges, and optionally place real Dimension elements for them.</div><span class="risk-badge risk-medium">Medium</span></a>
+      <div class="tool-card"><div class="name">DeeViewAdjust</div><div class="desc">Reshape the active plan view&rsquo;s crop region to the exact combined boundary of selected rooms.</div><span class="risk-badge risk-low">Low</span></div>
+    </div>
+  </div>
+
+  <div class="panel-group">
+    <h2>Datums panel</h2>
+    <div class="tool-grid">
+      <a class="tool-card" href="pages/DeeLevels.html"><div class="name">DeeLevels</div><div class="desc">Scan and batch-edit project Levels in one grid.</div><span class="risk-badge risk-low">Low</span></a>
       <a class="tool-card" href="pages/DeeGrid.html"><div class="name">DeeGrid</div><div class="desc">Scan and batch-edit project Grids with a live 2D previewer.</div><span class="risk-badge risk-low">Low</span></a>
-      <a class="tool-card" href="pages/DeeLevels.html"><div class="name">DeeLEVEL</div><div class="desc">Scan and batch-edit project Levels in one grid.</div><span class="risk-badge risk-low">Low</span></a>
-      <a class="tool-card" href="pages/DeeSheet.html"><div class="name">DeeSheet</div><div class="desc">Paste-from-Excel sheet creation, a Super Sheet tab to edit/add/remove every sheet, and a Sheet Renamer token rule engine.</div><span class="risk-badge risk-medium">Medium</span></a>
-      <a class="tool-card" href="pages/DeeVTemplate.html"><div class="name">DeeV.Template</div><div class="desc">Transfer View Templates to other open Revit documents.</div><span class="risk-badge risk-medium">Medium</span></a>
-      <a class="tool-card" href="pages/DeeView.html"><div class="name">DeeView</div><div class="desc">Batch-create views with templates, scales, naming, and sheet placement.</div><span class="risk-badge risk-low">Low</span></a>
+      <a class="tool-card" href="pages/DeeReLevel.html"><div class="name">DeeReLevel</div><div class="desc">Change Level elevations while preserving the real-world position of every hosted element, constraint, and MEP system.</div><span class="risk-badge risk-high">High</span></a>
+      <a class="tool-card" href="pages/DeeCordiPoint.html"><div class="name">DeeCordiPoint</div><div class="desc">Isolate coordinate points (Project Base Point, Survey Point, Internal Origin) in a 3D view, relocate a far Survey Point, and export/list link coordinates.</div><span class="risk-badge risk-medium">Medium</span></a>
+      <a class="tool-card" href="pages/DeeGetDWG.html"><div class="name">DeeGetDWG</div><div class="desc">Find CAD Imports/Links placed far from the Internal Origin and bring the checked ones back to (0,0,0) - unpins and moves, rotation/scale preserved.</div><span class="risk-badge risk-medium">Medium</span></a>
     </div>
   </div>
 
   <div class="panel-group">
-    <h2>DeeAI panel</h2>
+    <h2>Views &amp; Sheets panel</h2>
     <div class="tool-grid">
-      <a class="tool-card" href="pages/DeeAI.html"><div class="name">DeeAI</div><div class="desc">Chat with a Claude-powered assistant that writes and immediately runs IronPython code against the active document - no per-action confirmation. Needs your own Anthropic API key (session-only, never saved).</div><span class="risk-badge risk-high">Highest</span></a>
+      <a class="tool-card" href="pages/DeeView.html"><div class="name">DeeView</div><div class="desc">Batch-create views with templates, scales, naming, and sheet placement.</div><span class="risk-badge risk-low">Low</span></a>
+      <a class="tool-card" href="pages/DeeSheet.html"><div class="name">DeeSheet</div><div class="desc">Paste-from-Excel sheet creation, a Super Sheet tab to edit/add/remove every sheet, and a Sheet Renamer token rule engine.</div><span class="risk-badge risk-medium">Medium</span></a>
+      <div class="tool-card"><div class="name">DeeS.V.Template</div><div class="desc">Discipline / Originator / Package visibility presets applied to views or sheets, saved as a real View Template.</div><span class="risk-badge risk-low">Low</span></div>
+      <a class="tool-card" href="pages/DeeVTemplate.html"><div class="name">DeeV.Template</div><div class="desc">Transfer View Templates to other open Revit documents.</div><span class="risk-badge risk-medium">Medium</span></a>
+      <div class="tool-card"><div class="name">DeeMono</div><div class="desc">Recolour a 3D view into a single-hue presentation theme with live preview; Restore puts the original graphics back.</div><span class="risk-badge risk-low">Low</span></div>
+      <div class="tool-card"><div class="name">DeeV.S.Dupl.</div><div class="desc">Batch-duplicate sheets, views and schedules with two naming modes, optionally duplicating their view templates too.</div><span class="risk-badge risk-low">Low</span></div>
+      <a class="tool-card" href="pages/DeeAligner.html"><div class="name">DeeAligner</div><div class="desc">Align/distribute Viewports and Images on sheets, or auto-arrange Images into a grid.</div><span class="risk-badge risk-low">Low</span></a>
+      <div class="tool-card"><div class="name">DeeAssemb</div><div class="desc">A full set of assembly views plus a sheet for every selected assembly, laid out visually. Existing ones are skipped.</div><span class="risk-badge risk-low">Low</span></div>
     </div>
   </div>
 
   <div class="panel-group">
-    <h2>DeeAlign panel</h2>
+    <h2>Export panel</h2>
+    <div class="tool-grid">
+      <a class="tool-card" href="pages/DeePrinter.html"><div class="name">DeePrinter</div><div class="desc">Batch-export sheets to PDF/DWG/DXF with custom naming and folders.</div><span class="risk-badge risk-low">Low</span></a>
+      <a class="tool-card" href="pages/DeeNWCs.html"><div class="name">DeeNWCs</div><div class="desc">Batch-open ACC cloud files and export NAVIS-named views to NWC.</div><span class="risk-badge risk-low">Low</span></a>
+      <div class="tool-card"><div class="name">Dee3D</div><div class="desc">Export a 3D view as one self-contained HTML file that opens in any browser with no app or login.</div><span class="risk-badge risk-low">Low</span></div>
+      <a class="tool-card" href="pages/DeeScheduleXL.html"><div class="name">DeeScheduleXL</div><div class="desc">Export Schedules to Excel and re-import edited values back.</div><span class="risk-badge risk-medium">Medium</span></a>
+      <div class="tool-card"><div class="name">DeeTransmit</div><div class="desc">Strip models down for issue - delete sheets, views, links, CAD, revisions and other clutter; nothing is saved until you choose.</div><span class="risk-badge risk-high">High</span></div>
+    </div>
+  </div>
+
+  <div class="panel-group">
+    <h2>Health panel</h2>
+    <div class="tool-grid">
+      <a class="tool-card" href="pages/DeeHealth.html"><div class="name">DeeHealth</div><div class="desc">Run a weighted QC rubric of ~40 model health checks.</div><span class="risk-badge risk-low">None</span></a>
+      <a class="tool-card" href="pages/DeeCleaner.html"><div class="name">DeeCleaner</div><div class="desc">Find and clean up zero-area rooms, in-place families, unused groups, unplaced views, empty sheets, and rooms placed on top of each other.</div><span class="risk-badge risk-medium">Medium</span></a>
+      <a class="tool-card" href="pages/DeeRehoster.html"><div class="name">DeeRehoster</div><div class="desc">Scan/report/color-code hosted elements by Level, and rehost mis-hosted ones.</div><span class="risk-badge risk-medium">Medium</span></a>
+    </div>
+  </div>
+
+  <div class="panel-group">
+    <h2>Align panel</h2>
     <div class="tool-grid">
       <a class="tool-card" href="pages/DeeAlign.html"><div class="name">Align Left</div><div class="desc">Align selected elements' left edges (BoundingBox Min.X) to the first selected element.</div><span class="risk-badge risk-medium">Medium</span></a>
       <a class="tool-card" href="pages/DeeAlign.html"><div class="name">Align Right</div><div class="desc">Align selected elements' right edges (BoundingBox Max.X) to the first selected element.</div><span class="risk-badge risk-medium">Medium</span></a>
@@ -54,77 +153,28 @@
   </div>
 
   <div class="panel-group">
-    <h2>LazyPack panel</h2>
+    <h2>AI panel</h2>
     <div class="tool-grid">
-      <a class="tool-card" href="pages/DeeCordiPoint.html"><div class="name">DeeCordiPoint</div><div class="desc">Isolate coordinate points (Project Base Point, Survey Point, Internal Origin) in a 3D view, relocate a far Survey Point, and export/list link coordinates.</div><span class="risk-badge risk-medium">Medium</span></a>
+      <a class="tool-card" href="pages/DeeAI.html"><div class="name">DeeAI</div><div class="desc">Chat with a Claude-powered assistant that writes and immediately runs IronPython code against the active document - no per-action confirmation. Needs your own Anthropic API key (session-only, never saved).</div><span class="risk-badge risk-high">Highest</span></a>
       <a class="tool-card" href="pages/DeeLazy.html"><div class="name">DeeLazy</div><div class="desc">A growing collection of bulk productivity tools - card-based launcher. View Cropping (batch-edit Crop Region settings) and Fill Pattern Conversion (Model &harr; Drafting).</div><span class="risk-badge risk-medium">Medium</span></a>
-      <a class="tool-card" href="pages/DeeReLevel.html"><div class="name">DeeReLevel</div><div class="desc">Change Level elevations while preserving the real-world position of every hosted element, constraint, and MEP system.</div><span class="risk-badge risk-high">High</span></a>
-      <a class="tool-card" href="pages/DeeRelink.html"><div class="name">DeeRelink</div><div class="desc">Scan every Revit Link in each open document and batch-update their file paths - one tab per open document, edit New Path per row, then Apply.</div><span class="risk-badge risk-medium">Medium</span></a>
-      <a class="tool-card" href="pages/DeeRoomXYD.html"><div class="name">DeeRoomXYD</div><div class="desc">Scan Rooms in the active view for their longest X/Y boundary edges, and optionally place real Dimension elements for them.</div><span class="risk-badge risk-medium">Medium</span></a>
-      <a class="tool-card" href="pages/DeeWSharing.html"><div class="name">DeeW.Cloud &rsaquo; DeeW.Sharing</div><div class="desc">Convert Revit models into ACC Cloud Models - detect type, detach/enable worksharing, upload, and report.</div><span class="risk-badge risk-high">High</span></a>
-      <a class="tool-card" href="pages/DeeWBatchSaveToCloud.html"><div class="name">DeeW.Cloud &rsaquo; DeeW.Batch Save to Cloud</div><div class="desc">Bulk-convert hundreds of local models into ACC Cloud Models, fully automatic and optimized for large batches.</div><span class="risk-badge risk-high">High</span></a>
-      <a class="tool-card" href="pages/DeeWClean.html"><div class="name">DeeW.Cloud &rsaquo; DeeW.Clean</div><div class="desc">Batch-clean local and cloud models - purge unused elements, delete zero-area rooms and unused groups, flag in-place families - then save/sync back automatically.</div><span class="risk-badge risk-high">High</span></a>
-      <a class="tool-card" href="pages/DeeWCloudComingSoon.html"><div class="name">DeeW.Cloud &rsaquo; 7 more (Coming Soon)</div><div class="desc">Publish, Consume, Transfer, Batch Upgrade, Audit, Sync, Package - scaffolded, not yet implemented.</div><span class="risk-badge risk-low">None</span></a>
+      <div class="tool-card"><div class="name">DeeMCP</div><div class="desc">Local, token-protected MCP server inside this Revit session so Claude Code or another MCP client can drive the model. Never starts automatically.</div><span class="risk-badge risk-high">High</span></div>
     </div>
   </div>
-
-  <div class="panel-group">
-    <h2>ModelingPack panel</h2>
-    <div class="tool-grid">
-      <a class="tool-card" href="pages/DeeDistributor.html"><div class="name">DeeDistributor</div><div class="desc">Auto-distribute family instances across room/space boundaries.</div><span class="risk-badge risk-low">Low</span></a>
-      <a class="tool-card" href="pages/DeeFinisher.html"><div class="name">DeeFinisher</div><div class="desc">Batch-generate Floor/Wall/Ceiling finishes from room boundaries.</div><span class="risk-badge risk-low">Low</span></a>
-    </div>
-  </div>
-
-  <div class="panel-group">
-    <h2>HealthPack panel</h2>
-    <div class="tool-grid">
-      <a class="tool-card" href="pages/DeeCleaner.html"><div class="name">DeeCleaner</div><div class="desc">Find and clean up zero-area rooms, in-place families, unused groups, unplaced views, empty sheets, and rooms placed on top of each other.</div><span class="risk-badge risk-medium">Medium</span></a>
-      <a class="tool-card" href="pages/DeeGetDWG.html"><div class="name">DeeGetDWG</div><div class="desc">Find CAD Imports/Links placed far from the Internal Origin and bring the checked ones back to (0,0,0) - unpins and moves, rotation/scale preserved.</div><span class="risk-badge risk-medium">Medium</span></a>
-      <a class="tool-card" href="pages/DeeHealth.html"><div class="name">DeeHealth</div><div class="desc">Run a weighted QC rubric of ~40 model health checks.</div><span class="risk-badge risk-low">None</span></a>
-      <a class="tool-card" href="pages/DeeRehoster.html"><div class="name">DeeRehoster</div><div class="desc">Scan/report/color-code hosted elements by Level, and rehost mis-hosted ones.</div><span class="risk-badge risk-medium">Medium</span></a>
-    </div>
-  </div>
-
-  <div class="panel-group">
-    <h2>ExporterPack panel</h2>
-    <div class="tool-grid">
-      <a class="tool-card" href="pages/DeeNWCs.html"><div class="name">DeeNWCs</div><div class="desc">Batch-open ACC cloud files and export NAVIS-named views to NWC.</div><span class="risk-badge risk-low">Low</span></a>
-      <a class="tool-card" href="pages/DeePrinter.html"><div class="name">DeePrinter</div><div class="desc">Batch-export sheets to PDF/DWG/DXF with custom naming and folders.</div><span class="risk-badge risk-low">Low</span></a>
-      <a class="tool-card" href="pages/DeeScheduleXL.html"><div class="name">DeeScheduleXL</div><div class="desc">Export Schedules to Excel and re-import edited values back.</div><span class="risk-badge risk-medium">Medium</span></a>
-    </div>
-  </div>
-
-  <div class="panel-group">
-    <h2>BatchPack panel <span style="font-weight:400;color:var(--muted);font-size:0.8em;">&mdash; ACC/BIM360 batch operations</span></h2>
-    <div class="tool-grid">
-      <a class="tool-card" href="pages/DeeBIMview.html"><div class="name">DeeBIMview</div><div class="desc">Batch-open cloud files and create BIM Coordination/NAVIS views (no sync/publish).</div><span class="risk-badge risk-low">Low</span></a>
-      <a class="tool-card" href="pages/DeeCloseAll.html"><div class="name">DeeCloseAll</div><div class="desc">Close open documents: Sync &amp; Close, Relinquish &amp; Close, or Close without Relinquish.</div><span class="risk-badge risk-high">High*</span></a>
-      <a class="tool-card" href="pages/DeeCoord.html"><div class="name">DeeCoord</div><div class="desc">Full pipeline: create views, configure publish settings, sync, close, publish.</div><span class="risk-badge risk-high">High</span></a>
-      <a class="tool-card" href="pages/DeeLINK.html"><div class="name">DeeLINK</div><div class="desc">Batch-link cloud files into the active document with 4 positioning methods.</div><span class="risk-badge risk-medium">Low-Med</span></a>
-      <a class="tool-card" href="pages/DeeLinkReview.html"><div class="name">DeeLinkReview</div><div class="desc">Find shared linked models across files and open Coordination Review for one.</div><span class="risk-badge risk-low">Low</span></a>
-      <a class="tool-card" href="pages/DeeOpener.html"><div class="name">DeeOpener</div><div class="desc">Batch-open ACC/BIM360 cloud files by checkbox.</div><span class="risk-badge risk-low">Low</span></a>
-      <a class="tool-card" href="pages/DeePublisher.html"><div class="name">DeePublisher</div><div class="desc">Batch-publish selected cloud files.</div><span class="risk-badge risk-medium">Medium</span></a>
-      <a class="tool-card" href="pages/DeeSPublish.html"><div class="name">DeeS.Publish</div><div class="desc">Publish ALL files in one or more entire selected projects.</div><span class="risk-badge risk-high">Highest</span></a>
-      <a class="tool-card" href="pages/DeeSYNC.html"><div class="name">DeeSYNC</div><div class="desc">Synchronize every workshared model open in this session &mdash; no file picker.</div><span class="risk-badge risk-high">High</span></a>
-    </div>
-  </div>
-
-  <div class="panel-group">
-    <h2>RevitInfo panel</h2>
-    <div class="tool-grid">
-      <a class="tool-card" href="pages/DeeGUID.html"><div class="name">DeeGUID</div><div class="desc">Developer diagnostic &mdash; prints cloud model GUIDs for troubleshooting.</div><span class="risk-badge risk-low">None</span></a>
-    </div>
-  </div>
-
 
   <div class="panel-group">
     <h2>About panel</h2>
     <div class="tool-grid">
-      <a class="tool-card" href="pages/Version.html"><div class="name">About (Version)</div><div class="desc">Logo, version, developer info, and website link.</div><span class="risk-badge risk-low">None</span></a>
-      <a class="tool-card" href="pages/Update.html"><div class="name">Update</div><div class="desc">Pull the latest from GitHub and reload pyRevit.</div><span class="risk-badge risk-low">None</span></a>
+      <div class="tool-card"><div class="name">DeeControl</div><div class="desc">Grey out any DeePack button, dropdown item or panel; mark favourites for the View dropdown&rsquo;s Favorite mode.</div><span class="risk-badge risk-low">None</span></div>
+      <div class="tool-card"><div class="name">Interface</div><div class="desc">Accent and icon colours, window effects. Personal to this PC.</div><span class="risk-badge risk-low">None</span></div>
+      <div class="tool-card"><div class="name">User Info</div><div class="desc">Signed-in email, access status, ACC setup.</div><span class="risk-badge risk-low">None</span></div>
+      <div class="tool-card"><div class="name">DeeAccount</div><div class="desc">Switch the Autodesk account (Work / Personal) every cloud tool uses.</div><span class="risk-badge risk-low">None</span></div>
+      <div class="tool-card"><div class="name">Notification Center</div><div class="desc">Toast appearance, Prayer Times and DeeCall announcements.</div><span class="risk-badge risk-low">None</span></div>
+      <div class="tool-card"><div class="name">DeeIcon</div><div class="desc">Brand the file thumbnail with the Revit version and your logo.</div><span class="risk-badge risk-low">None</span></div>
+      <a class="tool-card" href="pages/DeeGUID.html"><div class="name">DeeGUID</div><div class="desc">Developer diagnostic &mdash; prints cloud model GUIDs for troubleshooting.</div><span class="risk-badge risk-low">None</span></a>
       <a class="tool-card" href="pages/WebSite.html"><div class="name">WebSite</div><div class="desc">Opens archmkd.com.</div><span class="risk-badge risk-low">None</span></a>
       <a class="tool-card" href="pages/WhatsApp.html"><div class="name">WhatsApp</div><div class="desc">Opens a WhatsApp chat link.</div><span class="risk-badge risk-low">None</span></a>
+      <a class="tool-card" href="pages/Update.html"><div class="name">Update</div><div class="desc">Pull the latest from GitHub and reload pyRevit.</div><span class="risk-badge risk-low">None</span></a>
+      <a class="tool-card" href="pages/Version.html"><div class="name">About (Version)</div><div class="desc">Logo, version, developer info, and website link.</div><span class="risk-badge risk-low">None</span></a>
     </div>
   </div>
 

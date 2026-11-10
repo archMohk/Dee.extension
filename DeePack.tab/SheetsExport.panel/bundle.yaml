@@ -1,5 +1,5 @@
-title: "Sheets & Export"
+title: "Export"
 layout:
-  - SheetStack
-  - ExportStackA
-  - ExportStackB
+  - DeePrinter
+  - DeeNWCs
+  - ExportStack

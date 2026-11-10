@@ -1,7 +1,6 @@
 title: "Cloud"
 layout:
   - DeePublisher
-  - DeePubCheck
-  - DeeInitiator
+  - DeeRelinquish
   - CloudStack
   - CloudStack2

@@ -1,0 +1,11 @@
+title: DeeW.Cloud
+tooltip: Autodesk Construction Cloud batch tools - convert models to ACC Cloud Models (Sharing), bulk-save hundreds of local files to the cloud, batch-clean models in place, or issue cleaned copies (Transmit). Planned tools stay out of this list until they are built.
+# Only built tools are listed. Placeholder bundles still on disk, add a
+# line back here when each one is implemented:
+#   DeeWAudit, DeeWBatchUpgrade, DeeWConsume, DeeWPackage, DeeWPublish,
+#   DeeWSync, DeeWTransfer
+layout:
+  - DeeWSharing
+  - DeeWBatchSaveToCloud
+  - DeeWClean
+  - DeeWTransmit

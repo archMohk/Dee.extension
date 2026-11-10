@@ -46,7 +46,7 @@ dee_telemetry.check_access("Dee3DView")
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _HUB_XAML = os.path.join(_THIS_DIR, "ui.xaml")
 _CLEAR_XAML = os.path.join(_THIS_DIR, "clear3d.xaml")
-# Resolved from the TAB ROOT (two levels up: .panel, then .pushbutton),
+# Resolved from the TAB ROOT (three levels up: .pushbutton, .stack, .panel),
 # not as a sibling of this bundle's own panel - DeeMono lives under
 # ViewsDatums.panel, a DIFFERENT panel from wherever Dee3DView itself
 # sits. A sibling-relative path broke the moment Dee3DView moved from
@@ -54,7 +54,8 @@ _CLEAR_XAML = os.path.join(_THIS_DIR, "clear3d.xaml")
 # find a part of the path ...\script.py"), because dirname(_THIS_DIR)
 # then pointed at Model.panel instead of ViewsDatums.panel. Anchoring
 # on the tab root survives any future panel move the same way.
-_TAB_DIR = os.path.dirname(os.path.dirname(_THIS_DIR))
+# .pushbutton -> ModelStack.stack -> Model.panel -> DeePack.tab
+_TAB_DIR = os.path.dirname(os.path.dirname(os.path.dirname(_THIS_DIR)))
 _MONO_SCRIPT = os.path.join(_TAB_DIR, "ViewsDatums.panel", "ViewStack.stack",
                             "DeeMono.pushbutton", "script.py")
 

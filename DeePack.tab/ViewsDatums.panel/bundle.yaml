@@ -1,7 +1,6 @@
-title: "Views & Datums"
+title: "Views & Sheets"
 layout:
   - DeeView
-  - DeeSVTemplate
+  - DeeSheet
   - ViewStack
-  - DatumStack
-  - CoordPointStack
+  - SheetStack

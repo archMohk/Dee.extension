@@ -8,3 +8,4 @@ members:
   - {id: "Design", text: "Design"}
   - {id: "Documentation", text: "Documentation"}
   - {id: "Health", text: "Health"}
+  - {id: "AI", text: "AI"}

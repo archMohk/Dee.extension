@@ -1,4 +1,5 @@
-title: "Rooms"
+title: "Rooms & QS"
 layout:
   - DeeFinisher
+  - DeeQs
   - RoomStack

@@ -1,6 +1,5 @@
 title: "Health"
 layout:
   - DeeHealth
-  - DeeForce
-  - DeeJoin
-  - CleanupStack
+  - DeeCleaner
+  - DeeRehoster
