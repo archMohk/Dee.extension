@@ -37,3 +37,10 @@ python tools/checks/check_bundles.py
 python tools/checks/check_iss.py
 python tools/checks/check_self_calls.py
 ```
+
+To prove the extension still loads in each installed Revit (headless, takes a few minutes each):
+
+```
+pyrevit run tools\checksevit_compat_probe.py --revit=2024
+pyrevit run tools\checksevit_compat_probe.py --revit=2026
+```
