@@ -54,6 +54,8 @@ ST_PUBLISHED = "Synced + Published"
 ST_PUB_ONLY = "Published"
 ST_PUB_FAILED = "Publish failed"
 ST_NOT_RUN = "Not processed"
+ST_LOW_DISK = "Not processed - low disk"
+ST_OK = (ST_SYNCED, ST_PUBLISHED, ST_PUB_ONLY)
 
 
 def _strip_rvt(name):
@@ -86,6 +88,7 @@ class UpdaterWindow(dee_branding.DeeBrandedWindow):
         self._timer = None
         self._run_opts = None
         self._started = None
+        self._dupes = {}            # duplicate row.key -> primary row (same cloud model)
         self._ready = True
         self._log("Ready. Pick ACC project(s), tick the files, then Run.")
 
@@ -204,6 +207,22 @@ class UpdaterWindow(dee_branding.DeeBrandedWindow):
         self.files_grid.Items.Refresh()
         self._update_count()
 
+    def failed_click(self, sender, args):
+        """Ticks only the rows of the last run that did not finish OK."""
+        n = 0
+        for r in self._rows:
+            r.selected = bool(r.status) and r.status not in ST_OK
+            n += 1 if r.selected else 0
+        self.files_grid.Items.Refresh()
+        self._update_count()
+        self._log("{0} failed / not processed file(s) ticked.".format(n))
+
+    def _min_free_gb(self):
+        try:
+            return max(0.0, float((self.minfree_tb.Text or "").strip()))
+        except Exception:
+            return 15.0
+
     def grid_changed(self, sender, args):
         self._update_count()
 
@@ -294,6 +313,8 @@ class UpdaterWindow(dee_branding.DeeBrandedWindow):
     def _start_sync(self, picked, instances):
         open_titles = self._open_titles()
         items = []
+        self._dupes = {}
+        primary_of = {}             # model guid -> first row with it
         with SafeProgress(window=self, title="Resolving cloud models...", cancellable=True) as pb:
             for i, row in enumerate(picked):
                 if pb.cancelled:
@@ -310,9 +331,17 @@ class UpdaterWindow(dee_branding.DeeBrandedWindow):
                     row.status, row.detail = ST_SKIPPED, mg
                     self._log(u"  ✗ {0}: skipped - {1}".format(row.name, mg))
                     continue
+                first = primary_of.get(mg.lower())
+                row.status = ST_QUEUED
+                if first is not None:
+                    # the same cloud model listed in another folder - open it once only
+                    self._dupes[row.key] = first
+                    self._log(u"  = {0}: same cloud model as {1} [{2}] - opened once".format(
+                        row.name, first.name, first.project))
+                    continue
+                primary_of[mg.lower()] = row
                 items.append({"key": row.key, "name": row.name, "project": row.project,
                               "project_guid": pg, "model_guid": mg})
-                row.status = ST_QUEUED
         self.files_grid.Items.Refresh()
         if not items:
             forms.alert("Nothing to do - no ticked model could be resolved on ACC.")
@@ -321,7 +350,8 @@ class UpdaterWindow(dee_branding.DeeBrandedWindow):
             job = dee_background.BackgroundJob.start(
                 "updater", "dee_updater_worker", "process_model", items,
                 {"region": self._hub["region"], "sync_comment": (self.comment_tb.Text or _SYNC_COMMENT).strip()
-                 or _SYNC_COMMENT, "audit": bool(self.audit_cb.IsChecked)},
+                 or _SYNC_COMMENT, "audit": bool(self.audit_cb.IsChecked),
+                 "min_free_gb": self._min_free_gb(), "clean_cache": bool(self.clean_cb.IsChecked)},
                 str(self.application.VersionNumber), instances=instances,
                 extra_paths=[_THIS_DIR], log=self._log)
         except Exception as e:
@@ -332,8 +362,9 @@ class UpdaterWindow(dee_branding.DeeBrandedWindow):
             forms.alert(str(e))
             return False
         self._job = job
-        self._log("{0} background Revit(s) starting (about a minute each). {1} model(s) in total."
-                  .format(len(job.workers), len(items)))
+        self._log("{0} background Revit(s) starting (about a minute each). {1} model(s) in total{2}."
+                  .format(len(job.workers), len(items),
+                          " ({0} duplicate listing(s) share a model)".format(len(self._dupes)) if self._dupes else ""))
         self._set_running(True)
         self._timer = dee_background.start_timer(
             job, lambda tag, line: self._log(u"[{0}] {1}".format(tag, line)), self._on_job_finished)
@@ -362,12 +393,21 @@ class UpdaterWindow(dee_branding.DeeBrandedWindow):
         opts = self._run_opts or {}
         results = job.results()
         synced = []
+        worker_of = {}
+        for w in job.workers:
+            for k in w["keys"]:
+                worker_of[k] = w
         for row in opts.get("picked", []):
-            if row.status != ST_QUEUED:
+            if row.status != ST_QUEUED or row.key in self._dupes:
                 continue
             res = results.get(row.key)
             if res is None:
-                row.status, row.detail = ST_NOT_RUN, "the background Revit ended before reaching it"
+                w = worker_of.get(row.key)
+                row.status = ST_NOT_RUN
+                row.detail = ("background Revit {0} ended before reaching it - log: {1}".format(w["idx"], w["log"])
+                              if w else "the background Revit ended before reaching it")
+            elif res.get("low_disk"):
+                row.status, row.detail = ST_LOW_DISK, res.get("detail") or "low disk space"
             elif not res.get("ok"):
                 row.status, row.detail = ST_SKIPPED, "could not open: " + (res.get("detail") or "")
             elif res.get("synced"):
@@ -375,6 +415,13 @@ class UpdaterWindow(dee_branding.DeeBrandedWindow):
                 synced.append(row)
             else:
                 row.status, row.detail = ST_SYNC_FAILED, res.get("sync_detail") or ""
+        for w in job.workers:
+            if w.get("finished") in ("exited", "failed"):
+                self._log("Background Revit {0} stopped early ({1}) - its log: {2}".format(
+                    w["idx"], w["finished"], w["log"]))
+        if any(r.status == ST_LOW_DISK for r in opts.get("picked", [])):
+            self._log("Some models were not opened because the disk was low - free space on C: and "
+                      "use 'Tick Failed' to run them again.")
         if how == "exited":
             self._log("A background Revit ended without reporting - see the logs under {0}".format(job.root))
         elif how == "failed":
@@ -383,7 +430,18 @@ class UpdaterWindow(dee_branding.DeeBrandedWindow):
         self.files_grid.Items.Refresh()
         if opts.get("publish") and synced:
             self._publish(synced, opts.get("without_links"))
+        for key, first in self._dupes.items():
+            row = self._row_by_key(key)
+            if row is not None:
+                row.status = first.status
+                row.detail = u"same cloud model as {0} [{1}]".format(first.name, first.project)
         self._finish()
+
+    def _row_by_key(self, key):
+        for r in self._rows:
+            if r.key == key:
+                return r
+        return None
 
     def _publish(self, rows, without_links):
         token = self._fresh_token()

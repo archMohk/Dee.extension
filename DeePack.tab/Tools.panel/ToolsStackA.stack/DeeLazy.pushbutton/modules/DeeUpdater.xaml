@@ -22,6 +22,8 @@
             <TextBox x:Name="search_tb" Width="220" Height="26" VerticalContentAlignment="Center" TextChanged="search_changed"/>
             <Button x:Name="all_b" Content="Select All" Click="all_click" Width="80" Height="26" Margin="12,0,0,0"/>
             <Button x:Name="none_b" Content="Select None" Click="none_click" Width="90" Height="26" Margin="6,0,0,0"/>
+            <Button x:Name="failed_b" Content="Tick Failed" Click="failed_click" Width="90" Height="26" Margin="6,0,0,0"
+                    ToolTip="Tick only the files from the last run that were skipped, failed or not processed."/>
             <TextBlock x:Name="count_tb" VerticalAlignment="Center" Margin="12,0,0,0" Opacity="0.75" Text="0 of 0 ticked"/>
         </StackPanel>
         <TextBlock DockPanel.Dock="Top" x:Name="info_tb" Opacity="0.75" Margin="0,0,0,6" TextWrapping="Wrap" Text="No projects picked yet."/>
@@ -40,6 +42,15 @@
                     <ComboBoxItem Content="Normal (with links)"/>
                     <ComboBoxItem Content="Without links"/>
                 </ComboBox>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <CheckBox x:Name="clean_cb" IsChecked="True" VerticalAlignment="Center"
+                          Content="Delete each model's local cache copy after a successful sync"
+                          ToolTip="Every cloud model opened leaves a full local copy in Revit's CollaborationCache. Deleting it once the model is synced keeps the disk from filling up on long runs."/>
+                <TextBlock Text="Stop opening below" VerticalAlignment="Center" Margin="20,0,6,0"/>
+                <TextBox x:Name="minfree_tb" Width="40" Height="24" VerticalContentAlignment="Center" Text="15"/>
+                <TextBlock Text="GB free on C:" VerticalAlignment="Center" Margin="6,0,0,0"
+                           ToolTip="Before each model the background Revit checks free space. Below this it first clears cached linked models; if still low it stops and the rest are marked 'Not processed - low disk'. 0 = no check."/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                 <CheckBox x:Name="audit_cb" IsChecked="False" VerticalAlignment="Center" Content="Audit when opening"/>
