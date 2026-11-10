@@ -31,18 +31,35 @@ colour, and are rebuilt whenever the source icon is newer (an update
 redrew it). The ribbon then gets them through pyRevit's own ButtonIcons
 - the same mechanism dee_force_state uses for DeeForce's on/off icon.
 
+Icon styles (About -> Interface -> Icon)
+----------------------------------------
+On top of the colours, every icon can be redrawn in a style (STYLES):
+the original flat line art, "3D" (lit from above with a bevel and a
+soft drop shadow), "Glow" (an accent halo), "Tile" (white line work on
+a rounded tile in the line colour) or "Inverted" (lines and accent swap
+colours). Each style is built from the recoloured icon with a handful
+of GDI+ DrawImage calls - silhouettes through a ColorMatrix, brightness
+bands clipped to strips - so the accent and line colours drive every
+style the same way. The cache key carries the style too.
+
+The website bar under every tool window has its own colour ("bar"):
+None means it follows the accent, as it always did.
+
 Nothing here ever raises into a caller: a failure just leaves the
 default orange in place.
 """
 import json
+import math
 import os
 
 import clr
 clr.AddReference("System.Drawing")
-from System.Drawing import Bitmap, Graphics, Rectangle, GraphicsUnit  # noqa: E402
+from System.Drawing import (Bitmap, Graphics, Rectangle, GraphicsUnit,  # noqa: E402
+                            SolidBrush, Color as DColor)
 from System.Drawing.Imaging import (ColorMatrix, ImageAttributes,  # noqa: E402
                                     PixelFormat, ImageFormat)
-from System.Drawing.Drawing2D import CompositingMode  # noqa: E402
+from System.Drawing.Drawing2D import (CompositingMode, GraphicsPath,  # noqa: E402
+                                      SmoothingMode, InterpolationMode)
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _EXT_ROOT = os.path.dirname(_THIS_DIR)
@@ -59,6 +76,27 @@ ICON_INK = "#7A7A7A"
 ICON_INK_DARK = "#949494"
 # The brand orange used by the window branding bar / DeeOrange brush.
 BRAND_ORANGE = "#F2994D"
+
+# Icon styles: (key, label, description). "flat" is the icons as shipped.
+STYLES = [
+    ("flat", "Original",
+     "The icons as drawn: flat line art with one accent."),
+    ("3d", "3D",
+     "Lit from above: a light top edge, a darker bottom edge and a soft "
+     "shadow under every icon."),
+    ("glow", "Glow",
+     "A soft accent-coloured halo around every icon."),
+    ("tile", "Tile",
+     "White line work on a rounded tile in the line colour, with the "
+     "accent on top."),
+    ("swap", "Inverted",
+     "Lines and accent swap: the line work takes the accent colour, the "
+     "accented parts take the line colour."),
+]
+DEFAULT_STYLE = "flat"
+_STYLE_KEYS = [k for k, _l, _d in STYLES]
+# The tile behind "Tile" icons when no line colour is picked.
+TILE_DEFAULT = "#3C4650"
 
 # The swatches in the Accent Colour window, row by row (11 per row).
 # Anything else can still be picked with "More colours..." or a hex code.
@@ -141,6 +179,10 @@ def is_default(value):
 
 
 # ---------------- the setting ----------------
+_KEEP = object()     # "leave this setting as it is" / "use the saved one"
+_SAVED = _KEEP
+
+
 def _load_config():
     try:
         with open(_CONFIG_PATH, "r") as f:
@@ -160,6 +202,25 @@ def load_line():
     return normalize_hex(_load_config().get("line"))
 
 
+def normalize_style(value):
+    return value if value in _STYLE_KEYS else DEFAULT_STYLE
+
+
+def load_style():
+    """The saved icon style key (see STYLES); "flat" when none is saved."""
+    return normalize_style(_load_config().get("style"))
+
+
+def is_default_style(style):
+    return normalize_style(style) == DEFAULT_STYLE
+
+
+def load_bar():
+    """The saved website bar colour as '#RRGGBB', or None = follow the
+    accent."""
+    return normalize_hex(_load_config().get("bar"))
+
+
 def update_config(changes):
     """Merges `changes` into lib/.dee_accent.json (colours and the
     dee_effects settings share the file), keeping every other key."""
@@ -172,23 +233,38 @@ def update_config(changes):
         pass
 
 
-def save_accent(value, line=None):
-    """Saves both colours. line=None keeps the default grey lines."""
+def save_accent(value, line=None, style=_KEEP, bar=_KEEP):
+    """Saves the colours and, when given, the icon style and the website
+    bar colour. line=None keeps the default grey lines; bar=None makes
+    the bar follow the accent."""
     value = normalize_hex(value) or ICON_ACCENT
-    update_config({"accent": value, "line": normalize_hex(line)})
+    changes = {"accent": value, "line": normalize_hex(line)}
+    if style is not _KEEP:
+        changes["style"] = normalize_style(style)
+    if bar is not _KEEP:
+        changes["bar"] = normalize_hex(bar)
+    update_config(changes)
     return value
 
 
-def all_default(accent=None, line=None):
+def all_default(accent=None, line=None, style=DEFAULT_STYLE):
     """True when the icons would come out exactly as shipped."""
-    return is_default(accent) and normalize_hex(line) is None
+    return (is_default(accent) and normalize_hex(line) is None
+            and is_default_style(style))
 
 
-def window_accent():
-    """Colour for the window branding bar / DeeOrange: the brand orange
-    unless the user picked their own accent."""
-    accent = load_accent()
+def window_accent(accent=None):
+    """Colour for the DeeOrange brush (progress bars, accent effects):
+    the brand orange unless the user picked their own accent."""
+    accent = normalize_hex(accent) or load_accent()
     return BRAND_ORANGE if is_default(accent) else accent
+
+
+def bar_accent(accent=None, bar=_KEEP):
+    """Colour for the website bar under every tool window: its own
+    colour when one is saved, else the window accent."""
+    bar = load_bar() if bar is _KEEP else normalize_hex(bar)
+    return bar or window_accent(accent)
 
 
 # ---------------- icon recolouring ----------------
@@ -236,20 +312,129 @@ def _matrix(target_hex, line_hex=None, ink_hex=ICON_INK):
     return cm
 
 
-def recolor_file(src, dst, target_hex, line_hex=None):
+def _draw_recolored(g, bmp, w, h, matrix, dx=0, dy=0):
+    attrs = ImageAttributes()
+    attrs.SetColorMatrix(matrix)
+    g.DrawImage(bmp, Rectangle(int(dx), int(dy), w, h), 0, 0, w, h,
+                GraphicsUnit.Pixel, attrs)
+
+
+def _silhouette_matrix(hex_value, alpha):
+    """Every opaque pixel -> one flat colour at `alpha` x its own alpha."""
+    r, g, b = [c / 255.0 for c in hex_to_rgb(hex_value)]
+    cm = ColorMatrix()
+    for i in range(3):
+        for j in range(3):
+            setattr(cm, "Matrix{0}{1}".format(i, j), 0.0)
+    cm.Matrix33 = float(alpha)
+    cm.Matrix40, cm.Matrix41, cm.Matrix42 = r, g, b
+    return cm
+
+
+def _brightness_matrix(base, factor):
+    """`base` (the recolour matrix) followed by a brightness scale; white
+    stays white when the factor is above 1 (it is clamped by GDI+)."""
+    cm = ColorMatrix()
+    for i in range(5):
+        for j in range(5):
+            setattr(cm, "Matrix{0}{1}".format(i, j),
+                    getattr(base, "Matrix{0}{1}".format(i, j)))
+    for i in range(3):
+        for j in range(3):
+            setattr(cm, "Matrix{0}{1}".format(i, j),
+                    getattr(cm, "Matrix{0}{1}".format(i, j)) * factor)
+        setattr(cm, "Matrix4{0}".format(i),
+                getattr(cm, "Matrix4{0}".format(i)) * factor)
+    return cm
+
+
+def _mix(hex_a, hex_b, t):
+    a, b = hex_to_rgb(hex_a), hex_to_rgb(hex_b)
+    return "#{0:02X}{1:02X}{2:02X}".format(
+        *[int(round(a[i] + (b[i] - a[i]) * t)) for i in range(3)])
+
+
+def _rounded_rect(x, y, w, h, radius):
+    path = GraphicsPath()
+    d = radius * 2.0
+    path.AddArc(x, y, d, d, 180, 90)
+    path.AddArc(x + w - d, y, d, d, 270, 90)
+    path.AddArc(x + w - d, y + h - d, d, d, 0, 90)
+    path.AddArc(x, y + h - d, d, d, 90, 90)
+    path.CloseFigure()
+    return path
+
+
+def _render(g, bmp, w, h, target_hex, line_hex, ink, style):
+    """Draws bmp onto g in the given style. Offsets are in units of
+    w/32: one ribbon pixel at the large (32px) button size."""
+    s = max(1.0, w / 32.0)
+    base = _matrix(target_hex, line_hex, ink)
+    line = normalize_hex(line_hex)
+    if style == "3d":
+        # soft shadow: a stack of faint black silhouettes under the icon
+        for dx, dy, a in ((0, 2.0, 0.10), (0.6, 2.4, 0.08), (-0.6, 2.4, 0.08),
+                          (0, 3.0, 0.07), (1.0, 3.0, 0.05), (-1.0, 3.0, 0.05)):
+            _draw_recolored(g, bmp, w, h, _silhouette_matrix("#000000", a),
+                            dx * s, dy * s)
+        # bevel: dark edge below-right, light edge above-left
+        _draw_recolored(g, bmp, w, h, _silhouette_matrix("#000000", 0.45), s, s)
+        _draw_recolored(g, bmp, w, h, _silhouette_matrix("#FFFFFF", 0.55), -s, -s)
+        # the icon itself, lit from above: brighter bands at the top,
+        # darker ones at the bottom
+        bands = 8
+        band_h = int(round(h / float(bands))) + 1
+        for i in range(bands):
+            factor = 1.22 - (0.42 * i / float(bands - 1))
+            g.SetClip(Rectangle(0, int(round(i * h / float(bands))), w, band_h))
+            _draw_recolored(g, bmp, w, h, _brightness_matrix(base, factor))
+        g.ResetClip()
+    elif style == "glow":
+        halo = target_hex
+        for radius, a in ((1.0 * s, 0.22), (2.0 * s, 0.14), (3.0 * s, 0.08)):
+            for ang in range(0, 360, 45):
+                dx = radius * math.cos(math.radians(ang))
+                dy = radius * math.sin(math.radians(ang))
+                _draw_recolored(g, bmp, w, h, _silhouette_matrix(halo, a), dx, dy)
+        _draw_recolored(g, bmp, w, h, base)
+    elif style == "tile":
+        tile_hex = line or TILE_DEFAULT
+        r, gg, b = hex_to_rgb(tile_hex)
+        g.SmoothingMode = SmoothingMode.AntiAlias
+        inset = 2.0 * s
+        path = _rounded_rect(inset, inset, w - 2 * inset, h - 2 * inset, 6.0 * s)
+        brush = SolidBrush(DColor.FromArgb(255, r, gg, b))
+        try:
+            g.FillPath(brush, path)
+        finally:
+            brush.Dispose()
+            path.Dispose()
+        # white line work, the accent kept (lifted a little so it reads
+        # on a dark tile)
+        lit = _mix(target_hex, "#FFFFFF", 0.18)
+        _draw_recolored(g, bmp, w, h, _matrix(lit, "#FFFFFF", ink))
+    elif style == "swap":
+        # lines take the accent, the accented parts take the line colour
+        _draw_recolored(g, bmp, w, h, _matrix(line or ink, target_hex, ink))
+    else:
+        _draw_recolored(g, bmp, w, h, base)
+
+
+def recolor_file(src, dst, target_hex, line_hex=None, style=DEFAULT_STYLE):
     """Writes src recoloured (accent -> target_hex, grey lines -> line_hex)
-    as a PNG at dst. True on success."""
+    and drawn in `style` as a PNG at dst. True on success."""
     bmp = out = g = None
     try:
         bmp = Bitmap(src)
         w, h = bmp.Width, bmp.Height
         out = Bitmap(w, h, PixelFormat.Format32bppArgb)
         g = Graphics.FromImage(out)
-        g.CompositingMode = CompositingMode.SourceCopy
-        attrs = ImageAttributes()
+        style = normalize_style(style)
+        g.CompositingMode = (CompositingMode.SourceCopy if style == DEFAULT_STYLE
+                             else CompositingMode.SourceOver)
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic
         ink = ICON_INK_DARK if ".dark." in os.path.basename(src).lower() else ICON_INK
-        attrs.SetColorMatrix(_matrix(target_hex, line_hex, ink))
-        g.DrawImage(bmp, Rectangle(0, 0, w, h), 0, 0, w, h, GraphicsUnit.Pixel, attrs)
+        _render(g, bmp, w, h, target_hex, line_hex, ink, style)
         folder = os.path.dirname(dst)
         if not os.path.isdir(folder):
             os.makedirs(folder)
@@ -266,39 +451,49 @@ def recolor_file(src, dst, target_hex, line_hex=None):
                 pass
 
 
-def _cache_root(target_hex, line_hex=None):
+def _cache_root(target_hex, line_hex=None, style=DEFAULT_STYLE):
     base = os.environ.get("APPDATA") or _THIS_DIR
     key = target_hex.lstrip("#").upper()
     if line_hex:
         key += "_" + line_hex.lstrip("#").upper()
+    style = normalize_style(style)
+    if style != DEFAULT_STYLE:
+        key += "_" + style
     return os.path.join(base, "Dee", "accent_icons", key)
 
 
-_SAVED = object()
-
-
-def resolve(icon_path, target_hex=None, line_hex=_SAVED):
-    """Recoloured copy of icon_path for the current colours (built on
-    demand, cached), or icon_path itself for the default colours or on
+def resolve(icon_path, target_hex=None, line_hex=_SAVED, style=_SAVED):
+    """Recoloured copy of icon_path for the current colours and style
+    (built on demand, cached), or icon_path itself for the defaults or on
     any failure. Safe to call on any icon file. line_hex None means grey
-    lines; left out, the saved line colour is used."""
+    lines; left out, the saved line colour (and style) is used."""
     try:
         target_hex = normalize_hex(target_hex) or load_accent()
         line_hex = load_line() if line_hex is _SAVED else normalize_hex(line_hex)
-        if (all_default(target_hex, line_hex) or not icon_path
+        style = load_style() if style is _SAVED else normalize_style(style)
+        if (all_default(target_hex, line_hex, style) or not icon_path
                 or not os.path.isfile(icon_path)):
             return icon_path
         rel = os.path.relpath(os.path.abspath(icon_path), _EXT_ROOT)
         if rel.startswith(".."):
             rel = os.path.basename(icon_path)
-        dst = os.path.join(_cache_root(target_hex, line_hex), rel)
+        dst = os.path.join(_cache_root(target_hex, line_hex, style), rel)
         if (not os.path.isfile(dst)
-                or os.path.getmtime(dst) < os.path.getmtime(icon_path)):
-            if not recolor_file(icon_path, dst, target_hex, line_hex):
+                or os.path.getmtime(dst) < os.path.getmtime(icon_path)
+                or os.path.getmtime(dst) < _RENDERER_MTIME):
+            if not recolor_file(icon_path, dst, target_hex, line_hex, style):
                 return icon_path
         return dst
     except Exception:
         return icon_path
+
+
+try:
+    # Cached icons older than this module are redrawn: a new style
+    # renderer must not keep serving the old look.
+    _RENDERER_MTIME = os.path.getmtime(os.path.abspath(__file__))
+except Exception:
+    _RENDERER_MTIME = 0
 
 
 # ---------------- the live ribbon ----------------
@@ -364,12 +559,13 @@ def _set_icon(item, path):
         return False
 
 
-def apply_to_ribbon(uiapp, target_hex=None, line_hex=_SAVED):
-    """Swaps every DeePack button's icon for the accent-coloured one
-    (or back to the original files for the default accent). Returns how
-    many buttons were updated."""
+def apply_to_ribbon(uiapp, target_hex=None, line_hex=_SAVED, style=_SAVED):
+    """Swaps every DeePack button's icon for the recoloured, restyled one
+    (or back to the original files for the defaults). Returns how many
+    buttons were updated."""
     target_hex = normalize_hex(target_hex) or load_accent()
     line_hex = load_line() if line_hex is _SAVED else normalize_hex(line_hex)
+    style = load_style() if style is _SAVED else normalize_style(style)
     bundles = _bundle_dirs()
     count = 0
     for item in _iter_items(uiapp):
@@ -385,7 +581,7 @@ def apply_to_ribbon(uiapp, target_hex=None, line_hex=_SAVED):
             src = _deeforce_icon(bundle_dir) or src
         if not src:
             continue
-        if _set_icon(item, resolve(src, target_hex, line_hex)):
+        if _set_icon(item, resolve(src, target_hex, line_hex, style)):
             count += 1
     return count
 
@@ -421,7 +617,7 @@ def apply_on_startup(uiapp):
     ribbon - so the swap waits for Revit's first Idling, when the
     buttons exist. Does nothing at all for the default colours."""
     try:
-        if all_default(load_accent(), load_line()):
+        if all_default(load_accent(), load_line(), load_style()):
             return
         try:
             uiapp.Idling -= _on_idling

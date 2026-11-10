@@ -80,6 +80,25 @@ def _accent_color():
         return _BAR_BG
 
 
+def _bar_color():
+    """The website bar's own colour (About -> Interface -> Colours ->
+    Website bar), else the accent colour."""
+    try:
+        import dee_accent
+        r, g, b = dee_accent.hex_to_rgb(dee_accent.bar_accent())
+        return Color.FromRgb(r, g, b)
+    except Exception:
+        return _accent_color()
+
+
+def _to_color(value):
+    if value is None or isinstance(value, Color):
+        return value
+    import dee_accent
+    r, g, b = dee_accent.hex_to_rgb(value)
+    return Color.FromRgb(r, g, b)
+
+
 _LINK_FG = Color.FromRgb(0xFF, 0xFF, 0xFF)
 _LINK_FG_DARK = Color.FromRgb(0x22, 0x22, 0x22)
 
@@ -91,21 +110,21 @@ def _text_on(color):
     return _LINK_FG_DARK if lum > 0.62 else _LINK_FG
 
 
-def set_window_accent(window, color=None):
+def set_window_accent(window, color=None, bar=None):
     """Puts the accent brushes straight into the window's own Resources.
-    The branding bar, its link, the progress strip and every ProgressBar
-    look them up by name (DynamicResource), so calling this again on an
-    open window repaints all of them at once."""
+    The progress strip and every ProgressBar look up DeeOrange, the
+    website bar and its link DeeBar / DeeOnBar (DynamicResource), so
+    calling this again on an open window repaints all of them at once.
+    bar=None reads the saved website bar colour."""
     try:
-        if color is None:
-            color = _accent_color()
-        elif not isinstance(color, Color):
-            import dee_accent
-            r, g, b = dee_accent.hex_to_rgb(color)
-            color = Color.FromRgb(r, g, b)
+        color = _to_color(color) if color is not None else _accent_color()
+        bar = _to_color(bar) if bar is not None else _bar_color()
         window.Resources["DeeOrangeColor"] = color
         window.Resources["DeeOrange"] = SolidColorBrush(color)
         window.Resources["DeeOnOrange"] = SolidColorBrush(_text_on(color))
+        window.Resources["DeeBarColor"] = bar
+        window.Resources["DeeBar"] = SolidColorBrush(bar)
+        window.Resources["DeeOnBar"] = SolidColorBrush(_text_on(bar))
     except Exception:
         pass
 
@@ -115,11 +134,11 @@ def open_windows():
     return list(_open_windows)
 
 
-def repaint_open_windows(color=None):
+def repaint_open_windows(color=None, bar=None):
     """After Apply in Accent Colour: every Dee window still on screen
-    takes the new colour now, not only the next one opened."""
+    takes the new colours now, not only the next one opened."""
     for win in list(_open_windows):
-        set_window_accent(win, color)
+        set_window_accent(win, color, bar)
 
 # DWMWA_WINDOW_CORNER_PREFERENCE / DWMWCP_ROUNDSMALL - a Windows 11 DWM
 # attribute that asks the OS compositor to draw small-radius rounded
@@ -157,8 +176,8 @@ def _round_corners_dwm(window):
 
 def _build_bar():
     bar = Border()
-    bar.Background = SolidColorBrush(_accent_color())
-    bar.SetResourceReference(Border.BackgroundProperty, "DeeOrange")
+    bar.Background = SolidColorBrush(_bar_color())
+    bar.SetResourceReference(Border.BackgroundProperty, "DeeBar")
     bar.Padding = Thickness(8, 2, 8, 2)
     bar.Height = _BAR_HEIGHT
     DockPanel.SetDock(bar, Dock.Bottom)
@@ -174,8 +193,8 @@ def _build_bar():
         link.NavigateUri = Uri(_SITE_URL)
     except Exception:
         pass
-    link.Foreground = SolidColorBrush(_text_on(_accent_color()))
-    link.SetResourceReference(Hyperlink.ForegroundProperty, "DeeOnOrange")
+    link.Foreground = SolidColorBrush(_text_on(_bar_color()))
+    link.SetResourceReference(Hyperlink.ForegroundProperty, "DeeOnBar")
     link.RequestNavigate += _open_site
     text.Inlines.Add(link)
 
@@ -227,6 +246,10 @@ def apply_theme(window, dark=False):
             accent = _accent_color()
             theme["DeeOrangeColor"] = accent
             theme["DeeOrange"] = SolidColorBrush(accent)
+            bar = _bar_color()
+            theme["DeeBarColor"] = bar
+            theme["DeeBar"] = SolidColorBrush(bar)
+            theme["DeeOnBar"] = SolidColorBrush(_text_on(bar))
         except Exception:
             pass
         window.Resources.MergedDictionaries.Add(theme)

@@ -1,14 +1,19 @@
 # -*- coding: utf-8 -*-
 """
 dee_interface_dialog
-The window behind About -> Interface. Two tabs:
+The window behind About -> Interface. Four tabs:
 
-Colours - two colours, one at a time ("Colour the: Accent / Lines"):
-  - Accent: the orange in every ribbon icon, the website bar under each
-    tool window and the progress bars.
+Colours - three colours, one at a time ("Colour the: Accent / Lines /
+  Website bar"):
+  - Accent: the orange in every ribbon icon and the progress bars.
   - Lines:  the grey line work of the ribbon icons.
+  - Website bar: the bar with www.archMKD.com under each tool window.
+    Its own colour; reset, it follows the accent as it always did.
   Each has a 44-colour palette, "More colours..." (the full Windows
   colour picker) and a hex box.
+Icon - the style every ribbon icon is drawn in (dee_accent.STYLES:
+  Original, 3D, Glow, Tile, Inverted), each shown as a card drawn with
+  the colours picked above, so the colours drive every style.
 Effects - any combination of glass, accent outline, accent top line,
   fade in and accent title bar (lib/dee_effects.py).
 Theme & shape - Light or Dark (lib/dee_dark.py), and the outline of every tool window: Standard, Rounded, Soft float,
@@ -58,10 +63,17 @@ _ACCENT_PRESETS = list(dee_accent.PRESETS)
 _LINE_PRESETS = ([("Grey (default)", dee_accent.ICON_INK),
                   ("Orange", dee_accent.ICON_ACCENT)]
                  + list(dee_accent.PRESETS[1:]))
+# The website bar palette: the brand orange the bar always had first,
+# then the same colours as the accent.
+_BAR_PRESETS = ([("Brand orange", dee_accent.BRAND_ORANGE)]
+                + list(dee_accent.PRESETS[1:]))
 _NAMES = {
     "accent": dict((h, n) for n, h in _ACCENT_PRESETS),
     "line": dict((h, n) for n, h in _LINE_PRESETS),
+    "bar": dict((h, n) for n, h in _BAR_PRESETS),
 }
+_PRESETS = {"accent": _ACCENT_PRESETS, "line": _LINE_PRESETS, "bar": _BAR_PRESETS}
+_STYLE_CARD_ICON = 48
 
 
 def _brush(hex_value):
@@ -86,14 +98,21 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._uiapp = uiapp
         self._saved_accent = dee_accent.load_accent()
         self._saved_line = dee_accent.load_line()       # None = grey
+        self._saved_bar = dee_accent.load_bar()         # None = follow accent
+        self._saved_style = dee_accent.load_style()
         self._accent = self._saved_accent
         self._line = self._saved_line
+        self._bar = self._saved_bar
+        self._style = self._saved_style
         self._target = "accent"
         bundles = dee_accent._bundle_dirs()
         self._preview_sources = [os.path.join(bundles[n], "icon.png")
                                  for n in _PREVIEW_BUTTONS if n in bundles]
         self._swatches = []
         self._build_presets()
+        self._style_cards = {}
+        self._style_images = {}
+        self._build_styles()
         self._saved_effects = dee_effects.load_effects()
         self._effects = dict(self._saved_effects)
         self._effect_boxes = {}
@@ -110,14 +129,23 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self._refresh()
 
     # ---- the colour being edited ----
+    def _bar_default(self):
+        """What the website bar shows with no colour of its own."""
+        return dee_accent.window_accent(self._accent)
+
     def _target_value(self):
         if self._target == "accent":
             return self._accent
+        if self._target == "bar":
+            return self._bar or self._bar_default()
         return self._line or dee_accent.ICON_INK
 
     def _set_target_value(self, value):
         if self._target == "accent":
             self._accent = value
+        elif self._target == "bar":
+            # Picking the accent's own colour means "follow the accent".
+            self._bar = None if value == self._bar_default() else value
         else:
             # Picking the default grey means "no line colour".
             self._line = None if value == dee_accent.ICON_INK else value
@@ -126,7 +154,7 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
     def _build_presets(self):
         self.presets_panel.Children.Clear()
         self._swatches = []
-        presets = _ACCENT_PRESETS if self._target == "accent" else _LINE_PRESETS
+        presets = _PRESETS[self._target]
         for label, hex_value in presets:
             b = Button()
             b.Width = 36
@@ -165,6 +193,70 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         self.glass_level_sl.Value = self._effects["glass_level"]
         self._sync_effect_controls()
 
+    # ---- icon styles ----
+    def _style_source(self, style):
+        """The sample icon for a style card, in the current colours."""
+        if not self._preview_sources:
+            return None
+        return dee_accent.resolve(self._preview_sources[0], self._accent,
+                                  self._line, style)
+
+    def _build_styles(self):
+        for key, label, desc in dee_accent.STYLES:
+            card = Border()
+            card.Width = 98
+            card.Margin = Thickness(4)
+            card.Padding = Thickness(6, 8, 6, 6)
+            card.CornerRadius = CornerRadius(6)
+            card.Cursor = Cursors.Hand
+            card.ToolTip = desc
+            card.Tag = key
+            card.SetResourceReference(Border.BackgroundProperty, "DeeSurface")
+            stack = StackPanel()
+            img = Image()
+            img.Width = img.Height = _STYLE_CARD_ICON
+            img.HorizontalAlignment = HorizontalAlignment.Center
+            stack.Children.Add(img)
+            name = TextBlock()
+            name.Text = label
+            name.Margin = Thickness(0, 6, 0, 0)
+            name.HorizontalAlignment = HorizontalAlignment.Center
+            stack.Children.Add(name)
+            card.Child = stack
+            card.MouseLeftButtonUp += self._style_click
+            self._style_cards[key] = card
+            self._style_images[key] = img
+            self.styles_panel.Children.Add(card)
+        self._refresh_style_images()
+        self._sync_style_cards()
+
+    def _refresh_style_images(self):
+        """Redraws every style card in the colours picked right now."""
+        for key, img in self._style_images.items():
+            try:
+                src = self._style_source(key)
+                if src:
+                    img.Source = _load_image(src)
+            except Exception:
+                pass
+
+    def _sync_style_cards(self):
+        for key, card in self._style_cards.items():
+            picked = key == self._style
+            card.BorderThickness = Thickness(2 if picked else 1)
+            card.SetResourceReference(Border.BorderBrushProperty,
+                                      "DeeOrange" if picked else "DeeBorder")
+        for key, label, desc in dee_accent.STYLES:
+            if key == self._style:
+                self.style_desc_tb.Text = "{0}: {1}".format(label, desc)
+
+    def _style_click(self, sender, args):
+        if not self._ready:
+            return
+        self._style = sender.Tag
+        self._sync_style_cards()
+        self._refresh()
+
     # ---- shapes ----
     def _draw_shape(self, key):
         """A small window drawn in the shape: title strip, two lines of
@@ -202,7 +294,7 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         _bar(0, 0, _CARD_W, pad + title_h, "DeeBorder")                  # title bar
         _bar(pad + 10, pad + title_h + 9, _CARD_W * 0.55, 4, "DeeBorder")
         _bar(pad + 10, pad + title_h + 18, _CARD_W * 0.38, 4, "DeeBorder")
-        _bar(0, _CARD_H - pad - 6, _CARD_W, pad + 6, "DeeOrange")         # website bar
+        _bar(0, _CARD_H - pad - 6, _CARD_W, pad + 6, "DeeBar")            # website bar
         inside.Children.Add(parts)
         canvas.Children.Add(inside)
         edge = Path()
@@ -289,9 +381,13 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
         dee_effects.apply(self, self._effects)
         self._update_status()
 
+    def _colours_changed(self):
+        return ((self._accent, self._line, self._bar, self._style)
+                != (self._saved_accent, self._saved_line, self._saved_bar,
+                    self._saved_style))
+
     def _update_status(self):
-        changed = ((self._accent, self._line) != (self._saved_accent, self._saved_line)
-                   or self._effects != self._saved_effects)
+        changed = self._colours_changed() or self._effects != self._saved_effects
         if changed:
             self.status_tb.Text = "Not applied yet - click Apply."
             if (self._effects.get("shape") != self._saved_effects.get("shape")
@@ -302,24 +398,29 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
             on = [label for key, label, _tip in dee_effects.EFFECTS if self._effects.get(key)]
             shape = dict((k, l) for k, l, _d in dee_shapes.SHAPES).get(
                 self._effects.get("shape"), "Standard")
-            self.status_tb.Text = "Current: {4} theme, accent {0}, lines {1}, shape {2}, effects: {3}".format(
+            style = dict((k, l) for k, l, _d in dee_accent.STYLES).get(
+                self._saved_style, "Original")
+            self.status_tb.Text = ("Current: {4} theme, accent {0}, lines {1}, bar {5}, "
+                                   "icons {6}, shape {2}, effects: {3}").format(
                 self._saved_accent, self._saved_line or "grey", shape, ", ".join(on) or "none",
-                self._effects.get("theme", "light"))
+                self._effects.get("theme", "light"), self._saved_bar or "accent", style)
 
     def _refresh(self):
         current = self._target_value()
         self.swatch_b.Background = _brush(current)
         self.name_tb.Text = _NAMES[self._target].get(current, "Custom")
+        if self._target == "bar" and self._bar is None:
+            self.name_tb.Text = "Same as accent"
         for b in self._swatches:
             picked = b.Tag == current
             b.BorderBrush = _SELECTED_BORDER if picked else _PLAIN_BORDER
             b.BorderThickness = Thickness(3 if picked else 1)
-        self.reset_b.Content = ("Reset to Orange" if self._target == "accent"
-                                else "Reset to Grey")
+        self.reset_b.Content = {"accent": "Reset to Orange",
+                                "line": "Reset to Grey",
+                                "bar": "Reset to Accent"}[self._target]
         # This window's own website bar + the sample progress bar.
-        window_hex = (dee_accent.BRAND_ORANGE if dee_accent.is_default(self._accent)
-                      else self._accent)
-        dee_branding.set_window_accent(self, window_hex)
+        dee_branding.set_window_accent(self, dee_accent.window_accent(self._accent),
+                                       dee_accent.bar_accent(self._accent, self._bar))
         self.preview_panel.Children.Clear()
         for src in self._preview_sources:
             try:
@@ -327,10 +428,12 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
                 img.Width = 40
                 img.Height = 40
                 img.Margin = Thickness(4)
-                img.Source = _load_image(dee_accent.resolve(src, self._accent, self._line))
+                img.Source = _load_image(dee_accent.resolve(src, self._accent, self._line,
+                                                            self._style))
                 self.preview_panel.Children.Add(img)
             except Exception:
                 pass
+        self._refresh_style_images()
         self._update_status()
 
     # ---- events ----
@@ -353,7 +456,12 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
     def target_changed(self, sender, args):
         if not self._ready:
             return
-        self._target = "line" if self.target_line_rb.IsChecked else "accent"
+        if self.target_line_rb.IsChecked:
+            self._target = "line"
+        elif self.target_bar_rb.IsChecked:
+            self._target = "bar"
+        else:
+            self._target = "accent"
         self._build_presets()
         self.hex_tb.Text = self._target_value()   # hex_changed refreshes
         self._refresh()
@@ -389,21 +497,26 @@ class InterfaceDialog(dee_branding.DeeBrandedWindow):
             dlg.Dispose()
 
     def reset_click(self, sender, args):
-        self.hex_tb.Text = (dee_accent.ICON_ACCENT if self._target == "accent"
-                            else dee_accent.ICON_INK)
+        self.hex_tb.Text = {"accent": dee_accent.ICON_ACCENT,
+                            "line": dee_accent.ICON_INK,
+                            "bar": self._bar_default()}[self._target]
 
     def apply_click(self, sender, args):
-        self._saved_accent = dee_accent.save_accent(self._accent, self._line)
+        self._saved_accent = dee_accent.save_accent(self._accent, self._line,
+                                                    self._style, self._bar)
         self._saved_line = self._line
+        self._saved_bar = self._bar
+        self._saved_style = self._style
         count = 0
         if self._uiapp is not None:
             try:
                 count = dee_accent.apply_to_ribbon(self._uiapp, self._saved_accent,
-                                                   self._saved_line)
+                                                   self._saved_line, self._saved_style)
             except Exception:
                 count = 0
         try:
-            dee_branding.repaint_open_windows(dee_accent.window_accent())
+            dee_branding.repaint_open_windows(dee_accent.window_accent(),
+                                              dee_accent.bar_accent())
         except Exception:
             pass
         self._saved_effects = dee_effects.save_effects(self._effects)

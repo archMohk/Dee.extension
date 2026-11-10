@@ -6,7 +6,7 @@
         WindowStartupLocation="CenterScreen">
     <StackPanel Margin="14">
         <TextBlock TextWrapping="Wrap" Margin="0,0,0,10" Foreground="{DynamicResource DeeTextMuted}"
-                   Text="How DeePack looks on this PC: icon colours, window effects, theme and window shapes. Personal to this PC - it does not change anyone else's ribbon."/>
+                   Text="How DeePack looks on this PC: icon colours and style, window effects, theme and window shapes. Personal to this PC - it does not change anyone else's ribbon."/>
 
         <TabControl x:Name="tabs" Margin="0,0,0,12">
             <!-- ================= Colours ================= -->
@@ -17,11 +17,15 @@
                         <RadioButton x:Name="target_accent_rb" Content="Accent (orange)" GroupName="target"
                                      IsChecked="True" Margin="12,0,0,0" VerticalAlignment="Center"
                                      Checked="target_changed"
-                                     ToolTip="The orange in the icons, the website bar and the progress bars."/>
+                                     ToolTip="The orange in the icons and the progress bars (and the website bar, unless it has its own colour)."/>
                         <RadioButton x:Name="target_line_rb" Content="Lines (grey)" GroupName="target"
                                      Margin="16,0,0,0" VerticalAlignment="Center"
                                      Checked="target_changed"
                                      ToolTip="The grey line work of the ribbon icons."/>
+                        <RadioButton x:Name="target_bar_rb" Content="Website bar" GroupName="target"
+                                     Margin="16,0,0,0" VerticalAlignment="Center"
+                                     Checked="target_changed"
+                                     ToolTip="The bar with www.archMKD.com under every tool window. Its own colour - or the accent when you reset it."/>
                     </StackPanel>
 
                     <TextBlock Text="Palette" FontWeight="Bold" Margin="0,0,0,4"/>
@@ -46,6 +50,17 @@
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                         <Button x:Name="reset_b" Content="Reset to Orange" Width="130" Height="26" Click="reset_click"/>
                     </StackPanel>
+                </StackPanel>
+            </TabItem>
+
+            <!-- ================= Icon ================= -->
+            <TabItem Header="Icon">
+                <StackPanel Margin="10">
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="How every ribbon icon is drawn. Each style uses the accent and line colours from the Colours tab - pick a colour and every style follows."/>
+                    <WrapPanel x:Name="styles_panel"/>
+                    <TextBlock x:Name="style_desc_tb" Margin="4,8,0,0" TextWrapping="Wrap"
+                               Foreground="{DynamicResource DeeTextMuted}" Text=""/>
                 </StackPanel>
             </TabItem>
 
@@ -105,7 +120,7 @@
                 <ProgressBar x:Name="preview_pb" Height="14" Minimum="0" Maximum="100" Value="62"
                              Margin="4,8,4,2" ToolTip="Progress bars use the accent too."/>
                 <TextBlock Foreground="{DynamicResource DeeTextMuted}" Margin="4,4,4,0" TextWrapping="Wrap"
-                           Text="This window itself also shows the website bar colour and the effects."/>
+                           Text="This window itself also shows the website bar colour and the effects. The icons above are drawn in the picked style."/>
             </StackPanel>
         </Border>
 
