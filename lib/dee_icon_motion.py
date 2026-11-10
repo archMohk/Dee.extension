@@ -390,8 +390,32 @@ class _Animator(object):
         except Exception:
             return True
 
+    # ---- surviving a pyRevit Reload ----
+    # A Reload builds a fresh engine and a fresh _Animator, but the old
+    # DispatcherTimer and ribbon hooks keep running in the old one. Each
+    # load leaves a stop callback in the AppDomain so the next can retire it.
+    _DOMAIN_KEY = "Dee.IconMotion.Stop"
+
+    def _retire_previous(self):
+        try:
+            from System import AppDomain
+            previous = AppDomain.CurrentDomain.GetData(self._DOMAIN_KEY)
+            AppDomain.CurrentDomain.SetData(self._DOMAIN_KEY, None)
+            if previous is not None:
+                previous.Invoke()
+        except Exception:
+            pass
+
+    def _publish_stop(self):
+        try:
+            from System import AppDomain, Action
+            AppDomain.CurrentDomain.SetData(self._DOMAIN_KEY, Action(self.stop))
+        except Exception:
+            pass
+
     # ---- start: collect on the UI thread, render on a worker ----
     def start(self, uiapp, accent_hex, line_hex, style, kind):
+        self._retire_previous()
         self.stop()
         generation = self.generation
         bundles = dee_accent._bundle_dirs()
@@ -469,6 +493,7 @@ class _Animator(object):
             self.timer.Tick += self._tick
             if not self._hook_ribbon() or self._ribbon_has_mouse():
                 self.timer.Start()        # no gate available: tick as before
+            self._publish_stop()
         except Exception:
             pass
 
