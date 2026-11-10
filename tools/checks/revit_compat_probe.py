@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 """Dee.extension compatibility probe - run inside Revit via `pyrevit run`.
 
-    pyrevit run tools/checks/revit_compat_probe.py --revit=2024
-    pyrevit run tools/checks/revit_compat_probe.py --revit=2026
+    pyrevit run "<abs path>/Dee.extension/tools/checks/revit_compat_probe.py" --revit=2024
+    pyrevit run "<abs path>/Dee.extension/tools/checks/revit_compat_probe.py" --revit=2026
+
+The path must be absolute - pyrevit run resolves a relative one against a
+temp working folder and then exits with an empty execution log.
 
 Each call starts a fresh headless Revit of that year, runs this file with the
 engine pyRevit attaches to it, prints the report to the console and exits.

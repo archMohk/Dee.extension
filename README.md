@@ -41,6 +41,8 @@ python tools/checks/check_self_calls.py
 To prove the extension still loads in each installed Revit (headless, takes a few minutes each):
 
 ```
-pyrevit run tools\checksevit_compat_probe.py --revit=2024
-pyrevit run tools\checksevit_compat_probe.py --revit=2026
+pyrevit run "D:\<path to>\Dee.extension\tools\checks\revit_compat_probe.py" --revit=2024
+pyrevit run "D:\<path to>\Dee.extension\tools\checks\revit_compat_probe.py" --revit=2026
 ```
+
+The script path must be absolute: `pyrevit run` resolves a relative path against a temp folder and silently runs nothing.
