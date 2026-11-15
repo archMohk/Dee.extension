@@ -540,6 +540,21 @@ GLYPHS = {
         ci(74, 72, 13, "ink", 0.9), cf(74, 72, 5),
         ln(74, 53, 74, 91, "ink", 0.7), ln(55, 72, 93, 72, "ink", 0.7),
     ] + arrow(44, 66, 60, 70, "accent", 1.3, 11),
+    # DWG -> Drafting View: a CAD sheet (angled drawing lines) flowing into
+    # an empty view frame; PDF version swaps the drawing for text rows and a
+    # title-block strip, so the two read apart at 16px.
+    "DeeDWG2Draft": lambda: doc(12, 12, 46, 56, "ink", 0.95, 10) + [
+        pl([(20, 46), (20, 32), (36, 32)], "ink", 0.8),
+        ln(20, 46, 36, 32, "ink", 0.8),
+        rc(52, 50, 88, 84, "ink", 0.95, 3),
+        ln(58, 62, 82, 62, "ink", 0.7), ln(58, 72, 74, 72, "ink", 0.7),
+    ] + arrow(36, 44, 56, 56, "accent", 1.3, 11),
+    "DeePDF2Draft": lambda: doc(12, 12, 46, 56, "ink", 0.95, 10) + [
+        ln(19, 30, 38, 30, "ink", 0.8), ln(19, 38, 38, 38, "ink", 0.8),
+        rf(18, 46, 40, 50, "ink"),
+        rc(52, 50, 88, 84, "ink", 0.95, 3),
+        ln(58, 62, 82, 62, "ink", 0.7), ln(58, 72, 74, 72, "ink", 0.7),
+    ] + arrow(36, 44, 56, 56, "accent", 1.3, 11),
     "DeeRehoster": lambda: [
         ln(14, 26, 82, 26, "ink", 1.0), ln(14, 78, 82, 78, "ink", 1.0),
         rc(34, 34, 62, 56, "ink", 0.95, 2),

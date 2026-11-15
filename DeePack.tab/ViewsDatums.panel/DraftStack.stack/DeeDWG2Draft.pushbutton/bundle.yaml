@@ -1,0 +1,3 @@
+title: DeeDWG2Draft
+tooltip: Turn DWG files into Drafting Views - pick files or a folder, choose Import (embedded in the model) or Link (kept as an external reference), set units, colours and view scale, and one Drafting View per DWG is created with the drawing placed at the view origin. Files whose view name already exists are skipped or renamed, and one bad file never stops the rest.
+context: zero-doc

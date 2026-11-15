@@ -1,0 +1,3 @@
+title: DeePDF2Draft
+tooltip: Turn PDF files into Drafting Views - pick files or a folder, choose Import (embedded) or Link (external reference), set resolution, and one Drafting View per PDF page is created. Optionally trims the sheet border and title block off each page first (needs Python with PyMuPDF installed - the tool tells you if it is missing).
+context: zero-doc

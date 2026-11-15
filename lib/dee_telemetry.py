@@ -139,6 +139,8 @@ TOOL_CATEGORIES = {
     "DeeWTransmit": "cloud",
     "DeeDropToSurface": "productivity",
     "DeeSVTemplate": "views_sheets",
+    "DeeDWG2Draft": "views_sheets",
+    "DeePDF2Draft": "views_sheets",
     # Views, Sheets & Documentation (15 tools)
     "Dee3D": "views_sheets",
     "DeeAligner": "views_sheets",
