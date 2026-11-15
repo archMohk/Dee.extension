@@ -351,6 +351,12 @@ def open_model_path(ctx, model_path, detach=False, audit=False):
                 return doc, "{0} ({1})".format(route, str(d).replace("DetachFromCentralOption.", ""))
             except Exception as e:
                 errors.append("{0}/{1}: {2}".format(route, str(d).split(".")[-1], str(e).split("\n")[0]))
+        # Every headless try ended in "Opening was canceled": the model itself
+        # aborts its own open (a failure on load, a refused dialog), and Revit's
+        # own open route would hit the same wall - another minute of retries
+        # only delays the answer.
+        if route == "headless" and errors and all("cancel" in e.lower() for e in errors):
+            break
     return None, " | ".join(errors)
 
 

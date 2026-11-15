@@ -50,6 +50,7 @@ import acc_auth
 import acc_file_browser as afb
 import deew_document_manager as docmgr
 import deew_failure_handler as failures
+import dee_known_dialogs
 from dee_ui import SafeProgress
 
 
@@ -580,6 +581,15 @@ def process_item(ctx, item):
     ctx.options["rules"] = the wipe rules. Returns a result dict."""
     res = {"ok": False, "detail": "", "saved": False, "save_detail": "", "items": [], "target": ""}
     copy_mode = item.get("output") == "copy"
+    app_handle = ctx.uiapp or ctx.app
+    dee_known_dialogs.attach_failures(app_handle, delete_errors=False)
+    try:
+        return _process_item(ctx, item, res, copy_mode)
+    finally:
+        dee_known_dialogs.detach_failures(app_handle)
+
+
+def _process_item(ctx, item, res, copy_mode):
     if item.get("source") == "acc":
         doc, detail = bg.open_cloud_model(ctx, item["region"], item["project_guid"], item["model_guid"],
                                           detach=copy_mode)
@@ -729,9 +739,14 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         dialog_log = []
         handler = afb.make_dialog_handler(dialog_log)
         self.uiapp.DialogBoxShowing += handler
+        # open-time warnings (e.g. "Room is not in a properly enclosed region")
+        # are resolved before Revit shows its warnings dialog - every other Dee
+        # tool that opens models does the same
+        dee_known_dialogs.attach_failures(self.uiapp, delete_errors=False)
         try:
             return fn()
         finally:
+            dee_known_dialogs.detach_failures(self.uiapp)
             try:
                 self.uiapp.DialogBoxShowing -= handler
             except Exception:
