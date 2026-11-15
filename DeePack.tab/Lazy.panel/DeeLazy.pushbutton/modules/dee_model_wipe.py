@@ -621,6 +621,10 @@ SRC_LOCAL, SRC_ACC, SRC_OPEN = "local", "acc", "open"
 _SRC_LABEL = {SRC_LOCAL: "Local", SRC_ACC: "ACC", SRC_OPEN: "Open model"}
 RUN_BACKGROUND, RUN_SESSION = 0, 1
 ST_QUEUED = "Queued (background)"
+try:
+    basestring_types = (basestring,)   # IronPython 2
+except NameError:
+    basestring_types = (str,)
 
 
 class ModelRow(object):
@@ -798,7 +802,8 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
     def add_files_click(self, sender, args):
         picked = forms.pick_file(file_ext="rvt", multi_file=True)
         if picked:
-            self._add_local(picked if isinstance(picked, list) else [picked])
+            # multi_file returns a .NET Array[str], a single pick a plain string
+            self._add_local([picked] if isinstance(picked, basestring_types) else list(picked))
 
     def add_folder_click(self, sender, args):
         folder = forms.pick_folder()
