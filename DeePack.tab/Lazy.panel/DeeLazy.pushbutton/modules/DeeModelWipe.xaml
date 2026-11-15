@@ -109,6 +109,8 @@
                         ToolTip="Wipes every model element (all model categories except levels and grids). Sheets, views, annotations and links stay."/>
                 <Button Content="Annotations &amp; Views" Click="preset_annoviews_click" Width="140" Height="26" Margin="6,0,0,0"
                         ToolTip="Wipes every annotation / view-specific element (tags, dimensions, text, detail lines, filled regions...) and every view (plans, sections, elevations, 3D, drafting, legends, schedules). Sheets, view templates and model elements stay."/>
+                <Button Content="Revit Links" Click="preset_rvtlinks_click" Width="90" Height="26" Margin="6,0,0,0"
+                        ToolTip="Wipes only the Revit links (their types and every instance). Nothing else is ticked."/>
                 <Button Content="Everything" Click="preset_all_click" Width="80" Height="26" Margin="6,0,0,0"
                         ToolTip="Ticks everything except levels, grids and purge."/>
                 <Button Content="None" Click="preset_none_click" Width="55" Height="26" Margin="6,0,0,0"/>

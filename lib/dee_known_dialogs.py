@@ -22,6 +22,7 @@ Usage inside a handler:
 IDOK = 1
 IDCANCEL = 2
 IDCLOSE = 8
+IDCOMMANDLINK2 = 1002      # TaskDialogResult.CommandLink2
 
 # (needles, answer, report line). A dialog matches when ANY needle is found
 # in "<DialogId> <Message>" lowercased. Order matters - first match wins.
@@ -43,6 +44,18 @@ KNOWN_DIALOGS = [
      IDCLOSE,
      "Auto-closed 'Copied Central Model' notice (central was copied/moved - "
      "opened as a local user copy)"),
+    # "This model has been transmitted from some other location. What do you
+    # want to do?" (TaskDialog_Loading_Transmitted_File) - a workshared model
+    # that was downloaded from ACC / zipped / copied away. Command links:
+    # 1001 "Save this model as a central model in its current location",
+    # 1002 "Work with this model temporarily"; the only common button is
+    # Cancel, which aborts the open ("Opening was canceled"). Found live
+    # 2026-11-16 with DeeLazy Model Wipe: nothing answered it, it sat on
+    # screen for six minutes and the whole run failed. 1002 is the harmless
+    # answer - it writes nothing to the original location.
+    (("loading_transmitted_file", "transmitted from some other location"),
+     IDCOMMANDLINK2,
+     "Auto-answered 'Model transmitted from another location' (work with the model temporarily)"),
     # The Revit WARNINGS dialog ("0 Errors, 2 Warnings" with << 1 of 2 >>,
     # Show / More Info / Expand, a fix button like "Delete Room(s)", OK /
     # Cancel) - e.g. "Multiple Rooms are in the same enclosed region ...

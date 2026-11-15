@@ -616,13 +616,15 @@ def _summary(res):
     if res is None:
         return "Not processed"
     if not res.get("ok"):
-        return "Open failed"
+        why = (res.get("detail") or "").replace("\n", " ")
+        return u"Open failed - {0}".format(why[:90]) if why else "Open failed"
     done = len([i for i in res.get("items", []) if i[1].startswith("Deleted") or i[1].startswith("Purged")])
     if not res.get("saved"):
-        return "Wiped {0} item(s) - NOT saved".format(done)
+        why = (res.get("save_detail") or "").replace("\n", " ")
+        return u"Wiped {0} item(s) - NOT SAVED: {1}".format(done, why[:90])
     if res.get("target"):
-        return u"Wiped {0} item(s) - copy saved".format(done)
-    return u"Wiped {0} item(s) - saved".format(done)
+        return u"Wiped {0} item(s) - saved as {1}".format(done, os.path.basename(res["target"]))
+    return u"Wiped {0} item(s) - saved in place".format(done)
 
 
 # ==========================================================================
@@ -649,6 +651,7 @@ class ModelRow(object):
         self.acc = acc              # ACC source dict (project_id, region, ...)
         self.selected = True
         self.status = ""
+        self.result_path = ""
 
 
 def _strip_rvt(name):
@@ -1153,6 +1156,11 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         self._log("Preset CAD Links: only the CAD links and imports are ticked.")
 
     @_guarded
+    def preset_rvtlinks_click(self, sender, args):
+        self._apply_preset(lambda r: r.kind == K_RVTLINKS, others=False)
+        self._log("Preset Revit Links: only the Revit links are ticked.")
+
+    @_guarded
     def preset_model_click(self, sender, args):
         self._apply_preset(lambda r: r.kind == K_CAT and r.group == G_MODEL and r.bic not in _ANCHORS,
                            others=True, others_group=G_MODEL)
@@ -1308,6 +1316,24 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         self._set_progress(1.0, "Finished in {0:.0f}s".format(time.time() - started))
         self._log("Finished in {0:.0f}s.".format(time.time() - started))
         self._write_log_file()
+        self._final_report(picked)
+
+    def _final_report(self, models):
+        """One box at the end, so a failed open or save can never pass unnoticed."""
+        good = [m for m in models if m.status.startswith("Wiped") and "NOT SAVED" not in m.status]
+        lines = []
+        for m in models:
+            if m in good:
+                lines.append(u"OK     {0}  ->  {1}".format(m.name, m.result_path or "saved in place"))
+            else:
+                lines.append(u"FAILED {0}  -  {1}".format(m.name, m.status or "not processed"))
+        head = "{0} of {1} model(s) wiped and saved.".format(len(good), len(models))
+        try:
+            forms.alert(head + u"\n\n" + u"\n".join(lines[:15]) +
+                        (u"\n... and {0} more (see the log)".format(len(lines) - 15) if len(lines) > 15 else u""),
+                        title="Model Wipe - result")
+        except Exception:
+            pass
 
     def _wipe_open(self, m, rules):
         uidoc = self.uiapp.ActiveUIDocument
@@ -1326,7 +1352,8 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
                 uidoc.Document, rules, protect, self._log,
                 lambda d, t, label: self._set_progress(
                     float(d) / max(1, t), u"{0}: {1}".format(m.name, label or "done")))
-            m.status = _summary({"ok": True, "items": items, "saved": False}).replace("NOT saved", "not saved")
+            done = len([i for i in items if i[1].startswith("Deleted") or i[1].startswith("Purged")])
+            m.status = u"Wiped {0} item(s) - open model, change not saved".format(done)
             self._log("  the open model is changed but NOT saved.")
         except Exception as e:
             m.status = "Failed"
@@ -1355,6 +1382,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
                     res = {"ok": False, "detail": str(e)}
                     self._log(u"  ✗ " + str(e))
                 by_key[item["key"]].status = _summary(res)
+                by_key[item["key"]].result_path = res.get("target") or ""
                 bg._close_pending(ctx)
                 _release()
                 self.models_grid.Items.Refresh()
@@ -1447,6 +1475,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         for key, m in by_key.items():
             if m.status == ST_QUEUED:
                 m.status = _summary(results.get(key))
+                m.result_path = (results.get(key) or {}).get("target") or ""
         self.models_grid.Items.Refresh()
         self._set_progress(1.0, "Background job finished")
         if how == "exited":
@@ -1456,6 +1485,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         done = len([m for m in by_key.values() if m.status.startswith("Wiped")])
         self._log("Background job finished: {0} of {1} model(s) wiped.".format(done, len(by_key)))
         self._write_log_file()
+        self._final_report(list(by_key.values()))
 
 
 def launch(uiapp):
