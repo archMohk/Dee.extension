@@ -18,6 +18,13 @@
                      VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="11"/>
         </DockPanel>
 
+        <!-- ================= progress ================= -->
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+            <TextBlock DockPanel.Dock="Right" x:Name="prog_tb" Width="330" Margin="10,0,0,0" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" Opacity="0.85" Text="Idle"/>
+            <ProgressBar x:Name="prog_bar" Height="16" Minimum="0" Maximum="100" Value="0"/>
+        </DockPanel>
+
         <!-- ================= top: models + output + run ================= -->
         <StackPanel DockPanel.Dock="Top">
             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" Opacity="0.85"
@@ -86,7 +93,7 @@
                         ToolTip="Opens the highlighted model (detached, read-only) just to list what can be wiped. The ticks you set then apply to EVERY ticked model."/>
                 <TextBlock x:Name="info_tb" VerticalAlignment="Center" Margin="12,0,0,0" Opacity="0.75" Text="Not scanned yet."/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+            <WrapPanel Margin="0,0,0,4">
                 <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,6,0"/>
                 <TextBox x:Name="search_tb" Width="150" Height="26" VerticalContentAlignment="Center" TextChanged="search_changed"/>
                 <Button Content="Tick Shown" Click="tick_shown_click" Width="80" Height="26" Margin="8,0,0,0"/>
@@ -96,10 +103,14 @@
                         ToolTip="Wipes sheets, views, annotations, links and every model category EXCEPT the building envelope (walls, curtain wall, windows, doors, roofs, floors, levels, grids)."/>
                 <Button Content="Sheets &amp; Views" Click="preset_views_click" Width="100" Height="26" Margin="6,0,0,0"
                         ToolTip="Wipes only sheets, views, schedules and legends - the model elements stay."/>
+                <Button Content="CAD Links" Click="preset_cad_click" Width="80" Height="26" Margin="6,0,0,0"
+                        ToolTip="Wipes only the CAD links and imports (DWG, DXF, DGN...). Nothing else is ticked."/>
+                <Button Content="Model Elements" Click="preset_model_click" Width="110" Height="26" Margin="6,0,0,0"
+                        ToolTip="Wipes every model element (all model categories except levels and grids). Sheets, views, annotations and links stay."/>
                 <Button Content="Everything" Click="preset_all_click" Width="80" Height="26" Margin="6,0,0,0"
                         ToolTip="Ticks everything except levels, grids and purge."/>
                 <Button Content="None" Click="preset_none_click" Width="55" Height="26" Margin="6,0,0,0"/>
-            </StackPanel>
+            </WrapPanel>
             <CheckBox x:Name="others_cb" Margin="0,0,0,4"
                       Content="Also wipe categories that are NOT in the scanned model (other models in the batch may have more). Facade Prep keeps the envelope either way."
                       ToolTip="The list shows what the scanned model contains. Another model may contain categories that are not listed. Ticked: those are wiped too (envelope categories are spared after Facade Prep). Unticked: they are left alone."/>

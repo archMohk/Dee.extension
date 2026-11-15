@@ -528,14 +528,19 @@ def apply_rules(rows, rules):
             r.selected = bool(rules.get(r.kind))
 
 
-def wipe_document(doc, rules, protect, log):
+def wipe_document(doc, rules, protect, log, progress=None):
     """Scans `doc`, applies the rules and wipes. Returns [[label, status], ...]."""
     rows = scan_document(doc)
     apply_rules(rows, rules)
     picked = sorted([r for r in rows if r.selected], key=lambda r: r.group)
     out = []
     log("  wiping {0} item(s) ...".format(len(picked)))
-    for row in picked:
+    for i, row in enumerate(picked):
+        if progress is not None:
+            try:
+                progress(i, len(picked), row.name)
+            except Exception:
+                pass
         try:
             status = wipe_row(doc, row, protect, log)
         except Exception as e:
@@ -543,6 +548,11 @@ def wipe_document(doc, rules, protect, log):
             log(u"  ✗ {0}: {1}".format(row.name, e))
         log(u"  {0} / {1} -> {2}".format(row.group[3:], row.name, status))
         out.append([u"{0} / {1}".format(row.group[3:], row.name), status])
+    if progress is not None:
+        try:
+            progress(len(picked), len(picked), "")
+        except Exception:
+            pass
     return out
 
 
@@ -582,7 +592,7 @@ def process_item(ctx, item):
     res["detail"] = "opened " + detail
     ctx.log("  opened " + detail)
     try:
-        res["items"] = wipe_document(doc, ctx.options["rules"], set(), ctx.log)
+        res["items"] = wipe_document(doc, ctx.options["rules"], set(), ctx.log, getattr(ctx, "progress", None))
         if copy_mode:
             if docmgr.is_workshared(doc) and not docmgr.is_detached(doc):
                 # SaveAs here would repoint the shared model - never do that
@@ -730,6 +740,32 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
                 g.CommitEdit()
             except Exception:
                 pass
+
+    def _pump(self):
+        """Lets WPF repaint while a long Revit call loop blocks the UI thread."""
+        try:
+            from System import Action
+            from System.Windows.Threading import DispatcherPriority
+            self.Dispatcher.Invoke(Action(lambda: None), DispatcherPriority.Render)
+        except Exception:
+            pass
+
+    def _set_progress(self, fraction=None, text=None):
+        """fraction None -> indeterminate (busy) bar; else 0..1."""
+        try:
+            if fraction is None:
+                self.prog_bar.IsIndeterminate = True
+            else:
+                self.prog_bar.IsIndeterminate = False
+                self.prog_bar.Value = max(0.0, min(1.0, float(fraction))) * 100.0
+            if text is not None:
+                self.prog_tb.Text = text
+        except Exception:
+            pass
+        self._pump()
+
+    def _progress_idle(self, text="Idle"):
+        self._set_progress(0.0, text)
 
     def _make_ctx(self):
         ctx = bg.Context(self.uiapp, self.application, self._log, {}, _LOG_DIR)
@@ -999,7 +1035,11 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         self._rows = []
         self.items_grid.ItemsSource = None
         self._facade = False
-        self._with_dialog_handler(lambda: self._scan_row(row))
+        self._set_progress(None, u"Scanning {0} ...".format(row.name))
+        try:
+            self._with_dialog_handler(lambda: self._scan_row(row))
+        finally:
+            self._progress_idle("Scan finished")
         self._refresh_items()
 
     def _scan_row(self, row):
@@ -1104,6 +1144,18 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         self._apply_preset(lambda r: r.kind in (K_SHEETS, K_VIEWTYPE), others=False)
 
     @_guarded
+    def preset_cad_click(self, sender, args):
+        self._apply_preset(lambda r: r.kind == K_CADLINKS, others=False)
+        self._log("Preset CAD Links: only the CAD links and imports are ticked.")
+
+    @_guarded
+    def preset_model_click(self, sender, args):
+        self._apply_preset(lambda r: r.kind == K_CAT and r.group == G_MODEL and r.bic not in _ANCHORS,
+                           others=True)
+        self._log("Preset Model Elements: every model category is ticked (levels and grids are kept - "
+                  "tick them yourself to wipe those too).")
+
+    @_guarded
     def preset_all_click(self, sender, args):
         self._apply_preset(lambda r: r.kind != K_PURGE and r.bic not in _ANCHORS, others=True)
 
@@ -1192,6 +1244,8 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         with SafeProgress(window=self, title="Preparing models...", cancellable=True) as pb:
             for i, m in enumerate(models):
                 pb.update_progress(i, len(models))
+                self._set_progress(float(i) / max(1, len(models)),
+                                   u"Preparing {0} ({1}/{2})".format(m.name, i + 1, len(models)))
                 if pb.cancelled:
                     self._log("Cancelled.")
                     return [], {}
@@ -1240,6 +1294,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
                 else:
                     self._with_dialog_handler(lambda: self._run_session(items, by_key, rules))
         self.models_grid.Items.Refresh()
+        self._set_progress(1.0, "Finished in {0:.0f}s".format(time.time() - started))
         self._log("Finished in {0:.0f}s.".format(time.time() - started))
         self._write_log_file()
 
@@ -1256,7 +1311,10 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         except Exception:
             pass
         try:
-            items = wipe_document(uidoc.Document, rules, protect, self._log)
+            items = wipe_document(
+                uidoc.Document, rules, protect, self._log,
+                lambda d, t, label: self._set_progress(
+                    float(d) / max(1, t), u"{0}: {1}".format(m.name, label or "done")))
             m.status = _summary({"ok": True, "items": items, "saved": False}).replace("NOT saved", "not saved")
             self._log("  the open model is changed but NOT saved.")
         except Exception as e:
@@ -1266,8 +1324,14 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
     def _run_session(self, items, by_key, rules):
         ctx = self._make_ctx()
         ctx.options = {"rules": rules}
+        total = max(1, len(items))
         with SafeProgress(window=self, title="Wiping models...", cancellable=True) as pb:
             for i, item in enumerate(items):
+                ctx.progress = (lambda d, t, label, i=i, item=item: self._set_progress(
+                    (i + float(d) / max(1, t)) / total,
+                    u"Model {0}/{1}: {2} - {3}".format(i + 1, total, item["name"], label or "saving")))
+                self._set_progress(float(i) / total,
+                                   u"Model {0}/{1}: {2} - opening".format(i + 1, total, item["name"]))
                 if pb.cancelled:
                     self._log("Cancelled - the models not reached are untouched.")
                     break
@@ -1284,6 +1348,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
                 _release()
                 self.models_grid.Items.Refresh()
             pb.update_progress(len(items), len(items))
+        self._set_progress(1.0, "Done - {0} model(s) processed".format(len(items)))
 
     # ---------------- background ----------------
     def _start_background(self, items, by_key, rules):
@@ -1308,7 +1373,29 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         timer = bg.start_timer(job, lambda tag, line: self._log(u"[{0}] {1}".format(tag, line)),
                                self._on_job_finished)
         self._job_ctx = (by_key, timer)
+        self._bg_total = max(1, len(items))
+        self._set_progress(0.0, "Background: 0 of {0} model(s) done".format(self._bg_total))
+        try:
+            from System import TimeSpan
+            from System.Windows.Threading import DispatcherTimer
+            pt = DispatcherTimer()
+            pt.Interval = TimeSpan.FromSeconds(2)
+            pt.Tick += self._bg_progress_tick
+            pt.Start()
+            self._prog_timer = pt
+        except Exception:
+            self._prog_timer = None
         return True
+
+    def _bg_progress_tick(self, sender, args):
+        try:
+            if self._job is None:
+                return
+            done = len(self._job.results())
+            self._set_progress(float(done) / self._bg_total,
+                               "Background: {0} of {1} model(s) done".format(done, self._bg_total))
+        except Exception:
+            pass
 
     def _set_job_ui(self, running):
         for b in (self.wipe_b, self.scan_b):
@@ -1318,6 +1405,13 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
     def _job_stop_timer(self):
         job, ctx = self._job, self._job_ctx
         self._job = self._job_ctx = None
+        pt = getattr(self, "_prog_timer", None)
+        if pt is not None:
+            try:
+                pt.Stop()
+            except Exception:
+                pass
+            self._prog_timer = None
         if ctx and ctx[1] is not None:
             try:
                 ctx[1].Stop()
@@ -1343,6 +1437,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
             if m.status == ST_QUEUED:
                 m.status = _summary(results.get(key))
         self.models_grid.Items.Refresh()
+        self._set_progress(1.0, "Background job finished")
         if how == "exited":
             self._log("A background Revit ended without reporting - see the logs under {0}".format(job.root))
         elif how == "failed":
