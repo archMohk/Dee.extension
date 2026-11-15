@@ -487,12 +487,12 @@ def wipe_row(doc, row, protect, log):
 # ==========================================================================
 # rules: what to wipe, independent of any one model
 # ==========================================================================
-def rules_from_rows(rows, others, keep_envelope):
+def rules_from_rows(rows, others, keep_envelope, others_group=None):
     """The ticks of the scanned model as a JSON-safe dict that can be
     applied to ANY model (also in a background Revit)."""
     rules = {"sheets": False, "templates": False, "rvtlinks": False, "cadlinks": False,
              "images": False, "purge": False, "viewtypes": [], "cats_wipe": [], "cats_keep": [],
-             "others": bool(others), "keep_envelope": bool(keep_envelope)}
+             "others": bool(others), "keep_envelope": bool(keep_envelope), "others_group": others_group}
     for r in rows:
         if r.kind == K_VIEWTYPE:
             if r.selected:
@@ -518,7 +518,8 @@ def apply_rules(rows, rules):
             elif r.rule_key in keep:
                 r.selected = False
             else:
-                r.selected = bool(rules.get("others"))
+                og = rules.get("others_group")
+                r.selected = bool(rules.get("others")) and (not og or og == r.group)
                 if r.bic in _ANCHORS:
                     r.selected = False
                 if rules.get("keep_envelope") and r.group == G_MODEL and \
@@ -675,6 +676,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         self.application = uiapp.Application
         self._models = []
         self._rows = []             # wipe list of the scanned model
+        self._others_group = None   # None: "others" covers every category; else only that group
         self._facade = False        # Facade Prep clicked last (its envelope is spared when "others" is on)
         self._acc_guids = {}        # item_id -> (project Guid, model Guid)
         self._log_lines = []
@@ -1035,6 +1037,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         self._rows = []
         self.items_grid.ItemsSource = None
         self._facade = False
+        self._others_group = None
         self._set_progress(None, u"Scanning {0} ...".format(row.name))
         try:
             self._with_dialog_handler(lambda: self._scan_row(row))
@@ -1117,11 +1120,12 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
     def untick_shown_click(self, sender, args):
         self._set_shown(False)
 
-    def _apply_preset(self, picker, facade=False, others=None):
+    def _apply_preset(self, picker, facade=False, others=None, others_group=None):
         self._commit()
         for r in self._rows:
             r.selected = bool(picker(r))
         self._facade = facade
+        self._others_group = others_group
         if others is not None:
             self.others_cb.IsChecked = others
         self.items_grid.Items.Refresh()
@@ -1151,9 +1155,16 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
     @_guarded
     def preset_model_click(self, sender, args):
         self._apply_preset(lambda r: r.kind == K_CAT and r.group == G_MODEL and r.bic not in _ANCHORS,
-                           others=True)
+                           others=True, others_group=G_MODEL)
         self._log("Preset Model Elements: every model category is ticked (levels and grids are kept - "
                   "tick them yourself to wipe those too).")
+
+    @_guarded
+    def preset_annoviews_click(self, sender, args):
+        self._apply_preset(lambda r: r.kind == K_VIEWTYPE or (r.kind == K_CAT and r.group == G_ANNO),
+                           others=True, others_group=G_ANNO)
+        self._log("Preset Annotations & Views: every annotation / view-specific category and every view type is "
+                  "ticked. Sheets, view templates and model elements stay.")
 
     @_guarded
     def preset_all_click(self, sender, args):
@@ -1165,7 +1176,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
 
     # ---------------- wipe ----------------
     def _rules(self):
-        return rules_from_rows(self._rows, bool(self.others_cb.IsChecked), self._facade)
+        return rules_from_rows(self._rows, bool(self.others_cb.IsChecked), self._facade, self._others_group)
 
     def _target_for(self, row, used):
         """Unique copy path for a model, or (None, why)."""
