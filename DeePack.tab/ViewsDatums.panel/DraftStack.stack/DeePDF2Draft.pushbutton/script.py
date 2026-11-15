@@ -9,8 +9,7 @@ import os
 
 import clr
 clr.AddReference("System.Windows.Forms")
-from System.Windows.Forms import FolderBrowserDialog, DialogResult
-from Microsoft.Win32 import OpenFileDialog
+from System.Windows.Forms import FolderBrowserDialog, OpenFileDialog, DialogResult
 
 from pyrevit import forms, script
 import dee_branding
@@ -54,7 +53,7 @@ class DeePDF2DraftWindow(dee_branding.DeeBrandedWindow):
         dlg = OpenFileDialog()
         dlg.Filter = "PDF files (*.pdf)|*.pdf"
         dlg.Multiselect = True
-        if dlg.ShowDialog():
+        if dlg.ShowDialog() == DialogResult.OK:
             self._add_paths(list(dlg.FileNames))
 
     def add_folder_click(self, sender, args):
