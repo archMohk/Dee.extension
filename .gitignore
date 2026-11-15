@@ -67,6 +67,7 @@ tools/.supabase_publish.json
 # and the record that lets an update delete only its own files rather
 # than anything it does not recognise.
 lib/.dee_mirror_manifest.json
+lib/.dee_auto_update.json
 
 # Per-machine / per-user runtime state - not source.
 .codex/

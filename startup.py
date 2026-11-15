@@ -4,19 +4,13 @@ Extension startup script - pyRevit runs this automatically every time it
 loads this extension (every Revit launch, and every manual Reload),
 BEFORE it builds the ribbon from what is on disk.
 
-1. Self-update for 'pyrevit extend' installs
-   For colleagues who installed the public GitHub copy, this runs
-   'pyrevit extensions update --all' so already-pulled script.py changes
-   take effect in this same session. New/renamed buttons still need one
-   more Reload (pyRevit limitation).
-
-   It used to run SYNCHRONOUSLY and wait up to 15 s on EVERY launch -
-   the single biggest startup cost of the extension, paid even when
-   nothing changed. Now it runs on a background thread (Revit never
-   waits) and at most once per calendar day per PC (stamp in
-   lib/.deew_settings via deew_settings). On the developer's own PC
-   (plain OneDrive folder, not a 'pyrevit extend' clone) the CLI call is
-   a harmless no-op either way. Never raises, never blocks.
+1. Self-update on EVERY launch (lib/dee_auto_update.py)
+   Git clones fast-forward from GitHub, Supabase-mirror installs pull the
+   changed files from the mirror. It runs first and waits at most 8 s, so
+   the new files are normally on disk before pyRevit builds the ribbon -
+   new buttons show up in the same session. On a slow / missing network
+   Revit carries on and the update finishes in the background for the
+   next launch. A copy with local changes is never touched. Never raises.
 
 2. Background watchers, each in its own try/except so a failure in one
    can never break the ribbon, Revit startup, or the others:
@@ -26,61 +20,15 @@ BEFORE it builds the ribbon from what is on disk.
    thread and only touch the UI from Idling; lib/dee_icon_service.py
    (DeeIcon's real-file-thumbnail branding) on DocumentOpened/Saved.
 """
-import datetime
-import threading
+import os
 
-import clr
-clr.AddReference("System")
-from System.Diagnostics import Process, ProcessStartInfo
-
-_UPDATE_TOOL = "DeeStartupUpdate"
-
-
-def _already_pulled_today():
-    try:
-        import deew_settings
-        data = deew_settings.load(_UPDATE_TOOL, {"last_pull_date": ""})
-        today = datetime.date.today().isoformat()
-        if data.get("last_pull_date") == today:
-            return True
-        data["last_pull_date"] = today
-        deew_settings.save(_UPDATE_TOOL, data)
-    except Exception:
-        pass
-    return False
-
-
-def _pull_in_background():
-    try:
-        psi = ProcessStartInfo()
-        psi.FileName = "pyrevit"
-        psi.Arguments = "extensions update --all"
-        psi.UseShellExecute = False
-        psi.RedirectStandardOutput = True
-        psi.RedirectStandardError = True
-        psi.CreateNoWindow = True
-        proc = Process.Start(psi)
-        if not proc.WaitForExit(120000):
-            proc.Kill()
-    except Exception:
-        pass
-
-
+# 1) Update FIRST, so a new release is on disk before pyRevit builds the
+#    ribbon below. lib/dee_auto_update.py waits at most 8 seconds (a normal
+#    check takes a second or two); on a slow network Revit carries on and the
+#    update finishes in the background for next time. Never raises.
 try:
-    if not _already_pulled_today():
-        _t = threading.Thread(target=_pull_in_background)
-        _t.daemon = True
-        _t.start()
-except Exception:
-    pass
-
-# Before pyRevit builds the ribbon: drop bundle folders an update emptied
-# (a moved/removed button leaves its folder behind, and pyRevit still shows
-# it - e.g. DeeAccount lingering on the Cloud panel after moving to About).
-try:
-    import os
-    import dee_update_source
-    dee_update_source.prune_empty_bundles(os.path.dirname(os.path.abspath(__file__)))
+    import dee_auto_update
+    dee_auto_update.run_at_startup(os.path.dirname(os.path.abspath(__file__)), budget_seconds=8)
 except Exception:
     pass
 
