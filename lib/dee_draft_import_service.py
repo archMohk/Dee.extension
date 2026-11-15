@@ -35,10 +35,13 @@ run by a normal Python that has PyMuPDF (IronPython has no PDF library).
 The cropped copies go to "<source folder>/_NoTitleblock" and are what get
 placed. If no such Python is found the tool says so and does not guess.
 """
+import glob
+import math
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 
 import clr
@@ -47,8 +50,11 @@ from Autodesk.Revit.DB import (
     ViewDrafting, XYZ, ElementId, BoxPlacement,
     DWGImportOptions, ImportPlacement, ImportUnit, ImportColorMode,
     ImageType, ImageTypeOptions, ImageTypeSource, ImageInstance,
-    ImagePlacementOptions,
+    ImagePlacementOptions, Line, Plane, ElementTransformUtils, TransactionGroup,
+    ImageExportOptions, ExportRange, ZoomFitType, FitDirectionType, ImageFileType,
+    ImageResolution,
 )
+from System.Collections.Generic import List
 
 MODE_IMPORT = "import"
 MODE_LINK = "link"
@@ -172,6 +178,74 @@ def place_dwg(doc, view, path, mode, unit, color_mode, visible_only):
     return ref.Value
 
 
+def turn_element(doc, view, element_id, rot, mirror):
+    """Mirrors (left-right) then turns `rot` degrees clockwise about the
+    element's centre in the view. Does nothing for 0 / no mirror."""
+    if not rot and not mirror:
+        return
+    doc.Regenerate()
+    bb = doc.GetElement(element_id).get_BoundingBox(view)
+    if bb is None:
+        return
+    ctr = XYZ((bb.Min.X + bb.Max.X) / 2.0, (bb.Min.Y + bb.Max.Y) / 2.0, 0.0)
+    if mirror:
+        ElementTransformUtils.MirrorElement(
+            doc, element_id, Plane.CreateByNormalAndOrigin(XYZ.BasisX, ctr))
+    if rot:
+        axis = Line.CreateBound(ctr, XYZ(ctr.X, ctr.Y, 1.0))
+        ElementTransformUtils.RotateElement(doc, element_id, axis, -math.radians(rot))
+
+
+def preview_dwg(doc, path, unit, color_mode, visible_only, rot, mirror, out_png, px=700):
+    """Renders the DWG as it would sit in a drafting view (with the chosen
+    turn) by building it in a throw-away view, exporting that view to a png,
+    and rolling everything back. Returns (ok, error text)."""
+    tmp = tempfile.mkdtemp(prefix="dee_dwgprev_")
+    tg = TransactionGroup(doc, "Dee DWG preview")
+    tg.Start()
+    try:
+        t = Transaction(doc, "Dee preview view")
+        t.Start()
+        view = make_drafting_view(doc, "zz_dee_preview_{0}".format(int(time.time())), 1)
+        iid = place_dwg(doc, view, path, MODE_IMPORT, unit, color_mode, visible_only)
+        t.Commit()
+        t = Transaction(doc, "Dee preview turn")
+        t.Start()
+        turn_element(doc, view, iid, rot, mirror)
+        t.Commit()
+        opts = ImageExportOptions()
+        opts.ExportRange = ExportRange.SetOfViews
+        ids = List[ElementId]()
+        ids.Add(view.Id)
+        opts.SetViewsAndSheets(ids)
+        opts.FilePath = os.path.join(tmp, "dwg")
+        opts.HLRandWFViewsFileType = ImageFileType.PNG
+        opts.ZoomType = ZoomFitType.FitToPage
+        opts.FitDirection = FitDirectionType.Horizontal
+        opts.ImageResolution = ImageResolution.DPI_150
+        opts.PixelSize = int(px)
+        doc.ExportImage(opts)
+        found = glob.glob(os.path.join(tmp, "*.png"))
+        if not found:
+            return False, "Revit produced no image."
+        with open(found[0], "rb") as src, open(out_png, "wb") as dst:
+            dst.write(src.read())
+        return True, ""
+    except Exception as ex:
+        return False, str(ex)
+    finally:
+        try:
+            tg.RollBack()
+        except Exception:
+            pass
+        try:
+            for f in glob.glob(os.path.join(tmp, "*")):
+                os.remove(f)
+            os.rmdir(tmp)
+        except Exception:
+            pass
+
+
 # ---------------------------------------------------------------------------
 # PDF
 # ---------------------------------------------------------------------------
@@ -286,7 +360,7 @@ def _run_one(doc, label, make, result):
 
 
 def run_dwg_batch(doc, rows, mode, unit, color_mode, visible_only, scale,
-                  when_exists, progress=None):
+                  when_exists, rot=0, mirror=False, progress=None):
     result = BatchResult()
     start = time.time()
     taken = existing_view_names(doc)
@@ -301,7 +375,8 @@ def run_dwg_batch(doc, rows, mode, unit, color_mode, visible_only, scale,
 
         def make(name=name, row=row):
             view = make_drafting_view(doc, name, scale)
-            place_dwg(doc, view, row.path, mode, unit, color_mode, visible_only)
+            iid = place_dwg(doc, view, row.path, mode, unit, color_mode, visible_only)
+            turn_element(doc, view, iid, rot, mirror)
             taken.add(name)
             return name
         _run_one(doc, row.file_name, make, result)

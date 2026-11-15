@@ -5,9 +5,12 @@ All Revit work lives in lib/dee_draft_import_service.py; this file only
 wires the WPF window to it.
 """
 import os
+import tempfile
 
 import clr
 clr.AddReference("System.Windows.Forms")
+from System import Uri
+from System.Windows.Media.Imaging import BitmapImage, BitmapCacheOption
 from System.Windows.Forms import FolderBrowserDialog, OpenFileDialog, DialogResult
 
 from pyrevit import forms, script
@@ -73,6 +76,35 @@ class DeeDWG2DraftWindow(dee_branding.DeeBrandedWindow):
         self._rows = [r for r in self._rows if r.selected]
         self._refresh()
 
+    # ---- orientation preview -------------------------------------------
+    def _turn(self):
+        return (0, 90, 180, 270)[max(0, self.rot_cb.SelectedIndex)], bool(self.mirror_cb.IsChecked)
+
+    def preview_click(self, sender, args):
+        row = self.file_grid.SelectedItem
+        if row is None:
+            self.preview_tb.Text = "Click a file in the list first."
+            return
+        rot, mirror = self._turn()
+        unit = core.UNIT_CHOICES[max(0, self.unit_cb.SelectedIndex)][1]
+        color = core.COLOR_CHOICES[max(0, self.color_cb.SelectedIndex)][1]
+        png = os.path.join(tempfile.gettempdir(), "dee_dwg_preview.png")
+        self.preview_tb.Text = "Building preview (nothing is kept in the project)..."
+        ok, err = core.preview_dwg(self.doc, row.path, unit, color,
+                                   bool(self.visible_cb.IsChecked), rot, mirror, png, 700)
+        if not ok:
+            self.preview_tb.Text = "Preview failed: {0}".format(err)
+            return
+        bi = BitmapImage()
+        bi.BeginInit()
+        bi.CacheOption = BitmapCacheOption.OnLoad
+        bi.UriSource = Uri(png)
+        bi.EndInit()
+        bi.Freeze()
+        self.preview_img.Source = bi
+        self.preview_tb.Text = "{0}. Turn {1}{2}.".format(
+            row.file_name, rot, ", mirrored" if mirror else "")
+
     def create_click(self, sender, args):
         rows = [r for r in self._rows if r.selected]
         if not rows:
@@ -91,11 +123,12 @@ class DeeDWG2DraftWindow(dee_branding.DeeBrandedWindow):
         except Exception:
             scale = 10
         when_exists = "suffix" if self.exists_cb.SelectedIndex == 1 else "skip"
+        rot, mirror = self._turn()
         with dee_ui.SafeProgress(title="DeeDWG2Draft - creating drafting views...",
                                  cancellable=True) as pb:
             result = core.run_dwg_batch(
                 self.doc, rows, mode, unit, color, bool(self.visible_cb.IsChecked),
-                scale, when_exists, progress=pb)
+                scale, when_exists, rot=rot, mirror=mirror, progress=pb)
         core.print_report(script.get_output(), "DeeDWG2Draft - DWG to Drafting Views", result)
         self.status_tb.Text = "Created {0}, skipped {1}. See the pyRevit output window for details.".format(
             len(result.created), len(result.skipped))

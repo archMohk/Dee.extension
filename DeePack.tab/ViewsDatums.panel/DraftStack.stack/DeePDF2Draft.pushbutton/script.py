@@ -6,9 +6,14 @@ All Revit work lives in lib/dee_draft_import_service.py; this file only
 wires the WPF window to it.
 """
 import os
+import tempfile
 
 import clr
 clr.AddReference("System.Windows.Forms")
+from System import Uri
+from System.Windows.Controls import DataGridComboBoxColumn, DataGridLength, DataGridLengthUnitType
+from System.Windows.Data import Binding, BindingMode
+from System.Windows.Media.Imaging import BitmapImage, BitmapCacheOption
 from System.Windows.Forms import FolderBrowserDialog, OpenFileDialog, DialogResult
 
 from pyrevit import forms, script
@@ -30,11 +35,29 @@ def _num(text, default):
         return default
 
 
+class WeightRow(object):
+    def __init__(self, bucket, mm, count, style):
+        self.bucket = bucket
+        self.mm = mm
+        self.count = count
+        self.style = style
+
+
 class DeePDF2DraftWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
         self.doc = doc
         self._rows = []
+        self._weights = []
+        col = DataGridComboBoxColumn()
+        col.Header = "Revit line style"
+        col.ItemsSource = vector.project_style_labels(doc)
+        b = Binding("style")
+        b.Mode = BindingMode.TwoWay
+        col.SelectedItemBinding = b
+        col.Width = DataGridLength(1, DataGridLengthUnitType.Star)
+        self.weight_grid.Columns.Add(col)
+        self._ready = True
 
     def _refresh(self):
         self.file_grid.ItemsSource = None
@@ -76,6 +99,72 @@ class DeePDF2DraftWindow(dee_branding.DeeBrandedWindow):
         self._rows = [r for r in self._rows if r.selected]
         self._refresh()
 
+    # ---- orientation preview -------------------------------------------
+    def _turn(self):
+        return (0, 90, 180, 270)[max(0, self.rot_cb.SelectedIndex)], bool(self.mirror_cb.IsChecked)
+
+    def _margins(self):
+        if self.crop_cb.IsChecked:
+            return (_num(self.crop_left_tb.Text, 0), _num(self.crop_top_tb.Text, 0),
+                    _num(self.crop_right_tb.Text, 0), _num(self.crop_bottom_tb.Text, 0))
+        return (0, 0, 0, 0)
+
+    def _show_preview(self):
+        row = self.file_grid.SelectedItem
+        if row is None:
+            self.preview_tb.Text = "Click a file in the list to see it."
+            return
+        if core.find_pymupdf_python() is None:
+            self.preview_tb.Text = ("Preview needs PyMuPDF (py -m pip install pymupdf). "
+                                    "Press Create once and it will offer to install it.")
+            return
+        rot, mirror = self._turn()
+        png = os.path.join(tempfile.gettempdir(), "dee_pdf_preview.png")
+        ok, err = vector.render_preview(row.path, 0, self._margins(), rot, mirror, png, 700)
+        if not ok:
+            self.preview_tb.Text = "Preview failed: {0}".format(err)
+            return
+        bi = BitmapImage()
+        bi.BeginInit()
+        bi.CacheOption = BitmapCacheOption.OnLoad
+        bi.UriSource = Uri(png)
+        bi.EndInit()
+        bi.Freeze()
+        self.preview_img.Source = bi
+        self.preview_tb.Text = "{0} (page 1). Turn {1}{2}.".format(
+            row.file_name, rot, ", mirrored" if mirror else "")
+
+    def _scan(self):
+        row = self.file_grid.SelectedItem or next((r for r in self._rows if r.selected), None)
+        if row is None:
+            self.preview_tb.Text = "Click a file in the list first."
+            return
+        rows, err = vector.scan_weights(self.doc, row.path, self._margins(), *self._turn())
+        if rows is None:
+            self.preview_tb.Text = "Weight scan failed: {0}".format(err)
+            return
+        self._weights = [WeightRow(*r) for r in rows]
+        self.weight_grid.ItemsSource = None
+        self.weight_grid.ItemsSource = self._weights
+
+    def scan_click(self, sender, args):
+        self._scan()
+
+    def file_selected(self, sender, args):
+        try:
+            self._show_preview()
+            if not self._weights and core.find_pymupdf_python() is not None:
+                self._scan()
+        except Exception as ex:
+            self.preview_tb.Text = "Preview failed: {0}".format(ex)
+
+    def preview_changed(self, sender, args):
+        if getattr(self, "_ready", False):
+            self.file_selected(sender, args)
+
+    def refresh_preview_click(self, sender, args):
+        self.file_selected(sender, args)
+
     def create_click(self, sender, args):
         rows = [r for r in self._rows if r.selected]
         if not rows:
@@ -91,6 +180,12 @@ class DeePDF2DraftWindow(dee_branding.DeeBrandedWindow):
         scale = int(_num(self.scale_tb.Text, 1))
         when_exists = "suffix" if self.exists_cb.SelectedIndex == 1 else "skip"
         as_lines = self.convert_cb.SelectedIndex == 0
+        rot, mirror = self._turn()
+        scale_text = (self.scale_n_cb.Text or "").strip().lower()
+        scale_n = 0 if scale_text in ("", "auto") else max(1, int(_num(scale_text, 0)))
+        if not as_lines and (rot or mirror):
+            forms.alert("Turning and mirroring apply to 'Lines and fills'. "
+                        "Picture mode places the page as drawn.")
         crop = None
         if self.crop_cb.IsChecked:
             crop = (_num(self.crop_left_tb.Text, 0), _num(self.crop_top_tb.Text, 0),
@@ -111,10 +206,12 @@ class DeePDF2DraftWindow(dee_branding.DeeBrandedWindow):
             if as_lines:
                 result = vector.run_batch(
                     self.doc, rows, crop or (0, 0, 0, 0), bool(self.allpages_cb.IsChecked),
-                    max(1, int(_num(self.scale_n_tb.Text, 10))),
-                    max(0.0, _num(self.min_mm_tb.Text, 0.8)),
+                    scale_n, max(0.0, _num(self.min_mm_tb.Text, 0.0)),
                     bool(self.colors_cb.IsChecked), bool(self.fills_cb.IsChecked),
-                    when_exists, progress=pb)
+                    when_exists, rot=rot, mirror=mirror,
+                    hatch=bool(self.hatch_cb.IsChecked),
+                    weight_map=dict((w.bucket, w.style) for w in self._weights) or None,
+                    progress=pb)
             else:
                 result = core.run_pdf_batch(
                     self.doc, rows, mode, dpi, bool(self.allpages_cb.IsChecked), scale,

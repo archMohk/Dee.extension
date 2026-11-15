@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeDWG2Draft - DWG to Drafting Views"
         ShowInTaskbar="False"
-        MinHeight="560" MinWidth="860" Height="620" Width="940"
+        MinHeight="600" MinWidth="1100" Height="700" Width="1260"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
@@ -52,6 +52,27 @@
             <Button Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3" x:Name="create_b" Content="Create Drafting Views"
                     Click="create_click" Height="26" HorizontalAlignment="Left" Width="230"/>
         </Grid>
+
+        <StackPanel DockPanel.Dock="Right" Width="340" Margin="10,0,0,0">
+            <TextBlock Text="Preview and orientation" FontWeight="Bold" Margin="0,0,0,4"/>
+            <TextBlock TextWrapping="Wrap" FontStyle="Italic" Margin="0,0,0,6"
+                       Text="Click a file in the list, choose the turn, press Preview. The same turn is applied to every checked file after it is placed."/>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <TextBlock Text="Turn:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <ComboBox x:Name="rot_cb" Width="130" Height="24" SelectedIndex="0">
+                    <ComboBoxItem Content="0 (as drawn)"/>
+                    <ComboBoxItem Content="90 clockwise"/>
+                    <ComboBoxItem Content="180"/>
+                    <ComboBoxItem Content="270 clockwise"/>
+                </ComboBox>
+                <CheckBox x:Name="mirror_cb" Content="Mirror left-right" VerticalAlignment="Center" Margin="10,0,0,0"/>
+            </StackPanel>
+            <Button Content="Preview" Click="preview_click" Width="120" Height="24" HorizontalAlignment="Left" Margin="0,0,0,6"/>
+            <Border BorderBrush="Gray" BorderThickness="1" Height="400" Background="White">
+                <Image x:Name="preview_img" Stretch="Uniform"/>
+            </Border>
+            <TextBlock x:Name="preview_tb" TextWrapping="Wrap" FontStyle="Italic" Margin="0,4,0,0" Text="No preview yet."/>
+        </StackPanel>
 
         <DataGrid x:Name="file_grid" AutoGenerateColumns="False" CanUserAddRows="False"
                   CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">

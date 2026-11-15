@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeePDF2Draft - PDF to Drafting Views"
         ShowInTaskbar="False"
-        MinHeight="620" MinWidth="860" Height="700" Width="940"
+        MinHeight="700" MinWidth="1100" Height="830" Width="1260"
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
@@ -28,14 +28,26 @@
                     <ComboBoxItem Content="Lines and fills (editable linework)"/>
                     <ComboBoxItem Content="Picture (image)"/>
                 </ComboBox>
-                <TextBlock Text="Drawing scale 1:" VerticalAlignment="Center" Margin="16,0,6,0"/>
-                <TextBox x:Name="scale_n_tb" Text="10" Width="50" Height="24" VerticalContentAlignment="Center"/>
-                <TextBlock Text="Skip lines under (mm):" VerticalAlignment="Center" Margin="16,0,6,0"/>
-                <TextBox x:Name="min_mm_tb" Text="0.8" Width="45" Height="24" VerticalContentAlignment="Center"/>
+                <TextBlock Text="Drawing scale 1:" VerticalAlignment="Center" Margin="16,0,6,0"
+                           ToolTip="Auto = smallest scale at which no line is too short for Revit. Or type your own (10, 20, 50...)."/>
+                <ComboBox x:Name="scale_n_cb" IsEditable="True" Text="Auto" Width="70" Height="24">
+                    <ComboBoxItem Content="Auto"/>
+                    <ComboBoxItem Content="1"/>
+                    <ComboBoxItem Content="2"/>
+                    <ComboBoxItem Content="5"/>
+                    <ComboBoxItem Content="10"/>
+                    <ComboBoxItem Content="20"/>
+                    <ComboBoxItem Content="25"/>
+                    <ComboBoxItem Content="50"/>
+                    <ComboBoxItem Content="100"/>
+                </ComboBox>
+                <TextBlock Text="Skip lines under (mm on paper, 0 = keep all):" VerticalAlignment="Center" Margin="16,0,6,0"/>
+                <TextBox x:Name="min_mm_tb" Text="0" Width="40" Height="24" VerticalContentAlignment="Center"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                <CheckBox x:Name="fills_cb" Content="Create filled regions (solid fills)" VerticalAlignment="Center" IsChecked="True"/>
-                <CheckBox x:Name="colors_cb" Content="Keep line and fill colours" VerticalAlignment="Center" Margin="16,0,0,0" IsChecked="True"/>
+                <CheckBox x:Name="fills_cb" Content="Create filled regions" VerticalAlignment="Center" IsChecked="True"/>
+                <CheckBox x:Name="hatch_cb" Content="Join close parallel lines into one hatch region" VerticalAlignment="Center" Margin="16,0,0,0" IsChecked="True"/>
+                <CheckBox x:Name="colors_cb" Content="Keep colours of coloured lines (override)" VerticalAlignment="Center" Margin="16,0,0,0" IsChecked="True"/>
                 <TextBlock Text="(Picture mode only:)" VerticalAlignment="Center" Margin="24,0,0,0" FontStyle="Italic"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
@@ -74,8 +86,41 @@
                     Height="26" Width="230" HorizontalAlignment="Left"/>
         </StackPanel>
 
+        <StackPanel DockPanel.Dock="Right" Width="340" Margin="10,0,0,0">
+            <TextBlock Text="Preview and orientation" FontWeight="Bold" Margin="0,0,0,4"/>
+            <TextBlock TextWrapping="Wrap" FontStyle="Italic" Margin="0,0,0,6"
+                       Text="Click a file in the list, then turn the drawing the way it should sit in Revit. The same turn is applied to every checked file."/>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <TextBlock Text="Turn:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <ComboBox x:Name="rot_cb" Width="130" Height="24" SelectedIndex="0" SelectionChanged="preview_changed">
+                    <ComboBoxItem Content="0 (as drawn)"/>
+                    <ComboBoxItem Content="90 clockwise"/>
+                    <ComboBoxItem Content="180"/>
+                    <ComboBoxItem Content="270 clockwise"/>
+                </ComboBox>
+                <CheckBox x:Name="mirror_cb" Content="Mirror left-right" VerticalAlignment="Center" Margin="10,0,0,0"
+                          Checked="preview_changed" Unchecked="preview_changed"/>
+            </StackPanel>
+            <Button Content="Refresh preview" Click="refresh_preview_click" Width="120" Height="24" HorizontalAlignment="Left" Margin="0,0,0,6"/>
+            <Border BorderBrush="Gray" BorderThickness="1" Height="250" Background="White">
+                <Image x:Name="preview_img" Stretch="Uniform"/>
+            </Border>
+            <TextBlock x:Name="preview_tb" TextWrapping="Wrap" FontStyle="Italic" Margin="0,4,0,0" Text="No preview yet."/>
+            <TextBlock Text="Line weights" FontWeight="Bold" Margin="0,10,0,2"/>
+            <TextBlock TextWrapping="Wrap" FontStyle="Italic" Margin="0,0,0,4"
+                       Text="Each stroke thickness found in the PDF is drawn with one of this project's own line styles. Auto picks the closest pen; change any row to define it yourself."/>
+            <Button Content="Scan weights from selected file" Click="scan_click" Width="200" Height="24" HorizontalAlignment="Left" Margin="0,0,0,4"/>
+            <DataGrid x:Name="weight_grid" AutoGenerateColumns="False" CanUserAddRows="False" Height="170" RowHeaderWidth="0">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="PDF mm" Binding="{Binding mm}" Width="60" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="Lines" Binding="{Binding count}" Width="55" IsReadOnly="True"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </StackPanel>
+
         <DataGrid x:Name="file_grid" AutoGenerateColumns="False" CanUserAddRows="False"
-                  CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0">
+                  CanUserSortColumns="True" SelectionMode="Extended" RowHeaderWidth="0"
+                  SelectionChanged="file_selected">
             <DataGrid.Columns>
                 <DataGridCheckBoxColumn Header="Use" Binding="{Binding selected, Mode=TwoWay}" Width="45"/>
                 <DataGridTextColumn Header="PDF File" Binding="{Binding file_name}" Width="*" IsReadOnly="True"/>
