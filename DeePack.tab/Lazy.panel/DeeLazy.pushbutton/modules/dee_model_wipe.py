@@ -645,6 +645,19 @@ def _strip_rvt(name):
     return name[:-4] if name.lower().endswith(".rvt") else name
 
 
+def _guarded(fn):
+    """Event handlers must never let an exception escape into WPF's
+    message loop - in Revit that ends in an unrecoverable crash. The
+    error goes to the log box and to a file instead."""
+    def wrapper(self, *args):
+        try:
+            return fn(self, *args)
+        except Exception:
+            self._report_error(fn.__name__)
+    wrapper.__name__ = fn.__name__
+    return wrapper
+
+
 class ModelWipeWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, uiapp):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
@@ -670,6 +683,19 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         try:
             self.log_tb.AppendText(line + u"\n")
             self.log_tb.ScrollToEnd()
+        except Exception:
+            pass
+
+    def _report_error(self, where):
+        text = traceback.format_exc()
+        self._log(u"  ✗ unexpected error in {0}:".format(where))
+        for line in text.splitlines()[-12:]:
+            self._log(u"      " + line)
+        try:
+            if not os.path.isdir(_LOG_DIR):
+                os.makedirs(_LOG_DIR)
+            with open(os.path.join(_LOG_DIR, "last_error.txt"), "wb") as fh:
+                fh.write((u"{0}\r\n{1}".format(where, text)).encode("utf-8"))
         except Exception:
             pass
 
@@ -742,6 +768,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
                 return
             self._job_stop_timer()
 
+    @_guarded
     def close_click(self, sender, args):
         self.Close()
 
@@ -760,13 +787,16 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         self.copy_panel.IsEnabled = self._copy_mode()
         self.copy_panel.Opacity = 1.0 if self._copy_mode() else 0.4
 
+    @_guarded
     def mode_changed(self, sender, args):
         self._mode_changed_ui()
 
+    @_guarded
     def run_changed(self, sender, args):
         if getattr(self, "_ready", False):
             self.par_cb.IsEnabled = self._run_mode() == RUN_BACKGROUND
 
+    @_guarded
     def out_browse_click(self, sender, args):
         folder = forms.pick_folder()
         if folder:
@@ -799,12 +829,14 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         self._log("Added {0} file(s).".format(added))
         self._refresh_models()
 
+    @_guarded
     def add_files_click(self, sender, args):
         picked = forms.pick_file(file_ext="rvt", multi_file=True)
         if picked:
             # multi_file returns a .NET Array[str], a single pick a plain string
             self._add_local([picked] if isinstance(picked, basestring_types) else list(picked))
 
+    @_guarded
     def add_folder_click(self, sender, args):
         folder = forms.pick_folder()
         if not folder:
@@ -822,6 +854,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
             found = [os.path.join(folder, f) for f in os.listdir(folder)]
         self._add_local(found)
 
+    @_guarded
     def add_open_click(self, sender, args):
         uidoc = self.uiapp.ActiveUIDocument
         if uidoc is None or uidoc.Document.IsFamilyDocument:
@@ -835,6 +868,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         self._log("Added the open model '{0}' - it is wiped in place and not saved.".format(doc.Title))
         self._refresh_models()
 
+    @_guarded
     def add_acc_click(self, sender, args):
         try:
             token = acc_auth.get_access_token()
@@ -889,21 +923,25 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         self._log("Added {0} ACC file(s) from {1}.".format(added, where))
         self._refresh_models()
 
+    @_guarded
     def remove_models_click(self, sender, args):
         row = self.models_grid.SelectedItem
         if row is not None and row in self._models:
             self._models.remove(row)
             self._refresh_models()
 
+    @_guarded
     def clear_models_click(self, sender, args):
         self._models = []
         self._refresh_models()
 
+    @_guarded
     def models_all_click(self, sender, args):
         for m in self._models:
             m.selected = True
         self.models_grid.Items.Refresh()
 
+    @_guarded
     def models_none_click(self, sender, args):
         for m in self._models:
             m.selected = False
@@ -944,6 +982,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
                       "expired or ACC is busy. Sign in again and retry.".format(label or "no answer"))
 
     # ---------------- scan ----------------
+    @_guarded
     def scan_click(self, sender, args):
         self._commit()
         row = self.models_grid.SelectedItem
@@ -1018,6 +1057,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         self.items_grid.ItemsSource = None
         self.items_grid.ItemsSource = self._shown()
 
+    @_guarded
     def search_changed(self, sender, args):
         if getattr(self, "_ready", False):
             self._commit()
@@ -1029,9 +1069,11 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
             r.selected = value
         self.items_grid.Items.Refresh()
 
+    @_guarded
     def tick_shown_click(self, sender, args):
         self._set_shown(True)
 
+    @_guarded
     def untick_shown_click(self, sender, args):
         self._set_shown(False)
 
@@ -1048,6 +1090,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
     def _keeps_envelope(row):
         return row.bic in _FACADE_KEEP or row.bic.startswith(_FACADE_KEEP_PREFIXES)
 
+    @_guarded
     def preset_facade_click(self, sender, args):
         def pick(r):
             if r.kind == K_CAT:
@@ -1056,12 +1099,15 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         self._apply_preset(pick, facade=True, others=True)
         self._log("Preset Facade Prep: envelope categories (walls, curtain wall, windows, doors, roofs, floors, levels, grids) are kept.")
 
+    @_guarded
     def preset_views_click(self, sender, args):
         self._apply_preset(lambda r: r.kind in (K_SHEETS, K_VIEWTYPE), others=False)
 
+    @_guarded
     def preset_all_click(self, sender, args):
         self._apply_preset(lambda r: r.kind != K_PURGE and r.bic not in _ANCHORS, others=True)
 
+    @_guarded
     def preset_none_click(self, sender, args):
         self._apply_preset(lambda r: False, others=False)
 
@@ -1089,6 +1135,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
                 return cand, ""
             n += 1
 
+    @_guarded
     def wipe_click(self, sender, args):
         self._commit()
         picked = [m for m in self._models if m.selected]
@@ -1280,6 +1327,7 @@ class ModelWipeWindow(dee_branding.DeeBrandedWindow):
         self._update_buttons()
         return job, ctx
 
+    @_guarded
     def job_stop_click(self, sender, args):
         if self._job is not None:
             self._job.stop()
