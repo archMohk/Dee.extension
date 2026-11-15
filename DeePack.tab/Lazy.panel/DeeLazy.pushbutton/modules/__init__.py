@@ -50,6 +50,7 @@ from modules import dee_text_to_lines
 from modules import dee_hatch
 from modules import dee_2d_conversion
 from modules import dee_updater
+from modules import dee_model_wipe
 
 REGISTERED_MODULES = [
     view_cropping.TOOL_INFO,
@@ -72,4 +73,5 @@ REGISTERED_MODULES = [
     dee_hatch.TOOL_INFO,
     dee_2d_conversion.TOOL_INFO,
     dee_updater.TOOL_INFO,
+    dee_model_wipe.TOOL_INFO,
 ]

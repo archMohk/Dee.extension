@@ -1,0 +1,3 @@
+title: "Model Wipe"
+tooltip: "Strip a model back to what you need - pick a .rvt file or the open model, then wipe sheets, views, model categories, annotations, links and unused data one item at a time. Facade Prep keeps only the building envelope."
+context: zero-doc
