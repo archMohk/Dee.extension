@@ -211,6 +211,25 @@ def find_pymupdf_python():
     return found
 
 
+def install_pymupdf():
+    """pip-installs PyMuPDF for the user (only called after they said yes).
+    Returns (ok, message)."""
+    last = "no Python found (install Python 3 from python.org)"
+    for prefix in (["py", "-3"], ["python"], ["python3"]):
+        try:
+            p = subprocess.Popen(prefix + ["-m", "pip", "install", "--user", "pymupdf"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 creationflags=0x08000000)
+            out, err = p.communicate()
+            if p.returncode == 0:
+                _PYTHON_CACHE.pop("py", None)
+                return find_pymupdf_python() is not None, "installed"
+            last = (err or out or "").strip()
+        except Exception as ex:
+            last = str(ex)
+    return False, last
+
+
 def crop_pdfs(paths, left, top, right, bottom, out_folder_name="_NoTitleblock"):
     """Writes cropped copies; returns ({source: cropped}, error_text).
 
@@ -247,6 +266,7 @@ class BatchResult(object):
     def __init__(self):
         self.created = []      # (view name, source file)
         self.skipped = []      # (label, reason)
+        self.notes = []        # free-text lines shown in the report
         self.seconds = 0.0
 
 
@@ -344,6 +364,8 @@ def print_report(output, title, result):
         '<p style="color:#ddd;">Created {0} drafting view(s) - skipped {1} - {2:.1f}s.</p>'.format(
             len(result.created), len(result.skipped), result.seconds),
     ]
+    for note in getattr(result, "notes", []):
+        html.append('<div style="color:#bbb;font-family:monospace;font-size:12px;">{0}</div>'.format(note))
     for label, reason in result.skipped:
         html.append(
             '<div style="padding:4px 10px;margin:2px 0;background:#c62828;color:#fff;'

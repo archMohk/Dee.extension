@@ -15,6 +15,7 @@ from pyrevit import forms, script
 import dee_branding
 import dee_ui
 import dee_draft_import_service as core
+import dee_pdf_vector_service as vector
 import dee_telemetry
 dee_telemetry.check_access("DeePDF2Draft")
 
@@ -89,20 +90,35 @@ class DeePDF2DraftWindow(dee_branding.DeeBrandedWindow):
         dpi = max(36.0, min(1200.0, _num(self.dpi_tb.Text, 200.0)))
         scale = int(_num(self.scale_tb.Text, 1))
         when_exists = "suffix" if self.exists_cb.SelectedIndex == 1 else "skip"
+        as_lines = self.convert_cb.SelectedIndex == 0
         crop = None
         if self.crop_cb.IsChecked:
             crop = (_num(self.crop_left_tb.Text, 0), _num(self.crop_top_tb.Text, 0),
                     _num(self.crop_right_tb.Text, 0), _num(self.crop_bottom_tb.Text, 0))
-            if core.find_pymupdf_python() is None:
-                forms.alert("Cutting off the title block needs Python with PyMuPDF, and none "
-                            "was found.\n\nInstall it once from a terminal:\n    py -m pip install pymupdf\n\n"
-                            "Or untick 'Remove border and title block' to place the full pages.")
+        if (as_lines or crop is not None) and core.find_pymupdf_python() is None:
+            if not forms.alert("Reading the PDF drawing (and cutting off the title block) needs "
+                               "PyMuPDF, a free Python library, and it is not installed.\n\n"
+                               "Install it now? (runs: py -m pip install --user pymupdf)",
+                               yes=True, no=True):
+                return
+            with dee_ui.SafeProgress(title="Installing PyMuPDF...", indeterminate=True):
+                ok, msg = core.install_pymupdf()
+            if not ok:
+                forms.alert("PyMuPDF could not be installed:\n\n{0}".format(msg))
                 return
         with dee_ui.SafeProgress(title="DeePDF2Draft - creating drafting views...",
                                  cancellable=True) as pb:
-            result = core.run_pdf_batch(
-                self.doc, rows, mode, dpi, bool(self.allpages_cb.IsChecked), scale,
-                when_exists, crop=crop, progress=pb)
+            if as_lines:
+                result = vector.run_batch(
+                    self.doc, rows, crop or (0, 0, 0, 0), bool(self.allpages_cb.IsChecked),
+                    max(1, int(_num(self.scale_n_tb.Text, 10))),
+                    max(0.0, _num(self.min_mm_tb.Text, 0.8)),
+                    bool(self.colors_cb.IsChecked), bool(self.fills_cb.IsChecked),
+                    when_exists, progress=pb)
+            else:
+                result = core.run_pdf_batch(
+                    self.doc, rows, mode, dpi, bool(self.allpages_cb.IsChecked), scale,
+                    when_exists, crop=crop, progress=pb)
         core.print_report(script.get_output(), "DeePDF2Draft - PDF to Drafting Views", result)
         self.status_tb.Text = "Created {0}, skipped {1}. See the pyRevit output window for details.".format(
             len(result.created), len(result.skipped))

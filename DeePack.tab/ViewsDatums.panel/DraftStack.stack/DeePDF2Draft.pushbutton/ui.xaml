@@ -6,7 +6,7 @@
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="10">
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Creates one Drafting View per PDF page and places the page in it. Import embeds the page in the model; Link keeps it as an external reference to the file on disk. Tick 'Remove border and title block' to cut those off each page first."/>
+                   Text="Creates one Drafting View per PDF page. Lines and fills rebuilds the drawing as Detail Lines and Filled Regions (hatching comes through as lines); Picture places the page as an image. Import embeds the page in the model; Link keeps it as an external reference to the file on disk. Tick 'Remove border and title block' to cut those off each page first."/>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Button Content="Add Files..." Click="add_files_click" Width="100" Height="26"/>
@@ -22,6 +22,22 @@
         <TextBlock DockPanel.Dock="Bottom" x:Name="status_tb" Text="Add PDF files to begin." FontStyle="Italic" Margin="0,8,0,0"/>
 
         <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBlock Text="Convert as:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <ComboBox x:Name="convert_cb" Height="24" Width="250" SelectedIndex="0">
+                    <ComboBoxItem Content="Lines and fills (editable linework)"/>
+                    <ComboBoxItem Content="Picture (image)"/>
+                </ComboBox>
+                <TextBlock Text="Drawing scale 1:" VerticalAlignment="Center" Margin="16,0,6,0"/>
+                <TextBox x:Name="scale_n_tb" Text="10" Width="50" Height="24" VerticalContentAlignment="Center"/>
+                <TextBlock Text="Skip lines under (mm):" VerticalAlignment="Center" Margin="16,0,6,0"/>
+                <TextBox x:Name="min_mm_tb" Text="0.8" Width="45" Height="24" VerticalContentAlignment="Center"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <CheckBox x:Name="fills_cb" Content="Create filled regions (solid fills)" VerticalAlignment="Center" IsChecked="True"/>
+                <CheckBox x:Name="colors_cb" Content="Keep line and fill colours" VerticalAlignment="Center" Margin="16,0,0,0" IsChecked="True"/>
+                <TextBlock Text="(Picture mode only:)" VerticalAlignment="Center" Margin="24,0,0,0" FontStyle="Italic"/>
+            </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                 <TextBlock Text="Mode:" VerticalAlignment="Center" Margin="0,0,6,0"/>
                 <ComboBox x:Name="mode_cb" Height="24" Width="170" SelectedIndex="0">
