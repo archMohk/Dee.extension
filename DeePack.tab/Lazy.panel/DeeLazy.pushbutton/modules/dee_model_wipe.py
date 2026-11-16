@@ -517,9 +517,20 @@ def wipe_document(doc, rules, protect, log, progress=None):
     """Scans `doc`, applies the rules and wipes. Returns [[label, status], ...]."""
     rows = scan_document(doc)
     apply_rules(rows, rules)
-    picked = sorted([r for r in rows if r.selected], key=lambda r: r.group)
+    # hosts first: deleting a wall takes its curtain panels, mullions, grids,
+    # doors and windows with it, so those are never refused one by one
+    host_order = ("Walls", "Curtain Systems", "Floors", "Roofs", "Ceilings", "Structural Framing",
+                  "Structural Columns", "Columns", "Stairs", "Railings")
+
+    def _prio(r):
+        try:
+            return host_order.index(r.name)
+        except ValueError:
+            return len(host_order)
+    picked = sorted([r for r in rows if r.selected], key=lambda r: (r.group, _prio(r)))
     out = []
     log("  wiping {0} item(s) ...".format(len(picked)))
+    statuses = {}
     for i, row in enumerate(picked):
         if progress is not None:
             try:
@@ -531,8 +542,36 @@ def wipe_document(doc, rules, protect, log, progress=None):
         except Exception as e:
             status = "Failed"
             log(u"  ✗ {0}: {1}".format(row.name, e))
+        statuses[row] = status
         log(u"  {0} / {1} -> {2}".format(row.group[3:], row.name, status))
-        out.append([u"{0} / {1}".format(row.group[3:], row.name), status])
+    # Elements Revit refused are often only blocked by something that has been
+    # deleted since (a joined neighbour, a host): go round again until a pass
+    # removes nothing more.
+    for rnd in range(2, 6):
+        again = [r for r in picked if "ailed" in statuses.get(r, "")]
+        if not again:
+            break
+        progressed = False
+        log("  pass {0}: retrying {1} item(s) that were refused ...".format(rnd, len(again)))
+        for row in again:
+            if progress is not None:
+                try:
+                    progress(len(picked) - 1, len(picked), u"{0} (pass {1})".format(row.name, rnd))
+                except Exception:
+                    pass
+            try:
+                status = wipe_row(doc, row, protect, log)
+            except Exception:
+                continue
+            if status.startswith("Deleted"):
+                progressed = True
+            if status.startswith("Nothing") or status.startswith("Deleted") and "failed" not in status:
+                status = "Deleted (after retry)"
+            statuses[row] = status
+            log(u"  {0} / {1} -> {2}".format(row.group[3:], row.name, status))
+        if not progressed:
+            break
+    out = [[u"{0} / {1}".format(r.group[3:], r.name), statuses.get(r, "")] for r in picked]
     if progress is not None:
         try:
             progress(len(picked), len(picked), "")
