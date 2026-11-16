@@ -326,7 +326,7 @@ def _run_in_transaction(doc, label, work):
     try:
         t.Start()
         try:
-            failures.apply_to_transaction(t)
+            failures.apply_to_transaction(t, None, True)
         except Exception:
             pass
         result = work()
@@ -392,36 +392,37 @@ def _delete_elements(doc, elements, label, protect):
             deleted += res.Count if res is not None else live.Count
             continue
 
-        # retry one by one
-        def _one_by_one():
-            done = [0, 0]
-            for i in live:
-                if doc.GetElement(i) is None:
-                    continue
-                st = SubTransaction(doc)
-                try:
-                    st.Start()
-                    r = doc.Delete(i)
-                    st.Commit()
-                    done[0] += r.Count if r is not None else 1
-                except Exception as ex:
-                    done[1] += 1
-                    if len(notes) < 3:
-                        notes.append(str(ex).split("\n")[0][:90])
-                    try:
-                        st.RollBack()
-                    except Exception:
-                        pass
-            return done
-        ok2, res2 = _run_in_transaction(doc, label + " (one by one)", _one_by_one)
-        if ok2:
-            deleted += res2[0]
-            failed += res2[1]
-        else:
-            failed += live.Count
-            if len(notes) < 3:
-                notes.append(str(res2).split("\n")[0][:90])
+        # Revit refused the chunk: split it in halves until the stubborn
+        # elements are alone. Every try is its OWN transaction - errors that
+        # cannot be ignored are only raised at commit, so one outer
+        # transaction (or sub-transactions in it) piled them up (275 errors
+        # of "Can't make Extrusion") and rolled the lot back.
+        d2, f2 = _delete_split(doc, list(live), label, notes)
+        deleted += d2
+        failed += f2
     return deleted, failed, "; ".join(sorted(set(notes)))
+
+
+def _delete_split(doc, ids, label, notes):
+    """(deleted, failed) for the ElementIds in `ids`, bisecting on failure."""
+    live = List[ElementId]()
+    for i in ids:
+        if doc.GetElement(i) is not None:
+            live.Add(i)
+    if live.Count == 0:
+        return 0, 0
+    ok, res = _run_in_transaction(doc, label, lambda: doc.Delete(live))
+    if ok:
+        return (res.Count if res is not None else live.Count), 0
+    if live.Count == 1:
+        if len(notes) < 3:
+            notes.append((str(res).splitlines() or [""])[0][:90])
+        return 0, 1
+    items = list(live)
+    mid = len(items) // 2
+    x = _delete_split(doc, items[:mid], label, notes)
+    y = _delete_split(doc, items[mid:], label, notes)
+    return x[0] + y[0], x[1] + y[1]
 
 
 def _purge_unused(doc, log):
@@ -440,27 +441,9 @@ def _purge_unused(doc, log):
         if ok:
             total += res.Count if res is not None else ids.Count
         else:
-            # retry one by one so a single protected type does not block the pass
-            def _each():
-                n = 0
-                for i in ids:
-                    if doc.GetElement(i) is None:
-                        continue
-                    st = SubTransaction(doc)
-                    try:
-                        st.Start()
-                        r = doc.Delete(i)
-                        st.Commit()
-                        n += r.Count if r is not None else 1
-                    except Exception:
-                        try:
-                            st.RollBack()
-                        except Exception:
-                            pass
-                return n
-            ok2, n = _run_in_transaction(doc, "purge pass {0} (one by one)".format(p + 1), _each)
-            if ok2:
-                total += n
+            # split in halves, each try its own transaction
+            n, _f = _delete_split(doc, list(ids), "purge pass {0}".format(p + 1), [])
+            total += n
         log("  purge pass {0}: {1} element(s)".format(p + 1, total - before))
         if total == before:
             break

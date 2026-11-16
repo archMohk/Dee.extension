@@ -33,7 +33,8 @@ Two independent Revit API mechanisms, both needed together:
    through can leave a model in a worse, inconsistent state than
    simply failing that one file and moving on to the next.
 """
-from Autodesk.Revit.DB import FailureProcessingResult, FailureSeverity, IFailuresPreprocessor
+from Autodesk.Revit.DB import (FailureProcessingResult, FailureSeverity, IFailuresPreprocessor,
+                               FailureResolutionType)
 
 import dee_known_dialogs
 
@@ -201,8 +202,11 @@ class DeeWFailuresPreprocessor(IFailuresPreprocessor):
     result get force-committed just to keep a batch moving, matching
     this project's established DeeReLevel precedent."""
 
-    def __init__(self, logger=None):
+    def __init__(self, logger=None, resolve_delete=False):
         self.logger = logger
+        # opt-in (Model Wipe): an error that offers 'delete the offending
+        # elements' is resolved that way instead of rolling the step back
+        self.resolve_delete = resolve_delete
 
     def PreprocessFailures(self, failuresAccessor):
         try:
@@ -211,12 +215,22 @@ class DeeWFailuresPreprocessor(IFailuresPreprocessor):
             return FailureProcessingResult.Continue
 
         had_error = False
+        resolved = False
         for f in failures:
             try:
                 severity = f.GetSeverity()
             except Exception:
                 continue
             if severity == FailureSeverity.Error:
+                if self.resolve_delete:
+                    try:
+                        if f.HasResolutionOfType(FailureResolutionType.DeleteElements):
+                            f.SetCurrentResolutionType(FailureResolutionType.DeleteElements)
+                            failuresAccessor.ResolveFailure(f)
+                            resolved = True
+                            continue
+                    except Exception:
+                        pass
                 had_error = True
                 if self.logger is not None:
                     try:
@@ -231,15 +245,17 @@ class DeeWFailuresPreprocessor(IFailuresPreprocessor):
 
         if had_error:
             return FailureProcessingResult.ProceedWithRollBack
+        if resolved:
+            return FailureProcessingResult.ProceedWithCommit
         return FailureProcessingResult.Continue
 
 
-def apply_to_transaction(transaction, logger=None):
+def apply_to_transaction(transaction, logger=None, resolve_delete=False):
     """Attaches a fresh DeeWFailuresPreprocessor to `transaction`.
     Must be called AFTER transaction.Start() - calling
     GetFailureHandlingOptions()/SetFailureHandlingOptions() before
     Start() silently fails to attach the preprocessor (confirmed the
     hard way while building DeeReLevel earlier this session)."""
     options = transaction.GetFailureHandlingOptions()
-    options.SetFailuresPreprocessor(DeeWFailuresPreprocessor(logger))
+    options.SetFailuresPreprocessor(DeeWFailuresPreprocessor(logger, resolve_delete))
     transaction.SetFailureHandlingOptions(options)
