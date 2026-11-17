@@ -701,6 +701,10 @@ GLYPHS = {
     # A document with the accent arrow pushing up through it - update models.
     "Updater": lambda: doc(22, 12, 70, 84, "ink", 1.0) + arrow(46, 72, 46, 36, "accent", 1.35, 12),
     # Two documents, the front one accent - a set of files to process.
+    # A document with an accent alert badge - tracked issues / RFIs.
+    "DeeISSUE": lambda: doc(14, 12, 62, 84, "ink", 1.0, 12) + [
+        ci(64, 64, 20, "accent", 1.2), ln(64, 54, 64, 66, "accent", 1.3), cf(64, 74, 2.5),
+    ],
     "URSFiles": lambda: doc(12, 26, 52, 86, "ink", 0.95, 11) + doc(40, 10, 84, 70, "accent", 1.1, 12),
     "DeeBlocktoFamily": lambda: [
         rc(12, 34, 40, 62, "ink", 1.0, 2),
