@@ -760,6 +760,37 @@ def _curtain_host(element):
         return None
 
 
+def _curtain_owner_map(elements):
+    """{panel/mullion element id: its curtain wall} read from the walls'
+    own CurtainGrid(s) - more reliable than each part's Host, and it also
+    covers curtain systems and sloped glazing (CurtainGrids)."""
+    owner = {}
+    for el in elements:
+        grids = []
+        try:
+            grid = getattr(el, "CurtainGrid", None)
+            if grid is not None:
+                grids.append(grid)
+        except Exception:
+            pass
+        try:
+            many = getattr(el, "CurtainGrids", None)
+            if many is not None:
+                grids.extend(list(many))
+        except Exception:
+            pass
+        for grid in grids:
+            for getter in ("GetPanelIds", "GetMullionIds"):
+                try:
+                    for pid in getattr(grid, getter)():
+                        key = _eid(pid)
+                        if key != _eid(el.Id):
+                            owner[key] = el
+                except Exception:
+                    continue
+    return owner
+
+
 class ViewOverrides(object):
     """Reads the 3D view's V/G overrides once - filters (with their
     visibility and on/off switch), category rows and per-element
@@ -904,13 +935,19 @@ class ViewOverrides(object):
         self._elem_cache[effect] = got
         return got
 
-    def match(self, element, source_doc, is_host, elem_index):
-        hits = self._hits(element, source_doc, is_host)
+    def match(self, element, source_doc, is_host, elem_index, host=None):
+        """Merges into what elem_index already has, so every part of a
+        merged curtain wall adds its own hits to the one element."""
+        hits = list(self._matches.get(elem_index, []))
+        for got in self._hits(element, source_doc, is_host):
+            if got not in hits:
+                hits.append(got)
         # A curtain wall has no geometry of its own - what is drawn is its
         # panels and mullions (their own categories), so a Walls filter
         # would otherwise catch nothing in the export. Revit draws them
         # with the host wall's filter/override look, so they inherit it.
-        host = _curtain_host(element)
+        if host is None:
+            host = _curtain_host(element)
         if host is not None:
             for got in self._hits(host, source_doc, is_host):
                 if got not in hits:
@@ -1297,7 +1334,11 @@ def build_scene(doc, view, options, progress=None):
         source_row[source_label] = [source_label, len(elements), 0]
         scene.sources.append(source_row[source_label])
 
+    merge_curtain = options.get("merge_curtain", True)
+    group_index = {}          # (source, owner element id) -> element index
+
     for source_label, source_doc, xform, elements in sources:
+        curtain_owner = _curtain_owner_map(elements) if merge_curtain else {}
         # Biggest elements first (bounding-box diagonal, one cheap native
         # call each). When the triangle budget cuts an export short, it's
         # now bolts and fittings that fall off the end - never the walls,
@@ -1338,7 +1379,18 @@ def build_scene(doc, view, options, progress=None):
             if geom is None:
                 continue
 
-            elem_index = len(scene.els)
+            # A curtain wall exports as ONE element: its panels and
+            # mullions all share the wall's element index, metadata and
+            # parameters (their own materials still colour each part).
+            owner = None
+            if merge_curtain:
+                owner = curtain_owner.get(_eid(element.Id))
+                if owner is None:
+                    owner = _curtain_host(element)
+            owner_el = owner if owner is not None else element
+            gkey = (source_label, _eid(owner_el.Id))
+            existing = group_index.get(gkey)
+            elem_index = existing if existing is not None else len(scene.els)
             box = [1e30, 1e30, 1e30, -1e30, -1e30, -1e30]
             buckets = {
                 "opaque": {"arr": scene.f_opaque, "parts": scene.parts_opaque,
@@ -1362,13 +1414,25 @@ def build_scene(doc, view, options, progress=None):
                 continue
 
             if scene.overrides is not None:
-                scene.overrides.match(element, source_doc, xform is None, elem_index)
-            scene.els.append(_element_meta(source_doc, element, scene, source_label, cat_name))
-            scene.ebox.extend(box)
+                scene.overrides.match(element, source_doc, xform is None, elem_index, owner)
             scene.grow_bounds(box)
+            if existing is not None:
+                # another part of an element already exported - widen its box
+                eb = scene.ebox
+                at = existing * 6
+                for a in range(3):
+                    if box[a] < eb[at + a]:
+                        eb[at + a] = box[a]
+                    if box[a + 3] > eb[at + a + 3]:
+                        eb[at + a + 3] = box[a + 3]
+                continue
+            group_index[gkey] = elem_index
+            scene.els.append(_element_meta(source_doc, owner_el, scene, source_label,
+                                           _category_name(owner_el)))
+            scene.ebox.extend(box)
             source_row[source_label][2] += 1
             if options.get("include_params"):
-                params = _element_params(element, scene)
+                params = _element_params(owner_el, scene)
                 if params:
                     scene.params[str(elem_index)] = params
 

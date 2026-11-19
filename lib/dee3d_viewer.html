@@ -879,6 +879,7 @@ var VS = [
 "attribute vec4 a_col;",
 "attribute float a_part;",
 "attribute float a_vis;",
+"attribute float a_hl;",
 "uniform mat4 u_mvp;",
 "uniform vec3 u_qmin;",
 "uniform vec3 u_qscale;",
@@ -892,7 +893,7 @@ var VS = [
 "void main(){",
 "  vec3 p = u_qmin + a_pos * u_qscale;",
 "  v_wld = p; v_nrm = a_nrm; v_col = a_col; v_vis = a_vis;",
-"  v_sel = abs(a_part - u_sel) < 0.5 ? 1.0 : 0.0;",
+"  v_sel = a_hl * u_sel;",
 "  float id = a_part + 1.0;",
 "  v_pick = vec3(mod(id,256.0), mod(floor(id/256.0),256.0), mod(floor(id/65536.0),256.0)) / 255.0;",
 "  gl_Position = u_mvp * vec4(p, 1.0);",
@@ -1231,7 +1232,7 @@ function stepGL(){
   if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
   gl.useProgram(prog);
 
-  ["a_pos","a_nrm","a_col","a_part","a_vis"].forEach(function(n){
+  ["a_pos","a_nrm","a_col","a_part","a_vis","a_hl"].forEach(function(n){
     A[n] = gl.getAttribLocation(prog, n);
   });
   ["u_mvp","u_qmin","u_qscale","u_sel","u_cmin","u_cmax","u_eye","u_pick",
@@ -1250,6 +1251,8 @@ function stepGL(){
   buf.col  = vbo(colU8);
   buf.part = vbo(partF32);
   buf.vis  = vbo(visArr, gl.DYNAMIC_DRAW);
+  hlArr    = new Uint8Array(nVerts);
+  buf.hl   = vbo(hlArr, gl.DYNAMIC_DRAW);
 
   /* The normals/colours/ids are on the GPU now and releasing them
      matters on a phone with a big model. pos16 is DELIBERATELY kept:
@@ -1304,6 +1307,31 @@ function bindAttribs(){
   gl.bindBuffer(gl.ARRAY_BUFFER, buf.vis);
   gl.enableVertexAttribArray(A.a_vis);
   gl.vertexAttribPointer(A.a_vis, 1, gl.UNSIGNED_BYTE, true, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf.hl);
+  gl.enableVertexAttribArray(A.a_hl);
+  gl.vertexAttribPointer(A.a_hl, 1, gl.UNSIGNED_BYTE, true, 0, 0);
+}
+
+/* The selection highlight covers the whole ELEMENT, not just the part
+   that was clicked - a curtain wall exports as one element made of many
+   panel and mullion parts, and they should all light up together. */
+var hlArr = null, hlElem = -1;
+function syncHighlight(){
+  if (selElem === hlElem || !hlArr) return;
+  ensureElemToParts();
+  function paint(e, v){
+    var list = elemToParts[e] || [];
+    for (var i = 0; i < list.length; i++){
+      var p = list[i], vs = parts[p*4+2] * 3, vc = parts[p*4+3] * 3;
+      hlArr.fill(v, vs, vs + vc);
+    }
+  }
+  if (hlElem >= 0) paint(hlElem, 0);
+  if (selElem >= 0) paint(selElem, 255);
+  hlElem = selElem;
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf.hl);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, hlArr);
 }
 
 function camEye(){
@@ -1353,7 +1381,8 @@ function draw(pickPass){
   gl.uniform3fv(U.u_eye, new Float32Array(eye));
   gl.uniform3fv(U.u_cmin, new Float32Array(cb.min));
   gl.uniform3fv(U.u_cmax, new Float32Array(cb.max));
-  gl.uniform1f(U.u_sel, pickPass ? -1 : selPart);
+  if (!pickPass) syncHighlight();
+  gl.uniform1f(U.u_sel, pickPass ? 0 : 1);
   gl.uniform1f(U.u_pick, pickPass ? 1 : 0);
   gl.uniform1f(U.u_alpha, pickPass ? 1 : GLOBAL_ALPHA);
   gl.uniform1f(U.u_hatch, (!pickPass && VIEWMODE === "hatch") ? 1 : 0);
