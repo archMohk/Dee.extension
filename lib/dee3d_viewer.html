@@ -272,6 +272,40 @@ select{
   border-radius:8px;background:transparent;color:var(--fg);font:11px/1.4 monospace;outline:none}
 .note{font-size:10.5px;color:var(--dim);line-height:1.5;margin-top:5px}
 
+/* ---------- colour & filters ---------- */
+#vm_seg button{font-size:10.5px;padding:0 1px}
+.row input[type=color]{
+  flex:none;width:20px;height:16px;padding:0;border:1px solid rgba(128,128,128,.5);
+  border-radius:3px;background:transparent;cursor:pointer
+}
+.row input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+.row input[type=color]::-webkit-color-swatch{border:0;border-radius:2px}
+.row input[type=color].nocol{opacity:.35}
+.row .nm small{color:var(--dim);font-size:9.5px;margin-left:4px;text-transform:uppercase;letter-spacing:.4px}
+.subh{margin:10px 0 6px;font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:var(--dim);
+  font-weight:600;border-top:1px dashed var(--line);padding-top:8px}
+#cb_list,#vf_list{max-height:300px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#fr_box{border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:6px;display:none}
+#fr_box.show{display:block}
+.rule{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;padding-bottom:6px;border-bottom:1px dashed var(--line)}
+.rule select{flex:1 1 45%;min-width:0;height:26px;font-size:11.5px}
+.rule input{flex:1 1 70%;min-width:0;height:26px!important;font-size:11.5px!important}
+.rule button{flex:none;width:26px;height:26px;border:1px solid var(--line);border-radius:6px;
+  background:transparent;color:var(--dim);cursor:pointer}
+#fr_col{width:44px;height:26px;padding:0;border:1px solid var(--line);border-radius:6px;background:transparent;cursor:pointer}
+#legend{
+  position:fixed;left:8px;top:calc(54px + env(safe-area-inset-top));z-index:22;
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);
+  backdrop-filter:blur(10px);padding:7px 10px;display:none;max-width:min(240px,calc(100% - 16px));
+  font-size:11.5px;pointer-events:none
+}
+#legend.show{display:block}
+#legend b{display:block;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
+#legend .li{display:flex;align-items:center;gap:6px;padding:1px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#legend .li i{flex:none;width:11px;height:11px;border-radius:3px;border:1px solid rgba(128,128,128,.5)}
+#legend .li span{overflow:hidden;text-overflow:ellipsis}
+#legend .more{color:var(--dim);font-size:10.5px;margin-top:2px}
+
 @media (max-width:640px){
   #drawer{width:min(84vw,320px)}
   #info{
@@ -317,6 +351,62 @@ select{
       <div id="cats"></div>
     </div>
     <div class="sec">
+      <h4>Colour &amp; filters</h4>
+      <div class="slab"><span>Colour elements by</span><span></span></div>
+      <select id="cb_name"></select>
+      <div class="mini" style="margin-top:6px">
+        <button id="cb_all">All on</button>
+        <button id="cb_none">All off</button>
+        <button id="cb_reset">New colours</button>
+      </div>
+      <div id="cb_list"></div>
+      <div class="subh">Filters</div>
+      <div class="note" style="margin:0 0 6px">Filters from the Revit view's
+        Visibility/Graphics come in with their colours. Add your own with <b>New filter</b>.
+        Tick to apply, pick a swatch to recolour, press <b>V</b> to show or hide what a filter
+        catches. The higher a filter is in the list, the more it wins.</div>
+      <div id="vf_list"></div>
+      <div class="mini" style="margin-top:6px">
+        <button id="vf_show">Show filter colours</button>
+        <button id="vf_new">New filter</button>
+      </div>
+      <label class="row"><input type="checkbox" id="vf_fade">
+        <span class="nm">Grey out what no filter catches</span></label>
+      <label class="row"><input type="checkbox" id="lg_show" checked>
+        <span class="nm">Show the colour legend on screen</span></label>
+      <div id="fr_box">
+        <input type="text" id="fr_name" placeholder="Filter name">
+        <div class="slab" style="margin-top:6px"><span>Rules</span><span></span></div>
+        <div id="fr_rules"></div>
+        <div class="mini">
+          <button id="fr_add">+ Add rule</button>
+          <select id="fr_any" style="flex:1;height:26px;font-size:11px">
+            <option value="all">Match ALL rules</option>
+            <option value="any">Match ANY rule</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin:4px 0">
+          <input type="color" id="fr_col" value="#e53935">
+          <label class="row" style="flex:1"><input type="checkbox" id="fr_usecol" checked>
+            <span class="nm">Colour</span></label>
+          <label class="row" style="flex:1"><input type="checkbox" id="fr_vis" checked>
+            <span class="nm">Visible</span></label>
+        </div>
+        <div class="slab"><span>Transparency</span><span id="fr_tlab">0%</span></div>
+        <input type="range" id="fr_t" min="0" max="90" value="0">
+        <div class="now" id="fr_count">0 elements match</div>
+        <div class="mini" style="margin-top:6px">
+          <button id="fr_save">Save filter</button>
+          <button id="fr_cancel">Cancel</button>
+        </div>
+        <div class="mini">
+          <button id="fr_sel">Select matching</button>
+          <button id="fr_iso">Isolate matching</button>
+        </div>
+      </div>
+      <datalist id="fr_vals"></datalist>
+    </div>
+    <div class="sec">
       <h4>View</h4>
       <div class="seg">
         <button id="vw_persp">Perspective</button>
@@ -328,6 +418,7 @@ select{
         <button data-vm="category">Category</button>
         <button data-vm="normal">Plain</button>
         <button data-vm="hatch">Hatch</button>
+        <button data-vm="filters">Filters</button>
       </div>
       <div class="slab"><span>Lens angle</span><span id="vw_fovlab">49&deg;</span></div>
       <input type="range" id="vw_fov" min="10" max="100" value="49">
@@ -427,6 +518,8 @@ select{
   </div>
 </div>
 
+<div id="legend"></div>
+
 <div id="info">
   <div class="hd"><b id="i_ttl">Element</b><button id="i_close">&times;</button></div>
   <div class="bd" id="i_body"></div>
@@ -502,7 +595,8 @@ select{
   <p><b>Section box</b> (in the menu) &mdash; drag the sliders, or press <b>Edit box</b> to drag a visible box in 3D: the orange squares push in one side at a time, the blue dot moves the whole box.</p>
   <p><b>Laser</b> &mdash; tap a point, on the model or in empty space, and six rays fire outward from it (+X/-X, +Y/-Y, +Z/-Z), each showing the distance to the nearest face it hits. Every probe is kept in the menu's <b>Laser rays</b> list - tap one there to revisit it, or the &times; to delete it.</p>
   <p><b>View</b> (in the menu) &mdash; switch between perspective and isometric, set the lens angle and the exact turn and height, choose the measuring units, and make the whole model or single categories see-through. The keyplan in the corner shows where you are looking from.</p>
-  <p><b>Display style</b> (in the menu's View section) &mdash; <b>Material</b> shows real material colours, <b>Category</b> gives every category its own colour, <b>Plain</b> is a clean clay model, and <b>Hatch</b> is a sketch look with hatched shading. Switch any time - nothing is lost.</p>
+  <p><b>Display style</b> (in the menu's View section) &mdash; <b>Material</b> shows real material colours, <b>Category</b> gives every category its own colour, <b>Plain</b> is a clean clay model, and <b>Hatch</b> is a sketch look with hatched shading. <b>Filters</b> shows the colours of the Revit view's filters and overrides. Switch any time - nothing is lost.</p>
+  <p><b>Colour &amp; filters</b> (in the menu) &mdash; colour the model by Category, Family, Type, Level or any exported parameter, with a legend you can tick on and off. Build your own filters from rules (for example <i>Level equals L01</i> and <i>Type contains Wall</i>) to colour, hide, see-through, select or isolate whatever they catch.</p>
   <p><b>Reset all</b> puts every category, every hidden element and the section box back to how the file opened.</p>
   <p style="margin-top:10px">This file works with no internet connection. It can be copied, emailed or shared like any other file.</p>
   <button class="close" id="help_close">Got it</button>
@@ -852,7 +946,7 @@ var GHOST = 0.22;                 /* how faint a ghosted category is     */
 var ghostActive = false;          /* set by refreshVisibility            */
 var lastMVP = null;               /* so the overlay projects exactly     */
 var nav = { zoom: 1.0, invert: false, cursor: true, move: 1.0, pivot: true };
-var VIEWMODE = "material";        /* material | category | normal | hatch */
+var VIEWMODE = "material";        /* material | category | normal | hatch | filters | colorby */
 var CLAY = [224, 222, 216];       /* base colour of Plain and Hatch modes */
 
 /* The same deterministic category palette the exporter uses (see
@@ -885,12 +979,26 @@ function partColor(p){
   }
   if (VIEWMODE === "normal" || VIEWMODE === "hatch")
     return [CLAY[0], CLAY[1], CLAY[2], col[3]];
+  if (VIEWMODE === "filters"){
+    var sp = elSpec ? elSpec[parts[p*4]] : null;
+    if (!sp) return FADE_REST ? [CLAY[0], CLAY[1], CLAY[2], Math.min(col[3], 150)] : col;
+    var rgb = sp.col || col;
+    var out = [rgb[0], rgb[1], rgb[2], sp.alpha >= 0 ? Math.min(sp.alpha, col[3]) : col[3]];
+    if (sp.half){ out[0] = (out[0] + 255) >> 1; out[1] = (out[1] + 255) >> 1; out[2] = (out[2] + 255) >> 1; }
+    return out;
+  }
+  if (VIEWMODE === "colorby" && CB && elCB){
+    var vv = CB.vals[elCB[parts[p*4]]];
+    if (vv) return [vv.col[0], vv.col[1], vv.col[2], col[3]];
+  }
   return col;
 }
 
 function fillColors(dst){
+  tintAlpha = false;
   for (var p = 0; p < nParts; p++){
     var col = partColor(p);
+    if (col[3] < 255 && parts[p*4+2] * 3 < nOpaqueVerts) tintAlpha = true;
     var vs = parts[p*4+2] * 3, vc = parts[p*4+3] * 3;
     for (var i = vs; i < vs + vc; i++){
       dst[i*4] = col[0]; dst[i*4+1] = col[1]; dst[i*4+2] = col[2]; dst[i*4+3] = col[3];
@@ -899,8 +1007,11 @@ function fillColors(dst){
 }
 
 function setViewMode(mode){
-  if (mode !== "material" && mode !== "category" && mode !== "normal" && mode !== "hatch")
+  if (mode === "colorby" && !CB) mode = "material";
+  if (mode !== "material" && mode !== "category" && mode !== "normal" && mode !== "hatch" &&
+      mode !== "filters" && mode !== "colorby")
     mode = "material";
+  if (mode === "filters" && !elSpec) recomputeFilters();
   VIEWMODE = mode;
   var seg = $("vm_seg");
   if (seg){
@@ -915,6 +1026,7 @@ function setViewMode(mode){
     gl.bindBuffer(gl.ARRAY_BUFFER, buf.col);
     gl.bufferData(gl.ARRAY_BUFFER, tmp, gl.STATIC_DRAW);
   }
+  buildLegend();
   invalidate();
 }
 
@@ -1035,6 +1147,7 @@ function stepDecode(){
     catGhost.push(false);
   }
   for (i = 0; i < els.length; i++) catOf[i] = remap[els[i][0]];
+  initFilters();
 }
 
 function stepNormals(){
@@ -1232,7 +1345,7 @@ function draw(pickPass){
      meaning anything, so the whole model goes through one blended pass.
      The pick buffer never blends - a ghosted element must stay just as
      clickable as a solid one. */
-  if (!pickPass && (GLOBAL_ALPHA < 0.999 || ghostActive)){
+  if (!pickPass && (GLOBAL_ALPHA < 0.999 || ghostActive || tintAlpha)){
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false);
@@ -1337,6 +1450,8 @@ function partVisible(p){
   var e = parts[p*4];
   if (elHidden[e]) return false;
   if (isoSet && !isoSet[e]) return false;
+  if (fHide && fHide[e]) return false;
+  if (CB && cbHide && cbHide[e]) return false;
   return !!catOn[catOf[e]];
 }
 
@@ -1835,6 +1950,526 @@ function selectByParam(isolate){
   }
 }
 
+/* ==================================================================
+   Colour & filters
+   ==================================================================
+   FILTERS is one list in precedence order - the viewer's own filters
+   on top, then whatever the Revit view carried (DATA.vf: per-element
+   overrides, the V/G filters top-down, category rows last). For every
+   element the first applied filter that sets a colour gives the colour,
+   the first that sets transparency gives the transparency, and ANY
+   applied filter with Visible off hides it - the same way Revit merges
+   overlapping filters.
+   ================================================================== */
+var FILTERS = [];
+var elSpec = null;                /* per element: merged {col, alpha, half} or null */
+var fHide = null;                 /* per element: hidden by a filter                */
+var CB = null, elCB = null, cbHide = null;   /* colour-by state                     */
+var cbCustom = {};                /* user-picked colours: cbCustom[param][value]     */
+var cbSeed = 0;
+var tintAlpha = false;            /* some opaque part got an alpha below 1           */
+var FADE_REST = false;
+var LEGEND_ON = true;
+var prmIdx = null;
+var editing = null;               /* filter being edited, or "new"                   */
+var FILTER_STORE = "dee3d:" + (DATA.model || "?") + "|" + (DATA.view || "?") + ":filters";
+
+function elVal(e, name){
+  if (BUILTIN_PARAMS.indexOf(name) >= 0) return builtinValue(e, name);
+  if (!DATA.prm) return "";
+  if (!prmIdx){
+    prmIdx = new Array(els.length);
+    for (var k in DATA.prm){
+      var o = {}, arr = DATA.prm[k];
+      for (var i = 0; i < arr.length; i++) o[S(arr[i][0])] = S(arr[i][1]);
+      prmIdx[parseInt(k, 10)] = o;
+    }
+  }
+  var r = prmIdx[e];
+  return (r && r[name] !== undefined) ? r[name] : "";
+}
+function numOf(s){
+  var t = String(s || "").replace(/(\d),(\d{3})(?!\d)/g, "$1$2").replace(",", ".");
+  var m = /-?\d+(?:\.\d+)?/.exec(t);
+  return m ? parseFloat(m[0]) : NaN;
+}
+function hex2rgb(h){
+  h = String(h || "").replace("#", "");
+  if (h.length !== 6) return [200, 200, 200];
+  return [parseInt(h.substr(0,2),16), parseInt(h.substr(2,2),16), parseInt(h.substr(4,2),16)];
+}
+function rgb2hex(c){
+  var o = "#";
+  for (var i = 0; i < 3; i++){
+    var s2 = Math.max(0, Math.min(255, c[i] | 0)).toString(16);
+    o += s2.length < 2 ? "0" + s2 : s2;
+  }
+  return o;
+}
+function hsv(h, s2, v){
+  var i6 = Math.floor(h * 6), f = h * 6 - i6;
+  var p = v * (1 - s2), q = v * (1 - f * s2), t = v * (1 - (1 - f) * s2);
+  var rgb = [[v,t,p],[q,v,p],[p,v,t],[p,q,v],[t,p,v],[v,p,q]][((i6 % 6) + 6) % 6];
+  return [Math.round(rgb[0]*255), Math.round(rgb[1]*255), Math.round(rgb[2]*255)];
+}
+function distinctColor(i){
+  return hsv(((i + cbSeed) * 0.618034) % 1, 0.50 + 0.22 * ((i >> 1) % 2), 0.90 - 0.16 * ((i >> 2) % 2));
+}
+function rampColor(t){ return hsv((1 - t) * 0.68, 0.72, 0.90); }
+
+/* ---------- rules ---------- */
+var OPS = [["eq","equals"],["ne","does not equal"],["has","contains"],["nhas","does not contain"],
+           ["sw","begins with"],["ew","ends with"],["gt","is greater than"],["lt","is less than"],
+           ["set","has a value"],["unset","has no value"]];
+function ruleTest(r, e){
+  var v = elVal(e, r.p), a = String(v).toLowerCase(), b = String(r.v || "").toLowerCase(), x, y;
+  switch (r.o){
+    case "eq":   return a === b;
+    case "ne":   return a !== b;
+    case "has":  return a.indexOf(b) >= 0;
+    case "nhas": return a.indexOf(b) < 0;
+    case "sw":   return a.indexOf(b) === 0;
+    case "ew":   return a.length >= b.length && a.substr(a.length - b.length) === b;
+    case "gt":   x = numOf(v); y = numOf(r.v); return !isNaN(x) && !isNaN(y) && x > y;
+    case "lt":   x = numOf(v); y = numOf(r.v); return !isNaN(x) && !isNaN(y) && x < y;
+    case "set":  return a !== "";
+    case "unset":return a === "";
+  }
+  return false;
+}
+function matchRules(rules, any){
+  var m = new Uint8Array(els.length), n = 0;
+  if (!rules.length) return { m:m, n:0 };
+  for (var e = 0; e < els.length; e++){
+    var ok = !any;
+    for (var i = 0; i < rules.length; i++){
+      var t = ruleTest(rules[i], e);
+      if (any && t){ ok = true; break; }
+      if (!any && !t){ ok = false; break; }
+    }
+    if (ok){ m[e] = 1; n++; }
+  }
+  return { m:m, n:n };
+}
+
+/* ---------- filter list ---------- */
+function userFilter(o){
+  var f = { n: o.n || "Filter", kind: "user", rules: o.rules || [], any: !!o.any,
+            col: o.col ? hex2rgb(o.col) : null, alpha: o.alpha >= 0 ? o.alpha : -1, half: false,
+            vis: o.vis !== false, on: o.on !== false, lastCol: o.col || "#e53935" };
+  var r = matchRules(f.rules, f.any);
+  f.m = r.m; f.cnt = r.n;
+  return f;
+}
+function initFilters(){
+  var vf = DATA.vf || [], i;
+  for (i = 0; i < vf.length; i++){
+    var en = vf[i];
+    var c = (en.c >= 0 && colors[en.c]) ? colors[en.c].slice(0, 3) : null;
+    FILTERS.push({ n: en.n, kind: "revit", k: en.k, col: c, alpha: en.t >= 0 ? en.t : -1,
+                   half: !!en.h, vis: en.v !== 0, on: true, m: new Uint8Array(els.length), cnt: 0,
+                   lastCol: c ? rgb2hex(c) : "#999999" });
+  }
+  if (DATA.vfm){
+    for (var key in DATA.vfm){
+      var e = parseInt(key, 10), arr = DATA.vfm[key];
+      for (var j = 0; j < arr.length; j++){
+        var f = FILTERS[arr[j]];
+        if (f && e < els.length && !f.m[e]){ f.m[e] = 1; f.cnt++; }
+      }
+    }
+  }
+  try {
+    var saved = JSON.parse(localStorage.getItem(FILTER_STORE) || "[]");
+    for (i = saved.length - 1; i >= 0; i--) FILTERS.unshift(userFilter(saved[i]));
+  } catch (err) {}
+  recomputeFilters();
+}
+function persistFilters(){
+  var out = [];
+  for (var i = 0; i < FILTERS.length; i++){
+    var f = FILTERS[i];
+    if (f.kind !== "user") continue;
+    out.push({ n: f.n, rules: f.rules, any: f.any, col: f.col ? rgb2hex(f.col) : null,
+               alpha: f.alpha, vis: f.vis, on: f.on });
+  }
+  try { localStorage.setItem(FILTER_STORE, JSON.stringify(out)); } catch (err) {}
+}
+function recomputeFilters(){
+  elSpec = new Array(els.length);
+  fHide = new Uint8Array(els.length);
+  for (var e = 0; e < els.length; e++){
+    var sp = null;
+    for (var i = 0; i < FILTERS.length; i++){
+      var f = FILTERS[i];
+      if (!f.on || !f.m[e]) continue;
+      if (!f.vis) fHide[e] = 1;
+      if (!f.col && f.alpha < 0 && !f.half) continue;
+      if (!sp) sp = { col: null, alpha: -1, half: false };
+      if (!sp.col && f.col) sp.col = f.col;
+      if (sp.alpha < 0 && f.alpha >= 0) sp.alpha = f.alpha;
+      if (f.half) sp.half = true;
+    }
+    elSpec[e] = sp;
+  }
+}
+/* after any filter change: colours (if the Filters style is showing)
+   and visibility (filters can hide things in every style) */
+function filtersChanged(){
+  recomputeFilters();
+  persistFilters();
+  buildFilterList();
+  if (VIEWMODE === "filters") setViewMode("filters"); else buildLegend();
+  refreshVisibility();
+}
+
+function buildFilterList(){
+  var host = $("vf_list"), html = "";
+  if (!FILTERS.length){
+    host.innerHTML = '<div class="note" style="margin:0 0 4px">' +
+      (DATA.vf ? "" : "This file carries no Revit view filters. ") + "No filters yet.</div>";
+    return;
+  }
+  for (var i = 0; i < FILTERS.length; i++){
+    var f = FILTERS[i];
+    var tag = f.kind === "user" ? "yours" : (f.k === "c" ? "category" : (f.k === "e" ? "override" : "revit"));
+    html += '<div class="row" data-f="' + i + '">' +
+      '<input type="checkbox" class="f_on"' + (f.on ? " checked" : "") + ' title="Apply this filter">' +
+      '<input type="color" class="f_col' + (f.col ? "" : " nocol") + '" value="' +
+        (f.col ? rgb2hex(f.col) : f.lastCol) + '" title="Filter colour">' +
+      '<span class="nm" title="' + esc(f.n) + '">' + esc(f.n) + "<small>" + tag + "</small></span>" +
+      '<span class="ct">' + f.cnt + "</span>" +
+      '<button class="gh f_vis' + (f.vis ? " on" : "") + '" title="Visible / hidden">V</button>' +
+      (f.col ? '<button class="gh f_nc" title="Remove the colour">&minus;</button>' : "") +
+      (f.kind === "user"
+        ? '<button class="gh f_ed" title="Edit rules">&#9998;</button>' +
+          '<button class="gh f_del" title="Delete">&times;</button>'
+        : '<button class="gh f_iso" title="Isolate what it catches">I</button>') +
+      "</div>";
+  }
+  host.innerHTML = html;
+}
+function filterOfRow(el){
+  while (el && el.getAttribute && !el.getAttribute("data-f")) el = el.parentNode;
+  return (el && el.getAttribute) ? FILTERS[parseInt(el.getAttribute("data-f"), 10)] : null;
+}
+function isolateMask(m, n){
+  if (!n){ toast("Nothing matches"); return; }
+  isoSet = new Uint8Array(els.length);
+  for (var i = 0; i < els.length; i++) if (m[i]) isoSet[i] = 1;
+  refreshVisibility();
+  fitAll();
+  toast("Isolated " + n + " element(s)");
+}
+
+/* ---------- rule editor ---------- */
+function ruleRow(r){
+  var names = paramNames(), html = '<div class="rule">';
+  html += '<select class="r_p">' + names.map(function(n){
+    return "<option" + (n === r.p ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("") + "</select>";
+  html += '<select class="r_o">' + OPS.map(function(o){
+    return '<option value="' + o[0] + '"' + (o[0] === r.o ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select>";
+  html += '<input type="text" class="r_v" list="fr_vals" placeholder="value" value="' + esc(r.v || "") + '">';
+  html += '<button class="r_x" title="Remove rule">&times;</button></div>';
+  return html;
+}
+function readRules(){
+  var rows = $("fr_rules").querySelectorAll(".rule"), out = [];
+  for (var i = 0; i < rows.length; i++){
+    out.push({ p: rows[i].querySelector(".r_p").value, o: rows[i].querySelector(".r_o").value,
+               v: rows[i].querySelector(".r_v").value });
+  }
+  return out;
+}
+function editorMatch(){
+  return matchRules(readRules(), $("fr_any").value === "any");
+}
+function refreshEditorCount(){
+  var r = editorMatch();
+  $("fr_count").textContent = r.n + " element" + (r.n === 1 ? "" : "s") + " match";
+}
+function fillValueList(name){
+  var vals = paramValues(name).slice(0, 300);
+  $("fr_vals").innerHTML = vals.map(function(v){ return '<option value="' + esc(v) + '">'; }).join("");
+}
+function openFilterEditor(f){
+  editing = f || "new";
+  var src = f || { n: "", rules: [{ p: "Category", o: "eq", v: "" }], any: false, col: [229,57,53],
+                   alpha: -1, vis: true };
+  $("fr_name").value = src.n;
+  $("fr_rules").innerHTML = src.rules.map(ruleRow).join("");
+  $("fr_any").value = src.any ? "any" : "all";
+  $("fr_col").value = src.col ? rgb2hex(src.col) : (src.lastCol || "#e53935");
+  $("fr_usecol").checked = !!src.col;
+  $("fr_vis").checked = src.vis !== false;
+  var tp = src.alpha >= 0 ? Math.round((1 - src.alpha / 255) * 100) : 0;
+  $("fr_t").value = tp; $("fr_tlab").textContent = tp + "%";
+  $("fr_box").className = "show";
+  if (src.rules.length) fillValueList(src.rules[0].p);
+  refreshEditorCount();
+  $("fr_name").focus();
+}
+function closeFilterEditor(){ editing = null; $("fr_box").className = ""; }
+function saveFilterEditor(){
+  var rules = readRules();
+  if (!rules.length){ toast("Add at least one rule"); return; }
+  var tp = parseInt($("fr_t").value, 10) || 0;
+  var o = { n: $("fr_name").value.replace(/^\s+|\s+$/g, "") || ("Filter " + (FILTERS.length + 1)),
+            rules: rules, any: $("fr_any").value === "any",
+            col: $("fr_usecol").checked ? $("fr_col").value : null,
+            alpha: tp > 0 ? Math.round(255 * (1 - tp / 100)) : -1, vis: $("fr_vis").checked, on: true };
+  var f = userFilter(o);
+  f.lastCol = $("fr_col").value;
+  if (editing && editing !== "new"){
+    var at = FILTERS.indexOf(editing);
+    if (at >= 0) FILTERS[at] = f; else FILTERS.unshift(f);
+  } else FILTERS.unshift(f);
+  closeFilterEditor();
+  if (f.col || f.alpha >= 0) VIEWMODE = "filters";
+  filtersChanged();
+  toast('"' + f.n + '" catches ' + f.cnt + " element(s)");
+}
+
+/* ---------- colour by ---------- */
+function setColorBy(name){
+  if (!name){
+    CB = null; elCB = null; cbHide = null;
+    buildCBList();
+    if (VIEWMODE === "colorby") setViewMode("material"); else buildLegend();
+    refreshVisibility();
+    return;
+  }
+  var map = {}, vals = [], i;
+  var raw = new Int32Array(els.length);
+  for (i = 0; i < els.length; i++){
+    var v = elVal(i, name) || "";
+    var k = map[v];
+    if (k === undefined){ k = map[v] = vals.length; vals.push({ v: v, n: 0, on: true, col: null }); }
+    vals[k].n++; raw[i] = k;
+  }
+  var nonEmpty = 0, numeric = 0;
+  for (i = 0; i < vals.length; i++){
+    if (vals[i].v === "") continue;
+    nonEmpty++;
+    if (!isNaN(numOf(vals[i].v))) numeric++;
+  }
+  var isNum = nonEmpty > 1 && numeric === nonEmpty;
+  var order = [];
+  for (i = 0; i < vals.length; i++) order.push(i);
+  order.sort(function(a, b){
+    var va = vals[a].v, vb = vals[b].v;
+    if (va === "") return 1;
+    if (vb === "") return -1;
+    if (isNum) return numOf(va) - numOf(vb);
+    va = va.toLowerCase(); vb = vb.toLowerCase();
+    return va < vb ? -1 : (va > vb ? 1 : 0);
+  });
+  var sorted = [], remap = new Int32Array(vals.length), custom = cbCustom[name] || {};
+  for (i = 0; i < order.length; i++){ remap[order[i]] = i; sorted.push(vals[order[i]]); }
+  var span = Math.max(1, nonEmpty - 1);
+  for (i = 0; i < sorted.length; i++){
+    var sv = sorted[i];
+    if (custom[sv.v]) sv.col = custom[sv.v].slice();
+    else if (sv.v === "") sv.col = [150, 150, 150];
+    else sv.col = isNum ? rampColor(i / span) : distinctColor(i);
+  }
+  elCB = new Int32Array(els.length);
+  for (i = 0; i < els.length; i++) elCB[i] = remap[raw[i]];
+  CB = { name: name, vals: sorted, numeric: isNum };
+  cbHide = new Uint8Array(els.length);
+  buildCBList();
+  setViewMode("colorby");
+  refreshVisibility();
+}
+function recolorCB(){
+  if (!CB) return;
+  var nonEmpty = 0, i;
+  for (i = 0; i < CB.vals.length; i++) if (CB.vals[i].v !== "") nonEmpty++;
+  var span = Math.max(1, nonEmpty - 1);
+  cbCustom[CB.name] = {};
+  for (i = 0; i < CB.vals.length; i++){
+    var sv = CB.vals[i];
+    if (sv.v === "") continue;
+    sv.col = CB.numeric ? rampColor(i / span) : distinctColor(i);
+  }
+}
+function syncCBHide(){
+  if (!CB) return;
+  for (var e = 0; e < els.length; e++) cbHide[e] = CB.vals[elCB[e]].on ? 0 : 1;
+}
+var CB_MAX_ROWS = 400;
+function buildCBList(){
+  var host = $("cb_list");
+  if (!CB){ host.innerHTML = ""; return; }
+  var html = "", n = Math.min(CB.vals.length, CB_MAX_ROWS);
+  for (var i = 0; i < n; i++){
+    var sv = CB.vals[i];
+    html += '<div class="row" data-v="' + i + '">' +
+      '<input type="checkbox" class="v_on"' + (sv.on ? " checked" : "") + ' title="Show / hide">' +
+      '<input type="color" class="v_col" value="' + rgb2hex(sv.col) + '">' +
+      '<span class="nm" title="' + esc(sv.v || "(no value)") + '">' + esc(sv.v || "(no value)") + "</span>" +
+      '<span class="ct">' + sv.n + "</span>" +
+      '<button class="gh v_iso" title="Isolate this value">I</button></div>';
+  }
+  if (CB.vals.length > n)
+    html += '<div class="note">' + (CB.vals.length - n) + " more values not listed (they are still coloured).</div>";
+  host.innerHTML = html;
+}
+function cbRow(el){
+  while (el && el.getAttribute && !el.getAttribute("data-v")) el = el.parentNode;
+  return (el && el.getAttribute) ? parseInt(el.getAttribute("data-v"), 10) : -1;
+}
+
+/* ---------- on-screen legend ---------- */
+function buildLegend(){
+  var lg = $("legend");
+  if (!lg) return;
+  var rows = [], title = "";
+  if (VIEWMODE === "colorby" && CB){
+    title = CB.name;
+    for (var i = 0; i < CB.vals.length; i++)
+      if (CB.vals[i].on) rows.push([CB.vals[i].col, CB.vals[i].v || "(no value)"]);
+  } else if (VIEWMODE === "filters"){
+    title = "Filters";
+    for (var j = 0; j < FILTERS.length; j++){
+      var f = FILTERS[j];
+      if (f.on && f.cnt && f.col) rows.push([f.col, f.n]);
+    }
+  }
+  if (!LEGEND_ON || !rows.length){ lg.className = ""; return; }
+  var MAX = 14, html = "<b>" + esc(title) + "</b>";
+  for (var k = 0; k < Math.min(rows.length, MAX); k++)
+    html += '<div class="li"><i style="background:' + rgb2hex(rows[k][0]) + '"></i><span>' + esc(rows[k][1]) + "</span></div>";
+  if (rows.length > MAX) html += '<div class="more">+ ' + (rows.length - MAX) + " more</div>";
+  lg.innerHTML = html;
+  lg.className = "show";
+}
+
+/* ---------- wiring ---------- */
+function hasCls(el, c){ return !!(el && typeof el.className === "string" && el.className.indexOf(c) >= 0); }
+function buildColourPanel(){
+  var sel = $("cb_name");
+  sel.innerHTML = '<option value="">(off - use the display style)</option>' +
+    paramNames().map(function(n){ return "<option>" + esc(n) + "</option>"; }).join("");
+  on(sel, "change", function(){ setColorBy(sel.value); });
+  on($("cb_all"), "click", function(){
+    if (!CB) return;
+    for (var i = 0; i < CB.vals.length; i++) CB.vals[i].on = true;
+    syncCBHide(); buildCBList(); buildLegend(); refreshVisibility();
+  });
+  on($("cb_none"), "click", function(){
+    if (!CB) return;
+    for (var i = 0; i < CB.vals.length; i++) CB.vals[i].on = false;
+    syncCBHide(); buildCBList(); buildLegend(); refreshVisibility();
+  });
+  on($("cb_reset"), "click", function(){
+    if (!CB){ toast("Pick something to colour by first"); return; }
+    cbSeed += 3; recolorCB(); buildCBList(); setViewMode("colorby");
+  });
+  var cbl = $("cb_list");
+  on(cbl, "change", function(ev){
+    var vi = cbRow(ev.target);
+    if (vi < 0 || !CB || !hasCls(ev.target, "v_on")) return;
+    CB.vals[vi].on = ev.target.checked;
+    syncCBHide(); buildLegend(); refreshVisibility();
+  });
+  on(cbl, "input", function(ev){
+    var vi = cbRow(ev.target);
+    if (vi < 0 || !CB || !hasCls(ev.target, "v_col")) return;
+    CB.vals[vi].col = hex2rgb(ev.target.value);
+    (cbCustom[CB.name] = cbCustom[CB.name] || {})[CB.vals[vi].v] = CB.vals[vi].col.slice();
+    setViewMode("colorby");
+  });
+  on(cbl, "click", function(ev){
+    if (!hasCls(ev.target, "v_iso")) return;
+    var vi = cbRow(ev.target);
+    if (vi < 0 || !CB) return;
+    var m = new Uint8Array(els.length), n = 0;
+    for (var e = 0; e < els.length; e++) if (elCB[e] === vi){ m[e] = 1; n++; }
+    isolateMask(m, n);
+  });
+
+  var vfl = $("vf_list");
+  on(vfl, "change", function(ev){
+    var f = filterOfRow(ev.target);
+    if (!f) return;
+    if (hasCls(ev.target, "f_on")){ f.on = ev.target.checked; filtersChanged(); }
+    else if (hasCls(ev.target, "f_col")){
+      f.col = hex2rgb(ev.target.value); f.lastCol = ev.target.value;
+      VIEWMODE = "filters"; filtersChanged();
+    }
+  });
+  on(vfl, "click", function(ev){
+    var t = ev.target;
+    if (t.tagName !== "BUTTON") return;
+    var f = filterOfRow(t);
+    if (!f) return;
+    if (hasCls(t, "f_vis")){ f.vis = !f.vis; filtersChanged(); }
+    else if (hasCls(t, "f_nc")){ f.col = null; filtersChanged(); }
+    else if (hasCls(t, "f_iso")) isolateMask(f.m, f.cnt);
+    else if (hasCls(t, "f_ed")) openFilterEditor(f);
+    else if (hasCls(t, "f_del")){
+      FILTERS.splice(FILTERS.indexOf(f), 1);
+      if (editing === f) closeFilterEditor();
+      filtersChanged();
+      toast("Filter deleted");
+    }
+  });
+  on($("vf_show"), "click", function(){
+    if (!FILTERS.length){ toast("No filters yet - press New filter"); return; }
+    setViewMode("filters");
+  });
+  on($("vf_new"), "click", function(){ openFilterEditor(null); });
+  on($("vf_fade"), "change", function(ev){
+    FADE_REST = ev.target.checked;
+    if (VIEWMODE === "filters") setViewMode("filters");
+  });
+  on($("lg_show"), "change", function(ev){ LEGEND_ON = ev.target.checked; buildLegend(); });
+
+  var rules = $("fr_rules");
+  on($("fr_add"), "click", function(){
+    var div = document.createElement("div");
+    div.innerHTML = ruleRow({ p: "Type", o: "has", v: "" });
+    rules.appendChild(div.firstChild);
+    refreshEditorCount();
+  });
+  on(rules, "click", function(ev){
+    if (!hasCls(ev.target, "r_x")) return;
+    var row = ev.target.parentNode;
+    row.parentNode.removeChild(row);
+    refreshEditorCount();
+  });
+  on(rules, "change", function(ev){
+    if (hasCls(ev.target, "r_p")) fillValueList(ev.target.value);
+    refreshEditorCount();
+  });
+  on(rules, "focusin", function(ev){
+    if (!hasCls(ev.target, "r_v")) return;
+    fillValueList(ev.target.parentNode.querySelector(".r_p").value);
+  });
+  var rT = null;
+  on(rules, "input", function(){
+    if (rT) clearTimeout(rT);
+    rT = setTimeout(refreshEditorCount, 200);
+  });
+  on($("fr_any"), "change", refreshEditorCount);
+  on($("fr_t"), "input", function(ev){ $("fr_tlab").textContent = ev.target.value + "%"; });
+  on($("fr_save"), "click", saveFilterEditor);
+  on($("fr_cancel"), "click", closeFilterEditor);
+  on($("fr_iso"), "click", function(){ var r = editorMatch(); isolateMask(r.m, r.n); });
+  on($("fr_sel"), "click", function(){
+    var r = editorMatch();
+    if (!r.n){ toast("Nothing matches"); return; }
+    multiSel = r.m;
+    updateMselPanel();
+    invalidate();
+    toast("Selected " + r.n + " element(s)");
+  });
+
+  buildFilterList();
+  buildLegend();
+}
+
 function updateMselPanel(){
   var n = multiCount();
   var show = selectMode || n > 0;
@@ -2262,6 +2897,7 @@ function wireUI(){
   on($("lz_delete"), "click", deleteActiveLaser);
   on($("lz_clear"), "click", clearAllLasers);
   buildParamPanel();
+  buildColourPanel();
   updateMselPanel();
   wireBoxGizmo();
 
@@ -2401,6 +3037,8 @@ function testPartAxisRay(p, P, rd){
 function elemAllowed(e){
   if (elHidden[e]) return false;
   if (isoSet && !isoSet[e]) return false;
+  if (fHide && fHide[e]) return false;
+  if (CB && cbHide && cbHide[e]) return false;
   return !!catOn[catOf[e]];
 }
 function castAxisRay(P, axis, sign){

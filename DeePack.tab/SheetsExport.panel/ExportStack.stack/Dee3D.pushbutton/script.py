@@ -54,6 +54,7 @@ _DEFAULTS = {
     "color_mode": 0,
     "include_links": False,
     "include_params": False,
+    "include_filters": True,
     "open_after": True,
     "max_triangles": core.DEFAULT_MAX_TRIANGLES,
     "last_folder": "",
@@ -329,6 +330,7 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
             "categories": included,
             "include_links": self.links_cb.IsChecked is True,
             "include_params": self.params_cb.IsChecked is True,
+            "include_filters": self.filters_cb.IsChecked is True,
             "max_triangles": max_tris,
         }
 
@@ -342,6 +344,7 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
             "color_mode": self.color_cb.SelectedIndex,
             "include_links": self.links_cb.IsChecked is True,
             "include_params": self.params_cb.IsChecked is True,
+            "include_filters": self.filters_cb.IsChecked is True,
             "open_after": self.open_cb.IsChecked is True,
             "unlimited": self.unlimited_cb.IsChecked is True,
             # The box's own number is what persists, not the huge
@@ -362,11 +365,25 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
             settings.get("color_mode", 0), len(core.VIEW_MODES))
         self.links_cb.IsChecked = bool(settings.get("include_links"))
         self.params_cb.IsChecked = bool(settings.get("include_params"))
+        self.filters_cb.IsChecked = bool(settings.get("include_filters", True))
         self.open_cb.IsChecked = bool(settings.get("open_after", True))
         self.limit_tb.Text = str(settings.get("max_triangles", core.DEFAULT_MAX_TRIANGLES))
         self.unlimited_cb.IsChecked = bool(settings.get("unlimited", False))
         self.limit_tb.IsEnabled = not self.unlimited_cb.IsChecked
         self._settings = settings
+
+    @staticmethod
+    def _filters_report(scene, options):
+        if not options.get("include_filters"):
+            return "not included"
+        vo = scene.overrides
+        if vo is None or not vo.entries:
+            return "none found on this view"
+        kinds = {"f": 0, "c": 0, "e": 0}
+        for entry in vo.entries:
+            kinds[entry["k"]] = kinds.get(entry["k"], 0) + 1
+        return "{0} filter(s), {1} category override(s), {2} element override(s) - {3:,} element(s) affected".format(
+            kinds["f"], kinds["c"], kinds["e"], len(vo.matches))
 
     def _save_settings(self):
         try:
@@ -497,9 +514,10 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
             ("Colours", "{0}".format(len(scene.book.colors))),
             ("Quality", core.QUALITY_PRESETS[max(0, self.quality_cb.SelectedIndex)][0]),
             ("Opens in", core.VIEW_MODES[max(0, self.color_cb.SelectedIndex)][0] +
-             " (all four styles switchable inside the file)"),
+             " (every style switchable inside the file)"),
             ("Linked models", "included" if options["include_links"] else "not included"),
             ("Element parameters", "included" if options["include_params"] else "not included"),
+            ("View filter colours", self._filters_report(scene, options)),
         ]
         html = '<h2 style="font-family:sans-serif;">Dee3D - export finished</h2><table style="font-family:sans-serif;font-size:12px;border-collapse:collapse;">'
         for key, value in rows:

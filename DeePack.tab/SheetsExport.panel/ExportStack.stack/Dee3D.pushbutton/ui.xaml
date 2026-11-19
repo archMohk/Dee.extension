@@ -59,7 +59,7 @@
                 <TextBlock Grid.Row="0" Grid.Column="3" Text="Opens as:" Margin="0,0,6,0"
                            VerticalAlignment="Center"/>
                 <ComboBox Grid.Row="0" Grid.Column="4" x:Name="color_cb" Height="24"
-                          ToolTip="The display style the file OPENS in. Whoever views it can switch between Material, Category, Plain (clay) and Hatch (sketch) styles at any time from the viewer's View menu - the file always carries the real material colours."/>
+                          ToolTip="The display style the file OPENS in. Whoever views it can switch between Material, Category, Plain (clay), Hatch (sketch) and Filters (Revit view filter colours) styles, and colour by any parameter at any time from the viewer's View menu - the file always carries the real material colours."/>
 
                 <StackPanel Grid.Row="0" Grid.Column="6" Orientation="Horizontal">
                     <TextBlock Text="Triangle limit:" VerticalAlignment="Center" Margin="0,0,6,0"/>
@@ -80,6 +80,9 @@
                     <CheckBox x:Name="params_cb" Content="Include element parameters"
                               VerticalAlignment="Center" Margin="22,0,0,0"
                               ToolTip="Stores each element's instance parameters so they can be read in the viewer. This is the option most likely to make the file very large."/>
+                    <CheckBox x:Name="filters_cb" Content="Include view filter colours"
+                              VerticalAlignment="Center" Margin="22,0,0,0" IsChecked="True"
+                              ToolTip="Bakes this 3D view's Visibility/Graphics filter colours, category overrides and per-element overrides into the file, so the viewer can show them as the 'Filters' display style with a legend. Small cost in file size."/>
                     <CheckBox x:Name="open_cb" Content="Open in browser when finished"
                               VerticalAlignment="Center" Margin="22,0,0,0"/>
                 </StackPanel>

@@ -127,6 +127,7 @@ VIEW_MODES = [
     ("Category colours", "category"),
     ("Plain white (clay model)", "normal"),
     ("Hatch (sketch look)", "hatch"),
+    ("Revit view filter colours", "filters"),
 ]
 
 DEFAULT_MAX_TRIANGLES = 1500000
@@ -683,6 +684,250 @@ class ColorBook(object):
 
 
 # ==========================================================================
+# view filters / graphic overrides
+# ==========================================================================
+# Precedence ranks, the same order Revit resolves a surface's look in:
+# a per-element override beats every view filter, filters beat each
+# other top-down in the V/G Filters tab, and the category row is last.
+_RANK_ELEMENT = 0
+_RANK_FILTER = 1          # + the filter's position in the view's list
+_RANK_CATEGORY = 100000
+
+# (colour property, pattern-id property, pattern-visible property).
+# Surface foreground is what a shaded 3D view actually shows; the
+# background pattern is the fallback; ProjectionFill* is the pre-2019
+# API. A colour with NO pattern assigned is stored by Revit but never
+# drawn, so it is ignored here too.
+_OGS_COLOUR_SLOTS = (
+    ("SurfaceForegroundPatternColor", "SurfaceForegroundPatternId",
+     "IsSurfaceForegroundPatternVisible"),
+    ("SurfaceBackgroundPatternColor", "SurfaceBackgroundPatternId",
+     "IsSurfaceBackgroundPatternVisible"),
+    ("ProjectionFillColor", "ProjectionFillPatternId", None),
+)
+
+
+def _ogs_effect(ogs):
+    """(rgb or None, transparency 0..100 or 0, halftone bool) for one
+    OverrideGraphicSettings, or None when it changes nothing a 3D
+    surface would show."""
+    if ogs is None:
+        return None
+    rgb = None
+    for col_name, pat_name, vis_name in _OGS_COLOUR_SLOTS:
+        try:
+            col = getattr(ogs, col_name, None)
+            if col is None or not col.IsValid:
+                continue
+            pid = getattr(ogs, pat_name, None)
+            if pid is not None and _eid(pid) <= 0:
+                continue
+            if vis_name and getattr(ogs, vis_name, True) is False:
+                continue
+            rgb = (int(col.Red), int(col.Green), int(col.Blue))
+            break
+        except Exception:
+            continue
+    try:
+        transparency = max(0, min(100, int(ogs.Transparency)))
+    except Exception:
+        transparency = 0
+    try:
+        halftone = bool(ogs.Halftone)
+    except Exception:
+        halftone = False
+    if rgb is None and transparency <= 0 and not halftone:
+        return None
+    return rgb, transparency, halftone
+
+
+class ViewOverrides(object):
+    """Reads the 3D view's V/G overrides once - filters (with their
+    visibility and on/off switch), category rows and per-element
+    overrides - and answers "which of them hit this element" per
+    element. Read-only: nothing here opens a Transaction.
+
+    Output, after finalize():
+        entries  [{n: name, k: "e"|"f"|"c", c: colour index or -1,
+                   t: alpha 0..255 or -1, h: 0|1, v: 0|1}] in
+                 precedence order (first match wins per property)
+        matches  {elem index (str): [entry index, ...]} sorted the same
+    """
+
+    def __init__(self, doc, view, book):
+        self.doc = doc
+        self.view = view
+        self.book = book
+        self._raw = []            # [rank, entry dict]
+        self._matches = {}
+        self._filters = []        # (raw index, element filter|None, cat ids|None, elem ids|None)
+        self._cat_cache = {}
+        self._elem_cache = {}
+        self.notes = []
+        self.entries = []
+        self.matches = {}
+        self._read_filters()
+
+    # -- which view actually owns each V/G tab --------------------------
+    def _owner(self, bip_name):
+        """The view template when it controls this V/G tab, else the view
+        itself - a template-controlled view's own settings are stale."""
+        try:
+            tid = self.view.ViewTemplateId
+            if tid is None or _eid(tid) <= 0:
+                return self.view
+            tmpl = self.doc.GetElement(tid)
+            if tmpl is None:
+                return self.view
+            bip = getattr(BuiltInParameter, bip_name, None)
+            if bip is None:
+                return tmpl
+            free = set(_eid(x) for x in tmpl.GetNonControlledTemplateParameterIds())
+            return self.view if int(bip) in free else tmpl
+        except Exception:
+            return self.view
+
+    def _add(self, rank, name, kind, effect, visible):
+        rgb, transparency, halftone = effect if effect else (None, 0, False)
+        entry = {
+            "n": to_text(name),
+            "k": kind,
+            "c": self.book.intern((rgb[0], rgb[1], rgb[2], 255)) if rgb else -1,
+            "t": int(round(255.0 * (1.0 - transparency / 100.0))) if transparency > 0 else -1,
+            "h": 1 if halftone else 0,
+            "v": 1 if visible else 0,
+        }
+        self._raw.append([rank, entry])
+        return len(self._raw) - 1
+
+    def _read_filters(self):
+        owner = self._owner("VIS_GRAPHICS_FILTERS")
+        try:
+            filter_ids = list(owner.GetFilters())
+        except Exception:
+            filter_ids = []
+        for pos, fid in enumerate(filter_ids):
+            try:
+                fel = self.doc.GetElement(fid)
+                if fel is None:
+                    continue
+                enabled = True
+                if hasattr(owner, "GetIsFilterEnabled"):
+                    try:
+                        enabled = bool(owner.GetIsFilterEnabled(fid))
+                    except Exception:
+                        enabled = True
+                if not enabled:
+                    continue
+                try:
+                    visible = bool(owner.GetFilterVisibility(fid))
+                except Exception:
+                    visible = True
+                try:
+                    effect = _ogs_effect(owner.GetFilterOverrides(fid))
+                except Exception:
+                    effect = None
+                # A filter that changes nothing a 3D surface shows (line
+                # weights, cut patterns) is still listed, so the viewer's
+                # legend matches the V/G dialog.
+                raw = self._add(_RANK_FILTER + pos, element_name(fel) or "Filter", "f",
+                                effect, visible)
+                ef, cats, ids = None, None, None
+                if hasattr(fel, "GetElementIds") and not hasattr(fel, "GetCategories"):
+                    ids = set(_eid(x) for x in fel.GetElementIds())
+                else:
+                    try:
+                        cats = set(_eid(x) for x in fel.GetCategories())
+                    except Exception:
+                        cats = None
+                    try:
+                        ef = fel.GetElementFilter()
+                    except Exception:
+                        ef = None
+                self._filters.append((raw, ef, cats, ids))
+            except Exception as err:
+                self.notes.append("View filter skipped: {0}".format(err))
+
+    def _category_entry(self, element):
+        try:
+            cat = element.Category
+            if cat is None:
+                return None
+            key = _eid(cat.Id)
+        except Exception:
+            return None
+        if key in self._cat_cache:
+            return self._cat_cache[key]
+        got = None
+        try:
+            owner = self._owner("VIS_GRAPHICS_MODEL")
+            effect = _ogs_effect(owner.GetCategoryOverrides(cat.Id))
+            if effect is not None:
+                got = self._add(_RANK_CATEGORY, "Category: " + to_text(cat.Name), "c",
+                                effect, True)
+        except Exception:
+            got = None
+        self._cat_cache[key] = got
+        return got
+
+    def _element_entry(self, element):
+        try:
+            effect = _ogs_effect(self.view.GetElementOverrides(element.Id))
+        except Exception:
+            return None
+        if effect is None:
+            return None
+        if effect in self._elem_cache:
+            return self._elem_cache[effect]
+        rgb = effect[0]
+        label = "By element" + (" ({0}, {1}, {2})".format(*rgb) if rgb else "")
+        got = self._add(_RANK_ELEMENT, label, "e", effect, True)
+        self._elem_cache[effect] = got
+        return got
+
+    def match(self, element, source_doc, is_host, elem_index):
+        hits = []
+        if is_host:
+            got = self._element_entry(element)
+            if got is not None:
+                hits.append(got)
+        try:
+            cat_id = _eid(element.Category.Id) if element.Category is not None else None
+        except Exception:
+            cat_id = None
+        eid = _eid(element.Id)
+        for raw, ef, cats, ids in self._filters:
+            try:
+                if ids is not None:
+                    if is_host and eid in ids:
+                        hits.append(raw)
+                    continue
+                if cats is not None and cat_id not in cats:
+                    continue
+                if ef is None or ef.PassesFilter(source_doc, element.Id):
+                    hits.append(raw)
+            except Exception:
+                continue
+        got = self._category_entry(element)
+        if got is not None:
+            hits.append(got)
+        if hits:
+            self._matches[elem_index] = hits
+
+    def finalize(self):
+        order = sorted(range(len(self._raw)), key=lambda i: self._raw[i][0])
+        remap = {}
+        self.entries = []
+        for new, old in enumerate(order):
+            remap[old] = new
+            self.entries.append(self._raw[old][1])
+        self.matches = {}
+        for elem_index, hits in self._matches.items():
+            self.matches[str(elem_index)] = sorted(set(remap[h] for h in hits))
+        return self.entries
+
+
+# ==========================================================================
 # scene building
 # ==========================================================================
 class Scene(object):
@@ -704,6 +949,7 @@ class Scene(object):
         self.hit_budget = False
         self.cancelled = False
         self.sources = []        # [label, elements found, elements exported] per source
+        self.overrides = None    # ViewOverrides, when view filters are exported
 
     @property
     def triangles(self):
@@ -972,6 +1218,13 @@ def build_scene(doc, view, options, progress=None):
     # Material style at all, and it derives Category/Plain/Hatch from the
     # category names it already carries.
     scene.book = ColorBook(doc, COLOR_BY_MATERIAL)
+    if options.get("include_filters", True):
+        try:
+            scene.overrides = ViewOverrides(doc, view, scene.book)
+            scene.notes.extend(scene.overrides.notes)
+        except Exception as err:
+            scene.overrides = None
+            scene.notes.append("View filter colours could not be read: {0}".format(err))
 
     allowed = options.get("categories")
     lod = float(options.get("lod", 0.35))
@@ -1076,6 +1329,8 @@ def build_scene(doc, view, options, progress=None):
                 # still free for whatever comes next.
                 continue
 
+            if scene.overrides is not None:
+                scene.overrides.match(element, source_doc, xform is None, elem_index)
             scene.els.append(_element_meta(source_doc, element, scene, source_label, cat_name))
             scene.ebox.extend(box)
             scene.grow_bounds(box)
@@ -1155,6 +1410,13 @@ def build_payload(doc, scene, meta):
     }
     if scene.params:
         payload["prm"] = scene.params
+    if scene.overrides is not None:
+        entries = scene.overrides.finalize()
+        if entries:
+            # vf: the view's filters / overrides in precedence order;
+            # vfm: element index -> the vf entries that hit it.
+            payload["vf"] = entries
+            payload["vfm"] = scene.overrides.matches
     return payload
 
 
