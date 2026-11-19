@@ -178,7 +178,7 @@ class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
     def _collect_settings_dict(self):
         return {
             "last_source_folder": self.source_folder_tb.Text,
-            "last_destination": self._destination,
+            "last_destination": _strip_token(self._destination) if self._destination else None,
             "multi_project": bool(self.multi_project_cb.IsChecked),
             "last_destinations": [_strip_token(d) for d in self._destinations],
             "options": self._current_options(),
@@ -481,7 +481,11 @@ class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
         except Exception as e:
             self.logger.exception("Could not attach dialog handler", e)
 
-        token = destinations[0].get("token") or cloudsvc.get_token()
+        # Always a fresh token: the one stored with a destination can be hours
+        # old (it was even saved into the settings file) - live run
+        # 2026-11-19 failed 7/7 ACC downloads with AUTH-006 "expired".
+        # get_token() returns the cached token while it is still valid.
+        token = cloudsvc.get_token()
         multi = len(destinations) > 1
         pipelines = []
         for i, dest in enumerate(destinations):
@@ -569,7 +573,7 @@ class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
         if not selected:
             forms.alert("Nothing left to send to a background Revit - see the log.", title=_TOOL_TITLE)
             return
-        token = destinations[0].get("token") or cloudsvc.get_token()
+        token = cloudsvc.get_token()
         self._log("Reserving cloud model names...")
         self._bg_lookup = {}
         self._bg_dest_count = len(destinations)

@@ -275,7 +275,13 @@ class BatchPipeline(object):
         are workshared. Returns (document_or_None, note_or_error, temp_path_or_None)."""
         import acc_file_browser as afb
         import acc_api
-        item_type = acc_api.get_item_type(scanned_model.acc_project_id, scanned_model.acc_item_id, token)
+        # A long batch (downloads of big models) can outlive a one-hour
+        # token - take the current one for every ACC model.
+        try:
+            token = cloudsvc.get_token() or token
+        except Exception:
+            pass
+        item_type =acc_api.get_item_type(scanned_model.acc_project_id, scanned_model.acc_item_id, token)
         if item_type and "C4RModel" not in item_type:
             return self._open_acc_uploaded_file(scanned_model, token)
         # Worksets are ALWAYS opened closed here. Live crash 2026-11-19:
