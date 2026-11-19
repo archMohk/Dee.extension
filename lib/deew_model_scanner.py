@@ -45,6 +45,9 @@ MODEL_TYPE_DETACHED = "Detached"
 MODEL_TYPE_CORRUPTED = "Corrupted"
 MODEL_TYPE_READ_ONLY = "Read-Only"
 MODEL_TYPE_UNKNOWN = "Unknown"
+# A model picked from ACC (DeeW.Batch Save to Cloud's "Add From ACC...") -
+# opened detached from its cloud central and saved as a NEW cloud model.
+MODEL_TYPE_ACC_SOURCE = "ACC Model"
 
 
 class ScannedModel(object):
@@ -99,6 +102,8 @@ class ScannedModel(object):
             return "Already Cloud - skip"
         if self.model_type == MODEL_TYPE_DETACHED:
             return "Mode 1: Already Detached -> Cloud"
+        if self.model_type == MODEL_TYPE_ACC_SOURCE:
+            return "Mode 4: ACC -> Detach -> New Cloud Model"
         return "N/A"
 
 
@@ -279,6 +284,26 @@ def scan_open_document(document):
         model.model_type = MODEL_TYPE_UNKNOWN
 
     model.status = "Open in this session"
+    return model
+
+
+def acc_source_model(hub_name, region, project_id, project_name, item_id, display_name):
+    """A Source Models row for a cloud model picked from ACC. file_path is
+    a unique pseudo path ("ACC:<item id>") - it keys name reservation and
+    duplicate checks; there is no local file behind it."""
+    name = display_name.split("  [")[0]
+    if not name.lower().endswith(".rvt"):
+        name += ".rvt"
+    model = ScannedModel(u"ACC:" + item_id)
+    model.file_name = name
+    model.model_type = MODEL_TYPE_ACC_SOURCE
+    model.worksharing_status = "Cloud"
+    model.size_text = "-"
+    model.status = u"From ACC: {0} / {1}".format(hub_name, project_name)
+    model.selected = True
+    model.acc_region = region
+    model.acc_project_id = project_id
+    model.acc_item_id = item_id
     return model
 
 

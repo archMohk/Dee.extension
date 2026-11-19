@@ -154,6 +154,7 @@ class BatchPipeline(object):
         start = time.time()
         document = None
         opened_by_us = True
+        temp_path = None
         try:
             if scanned_model.model_type == scanner.MODEL_TYPE_CLOUD:
                 row.upload_status = "Skipped - already a cloud model"
@@ -189,6 +190,14 @@ class BatchPipeline(object):
                     return row
                 document = scanned_model.live_document
                 opened_by_us = False
+            elif scanned_model.model_type == scanner.MODEL_TYPE_ACC_SOURCE:
+                document, err, temp_path = self._open_acc_source(scanned_model, token)
+                if document is None:
+                    row.upload_status = "Failed - could not open from ACC"
+                    row.errors = err
+                    return row
+                if err:
+                    row.warnings = "{0}; {1}".format(row.warnings, err) if row.warnings else err
             else:
                 detach_option = self._detach_option(scanned_model)
                 document, err = docmgr.open_document(
@@ -222,7 +231,7 @@ class BatchPipeline(object):
             if success:
                 row.upload_status = "Uploaded"
                 row.cloud_guid = reportgen.get_cloud_model_guid(document)
-                if self.options.get("delete_local_backup"):
+                if self.options.get("delete_local_backup") and scanned_model.model_type != scanner.MODEL_TYPE_ACC_SOURCE:
                     removed = _delete_local_backups(scanned_model.file_path, self.logger)
                     if removed:
                         note = "Removed {0} local backup file(s)".format(removed)
@@ -238,9 +247,68 @@ class BatchPipeline(object):
             self.logger.exception("Unexpected error processing file", e, file=scanned_model.file_name)
             return row
         finally:
-            if document is not None and opened_by_us and self.options.get("close_after", True):
+            close = self.options.get("close_after", True) or temp_path is not None
+            if document is not None and opened_by_us and close:
                 docmgr.close_document(document, save_modified=False, logger=self.logger)
+            if temp_path:
+                _remove_temp_copy(temp_path)
             row.processing_time_seconds = time.time() - start
+
+    def _open_acc_source(self, scanned_model, token):
+        """Opens an ACC cloud model so it can be saved as a NEW cloud model.
+        The source model in ACC is never written to: it is opened detached
+        and always closed without saving.
+
+        A workshared cloud model opens detached, which leaves a document
+        with no cloud path - SaveAsCloudModel accepts that directly. A
+        non-workshared cloud model cannot be detached (Revit refuses the
+        option) and opens still bound to its ACC item, so it is first
+        saved to a temporary local file, closed, and that file is opened
+        instead. Returns (document_or_None, note_or_error, temp_path_or_None)."""
+        import acc_file_browser as afb
+        document, detail = afb.open_cloud_document_detached(
+            self.application, scanned_model.acc_region, scanned_model.acc_project_id,
+            scanned_model.acc_item_id, token, audit=self.options.get("audit", False))
+        if document is None:
+            return None, detail, None
+        if not docmgr.is_cloud_model(document):
+            return document, "", None
+
+        temp_dir = os.path.join(os.environ.get("TEMP", "C:\\Temp"), "DeeWBatchSaveToCloud")
+        temp_path = docmgr.unique_target_path(temp_dir, scanned_model.file_name)
+        was_workshared = docmgr.is_workshared(document)
+        ok, save_detail = docmgr.save_copy_as(document, temp_path, overwrite=True, logger=self.logger)
+        docmgr.close_document(document, save_modified=False, logger=self.logger)
+        if not ok:
+            _remove_temp_copy(temp_path)
+            return None, "Could not make a local working copy: {0}".format(save_detail), None
+        # A workshared copy was saved as a (temporary) central - reopen it
+        # detached, exactly like Mode 2, so the new cloud model is independent.
+        local_doc, err = docmgr.open_document(
+            self.application, temp_path, detach_option="preserve" if was_workshared else "none",
+            audit=False, open_all_worksets=True, logger=self.logger)
+        if local_doc is None:
+            _remove_temp_copy(temp_path)
+            return None, "Could not reopen the local working copy: {0}".format(err), None
+        return local_doc, "ACC model copied through a temporary local file", temp_path
+
+
+def _remove_temp_copy(temp_path):
+    try:
+        if temp_path and os.path.isfile(temp_path):
+            os.remove(temp_path)
+        folder = os.path.dirname(temp_path or "")
+        base = os.path.splitext(os.path.basename(temp_path or ""))[0]
+        if folder and os.path.isdir(folder):
+            for entry in os.listdir(folder):
+                match = _BACKUP_PATTERN.match(entry)
+                if match and match.group(1).lower() == base.lower():
+                    try:
+                        os.remove(os.path.join(folder, entry))
+                    except Exception:
+                        pass
+    except Exception:
+        pass
 
 # ==========================================================================
 # background Revit entry point

@@ -7,6 +7,8 @@ mode per file:
   Mode 1: Local RVT -> ACC Cloud Model
   Mode 2: Central RVT -> Detach -> ACC Cloud Model
   Mode 3: Local Copy of Central -> Detach -> ACC Cloud Model
+  Mode 4: ACC Cloud Model -> Detach -> NEW ACC Cloud Model
+          ("Add From ACC..." - the original in ACC is never modified)
 
 Optimized for large batches: only one Revit Document is ever open at
 a time, closed and released before the next file starts (spec:
@@ -73,6 +75,7 @@ _TOOL_TITLE = "DeeW.Batch Save to Cloud"
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
+_CACHE_FILE = os.path.join(_THIS_DIR, ".acc_file_cache.json")
 
 _DEFAULT_SETTINGS = {
     "last_source_folder": "",
@@ -308,6 +311,48 @@ class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
             note += "; {0} already in list".format(skipped_duplicate)
         self._log(note + ".")
 
+    def add_acc_click(self, sender, args):
+        """Adds cloud models picked from an ACC project. Each one is opened
+        detached at run time and saved to the destination as a NEW cloud
+        model - the original in ACC is never modified."""
+        import acc_file_browser as afb
+        try:
+            token = cloudsvc.get_token()
+            hub = afb.pick_hub(token)
+            if not hub:
+                return
+            hub_id, region, hub_name = hub
+            project = afb.pick_project(hub_id, token)
+            if not project:
+                return
+            project_id, project_name = project
+            self._log("Loading cloud model list for '{0}'...".format(project_name))
+            all_items = afb.list_project_files(hub_id, project_id, token, _CACHE_FILE)
+            if not all_items:
+                return
+            picked_names = afb.pick_files_to_open(
+                all_items, title="Select ACC Models to Save as New Cloud Models",
+                button_name="Add Selected")
+            if not picked_names:
+                return
+        except Exception as e:
+            forms.alert("Could not load ACC cloud models: {0}".format(e))
+            return
+
+        existing_paths = set(m.file_path for m in self._models)
+        added = 0
+        for name in picked_names:
+            model = scanner.acc_source_model(
+                hub_name, region, project_id, project_name, all_items[name], name)
+            if model.file_path in existing_paths:
+                continue
+            self._models.append(model)
+            existing_paths.add(model.file_path)
+            added += 1
+        self._refresh_models_grid()
+        self.scan_status_tb.Text = "{0} RVT file(s) in list.".format(len(self._models))
+        self._log("Added {0} ACC model(s) ({1} already in list).".format(added, len(picked_names) - added))
+
     def select_all_click(self, sender, args):
         for m in self._models:
             m.selected = True
@@ -516,6 +561,14 @@ class DeeWBatchWindow(dee_branding.DeeBrandedWindow):
             self._log("{0} model(s) open in this session cannot go to a background Revit - untick them or "
                       "run them by this session: {1}".format(len(stay), ", ".join(m.file_name for m in stay)))
             selected = [m for m in selected if m.live_document is None]
+        acc = [m for m in selected if m.model_type == scanner.MODEL_TYPE_ACC_SOURCE]
+        if acc:
+            self._log("{0} ACC model(s) cannot run in a background Revit yet - untick Background "
+                      "to process them here: {1}".format(len(acc), ", ".join(m.file_name for m in acc)))
+            selected = [m for m in selected if m.model_type != scanner.MODEL_TYPE_ACC_SOURCE]
+        if not selected:
+            forms.alert("Nothing left to send to a background Revit - see the log.", title=_TOOL_TITLE)
+            return
         token = destinations[0].get("token") or cloudsvc.get_token()
         self._log("Reserving cloud model names...")
         self._bg_lookup = {}
