@@ -266,9 +266,18 @@ class BatchPipeline(object):
         saved to a temporary local file, closed, and that file is opened
         instead. Returns (document_or_None, note_or_error, temp_path_or_None)."""
         import acc_file_browser as afb
+        # Worksets are ALWAYS opened closed here. Live crash 2026-11-19:
+        # opening a 483k-element ACC model detached with OpenAllWorksets
+        # access-violated inside Revit's own loader ("catch
+        # SelectedPartitionsForEdit and do decommitDocument", 0xc0000005) -
+        # the same crash acc_file_browser documents for 2026-09-13/14.
+        # A copy does not need the worksets open: closing a workset only
+        # skips loading its elements for editing, the elements stay in the
+        # model and are carried into the new cloud model.
         document, detail = afb.open_cloud_document_detached(
             self.application, scanned_model.acc_region, scanned_model.acc_project_id,
-            scanned_model.acc_item_id, token, audit=self.options.get("audit", False))
+            scanned_model.acc_item_id, token, audit=self.options.get("audit", False),
+            close_all_worksets=True)
         if document is None:
             return None, detail, None
         if not docmgr.is_cloud_model(document):
@@ -284,13 +293,29 @@ class BatchPipeline(object):
             return None, "Could not make a local working copy: {0}".format(save_detail), None
         # A workshared copy was saved as a (temporary) central - reopen it
         # detached, exactly like Mode 2, so the new cloud model is independent.
-        local_doc, err = docmgr.open_document(
-            self.application, temp_path, detach_option="preserve" if was_workshared else "none",
-            audit=False, open_all_worksets=True, logger=self.logger)
+        local_doc, err = _open_local_worksets_closed(
+            self.application, temp_path, "preserve" if was_workshared else "none")
         if local_doc is None:
             _remove_temp_copy(temp_path)
             return None, "Could not reopen the local working copy: {0}".format(err), None
         return local_doc, "ACC model copied through a temporary local file", temp_path
+
+
+def _open_local_worksets_closed(application, file_path, detach_option):
+    """Opens the temporary local copy with every workset CLOSED - same
+    crash-avoidance reason as _open_acc_source. Returns (document_or_None, error)."""
+    try:
+        from Autodesk.Revit.DB import ModelPathUtils, WorksetConfiguration, WorksetConfigurationOption
+        options = docmgr.build_open_options(detach_option, audit=False, open_all_worksets=False)
+        try:
+            options.SetOpenWorksetsConfiguration(
+                WorksetConfiguration(WorksetConfigurationOption.CloseAllWorksets))
+        except Exception:
+            pass   # non-workshared file - there are no worksets to close
+        model_path = ModelPathUtils.ConvertUserVisiblePathToModelPath(file_path)
+        return application.OpenDocumentFile(model_path, options), ""
+    except Exception as e:
+        return None, str(e)
 
 
 def _remove_temp_copy(temp_path):
