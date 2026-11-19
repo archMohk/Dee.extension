@@ -741,6 +741,25 @@ def _ogs_effect(ogs):
     return rgb, transparency, halftone
 
 
+# OST_CurtainWallPanels, OST_CurtainWallMullions
+_CURTAIN_PART_CATS = (-2000170, -2000171)
+
+
+def _curtain_host(element):
+    """The curtain wall (or curtain system / sloped glazing) a panel or
+    mullion belongs to, or None for anything else."""
+    try:
+        cat = element.Category
+        if cat is None or _eid(cat.Id) not in _CURTAIN_PART_CATS:
+            return None
+        host = element.Host
+        if host is None or _eid(host.Id) == _eid(element.Id):
+            return None
+        return host
+    except Exception:
+        return None
+
+
 class ViewOverrides(object):
     """Reads the 3D view's V/G overrides once - filters (with their
     visibility and on/off switch), category rows and per-element
@@ -886,6 +905,20 @@ class ViewOverrides(object):
         return got
 
     def match(self, element, source_doc, is_host, elem_index):
+        hits = self._hits(element, source_doc, is_host)
+        # A curtain wall has no geometry of its own - what is drawn is its
+        # panels and mullions (their own categories), so a Walls filter
+        # would otherwise catch nothing in the export. Revit draws them
+        # with the host wall's filter/override look, so they inherit it.
+        host = _curtain_host(element)
+        if host is not None:
+            for got in self._hits(host, source_doc, is_host):
+                if got not in hits:
+                    hits.append(got)
+        if hits:
+            self._matches[elem_index] = hits
+
+    def _hits(self, element, source_doc, is_host):
         hits = []
         if is_host:
             got = self._element_entry(element)
@@ -911,8 +944,7 @@ class ViewOverrides(object):
         got = self._category_entry(element)
         if got is not None:
             hits.append(got)
-        if hits:
-            self._matches[elem_index] = hits
+        return hits
 
     def finalize(self):
         order = sorted(range(len(self._raw)), key=lambda i: self._raw[i][0])

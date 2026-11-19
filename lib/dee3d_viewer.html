@@ -284,7 +284,7 @@ select{
 .row .nm small{color:var(--dim);font-size:9.5px;margin-left:4px;text-transform:uppercase;letter-spacing:.4px}
 .subh{margin:10px 0 6px;font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:var(--dim);
   font-weight:600;border-top:1px dashed var(--line);padding-top:8px}
-#cb_list,#vf_list{max-height:300px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#cb_list,#vf_list{max-height:300px;margin-top:4px;overflow-y:auto;-webkit-overflow-scrolling:touch}
 #fr_box{border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:6px;display:none}
 #fr_box.show{display:block}
 .rule{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;padding-bottom:6px;border-bottom:1px dashed var(--line)}
@@ -352,14 +352,35 @@ select{
     </div>
     <div class="sec">
       <h4>Colour &amp; filters</h4>
-      <div class="slab"><span>Colour elements by</span><span></span></div>
+      <div class="subh" style="margin-top:0;border-top:0;padding-top:0">Colour by parameter</div>
+      <div class="slab"><span>Category</span><span></span></div>
+      <select id="cb_cat"></select>
+      <div class="slab" style="margin-top:6px"><span>Parameter</span><span id="cb_count"></span></div>
       <select id="cb_name"></select>
       <div class="mini" style="margin-top:6px">
-        <button id="cb_all">All on</button>
-        <button id="cb_none">All off</button>
-        <button id="cb_reset">New colours</button>
+        <button id="cb_rand">Random colours</button>
+        <button id="cb_grad">Gradient colours</button>
+      </div>
+      <input type="search" id="cb_q" placeholder="Search values...">
+      <div class="mini" style="margin-top:6px">
+        <button id="cb_all">Check all</button>
+        <button id="cb_none">Check none</button>
       </div>
       <div id="cb_list"></div>
+      <div class="mini" style="margin-top:6px">
+        <button id="cb_sel">Select checked</button>
+        <button id="cb_iso">Isolate checked</button>
+        <button id="cb_hide">Hide checked</button>
+      </div>
+      <div class="mini">
+        <button id="cb_show">Show all values</button>
+        <button id="cb_save">Save scheme</button>
+        <button id="cb_load">Load scheme</button>
+      </div>
+      <input type="file" id="cb_file" accept=".cschn,.txt" style="display:none">
+      <div class="note" style="margin:0 0 4px">Tick values, then Select / Isolate / Hide them together.
+        Click a value's name to select just that group (Shift-click adds to it). <b>V</b> shows or hides
+        a value, <b>I</b> isolates it. Schemes are .cschn files, the same as DeeSSelect.</div>
       <div class="subh">Filters</div>
       <div class="note" style="margin:0 0 6px">Filters from the Revit view's
         Visibility/Graphics come in with their colours. Add your own with <b>New filter</b>.
@@ -990,6 +1011,7 @@ function partColor(p){
   if (VIEWMODE === "colorby" && CB && elCB){
     var vv = CB.vals[elCB[parts[p*4]]];
     if (vv) return [vv.col[0], vv.col[1], vv.col[2], col[3]];
+    return [CLAY[0], CLAY[1], CLAY[2], Math.min(col[3], 150)];   /* outside the chosen category */
   }
   return col;
 }
@@ -2133,7 +2155,7 @@ function buildFilterList(){
   for (var i = 0; i < FILTERS.length; i++){
     var f = FILTERS[i];
     var tag = f.kind === "user" ? "yours" : (f.k === "c" ? "category" : (f.k === "e" ? "override" : "revit"));
-    html += '<div class="row" data-f="' + i + '">' +
+    html += '<div class="row" data-f="' + i + '"' + (f.cnt ? "" : ' style="opacity:.5" title="Catches nothing in this export"') + '>' +
       '<input type="checkbox" class="f_on"' + (f.on ? " checked" : "") + ' title="Apply this filter">' +
       '<input type="color" class="f_col' + (f.col ? "" : " nocol") + '" value="' +
         (f.col ? rgb2hex(f.col) : f.lastCol) + '" title="Filter colour">' +
@@ -2230,7 +2252,30 @@ function saveFilterEditor(){
   toast('"' + f.n + '" catches ' + f.cnt + " element(s)");
 }
 
-/* ---------- colour by ---------- */
+/* ---------- colour by (works like DeeSSelect / Color Splasher) ----------
+   Pick a category (or all) and a parameter: every unique value gets a
+   colour, a tick box (for Select / Isolate / Hide checked) and a V
+   (visible) toggle. Elements outside the chosen category stay grey so
+   the coloured ones read. Schemes save/load as .cschn - the same plain
+   "value::R..G..B.." text DeeSSelect and Color Splasher use. */
+var CB_CAT = "";
+function catNameOf(e){ var el = els[e]; return el ? S(el[0]) : ""; }
+function paramNamesIn(cat){
+  if (!cat) return paramNames();
+  var out = BUILTIN_PARAMS.slice(), seen = {}, i;
+  for (i = 0; i < out.length; i++) seen[out[i]] = 1;
+  if (DATA.prm){
+    for (var k in DATA.prm){
+      if (catNameOf(parseInt(k, 10)) !== cat) continue;
+      var arr = DATA.prm[k];
+      for (i = 0; i < arr.length; i++){
+        var n = S(arr[i][0]);
+        if (n && !seen[n]){ seen[n] = 1; out.push(n); }
+      }
+    }
+  }
+  return out;
+}
 function setColorBy(name){
   if (!name){
     CB = null; elCB = null; cbHide = null;
@@ -2242,9 +2287,10 @@ function setColorBy(name){
   var map = {}, vals = [], i;
   var raw = new Int32Array(els.length);
   for (i = 0; i < els.length; i++){
+    if (CB_CAT && catNameOf(i) !== CB_CAT){ raw[i] = -1; continue; }
     var v = elVal(i, name) || "";
     var k = map[v];
-    if (k === undefined){ k = map[v] = vals.length; vals.push({ v: v, n: 0, on: true, col: null }); }
+    if (k === undefined){ k = map[v] = vals.length; vals.push({ v: v, n: 0, on: true, chk: false, col: null }); }
     vals[k].n++; raw[i] = k;
   }
   var nonEmpty = 0, numeric = 0;
@@ -2264,60 +2310,123 @@ function setColorBy(name){
     va = va.toLowerCase(); vb = vb.toLowerCase();
     return va < vb ? -1 : (va > vb ? 1 : 0);
   });
-  var sorted = [], remap = new Int32Array(vals.length), custom = cbCustom[name] || {};
+  var sorted = [], remap = new Int32Array(vals.length);
   for (i = 0; i < order.length; i++){ remap[order[i]] = i; sorted.push(vals[order[i]]); }
-  var span = Math.max(1, nonEmpty - 1);
-  for (i = 0; i < sorted.length; i++){
-    var sv = sorted[i];
-    if (custom[sv.v]) sv.col = custom[sv.v].slice();
-    else if (sv.v === "") sv.col = [150, 150, 150];
-    else sv.col = isNum ? rampColor(i / span) : distinctColor(i);
-  }
   elCB = new Int32Array(els.length);
-  for (i = 0; i < els.length; i++) elCB[i] = remap[raw[i]];
-  CB = { name: name, vals: sorted, numeric: isNum };
+  for (i = 0; i < els.length; i++) elCB[i] = raw[i] < 0 ? -1 : remap[raw[i]];
+  CB = { name: name, cat: CB_CAT, vals: sorted, numeric: isNum, scheme: isNum ? "gradient" : "random" };
+  paintCB(CB.scheme, true);
   cbHide = new Uint8Array(els.length);
   buildCBList();
   setViewMode("colorby");
   refreshVisibility();
+  toast(sorted.length + " value(s) of " + name + (CB_CAT ? " in " + CB_CAT : ""));
 }
-function recolorCB(){
+function cbKey(){ return (CB ? CB.cat + "|" + CB.name : ""); }
+/* scheme: "random" | "gradient"; keepCustom keeps colours the user
+   picked by hand (or loaded from a scheme) for this category+parameter */
+function paintCB(scheme, keepCustom){
   if (!CB) return;
-  var nonEmpty = 0, i;
+  CB.scheme = scheme;
+  var custom = keepCustom ? (cbCustom[cbKey()] || {}) : {};
+  if (!keepCustom) cbCustom[cbKey()] = {};
+  var nonEmpty = 0, i, j = 0;
   for (i = 0; i < CB.vals.length; i++) if (CB.vals[i].v !== "") nonEmpty++;
   var span = Math.max(1, nonEmpty - 1);
-  cbCustom[CB.name] = {};
   for (i = 0; i < CB.vals.length; i++){
     var sv = CB.vals[i];
-    if (sv.v === "") continue;
-    sv.col = CB.numeric ? rampColor(i / span) : distinctColor(i);
+    if (custom[sv.v]){ sv.col = custom[sv.v].slice(); if (sv.v !== "") j++; continue; }
+    if (sv.v === ""){ sv.col = [150, 150, 150]; continue; }
+    sv.col = scheme === "gradient" ? rampColor(j / span) : distinctColor(j);
+    j++;
   }
 }
 function syncCBHide(){
   if (!CB) return;
-  for (var e = 0; e < els.length; e++) cbHide[e] = CB.vals[elCB[e]].on ? 0 : 1;
+  for (var e = 0; e < els.length; e++){
+    var vi = elCB[e];
+    cbHide[e] = (vi >= 0 && !CB.vals[vi].on) ? 1 : 0;
+  }
+}
+function cbMask(test){
+  var m = new Uint8Array(els.length), n = 0;
+  for (var e = 0; e < els.length; e++){
+    var vi = elCB[e];
+    if (vi >= 0 && test(CB.vals[vi], vi)){ m[e] = 1; n++; }
+  }
+  return { m: m, n: n };
+}
+function selectMask(r, what){
+  if (!r.n){ toast("Nothing " + (what || "checked")); return; }
+  multiSel = r.m;
+  updateMselPanel();
+  invalidate();
+  toast("Selected " + r.n + " element(s)");
 }
 var CB_MAX_ROWS = 400;
 function buildCBList(){
   var host = $("cb_list");
-  if (!CB){ host.innerHTML = ""; return; }
-  var html = "", n = Math.min(CB.vals.length, CB_MAX_ROWS);
-  for (var i = 0; i < n; i++){
+  if (!CB){
+    host.innerHTML = '<div class="note" style="margin:4px 0">Pick a parameter above to colour the model by its values.</div>';
+    $("cb_count").textContent = "";
+    return;
+  }
+  var q = ($("cb_q").value || "").toLowerCase(), html = "", shown = 0, chk = 0;
+  for (var i = 0; i < CB.vals.length; i++){
     var sv = CB.vals[i];
+    if (sv.chk) chk++;
+    var label = sv.v || "(no value)";
+    if (q && label.toLowerCase().indexOf(q) < 0) continue;
+    if (shown >= CB_MAX_ROWS) continue;
+    shown++;
     html += '<div class="row" data-v="' + i + '">' +
-      '<input type="checkbox" class="v_on"' + (sv.on ? " checked" : "") + ' title="Show / hide">' +
-      '<input type="color" class="v_col" value="' + rgb2hex(sv.col) + '">' +
-      '<span class="nm" title="' + esc(sv.v || "(no value)") + '">' + esc(sv.v || "(no value)") + "</span>" +
+      '<input type="checkbox" class="v_chk"' + (sv.chk ? " checked" : "") + ' title="Check for Select / Isolate / Hide checked">' +
+      '<input type="color" class="v_col" value="' + rgb2hex(sv.col) + '" title="Change colour">' +
+      '<span class="nm v_nm" title="Click to select this group (Shift-click adds to the selection)">' + esc(label) + "</span>" +
       '<span class="ct">' + sv.n + "</span>" +
+      '<button class="gh v_vis' + (sv.on ? " on" : "") + '" title="Visible / hidden">V</button>' +
       '<button class="gh v_iso" title="Isolate this value">I</button></div>';
   }
-  if (CB.vals.length > n)
-    html += '<div class="note">' + (CB.vals.length - n) + " more values not listed (they are still coloured).</div>";
+  if (!shown) html = '<div class="note">No value matches the search.</div>';
+  else if (shown >= CB_MAX_ROWS) html += '<div class="note">Showing the first ' + CB_MAX_ROWS + " - search to narrow down (all values are still coloured).</div>";
   host.innerHTML = html;
+  $("cb_count").textContent = CB.vals.length + " value(s)" + (chk ? " - " + chk + " checked" : "");
 }
 function cbRow(el){
   while (el && el.getAttribute && !el.getAttribute("data-v")) el = el.parentNode;
   return (el && el.getAttribute) ? parseInt(el.getAttribute("data-v"), 10) : -1;
+}
+function saveScheme(){
+  if (!CB){ toast("Pick a parameter first"); return; }
+  var lines = [];
+  for (var i = 0; i < CB.vals.length; i++){
+    var c = CB.vals[i].col;
+    lines.push((CB.vals[i].v || "") + "::R" + c[0] + "G" + c[1] + "B" + c[2]);
+  }
+  var blob = new Blob([lines.join("\n") + "\n"], { type: "text/plain" });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = ((CB.cat ? CB.cat + " " : "") + CB.name).replace(/[\\\/:*?"<>|]/g, "_") + ".cschn";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.parentNode.removeChild(a); }, 500);
+  toast("Scheme saved");
+}
+function loadScheme(text){
+  if (!CB){ toast("Pick a parameter first"); return; }
+  var by = {}, i, hit = 0, lines = String(text || "").split(/\r?\n/);
+  for (i = 0; i < CB.vals.length; i++) by[CB.vals[i].v] = CB.vals[i];
+  var custom = cbCustom[cbKey()] = cbCustom[cbKey()] || {};
+  for (i = 0; i < lines.length; i++){
+    var m = /^(.*)::R(\d+)G(\d+)B(\d+)\s*$/.exec(lines[i]);
+    if (!m || !by[m[1]]) continue;
+    by[m[1]].col = [+m[2], +m[3], +m[4]];
+    custom[m[1]] = by[m[1]].col.slice();
+    hit++;
+  }
+  buildCBList();
+  setViewMode("colorby");
+  toast(hit ? "Scheme loaded - " + hit + " value(s) recoloured" : "No value in that scheme matches");
 }
 
 /* ---------- on-screen legend ---------- */
@@ -2326,7 +2435,7 @@ function buildLegend(){
   if (!lg) return;
   var rows = [], title = "";
   if (VIEWMODE === "colorby" && CB){
-    title = CB.name;
+    title = (CB.cat ? CB.cat + " · " : "") + CB.name;
     for (var i = 0; i < CB.vals.length; i++)
       if (CB.vals[i].on) rows.push([CB.vals[i].col, CB.vals[i].v || "(no value)"]);
   } else if (VIEWMODE === "filters"){
@@ -2348,46 +2457,116 @@ function buildLegend(){
 /* ---------- wiring ---------- */
 function hasCls(el, c){ return !!(el && typeof el.className === "string" && el.className.indexOf(c) >= 0); }
 function buildColourPanel(){
-  var sel = $("cb_name");
-  sel.innerHTML = '<option value="">(off - use the display style)</option>' +
-    paramNames().map(function(n){ return "<option>" + esc(n) + "</option>"; }).join("");
+  var catSel = $("cb_cat"), sel = $("cb_name");
+  catSel.innerHTML = '<option value="">(all categories)</option>' +
+    catList.map(function(c){ return "<option>" + esc(strs[c.s]) + "</option>"; }).join("");
+  function fillParams(){
+    var keep = sel.value;
+    var names = paramNamesIn(CB_CAT);
+    sel.innerHTML = '<option value="">(off - use the display style)</option>' +
+      names.map(function(n){ return "<option" + (n === keep ? " selected" : "") + ">" + esc(n) + "</option>"; }).join("");
+    if (keep && names.indexOf(keep) < 0) sel.value = "";
+  }
+  fillParams();
+  on(catSel, "change", function(){
+    CB_CAT = catSel.value;
+    fillParams();
+    if (sel.value) setColorBy(sel.value);
+    else if (CB) setColorBy("");
+  });
   on(sel, "change", function(){ setColorBy(sel.value); });
-  on($("cb_all"), "click", function(){
+  on($("cb_rand"), "click", function(){
+    if (!CB){ toast("Pick a parameter first"); return; }
+    cbSeed = Math.floor(Math.random() * 1000);
+    paintCB("random", false); buildCBList(); setViewMode("colorby");
+  });
+  on($("cb_grad"), "click", function(){
+    if (!CB){ toast("Pick a parameter first"); return; }
+    paintCB("gradient", false); buildCBList(); setViewMode("colorby");
+  });
+  var qT2 = null;
+  on($("cb_q"), "input", function(){
+    if (qT2) clearTimeout(qT2);
+    qT2 = setTimeout(buildCBList, 150);
+  });
+  function setChecked(v){
+    if (!CB) return;
+    var q = ($("cb_q").value || "").toLowerCase();
+    for (var i = 0; i < CB.vals.length; i++){
+      var label = (CB.vals[i].v || "(no value)").toLowerCase();
+      if (!q || label.indexOf(q) >= 0) CB.vals[i].chk = v;   /* respects the search, like a filtered grid */
+    }
+    buildCBList();
+  }
+  on($("cb_all"), "click", function(){ setChecked(true); });
+  on($("cb_none"), "click", function(){ setChecked(false); });
+  on($("cb_sel"), "click", function(){
+    if (!CB) return;
+    selectMask(cbMask(function(v){ return v.chk; }));
+  });
+  on($("cb_iso"), "click", function(){
+    if (!CB) return;
+    var r = cbMask(function(v){ return v.chk; });
+    if (!r.n){ toast("Nothing checked"); return; }
+    isolateMask(r.m, r.n);
+  });
+  on($("cb_hide"), "click", function(){
+    if (!CB) return;
+    var n = 0;
+    for (var i = 0; i < CB.vals.length; i++) if (CB.vals[i].chk){ CB.vals[i].on = false; n++; }
+    if (!n){ toast("Nothing checked"); return; }
+    syncCBHide(); buildCBList(); buildLegend(); refreshVisibility();
+  });
+  on($("cb_show"), "click", function(){
     if (!CB) return;
     for (var i = 0; i < CB.vals.length; i++) CB.vals[i].on = true;
     syncCBHide(); buildCBList(); buildLegend(); refreshVisibility();
   });
-  on($("cb_none"), "click", function(){
-    if (!CB) return;
-    for (var i = 0; i < CB.vals.length; i++) CB.vals[i].on = false;
-    syncCBHide(); buildCBList(); buildLegend(); refreshVisibility();
+  on($("cb_save"), "click", saveScheme);
+  on($("cb_load"), "click", function(){
+    if (!CB){ toast("Pick a parameter first"); return; }
+    $("cb_file").click();
   });
-  on($("cb_reset"), "click", function(){
-    if (!CB){ toast("Pick something to colour by first"); return; }
-    cbSeed += 3; recolorCB(); buildCBList(); setViewMode("colorby");
+  on($("cb_file"), "change", function(ev){
+    var f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function(){ loadScheme(rd.result); ev.target.value = ""; };
+    rd.readAsText(f);
   });
   var cbl = $("cb_list");
   on(cbl, "change", function(ev){
     var vi = cbRow(ev.target);
-    if (vi < 0 || !CB || !hasCls(ev.target, "v_on")) return;
-    CB.vals[vi].on = ev.target.checked;
-    syncCBHide(); buildLegend(); refreshVisibility();
+    if (vi < 0 || !CB || !hasCls(ev.target, "v_chk")) return;
+    CB.vals[vi].chk = ev.target.checked;
+    buildCBList();
   });
   on(cbl, "input", function(ev){
     var vi = cbRow(ev.target);
     if (vi < 0 || !CB || !hasCls(ev.target, "v_col")) return;
     CB.vals[vi].col = hex2rgb(ev.target.value);
-    (cbCustom[CB.name] = cbCustom[CB.name] || {})[CB.vals[vi].v] = CB.vals[vi].col.slice();
+    (cbCustom[cbKey()] = cbCustom[cbKey()] || {})[CB.vals[vi].v] = CB.vals[vi].col.slice();
     setViewMode("colorby");
   });
   on(cbl, "click", function(ev){
-    if (!hasCls(ev.target, "v_iso")) return;
-    var vi = cbRow(ev.target);
+    var t = ev.target, vi = cbRow(t);
     if (vi < 0 || !CB) return;
-    var m = new Uint8Array(els.length), n = 0;
-    for (var e = 0; e < els.length; e++) if (elCB[e] === vi){ m[e] = 1; n++; }
-    isolateMask(m, n);
+    if (hasCls(t, "v_vis")){
+      CB.vals[vi].on = !CB.vals[vi].on;
+      syncCBHide(); buildCBList(); buildLegend(); refreshVisibility();
+    } else if (hasCls(t, "v_iso")){
+      var r = cbMask(function(v, i){ return i === vi; });
+      isolateMask(r.m, r.n);
+    } else if (hasCls(t, "v_nm")){
+      var r2 = cbMask(function(v, i){ return i === vi; });
+      if (ev.shiftKey && multiSel){
+        for (var e = 0; e < els.length; e++) if (r2.m[e]) multiSel[e] = 1;
+        updateMselPanel(); invalidate();
+        toast("Added " + r2.n + " element(s) to the selection");
+      } else selectMask(r2, "to select");
+    }
   });
+  buildCBList();
 
   var vfl = $("vf_list");
   on(vfl, "change", function(ev){
