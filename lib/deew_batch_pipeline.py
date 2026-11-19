@@ -195,6 +195,7 @@ class BatchPipeline(object):
                 if document is None:
                     row.upload_status = "Failed - could not open from ACC"
                     row.errors = err
+                    self.logger.error(u"Could not open ACC model {0}: {1}".format(scanned_model.file_name, err))
                     return row
                 if err:
                     row.warnings = "{0}; {1}".format(row.warnings, err) if row.warnings else err
@@ -264,8 +265,19 @@ class BatchPipeline(object):
         non-workshared cloud model cannot be detached (Revit refuses the
         option) and opens still bound to its ACC item, so it is first
         saved to a temporary local file, closed, and that file is opened
-        instead. Returns (document_or_None, note_or_error, temp_path_or_None)."""
+        instead.
+
+        A PLAIN UPLOADED .rvt (item type "File", not "C4RModel") is not a
+        cloud model at all, so Revit cannot open it by cloud path - live
+        run 2026-11-19: 7 of 7 failed with Revit's cloud service answering
+        404 for the project and every model. Those are downloaded to a
+        temporary local file and opened from there, detached when they
+        are workshared. Returns (document_or_None, note_or_error, temp_path_or_None)."""
         import acc_file_browser as afb
+        import acc_api
+        item_type = acc_api.get_item_type(scanned_model.acc_project_id, scanned_model.acc_item_id, token)
+        if item_type and "C4RModel" not in item_type:
+            return self._open_acc_uploaded_file(scanned_model, token)
         # Worksets are ALWAYS opened closed here. Live crash 2026-11-19:
         # opening a 483k-element ACC model detached with OpenAllWorksets
         # access-violated inside Revit's own loader ("catch
@@ -279,12 +291,17 @@ class BatchPipeline(object):
             scanned_model.acc_item_id, token, audit=self.options.get("audit", False),
             close_all_worksets=True)
         if document is None:
+            if not item_type:
+                # Item type could not be read - it may still be a plain file.
+                document2, detail2, temp2 = self._open_acc_uploaded_file(scanned_model, token)
+                if document2 is not None:
+                    return document2, detail2, temp2
+                return None, "{0} | download: {1}".format(detail, detail2), None
             return None, detail, None
         if not docmgr.is_cloud_model(document):
             return document, "", None
 
-        temp_dir = os.path.join(os.environ.get("TEMP", "C:\\Temp"), "DeeWBatchSaveToCloud")
-        temp_path = docmgr.unique_target_path(temp_dir, scanned_model.file_name)
+        temp_path = docmgr.unique_target_path(_temp_dir(), scanned_model.file_name)
         was_workshared = docmgr.is_workshared(document)
         ok, save_detail = docmgr.save_copy_as(document, temp_path, overwrite=True, logger=self.logger)
         docmgr.close_document(document, save_modified=False, logger=self.logger)
@@ -299,6 +316,34 @@ class BatchPipeline(object):
             _remove_temp_copy(temp_path)
             return None, "Could not reopen the local working copy: {0}".format(err), None
         return local_doc, "ACC model copied through a temporary local file", temp_path
+
+    def _open_acc_uploaded_file(self, scanned_model, token):
+        """Downloads a plain uploaded ACC .rvt and opens it, worksets closed:
+        detached (preserve, then discard) when it is workshared, otherwise
+        as-is. The file in ACC is only read. Returns the same triple as
+        _open_acc_source."""
+        import acc_api
+        temp_path = docmgr.unique_target_path(_temp_dir(), scanned_model.file_name)
+        try:
+            acc_api.download_item(scanned_model.acc_project_id, scanned_model.acc_item_id, temp_path, token)
+        except Exception as e:
+            _remove_temp_copy(temp_path)
+            return None, "Could not download the file from ACC: {0}".format(e), None
+        errors = []
+        for detach_option in ("preserve", "discard", "none"):
+            document, err = _open_local_worksets_closed(self.application, temp_path, detach_option)
+            if document is not None:
+                return document, "Uploaded ACC file - downloaded and opened from a temporary copy", temp_path
+            errors.append("{0}: {1}".format(detach_option, err))
+        _remove_temp_copy(temp_path)
+        return None, "Downloaded but could not open: " + " | ".join(errors), None
+
+
+def _temp_dir():
+    folder = os.path.join(os.environ.get("TEMP", "C:\\Temp"), "DeeWBatchSaveToCloud")
+    if not os.path.isdir(folder):
+        os.makedirs(folder)
+    return folder
 
 
 def _open_local_worksets_closed(application, file_path, detach_option):

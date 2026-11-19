@@ -215,6 +215,57 @@ def publish_item(project_id, item_id, without_links, token):
         return False, str(e)
 
 
+def get_item_type(project_id, item_id, token):
+    """The item's extension type, e.g. "items:autodesk.bim360:C4RModel"
+    (a Revit cloud model) or "items:autodesk.bim360:File" (a plain
+    uploaded file). Returns "" when it cannot be read."""
+    try:
+        data = _get(BASE_URL + "/data/v1/projects/{0}/items/{1}".format(project_id, item_id), token)
+        return data.get("data", {}).get("attributes", {}).get("extension", {}).get("type", "") or ""
+    except Exception:
+        return ""
+
+
+def download_item(project_id, item_id, target_path, token):
+    """Downloads the latest version of a plain uploaded ACC file to
+    target_path: tip version -> its OSS storage object -> a signed S3
+    URL -> streamed to disk (no 100 s HttpClient timeout, so large models
+    are fine). Raises with a readable message on failure."""
+    import System
+    from System.IO import File, FileMode
+    from System.Net.Http import HttpCompletionOption
+
+    tip = _get(BASE_URL + "/data/v1/projects/{0}/items/{1}/tip".format(project_id, item_id), token)
+    storage_id = (tip.get("data", {}).get("relationships", {}).get("storage", {})
+                     .get("data", {}).get("id", ""))
+    # "urn:adsk.objects:os.object:<bucket>/<object key>"
+    if "os.object:" not in storage_id or "/" not in storage_id:
+        raise Exception("this ACC item has no downloadable file (storage id '{0}')".format(storage_id))
+    bucket, object_key = storage_id.split("os.object:", 1)[1].split("/", 1)
+    signed = _get(BASE_URL + "/oss/v2/buckets/{0}/objects/{1}/signeds3download".format(
+        bucket, System.Uri.EscapeDataString(object_key)), token)
+    url = signed.get("url") or (signed.get("urls") or [None])[0]
+    if not url:
+        raise Exception("ACC did not return a download link for this file")
+
+    client = HttpClient()
+    client.Timeout = System.TimeSpan.FromHours(4)
+    try:
+        response = client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead).Result
+        if not response.IsSuccessStatusCode:
+            raise Exception("download failed ({0})".format(response.StatusCode))
+        source = response.Content.ReadAsStreamAsync().Result
+        target = File.Open(target_path, FileMode.Create)
+        try:
+            source.CopyTo(target)
+        finally:
+            target.Dispose()
+            source.Dispose()
+    finally:
+        client.Dispose()
+    return target_path
+
+
 def list_folder_contents(project_id, folder_id, token):
     """Returns (subfolders, rvt_items) as lists of (id, name) tuples.
     Any page failure raises an exception so the caller can retry the whole
