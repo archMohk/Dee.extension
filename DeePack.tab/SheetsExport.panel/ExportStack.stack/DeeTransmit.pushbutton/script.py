@@ -51,10 +51,14 @@ import deew_model_scanner as scanner
 import dee_transmit_service as core
 import dee_telemetry
 import dee_known_dialogs
-dee_telemetry.check_access("DeeTransmit")
+# Set by lib/dee_schedule_engine.py, which loads this file to run a
+# scheduled export: define everything, open nothing, prompt for nothing.
+_SCHEDULED = bool(globals().get("__dee_scheduled__"))
+if not _SCHEDULED:
+    dee_telemetry.check_access("DeeTransmit")
 
 
-output = script.get_output()
+output = None if _SCHEDULED else script.get_output()
 
 _TOOL = "DeeTransmit"
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -149,8 +153,10 @@ class Target(object):
     allowed to close it afterwards - a document the user already had
     open is never closed."""
 
-    def __init__(self, label, doc, opened_by_us, detached=False):
+    def __init__(self, label, doc, opened_by_us, detached=False, source=None):
         self.label = label
+        # How a scheduled run finds this model again (None: from the doc)
+        self.source = source
         self.doc = doc
         self.opened_by_us = opened_by_us
         self.detached = detached
@@ -170,6 +176,7 @@ class OptionsWindow(dee_branding.DeeBrandedWindow):
         # Shared "On Revit errors: delete ... and continue" tick box
         dee_known_dialogs.add_error_checkbox(self)
         self.confirmed = False
+        self.schedule = False
         self.options = {}
         self.source_tb.Text = header
 
@@ -296,6 +303,12 @@ class OptionsWindow(dee_branding.DeeBrandedWindow):
             self.confirmed = True
             self.Close()
         self._guard(run)
+
+    def schedule_click(self, sender, args):
+        self.schedule = True
+        self.run_click(sender, args)
+        if not self.confirmed:
+            self.schedule = False
 
     def cancel_click(self, sender, args):
         self.confirmed = False
@@ -439,8 +452,10 @@ def _local_targets(app):
                 t.error = "Could not open: {0}".format(err or "unknown reason")
                 targets.append(t)
             else:
-                targets.append(Target(name, doc, opened_by_us=True,
-                                      detached=bool(detach)))
+                targets.append(Target(
+                    name, doc, opened_by_us=True, detached=bool(detach),
+                    source={"kind": "file", "path": path,
+                            "label": os.path.splitext(name)[0]}))
     return targets
 
 
@@ -495,8 +510,10 @@ def _acc_targets(app):
                 t.error = "Could not open: {0}".format(detail or "unknown reason")
                 targets.append(t)
             else:
-                targets.append(Target(name, doc, opened_by_us=True,
-                                      detached=bool(detach)))
+                targets.append(Target(
+                    name, doc, opened_by_us=True, detached=bool(detach),
+                    source={"kind": "acc", "region": region, "project_id": project_id,
+                            "item_id": all_items[name], "token": token, "label": name}))
     return targets
 
 
@@ -621,6 +638,74 @@ def _report(targets, options, finish_mode, dialogs=None):
     output.print_html(html)
 
 
+def _schedule(uiapp, live, options):
+    """Hands the models and choices to the Schedule dialog. A scheduled
+    run only ever saves cleaned COPIES - it cannot save over, or sync to,
+    the models themselves."""
+    import dee_schedule_core
+    import dee_schedule_engine
+    import dee_schedule_ui
+    sources = []
+    for target in live:
+        try:
+            src = target.source
+            if src is None:
+                src = dee_schedule_engine.source_from_doc(target.doc)
+            elif src["kind"] == "acc":
+                src = dee_schedule_engine.source_from_acc(
+                    src["region"], src["project_id"], src["item_id"], src["token"], src["label"])
+            sources.append(src)
+        except dee_schedule_core.ScheduleError as e:
+            forms.alert(u"{0}".format(e), title=_TOOL)
+        except Exception as e:
+            forms.alert(u"{0} is left out:\n{1}".format(target.label, e), title=_TOOL)
+    # They were only opened to be picked; the run opens its own copies.
+    for target in live:
+        if target.opened_by_us:
+            dm.close_document(target.doc, save_modified=False)
+    if not sources:
+        return
+    dee_schedule_ui.schedule(
+        _TOOL, uiapp, sources,
+        {"options": options, "delete_errors": dee_known_dialogs.delete_errors_enabled()},
+        name=u"Cleaned copy - {0}".format(sources[0]["label"] if len(sources) == 1
+                                          else "{0} models".format(len(sources))),
+        summary=u"Cleaned copies of {0} model(s), removing: {1}".format(
+            len(sources), core.describe_options(options)),
+        note="A scheduled run always works on a detached copy and saves it as a new "
+             "_CLEANED file in the output folder. The models themselves are never changed.")
+
+
+scheduled_dialog_handler = _make_dialog_handler
+
+
+def scheduled_run(ctx, task):
+    """DeeSchedule's entry point (lib/dee_schedule_engine.py)."""
+    options = task["payload"]["options"]
+    folder = ctx.folder()
+    sources = task["sources"]
+    for i, src in enumerate(sources):
+        if not ctx.progress(i, len(sources), src["label"]):
+            return
+        doc = None
+        try:
+            # force_copy: never the live document, whoever has it open
+            doc = ctx.open_model(src, detach="discard", force_copy=True)
+            result = core.clean_document(doc, options)
+            # Never over the original or an earlier copy (unique_target_path)
+            target = Target(src["label"], doc, opened_by_us=True, detached=True)
+            note = _commit(target, FINISH_COPY, folder)
+            ctx.add(bool(target.saved_to), src["label"],
+                    u"{0}  |  {1}".format(result.summary(), note))
+            for error in result.errors:
+                ctx.log(u"{0}: {1}".format(src["label"], error))
+        except Exception as e:
+            ctx.add(False, src["label"], u"{0}".format(e))
+        finally:
+            if doc is not None:
+                ctx.close_model(doc)
+
+
 def main():
     uiapp = __revit__
     app = uiapp.Application
@@ -651,6 +736,9 @@ def main():
     if not window.confirmed:
         return
     options = window.options
+    if window.schedule:
+        _schedule(uiapp, live, options)
+        return
 
     if not forms.alert(
             "About to remove from {0} model(s):\n\n{1}\n\nThis cannot be undone inside "
@@ -755,4 +843,5 @@ def main():
         _TOOL)
 
 
-main()
+if not _SCHEDULED:
+    main()

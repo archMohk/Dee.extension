@@ -39,10 +39,14 @@ import dee_settings_file
 import dee_3d_export_service as core
 import dee_telemetry
 import dee_ui
-dee_telemetry.check_access("Dee3D")
+# Set by lib/dee_schedule_engine.py, which loads this file to run a
+# scheduled export: define everything, open nothing, prompt for nothing.
+_SCHEDULED = bool(globals().get("__dee_scheduled__"))
+if not _SCHEDULED:
+    dee_telemetry.check_access("Dee3D")
 
 
-output = script.get_output()
+output = None if _SCHEDULED else script.get_output()
 
 _TOOL = "Dee3D"
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -415,6 +419,38 @@ class Dee3DWindow(dee_branding.DeeBrandedWindow):
     def export_click(self, sender, args):
         self._guard(self._export)
 
+    def schedule_click(self, sender, args):
+        self._guard(self._schedule)
+
+    def _schedule(self):
+        """Same options as Export, run later by DeeSchedule."""
+        import dee_schedule_ui
+        view = self._selected_view()
+        if view is None:
+            forms.alert("Pick a 3D view first.", title=_TOOL)
+            return
+        options = self._read_options()
+        if not options["categories"]:
+            forms.alert("Every category is switched off, so there would be nothing "
+                        "in the file. Tick at least one.", title=_TOOL)
+            return
+        everything = all(r.included for r in self._cat_rows)
+        options["categories"] = sorted(options["categories"])
+        self._save_settings()
+        model_name = _model_name(self.doc)
+        view_name = core.element_name(view)
+        dee_schedule_ui.schedule_doc(
+            _TOOL, __revit__, self.doc,
+            {"view": view.UniqueId, "view_name": view_name, "model_name": model_name,
+             "file_name": core.default_file_name(model_name, view_name), "options": options},
+            name=u"{0} - {1}".format(model_name, view_name),
+            summary=u"3D view '{0}' as a web page, {1}".format(
+                view_name, "all categories" if everything
+                else "{0} categories".format(len(options["categories"]))),
+            output=self._settings.get("last_folder") or _onedrive_folder(),
+            extras=[("all_categories", "Include every category, also ones that appear later",
+                     everything, "Off: only the categories that are ticked now.")])
+
     def _export(self):
         view = self._selected_view()
         if view is None:
@@ -617,6 +653,47 @@ def _open_file(path):
         return False
 
 
+def scheduled_run(ctx, task):
+    """DeeSchedule's entry point (lib/dee_schedule_engine.py)."""
+    payload = task["payload"]
+    if not os.path.isfile(core.template_path()):
+        raise Exception("the viewer template is missing: {0}".format(core.template_path()))
+    doc = ctx.open_model(task["sources"][0])
+    view = doc.GetElement(payload["view"])
+    if view is None:
+        ctx.add(False, payload["view_name"], "this 3D view is no longer in the model")
+        return
+    view_name = core.element_name(view)
+    options = dict(payload["options"])
+    if payload.get("all_categories"):
+        elements = core.collect_view_elements(doc, view)
+        if options.get("include_links"):
+            elements = elements + core.collect_link_elements(doc, view)
+        options["categories"] = set(name for name, _count in core.categories_of(elements))
+    else:
+        options["categories"] = set(options["categories"])
+
+    def progress_cb(done, total, label):
+        return ctx.progress(done, total, u"reading {0}".format(label))
+
+    scene = core.build_scene(doc, view, options, progress_cb)
+    if scene.cancelled:
+        return
+    if scene.triangles <= 0:
+        ctx.add(False, view_name, "this view produced no 3D geometry")
+        return
+    data = core.build_payload(doc, scene, {
+        "model": payload["model_name"],
+        "view": view_name,
+        "date": DateTime.Now.ToString("yyyy-MM-dd HH:mm"),
+        "mode": options["view_mode"],
+    })
+    out_path = os.path.join(ctx.folder(), payload["file_name"])
+    size = core.write_html(data, out_path)
+    ctx.add(True, view_name, u"{0}, {1}, {2:,} elements".format(
+        os.path.basename(out_path), core.human_size(size), len(scene.els)))
+
+
 def main():
     doc = __revit__.ActiveUIDocument.Document if __revit__.ActiveUIDocument else None
     if doc is None:
@@ -642,4 +719,5 @@ def main():
     window.ShowDialog()
 
 
-main()
+if not _SCHEDULED:
+    main()

@@ -57,10 +57,14 @@ from Autodesk.Revit.DB import (
 import xlsx_writer
 import xlsx_reader
 import dee_telemetry
-dee_telemetry.check_access("DeeScheduleXL")
+# Set by lib/dee_schedule_engine.py, which loads this file to run a
+# scheduled export: define everything, open nothing, prompt for nothing.
+_SCHEDULED = bool(globals().get("__dee_scheduled__"))
+if not _SCHEDULED:
+    dee_telemetry.check_access("DeeScheduleXL")
 
 
-output = script.get_output()
+output = None if _SCHEDULED else script.get_output()
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
@@ -432,6 +436,26 @@ def _build_editor_rows(doc, schedule_row):
 from dee_ui import SafeProgress as _SafeProgress
 
 
+def _schedule_rows_of(doc):
+    rows = []
+    for sched in FilteredElementCollector(doc).OfClass(ViewSchedule):
+        try:
+            if sched.IsTemplate:
+                continue
+            name = _read_name(sched) or "(unnamed)"
+            definition = sched.Definition
+            try:
+                is_itemized = bool(definition.IsItemized)
+            except Exception:
+                is_itemized = False
+            fields = _schedule_fields(definition)
+            cat_name = _schedule_category_name(doc, sched)
+            rows.append(ScheduleRow(sched, name, cat_name, is_itemized, len(fields)))
+        except Exception:
+            continue
+    return rows
+
+
 class DeeScheduleXLWindow(dee_branding.DeeBrandedWindow):
     def __init__(self, xaml_file, doc):
         dee_branding.DeeBrandedWindow.__init__(self, xaml_file)
@@ -446,22 +470,7 @@ class DeeScheduleXLWindow(dee_branding.DeeBrandedWindow):
 
     # -- export tab ---------------------------------------------------------
     def _scan_schedules(self):
-        rows = []
-        for sched in FilteredElementCollector(self.doc).OfClass(ViewSchedule):
-            try:
-                if sched.IsTemplate:
-                    continue
-                name = _read_name(sched) or "(unnamed)"
-                definition = sched.Definition
-                try:
-                    is_itemized = bool(definition.IsItemized)
-                except Exception:
-                    is_itemized = False
-                fields = _schedule_fields(definition)
-                cat_name = _schedule_category_name(self.doc, sched)
-                rows.append(ScheduleRow(sched, name, cat_name, is_itemized, len(fields)))
-            except Exception:
-                continue
+        rows = _schedule_rows_of(self.doc)
         self._schedule_rows = rows
         self.schedules_grid.ItemsSource = None
         self.schedules_grid.ItemsSource = rows
@@ -504,6 +513,29 @@ class DeeScheduleXLWindow(dee_branding.DeeBrandedWindow):
         for r in highlighted:
             r.is_selected = False
         self._refresh_schedules_grid()
+
+    def schedule_click(self, sender, args):
+        """Same choices as Export to Excel, run later by DeeSchedule."""
+        import dee_schedule_ui
+        selected = [r for r in self._schedule_rows if r.is_selected]
+        if not selected:
+            forms.alert("Check at least one Schedule to export.")
+            return
+        bidirectional = bool(self.mode_bidirectional_rb.IsChecked)
+        title = selected[0].name if len(selected) == 1 else \
+            u"{0} schedules".format(len(selected))
+        dee_schedule_ui.schedule_doc(
+            "DeeScheduleXL", __revit__, self.doc,
+            {"schedules": [[r.schedule.UniqueId, r.name] for r in selected],
+             "bidirectional": bidirectional,
+             "file_name": _sanitize_filename(
+                 selected[0].name if len(selected) == 1
+                 else u"{0}_Schedules".format(self.doc.Title)) + ".xlsx"},
+            name=u"{0} - {1}".format(self.doc.Title, title),
+            summary=u"{0} schedule(s) to one Excel file, {1}".format(
+                len(selected), "bidirectional" if bidirectional else "unidirectional"),
+            extras=[("all_schedules", "Export every schedule in the model, including ones added later",
+                     False, "Off: only the schedules that are checked now.")])
 
     def export_click(self, sender, args):
         selected = [r for r in self._schedule_rows if r.is_selected]
@@ -873,10 +905,46 @@ class DeeScheduleXLWindow(dee_branding.DeeBrandedWindow):
         self.Close()
 
 
+def scheduled_run(ctx, task):
+    """DeeSchedule's entry point (lib/dee_schedule_engine.py). Only the
+    export: nothing is ever imported into a model unattended."""
+    payload = task["payload"]
+    doc = ctx.open_model(task["sources"][0])
+    rows = _schedule_rows_of(doc)
+    if not payload.get("all_schedules"):
+        by_uid = dict((r.schedule.UniqueId, r) for r in rows)
+        rows = []
+        for uid, label in payload["schedules"]:
+            if uid in by_uid:
+                rows.append(by_uid[uid])
+            else:
+                ctx.add(None, label, "this schedule is no longer in the model")
+    sheets = []
+    failed = []
+    for i, row in enumerate(rows):
+        if not ctx.progress(i, len(rows), row.name):
+            return
+        try:
+            spec, warn = _build_sheet_spec(doc, row, bool(payload.get("bidirectional")))
+            sheets.append(spec)
+            if warn:
+                ctx.log(warn)
+        except Exception as e:
+            failed.append((row.name, e))
+    if sheets:
+        path = os.path.join(ctx.folder(), payload["file_name"])
+        xlsx_writer.write_multisheet_xlsx(path, sheets)
+        for spec in sheets:
+            ctx.add(True, spec["name"], os.path.basename(path))
+    for name, error in failed:
+        ctx.add(False, name, u"{0}".format(error))
+
+
 def main():
     doc = __revit__.ActiveUIDocument.Document
     window = DeeScheduleXLWindow(_XAML_FILE, doc)
     window.ShowDialog()
 
 
-main()
+if not _SCHEDULED:
+    main()

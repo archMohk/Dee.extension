@@ -151,6 +151,7 @@ TOOL_CATEGORIES = {
     "DeeNWCs": "views_sheets",
     "DeePrinter": "views_sheets",
     "DeeReLevel": "views_sheets",
+    "DeeSchedule": "views_sheets",
     "DeeScheduleXL": "views_sheets",
     "DeeSheet": "views_sheets",
     "DeeVSDupl": "views_sheets",
@@ -566,6 +567,34 @@ def refresh_status(email, tool_category=None):
     result = _check_user_access_sync(email, tool_category=tool_category)
     _save_status(result, email=email, category=tool_category)
     return result
+
+
+def is_allowed(tool_name):
+    """check_access() for code that runs with nobody watching (DeeSchedule):
+    the same rules and the same caches, but it never prompts, alerts or
+    exits. Returns (allowed, reason). Logs the usage when allowed."""
+    email = get_cached_identity()
+    if not email:
+        return False, "Not signed in to Dee.extension on this PC yet - open any Dee tool once."
+    category = TOOL_CATEGORIES.get(tool_name)
+    result = _fresh_cached_allowed(email, category, _ACCESS_CACHE_TTL_SECONDS)
+    if result is None:
+        try:
+            result = _check_user_access_sync(email, tool_category=category)
+            _save_status(result, email=email, category=category)
+        except Exception:
+            result = _fresh_cached_allowed(email, category, _OFFLINE_GRACE_SECONDS)
+            if result is None:
+                return False, "Could not verify access to {0} (no connection).".format(tool_name)
+    if not result.get("allowed"):
+        reason = result.get("reason")
+        headline = _DENIAL_HEADLINES.get(reason, _DENIAL_HEADLINES["disabled"])
+        return False, headline.format(CATEGORY_NAMES.get(category, "these"))
+    try:
+        log_usage(tool_name)
+    except Exception:
+        pass
+    return True, ""
 
 
 def check_access(tool_name):

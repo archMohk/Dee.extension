@@ -92,10 +92,14 @@ from System.Windows.Input import MouseButtonState
 from System.Windows.Media import VisualTreeHelper
 from System.Windows.Controls import ListBoxItem
 import dee_telemetry
-dee_telemetry.check_access("DeePrinter")
+# Set by lib/dee_schedule_engine.py, which loads this file to run a
+# scheduled export: define everything, open nothing, prompt for nothing.
+_SCHEDULED = bool(globals().get("__dee_scheduled__"))
+if not _SCHEDULED:
+    dee_telemetry.check_access("DeePrinter")
 
 
-output = script.get_output()
+output = None if _SCHEDULED else script.get_output()
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "ui.xaml")
@@ -517,13 +521,15 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
         except Exception:
             self.dicdlg = {}
 
+        # Before anything below touches the naming list: every change to it
+        # redraws the live name preview, which applies these.
+        self._naming_methods = self.dicprj.get("naming_methods") or DEFAULT_METHODS()
         raw_paranames = self.dicprj.get("paranames", DEFAULT_PARANAMES)
         value_list = raw_paranames if isinstance(raw_paranames, list) else raw_paranames.split(",")
         self._naming_tokens = [self._token_for_value(v) for v in value_list]
         self._refresh_naming_list()
         self.tb_prefix.Text = self.dicprj.get("prefix", "")
         self.tb_suffix.Text = self.dicprj.get("suffix", "")
-        self._naming_methods = self.dicprj.get("naming_methods") or DEFAULT_METHODS()
 
         self.lb_printfilepath.Content = self.dicdlg.get("printfilepath", "")
         self.chbox_pdfexport.IsChecked = self.dicdlg.get("pdfexport", True)
@@ -994,6 +1000,37 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
         if self.chbox_messageboxes.IsChecked:
             MessageBox.Show("Dialog settings saved!", "DeePrinter")
 
+    def schedule_click(self, sender, args):
+        """Same settings as Export, run later by DeeSchedule."""
+        import dee_schedule_ui
+        self._collect_settings()
+        sheets = [c.item for c in self._context if c.state]
+        if not sheets:
+            forms.alert("Check the sheets to export first.")
+            return
+        formats = _format_names(self.dicdlg)
+        if not formats:
+            forms.alert("Nothing to export - check Export PDF, Combined PDF, DWG, and/or DXF.")
+            return
+        uses_printer = (self.dicdlg.get("pdfengine") == _ENGINE_PRINTER
+                        and ("PDF" in formats or "Combined PDF" in formats))
+        if uses_printer and not self.dicdlg.get("printername"):
+            forms.alert("Pick a printer in the PDF Engine section first, or "
+                        "switch back to the Native engine.")
+            return
+        dee_schedule_ui.schedule_doc(
+            "DeePrinter", __revit__, self.doc,
+            {"sheets": [[s.UniqueId, u"{0} - {1}".format(s.SheetNumber, s.Name)] for s in sheets],
+             "dicprj": self.dicprj, "dicdlg": self.dicdlg},
+            name=u"{0} - {1}".format(self.doc.Title, " + ".join(formats)),
+            summary=u"{0} sheet(s) to {1}".format(len(sheets), ", ".join(formats)),
+            output=self.dicdlg.get("printfilepath") or "",
+            extras=[("all_sheets", "Export every sheet in the model, including sheets added later",
+                     False, "Off: only the sheets that are checked now.")],
+            note=("This task prints through '{0}'. If that printer asks for a file name, the run "
+                  "waits for someone to answer.".format(self.dicdlg.get("printername"))
+                  if uses_printer else ""))
+
     def button_select(self, sender, args):
         self._collect_settings()
         self.response = [c.item for c in self._context if c.state]
@@ -1160,6 +1197,199 @@ def _print_pdf_via_system_printer(doc, sheets, filename, folder, printer_name):
 from dee_ui import SafeProgress as _SafeProgress
 
 
+def _format_names(dicdlg):
+    return [label for key, label in (
+        ("pdfexport", "PDF"), ("combinedpdf", "Combined PDF"),
+        ("dwgexport", "DWG"), ("dxfexport", "DXF")) if dicdlg.get(key)]
+
+
+def _run_export(doc, title, sheets_to_export, dicprj, dicdlg, hierarchy_items,
+                base_folder, dwg_options, pb, all_results, note=None):
+    """The export itself - the same code behind the EXPORT button and a
+    scheduled run. Appends (label, [(detail, ok), ...]) to all_results.
+    dwg_options None skips DWG; `title` names the combined PDF."""
+    do_pdf = bool(dicdlg.get("pdfexport"))
+    combined_pdf = bool(dicdlg.get("combinedpdf"))
+    do_dwg = bool(dicdlg.get("dwgexport")) and dwg_options is not None
+    do_dxf = bool(dicdlg.get("dxfexport"))
+    split_by_ext = bool(dicdlg.get("splitbyext"))
+    pdf_engine = dicdlg.get("pdfengine", _ENGINE_NATIVE)
+    printer_name = dicdlg.get("printername", "")
+    raw_paranames = dicprj.get("paranames", DEFAULT_PARANAMES)
+    paranames = raw_paranames if isinstance(raw_paranames, list) else raw_paranames.split(",")
+    name_prefix = dicprj.get("prefix", "") or ""
+    name_suffix = dicprj.get("suffix", "") or ""
+    naming_methods = dicprj.get("naming_methods") or DEFAULT_METHODS()
+
+    def _final_name(core_name, idx=0):
+        name = u"{0}{1}{2}".format(name_prefix, core_name, name_suffix)
+        return _sanitize_filename(apply_methods(name, idx, naming_methods))
+
+    # _get_dxf_options always returns a usable DXFExportOptions - falling
+    # back to bare defaults if this project has no explicit DXF export
+    # setup, rather than blocking the export entirely.
+    dxf_options = _get_dxf_options(doc) if do_dxf else None
+
+    total = len(sheets_to_export)
+
+    # Export PDF (one file per sheet) and Combined PDF (one multi-page
+    # file) are independent. With BOTH ticked, the two outputs get their
+    # own subfolders under one PDF folder - PDF\Separated\... and
+    # PDF\Combined\ - so they never mix.
+    per_sheet_pdf = do_pdf
+    both_pdf = do_pdf and combined_pdf
+    pdf_sep_root = os.path.join(base_folder, "PDF", "Separated") if both_pdf else None
+
+    if combined_pdf:
+        steps = []
+        all_results.append(("Combined PDF ({0} sheets)".format(total), steps))
+        pb.title = "Exporting combined PDF ({0} sheets)...".format(total)
+        if note is not None:
+            note("**Exporting combined PDF ({0} sheets)...**".format(total))
+        if both_pdf:
+            combined_folder = os.path.join(base_folder, "PDF", "Combined")
+        else:
+            combined_folder = os.path.join(base_folder, "PDF") if split_by_ext else base_folder
+        combined_name = _final_name("{0}_{1}".format(
+            title, datetime.datetime.now().strftime("%d-%m-%y_%H.%M")))
+        try:
+            if not os.path.exists(combined_folder):
+                os.makedirs(combined_folder)
+            if pdf_engine == _ENGINE_PRINTER:
+                _print_pdf_via_system_printer(
+                    doc, sheets_to_export, combined_name, combined_folder, printer_name)
+            else:
+                _export_pdf_combined(doc, sheets_to_export, combined_name, combined_folder)
+            steps.append(("Combined PDF exported as '{0}.pdf'".format(combined_name), True))
+        except Exception as e:
+            steps.append(("Combined PDF FAILED: {0}".format(e), False))
+
+    if not (per_sheet_pdf or do_dwg or do_dxf):
+        sheets_to_export = []
+
+    for i, sheet in enumerate(sheets_to_export):
+        if pb.cancelled:
+            all_results.append(("(cancelled)", [("Cancelled", None)]))
+            break
+        label = "{0} - {1}".format(sheet.SheetNumber, sheet.Name)
+        pb.update_progress(i, total)
+        pb.title = "Exporting {0}/{1}: {2}".format(i + 1, total, label)
+        if note is not None:
+            note("**Exporting {0}/{1}: {2}**".format(i + 1, total, label))
+
+        steps = []
+        all_results.append((label, steps))
+        filename = _final_name(name_from_paralist(sheet, paranames), i)
+
+        folder_part = folder_path_from_hierarchy(sheet, hierarchy_items)
+
+        def _target_folder(fmt, _steps=steps, _part=folder_part, _root=None):
+            """Resolves (and creates) the destination folder for one
+            format of this sheet. With Split by file type on, the format
+            folder (PDF/DWG/DXF) sits directly under the output folder
+            and the parameter hierarchy is repeated inside it; otherwise
+            all formats share the same hierarchy folder. `_root`
+            overrides the base entirely (used for PDF\\Separated when
+            both PDF modes run together). Returns None (with the
+            failure recorded) if the folder can't be created."""
+            if _root is not None:
+                parts = [_root]
+            else:
+                parts = [base_folder]
+                if split_by_ext:
+                    parts.append(fmt)
+            if _part:
+                parts.append(_part)
+            folder = os.path.join(*parts)
+            try:
+                if not os.path.exists(folder):
+                    os.makedirs(folder)
+                return folder
+            except Exception as e:
+                _steps.append(("FAILED to create folder '{0}': {1}".format(folder, e), False))
+                return None
+
+        if per_sheet_pdf:
+            pdf_folder = _target_folder("PDF", _root=pdf_sep_root)
+            if pdf_folder:
+                try:
+                    if pdf_engine == _ENGINE_PRINTER:
+                        _print_pdf_via_system_printer(
+                            doc, [sheet], filename, pdf_folder, printer_name)
+                    else:
+                        _export_pdf(doc, sheet, filename, pdf_folder)
+                    steps.append(("PDF exported as '{0}.pdf'".format(filename), True))
+                except Exception as e:
+                    steps.append(("PDF FAILED: {0}".format(e), False))
+
+        if do_dwg:
+            dwg_folder = _target_folder("DWG")
+            if dwg_folder:
+                try:
+                    _export_dwg(doc, sheet, filename, dwg_folder, dwg_options)
+                    steps.append(("DWG exported as '{0}.dwg'".format(filename), True))
+                except Exception as e:
+                    steps.append(("DWG FAILED: {0}".format(e), False))
+
+        if do_dxf:
+            dxf_folder = _target_folder("DXF")
+            if dxf_folder:
+                try:
+                    _export_dxf(doc, sheet, filename, dxf_folder, dxf_options)
+                    steps.append(("DXF exported as '{0}.dxf'".format(filename), True))
+                except Exception as e:
+                    steps.append(("DXF FAILED: {0}".format(e), False))
+
+
+class _ScheduledProgress(object):
+    """The bit of a progress bar _run_export uses, on a scheduled run."""
+    title = ""
+
+    def __init__(self, ctx):
+        self._ctx = ctx
+
+    @property
+    def cancelled(self):
+        return self._ctx.cancelled
+
+    def update_progress(self, i, total):
+        self._ctx.progress(i, total, "sheet {0} of {1}".format(i + 1, total))
+
+
+def scheduled_run(ctx, task):
+    """DeeSchedule's entry point (lib/dee_schedule_engine.py)."""
+    payload = task["payload"]
+    src = task["sources"][0]
+    doc = ctx.open_model(src)
+    if payload.get("all_sheets"):
+        sheets = [s for s in FilteredElementCollector(doc).OfClass(ViewSheet) if not s.IsTemplate]
+        sheets.sort(key=lambda s: s.SheetNumber)
+    else:
+        sheets = []
+        for uid, label in payload["sheets"]:
+            sheet = doc.GetElement(uid)
+            if isinstance(sheet, ViewSheet):
+                sheets.append(sheet)
+            else:
+                ctx.add(None, label, "this sheet is no longer in the model")
+    if not sheets:
+        return
+    dicprj, dicdlg = payload["dicprj"], payload["dicdlg"]
+    dwg_options = None
+    if dicdlg.get("dwgexport"):
+        dwg_options = _get_dwg_options(doc)
+        if dwg_options is None:
+            ctx.add(False, "DWG", "no DWG Export Setting in this project")
+    hierarchy = [HierarchyLevelItem(h.get("name"), h.get("enabled", True))
+                 for h in dicprj.get("folder_hierarchy") or []]
+    results = []
+    _run_export(doc, src.get("label") or doc.Title, sheets, dicprj, dicdlg, hierarchy,
+                ctx.folder(), dwg_options, _ScheduledProgress(ctx), results)
+    for label, steps in results:
+        for detail, ok in steps:
+            ctx.add(ok, label, detail)
+
+
 def main():
     doc = __revit__.ActiveUIDocument.Document
 
@@ -1183,21 +1413,11 @@ def main():
     combined_pdf = bool(dicdlg.get("combinedpdf"))
     do_dwg = bool(dicdlg.get("dwgexport"))
     do_dxf = bool(dicdlg.get("dxfexport"))
-    split_by_ext = bool(dicdlg.get("splitbyext"))
     pdf_engine = dicdlg.get("pdfengine", _ENGINE_NATIVE)
     printer_name = dicdlg.get("printername", "")
     show_output = bool(dicdlg.get("output"))
     show_messageboxes = bool(dicdlg.get("messageboxes"))
     base_folder = dicdlg.get("printfilepath")
-    raw_paranames = dicprj.get("paranames", DEFAULT_PARANAMES)
-    paranames = raw_paranames if isinstance(raw_paranames, list) else raw_paranames.split(",")
-    name_prefix = dicprj.get("prefix", "") or ""
-    name_suffix = dicprj.get("suffix", "") or ""
-    naming_methods = dicprj.get("naming_methods") or DEFAULT_METHODS()
-
-    def _final_name(core_name, idx=0):
-        name = u"{0}{1}{2}".format(name_prefix, core_name, name_suffix)
-        return _sanitize_filename(apply_methods(name, idx, naming_methods))
 
     if not do_pdf and not combined_pdf and not do_dwg and not do_dxf:
         forms.alert("Nothing to export - check Export PDF, Combined PDF, DWG, and/or DXF.")
@@ -1220,124 +1440,12 @@ def main():
             forms.alert(
                 "No DWG Export Setting found in this project - DWG "
                 "export will be skipped for all sheets.")
-            do_dwg = False
-
-    # _get_dxf_options always returns a usable DXFExportOptions - falling
-    # back to bare defaults if this project has no explicit DXF export
-    # setup, rather than blocking the export entirely.
-    dxf_options = _get_dxf_options(doc) if do_dxf else None
-
-    all_results = []
-    total = len(sheets_to_export)
-
-    # Export PDF (one file per sheet) and Combined PDF (one multi-page
-    # file) are independent. With BOTH ticked, the two outputs get their
-    # own subfolders under one PDF folder - PDF\Separated\... and
-    # PDF\Combined\ - so they never mix.
-    per_sheet_pdf = do_pdf
-    both_pdf = do_pdf and combined_pdf
-    pdf_sep_root = os.path.join(base_folder, "PDF", "Separated") if both_pdf else None
 
     with _SafeProgress(title="DeePrinter — exporting...", cancellable=True) as pb:
-        if combined_pdf:
-            steps = []
-            all_results.append(("Combined PDF ({0} sheets)".format(total), steps))
-            pb.title = "Exporting combined PDF ({0} sheets)...".format(total)
-            if show_output:
-                output.print_md("**Exporting combined PDF ({0} sheets)...**".format(total))
-            if both_pdf:
-                combined_folder = os.path.join(base_folder, "PDF", "Combined")
-            else:
-                combined_folder = os.path.join(base_folder, "PDF") if split_by_ext else base_folder
-            combined_name = _final_name("{0}_{1}".format(
-                doc.Title, datetime.datetime.now().strftime("%d-%m-%y_%H.%M")))
-            try:
-                if not os.path.exists(combined_folder):
-                    os.makedirs(combined_folder)
-                if pdf_engine == _ENGINE_PRINTER:
-                    _print_pdf_via_system_printer(
-                        doc, sheets_to_export, combined_name, combined_folder, printer_name)
-                else:
-                    _export_pdf_combined(doc, sheets_to_export, combined_name, combined_folder)
-                steps.append(("Combined PDF exported as '{0}.pdf'".format(combined_name), True))
-            except Exception as e:
-                steps.append(("Combined PDF FAILED: {0}".format(e), False))
-
-        if not (per_sheet_pdf or do_dwg or do_dxf):
-            sheets_to_export = []
-
-        for i, sheet in enumerate(sheets_to_export):
-            if pb.cancelled:
-                all_results.append(("(cancelled)", [("Cancelled", None)]))
-                break
-            label = "{0} - {1}".format(sheet.SheetNumber, sheet.Name)
-            pb.update_progress(i, total)
-            pb.title = "Exporting {0}/{1}: {2}".format(i + 1, total, label)
-            if show_output:
-                output.print_md("**Exporting {0}/{1}: {2}**".format(i + 1, total, label))
-
-            steps = []
-            all_results.append((label, steps))
-            filename = _final_name(name_from_paralist(sheet, paranames), i)
-
-            folder_part = folder_path_from_hierarchy(sheet, hierarchy_items)
-
-            def _target_folder(fmt, _steps=steps, _part=folder_part, _root=None):
-                """Resolves (and creates) the destination folder for one
-                format of this sheet. With Split by file type on, the format
-                folder (PDF/DWG/DXF) sits directly under the output folder
-                and the parameter hierarchy is repeated inside it; otherwise
-                all formats share the same hierarchy folder. `_root`
-                overrides the base entirely (used for PDF\\Separated when
-                both PDF modes run together). Returns None (with the
-                failure recorded) if the folder can't be created."""
-                if _root is not None:
-                    parts = [_root]
-                else:
-                    parts = [base_folder]
-                    if split_by_ext:
-                        parts.append(fmt)
-                if _part:
-                    parts.append(_part)
-                folder = os.path.join(*parts)
-                try:
-                    if not os.path.exists(folder):
-                        os.makedirs(folder)
-                    return folder
-                except Exception as e:
-                    _steps.append(("FAILED to create folder '{0}': {1}".format(folder, e), False))
-                    return None
-
-            if per_sheet_pdf:
-                pdf_folder = _target_folder("PDF", _root=pdf_sep_root)
-                if pdf_folder:
-                    try:
-                        if pdf_engine == _ENGINE_PRINTER:
-                            _print_pdf_via_system_printer(
-                                doc, [sheet], filename, pdf_folder, printer_name)
-                        else:
-                            _export_pdf(doc, sheet, filename, pdf_folder)
-                        steps.append(("PDF exported as '{0}.pdf'".format(filename), True))
-                    except Exception as e:
-                        steps.append(("PDF FAILED: {0}".format(e), False))
-
-            if do_dwg:
-                dwg_folder = _target_folder("DWG")
-                if dwg_folder:
-                    try:
-                        _export_dwg(doc, sheet, filename, dwg_folder, dwg_options)
-                        steps.append(("DWG exported as '{0}.dwg'".format(filename), True))
-                    except Exception as e:
-                        steps.append(("DWG FAILED: {0}".format(e), False))
-
-            if do_dxf:
-                dxf_folder = _target_folder("DXF")
-                if dxf_folder:
-                    try:
-                        _export_dxf(doc, sheet, filename, dxf_folder, dxf_options)
-                        steps.append(("DXF exported as '{0}.dxf'".format(filename), True))
-                    except Exception as e:
-                        steps.append(("DXF FAILED: {0}".format(e), False))
+        all_results = []
+        _run_export(doc, doc.Title, sheets_to_export, dicprj, dicdlg, hierarchy_items,
+                    base_folder, dwg_options, pb, all_results,
+                    output.print_md if show_output else None)
 
     if show_messageboxes:
         ok_count = sum(1 for _label, steps in all_results for _d, ok in steps if ok)
@@ -1369,4 +1477,5 @@ def main():
         output.print_html(html)
 
 
-main()
+if not _SCHEDULED:
+    main()

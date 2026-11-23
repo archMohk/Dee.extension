@@ -90,6 +90,13 @@ def is_active():
     return _active
 
 
+def seconds_to_next_sync():
+    """For DeeSchedule's list; None while off."""
+    if not _active or _last_sync_time is None:
+        return None
+    return max(0.0, load_interval_minutes() * 60.0 - (time.time() - _last_sync_time))
+
+
 _TAB_NAME = "DeePack"
 _BUTTON_NAME = "DeeForce"
 _bundle_dir_cache = None

@@ -422,6 +422,14 @@ GLYPHS = {
         ln(58, 58, 84, 84, "accent", 1.5), ln(84, 58, 58, 84, "accent", 1.5),
     ],
 
+    # A calendar page with a clock on it: exports on a timetable.
+    "DeeSchedule": lambda: [
+        rc(12, 20, 76, 80, "ink", 1.0, 5), ln(12, 38, 76, 38, "ink", 0.9),
+        ln(30, 12, 30, 26, "ink", 1.0), ln(58, 12, 58, 26, "ink", 1.0),
+        ci(68, 70, 19, "accent", 1.3), ln(68, 70, 68, 58, "accent", 1.2),
+        ln(68, 70, 78, 70, "accent", 1.2),
+    ],
+
     # ---------------- ViewsDatums ----------------
     "DeeView": lambda: [
         rc(16, 20, 56, 60, "ink", 0.95, 3), rc(30, 34, 70, 74, "ink", 0.95, 3),

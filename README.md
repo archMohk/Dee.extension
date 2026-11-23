@@ -36,6 +36,13 @@ Each documented tool has a help page in `docs/pages/<ToolName>.html`.
 python tools/checks/check_bundles.py
 python tools/checks/check_iss.py
 python tools/checks/check_self_calls.py
+python tools/checks/test_schedule_core.py
+```
+
+After touching DeeSchedule or a tool's `scheduled_run()`, also run the live probe (builds its own model):
+
+```
+pyrevit run "D:\<path to>\Dee.extension\tools\checks\schedule_probe.py" --revit=2024
 ```
 
 To prove the extension still loads in each installed Revit (headless, takes a few minutes each):

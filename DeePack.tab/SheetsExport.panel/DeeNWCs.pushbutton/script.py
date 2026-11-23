@@ -180,10 +180,14 @@ clr.AddReference("System.Windows.Forms")
 from System.Windows.Forms import FolderBrowserDialog, DialogResult
 import dee_telemetry
 import dee_known_dialogs
-dee_telemetry.check_access("DeeNWCs")
+# Set by lib/dee_schedule_engine.py, which loads this file to run a
+# scheduled export: define everything, open nothing, prompt for nothing.
+_SCHEDULED = bool(globals().get("__dee_scheduled__"))
+if not _SCHEDULED:
+    dee_telemetry.check_access("DeeNWCs")
 
 
-output = script.get_output()
+output = None if _SCHEDULED else script.get_output()
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _XAML_FILE = os.path.join(_THIS_DIR, "DeeNWCsOptions.xaml")
@@ -725,6 +729,12 @@ class DeeNWCsOptionsWindow(dee_branding.DeeBrandedWindow):
                 "super_config": super_config, "naming": naming}
 
     def continue_click(self, sender, args):
+        self._finish("run")
+
+    def schedule_click(self, sender, args):
+        self._finish("schedule")
+
+    def _finish(self, result):
         config = self._gather_config()
         if config is None:
             self.status_tb.Text = "Faceting Factor must be a number (e.g. 1 or 0.5)."
@@ -738,7 +748,7 @@ class DeeNWCsOptionsWindow(dee_branding.DeeBrandedWindow):
             return
         _save_settings(config)
         self.config = config
-        self.result = "run"
+        self.result = result
         self.Close()
 
     def close_click(self, sender, args):
@@ -862,11 +872,12 @@ def _run_local(uiapp, docs, config, export_folder, best_effort_skipped):
     return results
 
 
-def _pick_acc_files(uiapp):
+def _pick_acc_files(uiapp, ask_close=True):
     """Everything ACC-side that must happen BEFORE the preview step -
-    auth, hub/project/file pick, and the close-after-export prompt.
-    Returns a dict for _run_acc, or None if the user backed out anywhere
-    along the chain."""
+    auth, hub/project/file pick, and the close-after-export prompt
+    (ask_close=False skips it: a scheduled run always closes what it
+    opened). Returns a dict for _run_acc, or None if the user backed out
+    anywhere along the chain."""
     try:
         token = acc_auth.get_access_token()
     except Exception as e:
@@ -892,7 +903,7 @@ def _pick_acc_files(uiapp):
     if not selected_names:
         return None
 
-    close_after = forms.alert(
+    close_after = ask_close and forms.alert(
         "Close each document after exporting its matching view(s)? Recommended for "
         "large batches, to avoid running out of memory with many documents left open.",
         title="DeeNWCs", yes=True, no=True)
@@ -987,15 +998,20 @@ def _show_preview_and_confirm(file_labels, config, export_folder):
         .format(len(file_labels)), title="DeeNWCs - Preview", yes=True, no=True)
 
 
+def _has_exporter():
+    """If the check itself can't run, the export goes ahead and reports
+    its own error."""
+    try:
+        return bool(OptionalFunctionalityUtils.IsNavisworksExporterAvailable())
+    except Exception:
+        return True
+
+
 def _exporter_available(uiapp):
     """False (after telling the user why) when this Revit has no Navisworks
     exporter. Checked before anything else, so a batch never opens cloud
-    models just to fail on every one. If the check itself can't run, the
-    export goes ahead and reports its own error."""
-    try:
-        if OptionalFunctionalityUtils.IsNavisworksExporterAvailable():
-            return True
-    except Exception:
+    models just to fail on every one."""
+    if _has_exporter():
         return True
     version = uiapp.Application.VersionNumber
     forms.alert(
@@ -1008,6 +1024,80 @@ def _exporter_available(uiapp):
     return False
 
 
+def _schedule(uiapp, config):
+    """Picks the models exactly as a normal run would, then hands them to
+    the Schedule dialog instead of exporting."""
+    import dee_schedule_core
+    import dee_schedule_engine
+    import dee_schedule_ui
+
+    sources = []
+    if config["source"] == "local":
+        docs = _pick_local_documents(uiapp)
+        if not docs:
+            return
+        for doc in docs:
+            try:
+                sources.append(dee_schedule_engine.source_from_doc(doc))
+            except dee_schedule_core.ScheduleError as e:
+                forms.alert(u"{0}".format(e), title="DeeNWCs")
+                return
+    else:
+        acc = _pick_acc_files(uiapp, ask_close=False)
+        if acc is None:
+            return
+        with _SafeProgress(title="DeeNWCs - reading the selected cloud models...",
+                           cancellable=True) as pb:
+            for i, name in enumerate(acc["selected_names"]):
+                if pb.cancelled:
+                    return
+                pb.update_progress(i, len(acc["selected_names"]))
+                try:
+                    sources.append(dee_schedule_engine.source_from_acc(
+                        acc["region"], acc["project_id"], acc["all_items"][name],
+                        acc["token"], name))
+                except Exception as e:
+                    forms.alert(u"{0} could not be read from ACC and is left out:\n{1}".format(
+                        name, e), title="DeeNWCs")
+        if not sources:
+            return
+
+    sc = config["super_config"]
+    what = (u"export view '{0}'".format(sc["view_name"]) if sc.get("enabled")
+            else u"views containing '{0}'".format(config["view_contains"]))
+    dee_schedule_ui.schedule(
+        "DeeNWCs", uiapp, sources,
+        {"config": config, "delete_errors": dee_known_dialogs.delete_errors_enabled()},
+        name=u"NWC - {0}".format(sources[0]["label"] if len(sources) == 1
+                                 else "{0} models".format(len(sources))),
+        summary=u"NWC of {0}, {1} model(s)".format(what, len(sources)))
+
+
+def scheduled_run(ctx, task):
+    """DeeSchedule's entry point (lib/dee_schedule_engine.py)."""
+    if not _has_exporter():
+        raise Exception("this Revit has no Navisworks exporter installed")
+    config = task["payload"]["config"]
+    folder = ctx.folder()
+    sources = task["sources"]
+    skipped = set()
+    for i, src in enumerate(sources):
+        if not ctx.progress(i, len(sources), src["label"]):
+            return
+        try:
+            doc = ctx.open_model(src)
+        except Exception as e:
+            ctx.add(False, src["label"], u"could not open: {0}".format(e))
+            continue
+        for ok, label, view_name, detail in _export_for_document(
+                doc, src["label"], config, folder, skipped):
+            ctx.add(ok, u"{0} [{1}]".format(label, view_name), detail)
+        ctx.close_model(doc)
+    if skipped:
+        ctx.log("Settings this Revit's exporter does not have: {0}".format(
+            ", ".join(sorted(skipped))))
+
+
 def main():
     uiapp = __revit__
 
@@ -1016,9 +1106,12 @@ def main():
 
     window = DeeNWCsOptionsWindow(_XAML_FILE)
     window.ShowDialog()
-    if window.result != "run" or window.config is None:
+    if window.result not in ("run", "schedule") or window.config is None:
         return
     config = window.config
+    if window.result == "schedule":
+        _schedule(uiapp, config)
+        return
 
     folder_dlg = FolderBrowserDialog()
     folder_dlg.Description = "Choose a folder to save the exported NWC files"
@@ -1081,4 +1174,5 @@ def main():
     output.print_html(html)
 
 
-main()
+if not _SCHEDULED:
+    main()

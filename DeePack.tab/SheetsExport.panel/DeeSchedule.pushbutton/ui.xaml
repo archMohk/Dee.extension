@@ -1,0 +1,86 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeeSchedule - Scheduled export tasks"
+        ShowInTaskbar="False"
+        MinHeight="560" MinWidth="1080" Height="760" Width="1280"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <CheckBox x:Name="enabled_cb" Content="Scheduler on" FontWeight="Bold" VerticalAlignment="Center"
+                          Click="settings_changed"
+                          ToolTip="Master switch for this PC. Off: nothing runs by itself; Run now still works."/>
+                <CheckBox x:Name="notify_cb" Content="Notify when a run ends" VerticalAlignment="Center"
+                          Margin="16,0,0,0" Click="settings_changed"/>
+                <TextBlock Text="Warn before a run" Foreground="{DynamicResource DeeText}" VerticalAlignment="Center" Margin="16,0,6,0"/>
+                <ComboBox x:Name="warn_cb" Width="100" Height="26" SelectionChanged="settings_changed"/>
+            </StackPanel>
+            <TextBlock x:Name="header_tb" Foreground="{DynamicResource DeeText}" FontSize="14" FontWeight="Bold" VerticalAlignment="Center" TextWrapping="Wrap"/>
+        </DockPanel>
+
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+            <Button DockPanel.Dock="Right" Content="Close" Width="90" Height="28" Click="close_click"/>
+            <Button DockPanel.Dock="Left" Content="Export tasks..." Width="120" Height="28" Margin="0,0,6,0" Click="export_click"
+                    ToolTip="Save the selected tasks (or all of them) and the scheduler settings to one file for another PC."/>
+            <Button DockPanel.Dock="Left" Content="Import tasks..." Width="120" Height="28" Margin="0,0,6,0" Click="import_click"
+                    ToolTip="Load tasks exported from another PC."/>
+            <Button DockPanel.Dock="Left" Content="Fix paths..." Width="110" Height="28" Click="relink_click"
+                    ToolTip="Point tasks whose model or output folder does not exist on this PC to the right place."/>
+            <TextBlock x:Name="status_tb" Foreground="{DynamicResource DeeText}" VerticalAlignment="Center" Margin="16,0,10,0" TextTrimming="CharacterEllipsis"/>
+        </DockPanel>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="200"/>
+                <ColumnDefinition Width="10"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <DockPanel Grid.Column="0">
+                <TextBlock DockPanel.Dock="Top" Text="Tools" Foreground="{DynamicResource DeeText}" FontWeight="Bold" Margin="0,0,0,4"/>
+                <TextBlock DockPanel.Dock="Bottom" TextWrapping="Wrap" Foreground="#555555" FontSize="11" Margin="0,8,0,0"
+                           Text="To add a task, open an export tool, set it up as usual and press Schedule. Tasks run while Revit is open and idle."/>
+                <ListBox x:Name="tools_lb" SelectionChanged="tool_changed" DisplayMemberPath="label"/>
+            </DockPanel>
+
+            <DockPanel Grid.Column="2">
+                <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                    <Button x:Name="run_b" Content="Run now" Width="90" Height="28" Margin="0,0,6,4" FontWeight="Bold" Click="run_click"
+                            ToolTip="Run the selected tasks straight away. Their schedule does not change."/>
+                    <Button x:Name="resume_b" Content="Resume" Width="90" Height="28" Margin="0,0,6,4" Click="resume_click"
+                            ToolTip="Put paused or stopped tasks back on schedule, from now."/>
+                    <Button x:Name="pause_b" Content="Pause" Width="90" Height="28" Margin="0,0,6,4" Click="pause_click"
+                            ToolTip="Skip runs until you press Resume. A run already in progress finishes."/>
+                    <Button x:Name="stop_b" Content="Stop" Width="90" Height="28" Margin="0,0,6,4" Click="stop_click"
+                            ToolTip="Cancel a run in progress (after the current file) and switch the schedule off."/>
+                    <Button x:Name="delete_b" Content="Delete" Width="90" Height="28" Margin="0,0,22,4" Click="delete_click"
+                            ToolTip="Remove the selected tasks. Exported files are kept."/>
+                    <Button x:Name="edit_b" Content="Edit..." Width="80" Height="28" Margin="0,0,6,4" Click="edit_click"
+                            ToolTip="Change the name, time, output folder or Revit version of one task."/>
+                    <Button x:Name="output_b" Content="Open output" Width="100" Height="28" Margin="0,0,6,4" Click="output_click"/>
+                    <Button x:Name="log_b" Content="Last log" Width="80" Height="28" Margin="0,0,6,4" Click="log_click"/>
+                    <Button x:Name="all_b" Content="Select all" Width="80" Height="28" Margin="0,0,0,4" Click="select_all_click"/>
+                </WrapPanel>
+                <Border DockPanel.Dock="Bottom" BorderBrush="#CCCCCC" BorderThickness="1" Margin="0,6,0,0" Height="200">
+                    <TextBox x:Name="details_tb" IsReadOnly="True" BorderThickness="0" TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top"
+                             FontFamily="Consolas" FontSize="12" Padding="6"/>
+                </Border>
+                <DataGrid x:Name="tasks_grid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
+                          SelectionMode="Extended" SelectionUnit="FullRow" HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal" SelectionChanged="selection_changed">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Tool" Binding="{Binding tool}" Width="105"/>
+                        <DataGridTextColumn Header="Task" Binding="{Binding name}" Width="*" MinWidth="120"/>
+                        <DataGridTextColumn Header="Model" Binding="{Binding model}" Width="*" MinWidth="100"/>
+                        <DataGridTextColumn Header="When" Binding="{Binding when}" Width="165"/>
+                        <DataGridTextColumn Header="Next run" Binding="{Binding next_text}" Width="125"/>
+                        <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="115"/>
+                        <DataGridTextColumn Header="Last run" Binding="{Binding last_text}" Width="125"/>
+                        <DataGridTextColumn Header="Last result" Binding="{Binding result}" Width="*" MinWidth="110"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</Window>

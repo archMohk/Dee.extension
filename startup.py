@@ -18,7 +18,9 @@ BEFORE it builds the ribbon from what is on disk.
    lib/dee_broadcast_service.py (DeeCall admin broadcasts) on
    UIApplication.Idling - both do their network calls on a worker
    thread and only touch the UI from Idling; lib/dee_icon_service.py
-   (DeeIcon's real-file-thumbnail branding) on DocumentOpened/Saved.
+   (DeeIcon's real-file-thumbnail branding) on DocumentOpened/Saved;
+   lib/dee_schedule_engine.py (DeeSchedule's scheduled exports) on a
+   timer plus an ExternalEvent.
 """
 import os
 
@@ -69,5 +71,14 @@ try:
     from pyrevit import HOST_APP
     import dee_icon_service
     dee_icon_service.start_watching(HOST_APP.uiapp)
+except Exception:
+    pass
+
+# DeeSchedule: runs the scheduled export tasks whose time has come, only
+# while Revit is idle.
+try:
+    from pyrevit import HOST_APP
+    import dee_schedule_engine
+    dee_schedule_engine.start_watching(HOST_APP.uiapp)
 except Exception:
     pass

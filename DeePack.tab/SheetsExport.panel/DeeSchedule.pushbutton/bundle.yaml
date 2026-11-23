@@ -1,0 +1,3 @@
+title: DeeSchedule
+tooltip: "Every scheduled export in one place - which tool, which model, when it runs next and how the last run went. Run now, Resume, Pause, Stop or Delete any task, change its time or output folder, and read its log. Schedule a task from inside DeePrinter, DeeNWCs, Dee3D, DeeScheduleXL or DeeTransmit with their Schedule button. Export tasks and Import tasks move the whole list, with every setting, to another PC. Tasks run while Revit is open and idle - models that are not open are opened in the background, detached, and closed again without saving."
+context: zero-doc

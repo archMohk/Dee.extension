@@ -28,8 +28,13 @@
                             <RadioButton x:Name="mode_unidirectional_rb" Content="Unidirectional - Clean copy, import impossible"
                                          GroupName="export_mode" VerticalAlignment="Center" Margin="30,0,0,0"/>
                         </StackPanel>
-                        <Button x:Name="export_b" Content="Export to Excel" Click="export_click"
-                                Width="160" Height="28" HorizontalAlignment="Left"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="export_b" Content="Export to Excel" Click="export_click"
+                                    Width="160" Height="28"/>
+                            <Button x:Name="schedule_b" Content="Schedule task..." Click="schedule_click"
+                                    Width="130" Height="28" Margin="8,0,0,0"
+                                    ToolTip="Export the checked Schedules later, once or on a repeat, and run, pause, stop or delete what is already scheduled."/>
+                        </StackPanel>
                     </StackPanel>
 
                     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">

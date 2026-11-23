@@ -15,6 +15,9 @@
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,8">
             <Button x:Name="run_b" Content="Run cleaning..." Width="170" Height="32"
                     FontWeight="Bold" Click="run_click"/>
+            <Button x:Name="schedule_b" Content="Schedule..." Width="100" Height="32"
+                    Margin="8,0,0,0" Click="schedule_click"
+                    ToolTip="Make cleaned copies later, once or on a repeat, and run, pause, stop or delete what is already scheduled. The models themselves are never changed."/>
             <Button x:Name="cancel_b" Content="Cancel" Width="90" Height="32"
                     Margin="14,0,0,0" Click="cancel_click"/>
             <Button x:Name="all_b" Content="Tick everything" Width="120" Height="32"
