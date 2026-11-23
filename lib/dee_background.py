@@ -180,6 +180,12 @@ class BackgroundJob(object):
                 log("Background Revit {0}/{1} starting with {2} model(s) - {3}".format(idx, count, len(chunk), folder))
             if idx < count:
                 time.sleep(3)      # stagger the launches
+        try:
+            import dee_running     # DeeControl -> Running Tools
+            dee_running.add_job(tool, len(items), [w["folder"] for w in job.workers],
+                                [w["process"] for w in job.workers])
+        except Exception:
+            pass
         return job
 
     # ----- while running
@@ -227,12 +233,7 @@ class BackgroundJob(object):
 
     def stop(self):
         """Each Revit finishes its current model, then skips the rest."""
-        for w in self.workers:
-            try:
-                with io.open(os.path.join(w["folder"], "stop.txt"), "w", encoding="utf-8") as f:
-                    f.write(u"stop")
-            except Exception:
-                pass
+        request_stop([w["folder"] for w in self.workers])
 
     def results(self):
         merged = {}
@@ -242,6 +243,15 @@ class BackgroundJob(object):
 
     def keys(self):
         return [k for w in self.workers for k in w["keys"]]
+
+
+def request_stop(folders):
+    for folder in folders:
+        try:
+            with io.open(os.path.join(folder, "stop.txt"), "w", encoding="utf-8") as f:
+                f.write(u"stop")
+        except Exception:
+            pass
 
 
 def start_timer(job, on_line, on_finish, seconds=1):

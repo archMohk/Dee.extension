@@ -20,8 +20,9 @@ consent to that risk.
 
 Instead, this uses a confirmed, fully documented Revit API mechanism:
 Revit's saved file thumbnail is a snapshot of a specific VIEW, and
-which view is used is controlled by Document.GetDocumentPreviewSettings()
-/ SetDocumentPreviewSettings() - DocumentPreviewSettings.PreviewViewId.
+which view is used is controlled by
+Document.GetDocumentPreviewSettings().PreviewViewId (set in place; there
+is no SetDocumentPreviewSettings in Revit 2021-2026).
 Point that at a small dedicated view containing the version badge +
 logo, and Revit's own, completely unmodified native save process bakes
 that view's image in as the file's real thumbnail. No binary file
@@ -29,8 +30,8 @@ access of any kind - everything here is standard, in-session Revit API
 calls against the open Document, the same risk profile as any other
 tool in this extension that creates a view or places an element.
 
-NEEDS LIVE-REVIT VERIFICATION: the exact Get/Set calling convention for
-DocumentPreviewSettings (this repo has never touched it before) - built
+NEEDS LIVE-REVIT VERIFICATION: setting
+DocumentPreviewSettings.PreviewViewId - built
 defensively (try/except) so a failure here can never raise past the
 caller. ImageType/ImageInstance placement carries the same "needs a
 live check" flag already noted where it was first used in this repo
@@ -79,6 +80,21 @@ def load_settings():
 
 def save_settings(data):
     deew_settings.save(_SETTINGS_TOOL_NAME, data)
+
+
+def is_enabled():
+    return bool(load_settings().get("enabled"))
+
+
+def set_enabled(value):
+    """The on/off switch (DeeIcon and DeeControl -> Running Tools). Takes
+    effect at once: the open/save handlers read it every time. Off leaves
+    every model as it is - remove_branding() undoes one. Returns the saved
+    settings."""
+    data = load_settings()
+    data["enabled"] = bool(value)
+    save_settings(data)
+    return data
 
 
 def _version_text(doc):
@@ -202,9 +218,7 @@ def _current_preview_view_id(doc):
 
 def _apply_preview_settings(doc, view):
     """Returns (True, None) or (False, error_text) - the caller surfaces
-    error_text verbatim since this exact API call has never been used
-    in this repo before and its calling convention needs live-Revit
-    confirmation."""
+    error_text verbatim since this API needs live-Revit confirmation."""
     try:
         settings = doc.GetDocumentPreviewSettings()
     except Exception as e:
@@ -213,10 +227,6 @@ def _apply_preview_settings(doc, view):
         settings.PreviewViewId = view.Id
     except Exception as e:
         return False, "setting PreviewViewId - {0}".format(e)
-    try:
-        doc.SetDocumentPreviewSettings(settings)
-    except Exception as e:
-        return False, "SetDocumentPreviewSettings() - {0}".format(e)
     return True, None
 
 
@@ -260,7 +270,11 @@ def apply_branding(doc, settings=None):
         existing_text = _find_text_note(doc, existing_view) if existing_view is not None else None
         needs_view = existing_view is None
         needs_text = existing_text is None or getattr(existing_text, "Text", None) != version_text
-        needs_logo = applied_logo != logo_path
+        # The saved path is one for every model, so a model with no logo
+        # yet (new, or cleaned with Remove) is looked at as well.
+        needs_logo = applied_logo != logo_path or (
+            bool(logo_path) and (existing_view is None
+                                 or _find_image_instance(doc, existing_view) is None))
         needs_preview = (existing_view is None
                           or _current_preview_view_id(doc) != existing_view.Id)
 
@@ -302,6 +316,62 @@ def apply_branding(doc, settings=None):
         return False, str(e)
 
 
+def is_branded(doc):
+    try:
+        return _find_view_by_name(doc, _VIEW_NAME) is not None
+    except Exception:
+        return False
+
+
+def remove_branding(doc):
+    """Undoes apply_branding in this model: Revit picks the thumbnail
+    itself again, and the DeeIcon view and its logo are deleted. Needs
+    DeeIcon off (else the next save puts it back). All or nothing: any
+    failure rolls the whole change back. (True, message) / (False,
+    reason) - never raises."""
+    if is_enabled():
+        return False, "Turn DeeIcon off first, or the next save puts it back."
+    t = None
+    try:
+        if doc is None:
+            return False, "No document."
+        if doc.IsReadOnly:
+            return False, "This document is read-only."
+        view = _find_view_by_name(doc, _VIEW_NAME)
+        if view is None:
+            return True, "Nothing to remove - DeeIcon is not in this document."
+        if doc.ActiveView is not None and doc.ActiveView.Id == view.Id:
+            return False, "The DeeIcon view is the active view - switch to another view first."
+
+        from Autodesk.Revit.DB import (
+            ElementId, FilteredElementCollector, ImageInstance, Transaction)
+        inside = list(FilteredElementCollector(doc, view.Id).OfClass(ImageInstance))
+        inside_ids = set(str(i.Id) for i in inside)
+        logo_types = dict((str(i.GetTypeId()), i.GetTypeId()) for i in inside)
+        for image in FilteredElementCollector(doc).OfClass(ImageInstance):
+            if str(image.Id) not in inside_ids:
+                logo_types.pop(str(image.GetTypeId()), None)     # used elsewhere
+
+        t = Transaction(doc, "DeeIcon - Remove Thumbnail Branding")
+        t.Start()
+        preview = doc.GetDocumentPreviewSettings()
+        if preview.PreviewViewId == view.Id:
+            preview.PreviewViewId = ElementId.InvalidElementId
+        doc.Delete(view.Id)
+        for type_id in logo_types.values():
+            if doc.GetElement(type_id) is not None:
+                doc.Delete(type_id)
+        t.Commit()
+        return True, "Removed - the file's own thumbnail comes back the next time it's saved."
+    except Exception as e:
+        try:
+            if t is not None and t.HasStarted() and not t.HasEnded():
+                t.RollBack()
+        except Exception:
+            pass
+        return False, str(e)
+
+
 def _on_document_opened(sender, args):
     try:
         apply_branding(args.Document)
@@ -338,5 +408,7 @@ def start_watching(uiapp):
         pass
     try:
         app.DocumentSaved += _on_document_saved
+        import dee_running
+        dee_running.mark_started("DeeIcon")
     except Exception:
         pass

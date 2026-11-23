@@ -10,85 +10,144 @@
             <StatusBarItem><TextBlock x:Name="status_tb" Text="Ready."/></StatusBarItem>
         </StatusBar>
 
-        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Untick anything you do not want. A switched-off button is GREYED OUT, not hidden — it stays exactly where it is on the ribbon, faded and unclickable, and keeps its tooltip. Unticking a panel greys every button inside it. About and DeeControl are always on so you can never lock yourself out. Nothing changes until you click Apply, and the ribbon only updates after a pyRevit reload."/>
+        <TabControl x:Name="tabs">
+            <TabItem Header="Buttons">
+                <DockPanel Margin="8">
+                <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                           Text="Untick anything you do not want. A switched-off button is GREYED OUT, not hidden — it stays exactly where it is on the ribbon, faded and unclickable, and keeps its tooltip. Unticking a panel greys every button inside it. About and DeeControl are always on so you can never lock yourself out. Nothing changes until you click Apply, and the ribbon only updates after a pyRevit reload."/>
 
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
-            <TextBlock Text="Filter:" VerticalAlignment="Center"/>
-            <TextBox x:Name="search_tb" Width="240" Height="24" Margin="6,0,0,0"
-                     TextChanged="search_changed"
-                     ToolTip="Type any number of words — a row must match all of them, in its name, type or brief."/>
-            <CheckBox x:Name="buttons_only_cb" Content="Buttons only" VerticalAlignment="Center"
-                      Margin="14,0,0,0" Click="search_changed"
-                      ToolTip="Hides the panel and group rows so you only see the actual buttons."/>
-            <Button x:Name="all_on_b" Content="All On" Width="80" Height="24" Margin="18,0,0,0" Click="all_on_click"/>
-            <Button x:Name="all_off_b" Content="All Off" Width="80" Height="24" Margin="6,0,0,0" Click="all_off_click"/>
-            <Button x:Name="invert_b" Content="Invert" Width="80" Height="24" Margin="6,0,0,0" Click="invert_click"/>
-            <Button x:Name="shown_on_b" Content="Shown On" Width="90" Height="24" Margin="18,0,0,0" Click="shown_on_click"
-                    ToolTip="Switches on every row currently passing the filter."/>
-            <Button x:Name="shown_off_b" Content="Shown Off" Width="90" Height="24" Margin="6,0,0,0" Click="shown_off_click"/>
-        </StackPanel>
-
-        <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource DeeOrange}" BorderThickness="2" CornerRadius="4"
-                Padding="10" Margin="0,8,0,6">
-            <StackPanel>
-                <StackPanel Orientation="Horizontal">
-                    <Button x:Name="apply_b" Content="Apply Changes" Width="150" Height="30"
-                            FontWeight="Bold" Click="apply_click"/>
-                    <Button x:Name="reload_b" Content="Reload pyRevit Now" Width="170" Height="30"
-                            Margin="10,0,0,0" Click="reload_click"
-                            ToolTip="Rebuilds the ribbon so your changes show up. You can also do this later from the pyRevit tab."/>
-                    <Button x:Name="reset_b" Content="Reset — Turn Everything On" Width="200" Height="30"
-                            Margin="10,0,0,0" Click="reset_click"/>
-                    <Button x:Name="save_favorites_b" Content="Save Favorites" Width="140" Height="30"
-                            Margin="24,0,0,0" Click="save_favorites_click"
-                            ToolTip="Saves the Fav column. Takes effect immediately - just pick Favorite in DeePack's ribbon View dropdown, no Apply or reload needed."/>
-                    <Button x:Name="close_b" Content="Close" Width="90" Height="30" Margin="10,0,0,0" Click="close_click"/>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                    <TextBlock Text="Filter:" VerticalAlignment="Center"/>
+                    <TextBox x:Name="search_tb" Width="240" Height="24" Margin="6,0,0,0"
+                             TextChanged="search_changed"
+                             ToolTip="Type any number of words — a row must match all of them, in its name, type or brief."/>
+                    <CheckBox x:Name="buttons_only_cb" Content="Buttons only" VerticalAlignment="Center"
+                              Margin="14,0,0,0" Click="search_changed"
+                              ToolTip="Hides the panel and group rows so you only see the actual buttons."/>
+                    <Button x:Name="all_on_b" Content="All On" Width="80" Height="24" Margin="18,0,0,0" Click="all_on_click"/>
+                    <Button x:Name="all_off_b" Content="All Off" Width="80" Height="24" Margin="6,0,0,0" Click="all_off_click"/>
+                    <Button x:Name="invert_b" Content="Invert" Width="80" Height="24" Margin="6,0,0,0" Click="invert_click"/>
+                    <Button x:Name="shown_on_b" Content="Shown On" Width="90" Height="24" Margin="18,0,0,0" Click="shown_on_click"
+                            ToolTip="Switches on every row currently passing the filter."/>
+                    <Button x:Name="shown_off_b" Content="Shown Off" Width="90" Height="24" Margin="6,0,0,0" Click="shown_off_click"/>
                 </StackPanel>
-                <TextBlock TextWrapping="Wrap" FontSize="11" Margin="0,8,0,0"
-                           Text="Apply writes a never-true context rule into each switched-off button's bundle.yaml — that is what makes Revit grey it out instead of running it. Nothing is hidden, moved or deleted, and ribbon order is never touched. Those files are tracked in git, so your choices show up as normal repository changes you can review or revert."/>
-                <TextBlock TextWrapping="Wrap" FontSize="11" Margin="0,4,0,0"
-                           Text="Fav is separate and personal to this PC - it picks what DeePack's ribbon View dropdown's Favorite category shows. Save Favorites applies instantly, no reload needed."/>
-                <TextBlock x:Name="pending_tb" TextWrapping="Wrap" FontSize="12" FontWeight="Bold"
-                           Foreground="#FFB300" Margin="0,6,0,0" Text=""/>
-            </StackPanel>
-        </Border>
 
-        <DataGrid x:Name="items_grid" AutoGenerateColumns="False" CanUserAddRows="False"
-                  SelectionMode="Extended" SelectionUnit="FullRow" FontFamily="Consolas">
-            <DataGrid.Columns>
-                <!-- A TemplateColumn, not a DataGridCheckBoxColumn: the built-in
-                     one only toggles once the cell is in edit mode, so with
-                     SelectionUnit=FullRow the first click merely selects the row
-                     and the tick appears dead. A CheckBox in a template toggles
-                     on the first click, and its Click event lets the window
-                     react immediately. -->
-                <DataGridTemplateColumn Header="On" Width="45" SortMemberPath="enabled">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <CheckBox IsChecked="{Binding enabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                      IsEnabled="{Binding is_toggleable}"
-                                      HorizontalAlignment="Center" VerticalAlignment="Center"
-                                      Click="row_toggle_click"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-                <DataGridTemplateColumn Header="Fav" Width="40" SortMemberPath="favorite"
-                                         ToolTipService.ToolTip="Shown when DeePack's ribbon View dropdown is set to Favorite. Personal to this PC - Save Favorites to apply.">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <CheckBox IsChecked="{Binding favorite, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                      IsEnabled="{Binding is_favoritable}"
-                                      HorizontalAlignment="Center" VerticalAlignment="Center"
-                                      Click="row_favorite_click"/>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Name" Binding="{Binding display_name}" IsReadOnly="True" Width="260"/>
-                <DataGridTextColumn Header="Type" Binding="{Binding kind}" IsReadOnly="True" Width="80"/>
-                <DataGridTextColumn Header="What it does" Binding="{Binding brief}" IsReadOnly="True" Width="*"/>
-                <DataGridTextColumn Header="Why faded" Binding="{Binding note}" IsReadOnly="True" Width="190"/>
-            </DataGrid.Columns>
-        </DataGrid>
+                <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource DeeOrange}" BorderThickness="2" CornerRadius="4"
+                        Padding="10" Margin="0,8,0,6">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="apply_b" Content="Apply Changes" Width="150" Height="30"
+                                    FontWeight="Bold" Click="apply_click"/>
+                            <Button x:Name="reload_b" Content="Reload pyRevit Now" Width="170" Height="30"
+                                    Margin="10,0,0,0" Click="reload_click"
+                                    ToolTip="Rebuilds the ribbon so your changes show up. You can also do this later from the pyRevit tab."/>
+                            <Button x:Name="reset_b" Content="Reset — Turn Everything On" Width="200" Height="30"
+                                    Margin="10,0,0,0" Click="reset_click"/>
+                            <Button x:Name="save_favorites_b" Content="Save Favorites" Width="140" Height="30"
+                                    Margin="24,0,0,0" Click="save_favorites_click"
+                                    ToolTip="Saves the Fav column. Takes effect immediately - just pick Favorite in DeePack's ribbon View dropdown, no Apply or reload needed."/>
+                            <Button x:Name="close_b" Content="Close" Width="90" Height="30" Margin="10,0,0,0" Click="close_click"/>
+                        </StackPanel>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Margin="0,8,0,0"
+                                   Text="Apply writes a never-true context rule into each switched-off button's bundle.yaml — that is what makes Revit grey it out instead of running it. Nothing is hidden, moved or deleted, and ribbon order is never touched. Those files are tracked in git, so your choices show up as normal repository changes you can review or revert."/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Margin="0,4,0,0"
+                                   Text="Fav is separate and personal to this PC - it picks what DeePack's ribbon View dropdown's Favorite category shows. Save Favorites applies instantly, no reload needed."/>
+                        <TextBlock x:Name="pending_tb" TextWrapping="Wrap" FontSize="12" FontWeight="Bold"
+                                   Foreground="#FFB300" Margin="0,6,0,0" Text=""/>
+                    </StackPanel>
+                </Border>
+
+                <DataGrid x:Name="items_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                          SelectionMode="Extended" SelectionUnit="FullRow" FontFamily="Consolas">
+                    <DataGrid.Columns>
+                        <!-- A TemplateColumn, not a DataGridCheckBoxColumn: the built-in
+                             one only toggles once the cell is in edit mode, so with
+                             SelectionUnit=FullRow the first click merely selects the row
+                             and the tick appears dead. A CheckBox in a template toggles
+                             on the first click, and its Click event lets the window
+                             react immediately. -->
+                        <DataGridTemplateColumn Header="On" Width="45" SortMemberPath="enabled">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <CheckBox IsChecked="{Binding enabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              IsEnabled="{Binding is_toggleable}"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Click="row_toggle_click"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="Fav" Width="40" SortMemberPath="favorite"
+                                                 ToolTipService.ToolTip="Shown when DeePack's ribbon View dropdown is set to Favorite. Personal to this PC - Save Favorites to apply.">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <CheckBox IsChecked="{Binding favorite, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              IsEnabled="{Binding is_favoritable}"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Click="row_favorite_click"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="Name" Binding="{Binding display_name}" IsReadOnly="True" Width="260"/>
+                        <DataGridTextColumn Header="Type" Binding="{Binding kind}" IsReadOnly="True" Width="80"/>
+                        <DataGridTextColumn Header="What it does" Binding="{Binding brief}" IsReadOnly="True" Width="*"/>
+                        <DataGridTextColumn Header="Why faded" Binding="{Binding note}" IsReadOnly="True" Width="190"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+                </DockPanel>
+            </TabItem>
+            <TabItem x:Name="running_tab" Header="Running Tools">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Everything DeePack is running now: background services, scheduled exports, background Revits and open tool windows. The list refreshes by itself, and each button works straight away - no Apply, no reload."/>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <Button DockPanel.Dock="Right" Content="Refresh" Width="90" Height="24" Click="running_refresh_click"/>
+                        <CheckBox x:Name="running_off_cb" DockPanel.Dock="Right" Content="Also show what is off"
+                                  IsChecked="True" VerticalAlignment="Center" Margin="0,0,16,0"
+                                  Click="running_refresh_click"/>
+                        <TextBlock x:Name="running_count_tb" FontWeight="Bold" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                        <Button DockPanel.Dock="Right" Content="Close" Width="90" Height="30" Click="close_click"/>
+                        <TextBlock x:Name="running_note_tb" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <DataGrid x:Name="running_grid" AutoGenerateColumns="False" CanUserAddRows="False"
+                              IsReadOnly="True" SelectionMode="Single" SelectionUnit="FullRow">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="Tool" Width="170" SortMemberPath="tool">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding tool}" FontWeight="SemiBold" Opacity="{Binding opacity}"
+                                                   VerticalAlignment="Center" Margin="4,0"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Type" Binding="{Binding kind}" Width="150">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock"><Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Margin" Value="2,4"/></Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="Status" Binding="{Binding status}" Width="100">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock"><Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Margin" Value="2,4"/></Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="Details" Binding="{Binding detail}" Width="*">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock"><Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Margin" Value="2,4"/></Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTemplateColumn Header="" Width="110">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="{Binding action}" Visibility="{Binding action_visible}"
+                                                Height="24" Margin="4,2" Padding="4,0" Click="running_action_click"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
     </DockPanel>
 </Window>

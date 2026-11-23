@@ -18,15 +18,24 @@ contradiction rather than a clever combination of tokens.
 Switching a PANEL off greys every button inside it. Nothing is ever
 removed from a layout, so ribbon order is never touched by this tool.
 
+The Running Tools tab lists what DeePack is running now, with a button to
+switch it off (or on) or stop / close it; lib/dee_running.py finds it all.
+
 context: zero-doc, because rearranging your own ribbon has nothing to do
 with whether a project happens to be open.
 """
 import os
 
+import clr
+clr.AddReference("WindowsBase")
+from System import TimeSpan
+from System.Windows.Threading import DispatcherTimer
+
 from pyrevit import forms, script
 import dee_branding
 
 import dee_control_panel_service as core
+import dee_running
 import dee_telemetry
 dee_telemetry.check_access("DeeControl")
 
@@ -44,6 +53,9 @@ _CONFIG_PATH = os.path.join(_EXTENSION_ROOT, "dee_control_panel.json")
 # dropdown's Favorite category (lib/dee_ribbon_mode.py) - deliberately
 # NOT dee_control_panel.json (that one is team-wide, tracked in git).
 _FAVORITES_PATH = os.path.join(_EXTENSION_ROOT, "lib", ".dee_favorites.json")
+
+
+_RUNNING_SECONDS = 3
 
 
 def matches(node, query):
@@ -78,6 +90,53 @@ class DeeControlWindow(dee_branding.DeeBrandedWindow):
         self._baseline = dict((n.rel_key, n.enabled) for n in self.nodes)
         self._refresh()
         self._ready = True
+
+        self._running_keys = None
+        self._refresh_running()
+        self._timer = DispatcherTimer()
+        self._timer.Interval = TimeSpan.FromSeconds(_RUNNING_SECONDS)
+        self._timer.Tick += self._running_tick
+        self.Closed += self._on_closed
+        self._timer.Start()
+
+    # ---------------- running tools ----------------
+    def _refresh_running(self, force=False):
+        rows, problems = dee_running.rows(
+            __revit__, self, self.running_off_cb.IsChecked is True)
+        # Rebuilt only when something changed, so the selection stays put.
+        keys = [r.key() for r in rows]
+        if not force and keys == self._running_keys:
+            return
+        self._running_keys = keys
+        self.running_grid.ItemsSource = None
+        self.running_grid.ItemsSource = rows
+        self.running_count_tb.Text = "{0} running".format(len([r for r in rows if r.on]))
+        if problems:
+            self.running_note_tb.Text = u"Could not read - " + u"; ".join(problems)
+
+    def _running_tick(self, sender, args):
+        try:
+            if self.running_tab.IsSelected:
+                self._refresh_running()
+        except Exception:
+            pass
+
+    def _on_closed(self, sender, args):
+        self._timer.Stop()
+
+    def running_refresh_click(self, sender, args):
+        if not self._ready:
+            return
+        self._guard(self._refresh_running, True)
+
+    def running_action_click(self, sender, args):
+        def run():
+            row = sender.DataContext
+            if row is None or row.run is None:
+                return
+            self.running_note_tb.Text = row.run() or ""
+            self._refresh_running(True)
+        self._guard(run)
 
     # ---------------- grid ----------------
     def _shown(self):

@@ -364,5 +364,7 @@ def start_watching(uiapp):
         pass
     try:
         uiapp.Idling += _on_idling
+        import dee_running
+        dee_running.mark_started("Prayer times")
     except Exception:
         pass
