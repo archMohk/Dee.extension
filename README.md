@@ -45,6 +45,12 @@ After touching `lib/acc_upload.py`, `lib/acc_auth.py` or the ACC folder picker (
 powershell -ExecutionPolicy Bypass -File tools/checks/run_ironpython.ps1 tools/checks/test_acc_upload.py
 ```
 
+After touching DeeNWCs' background export (`nwc_worker.py`, `lib/dee_background.py`), run it for real with two Revits (needs `pyrevit` on the PATH; opens two background Revits):
+
+```
+pyrevit run "D:\<path to>\Dee.extension\tools\checks\nwc_background_probe.py" --revit=2024
+```
+
 After touching DeeSchedule or a tool's `scheduled_run()`, also run the live probe (builds its own model):
 
 ```

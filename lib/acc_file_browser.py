@@ -1000,17 +1000,25 @@ def open_cloud_document_attached(application, region, project_id, item_id, token
         return None, str(e)
 
 
-def open_cloud_file(uiapp, region, project_id, item_id, token, close_worksets=False):
+def open_cloud_file(uiapp, region, project_id, item_id, token, close_worksets=False, tries=1):
     """Resolves the cloud path for `item_id` and opens+activates it. Returns
-    (ui_document_or_None, detail_string)."""
+    (ui_document_or_None, detail_string). tries > 1 asks again after a
+    failed open, as Revit's own "The host model failed to open. Please try
+    again." says - it is often a one-off (a link that did not download
+    yet), and the dialog itself is closed by dee_known_dialogs."""
     proj_guid, model_guid, _guid_src = get_cloud_path_guids(project_id, item_id, token)
-    try:
-        cloud_path = ModelPathUtils.ConvertCloudGUIDsToCloudPath(region, proj_guid, model_guid)
-        open_options = OpenOptions()
-        wc_option = (WorksetConfigurationOption.CloseAllWorksets if close_worksets
-                     else WorksetConfigurationOption.OpenAllWorksets)
-        open_options.SetOpenWorksetsConfiguration(WorksetConfiguration(wc_option))
-        ui_doc = uiapp.OpenAndActivateDocument(cloud_path, open_options, False)
-        return ui_doc, "Opened"
-    except Exception as e:
-        return None, str(e)
+    detail = ""
+    for attempt in range(max(1, tries)):
+        try:
+            cloud_path = ModelPathUtils.ConvertCloudGUIDsToCloudPath(region, proj_guid, model_guid)
+            open_options = OpenOptions()
+            wc_option = (WorksetConfigurationOption.CloseAllWorksets if close_worksets
+                         else WorksetConfigurationOption.OpenAllWorksets)
+            open_options.SetOpenWorksetsConfiguration(WorksetConfiguration(wc_option))
+            ui_doc = uiapp.OpenAndActivateDocument(cloud_path, open_options, False)
+            return ui_doc, "Opened" if attempt == 0 else "Opened (attempt {0})".format(attempt + 1)
+        except Exception as e:
+            detail = str(e)
+            if attempt + 1 < tries:
+                time.sleep(5 * (attempt + 1))
+    return None, detail

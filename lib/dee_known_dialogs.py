@@ -277,7 +277,18 @@ def add_error_checkbox(window, anchor="run_b", at_start=False):
         if not isinstance(parent, Panel):
             return None
         box = CheckBox()
-        box.Content = ERROR_OPTION_LABEL
+        if at_start:
+            # Sits left of the buttons in a right-aligned row: on one line
+            # it is wider than a narrow window and its start is cut off.
+            from System.Windows import TextWrapping
+            from System.Windows.Controls import TextBlock
+            label = TextBlock()
+            label.Text = ERROR_OPTION_LABEL
+            label.TextWrapping = TextWrapping.Wrap
+            label.MaxWidth = 230
+            box.Content = label
+        else:
+            box.Content = ERROR_OPTION_LABEL
         box.ToolTip = ERROR_OPTION_TIP
         box.VerticalAlignment = VerticalAlignment.Center
         box.Margin = Thickness(0, 0, 12, 0) if at_start else Thickness(12, 0, 0, 0)

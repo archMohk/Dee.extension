@@ -178,6 +178,7 @@ import re
 import json
 import shutil
 import tempfile
+import time
 
 from pyrevit import forms, script
 from Autodesk.Revit.DB import (
@@ -190,6 +191,7 @@ from Autodesk.Revit.DB import (
 import acc_auth
 import acc_file_browser as afb
 import acc_upload
+import dee_background as bg
 import dee_branding
 
 import clr
@@ -248,6 +250,8 @@ _DEFAULT_SETTINGS = {
     "source": "local",
     "output": "local",          # "local" or "acc"
     "acc_output": None,         # last ACC destination (acc_upload's dict)
+    "run_by": "session",        # "session" or "background" (several Revits)
+    "instances": 2,
     "view_contains": "NAVIS",
     "opts": {
         "convert_element_properties": False,
@@ -674,6 +678,13 @@ class DeeNWCsOptionsWindow(dee_branding.DeeBrandedWindow):
             self.output_acc_rb.IsChecked = True
         else:
             self.output_local_rb.IsChecked = True
+        if s.get("run_by") == "background":
+            self.run_bg_rb.IsChecked = True
+        else:
+            self.run_session_rb.IsChecked = True
+        counts = [2, 3, 4, 6, 8]
+        self.run_instances_cb.SelectedIndex = (
+            counts.index(s.get("instances")) if s.get("instances") in counts else 0)
         self._acc_output = s.get("acc_output")
         if self._acc_output:
             self.output_acc_tb.Text = u"Last folder: {0}. After CONTINUE you can use it, add a " \
@@ -783,6 +794,8 @@ class DeeNWCsOptionsWindow(dee_branding.DeeBrandedWindow):
         return {"source": source,
                 "output": "acc" if self.output_acc_rb.IsChecked is True else "local",
                 "acc_output": self._acc_output,
+                "run_by": "background" if self.run_bg_rb.IsChecked is True else "session",
+                "instances": [2, 3, 4, 6, 8][max(0, self.run_instances_cb.SelectedIndex)],
                 "view_contains": view_contains, "opts": opts,
                 "super_config": super_config, "naming": naming}
 
@@ -1010,7 +1023,7 @@ def _run_acc(uiapp, acc_ctx, config, export_folder, best_effort_skipped, uploade
                     pass
                 before_count = len(dismissed_log)
                 ui_doc, detail = afb.open_cloud_file(
-                    uiapp, region, project_id, item_id, token, close_worksets=False)
+                    uiapp, region, project_id, item_id, token, close_worksets=False, tries=3)
                 for msg, _sev in dismissed_log[before_count:]:
                     results.append((_INFO, name, "-", msg))
 
@@ -1123,6 +1136,80 @@ def _staging_folder():
     if not os.path.isdir(base):
         os.makedirs(base)
     return tempfile.mkdtemp(prefix="acc_", dir=base)
+
+
+def _run_background(uiapp, config, export_folder, acc_dest, uploader, docs, acc_ctx):
+    """The same export, spread over several background Revits
+    (lib/dee_background + nwc_worker.py) while this one waits and shows
+    their progress. Returns the same result rows as _run_local/_run_acc."""
+    import dee_schedule_core
+    import dee_schedule_engine
+    results, items = [], []
+    if docs is not None:
+        for doc in docs:
+            try:
+                src = dee_schedule_engine.source_from_doc(doc)
+            except dee_schedule_core.ScheduleError as e:
+                results.append((False, doc.Title, "-", u"{0}".format(e)))
+                continue
+            items.append({"key": u"{0}:{1}".format(len(items), doc.Title),
+                          "name": doc.Title, "source": src})
+    else:
+        for name in acc_ctx["selected_names"]:
+            try:
+                src = dee_schedule_engine.source_from_acc(
+                    acc_ctx["region"], acc_ctx["project_id"], acc_ctx["all_items"][name],
+                    acc_ctx["token"], name)
+            except Exception as e:
+                results.append((False, name, "-", u"Could not read it from ACC: {0}".format(e)))
+                continue
+            items.append({"key": u"{0}:{1}".format(len(items), name), "name": name, "source": src})
+    if not items:
+        return results
+
+    options = {"config": config, "export_folder": export_folder, "acc_dest": acc_dest,
+               "delete_errors": dee_known_dialogs.delete_errors_enabled()}
+    count = max(1, min(int(config.get("instances") or 2), len(items)))
+    try:
+        job = bg.BackgroundJob.start(
+            "DeeNWCs", "nwc_worker", "process_model", items, options,
+            str(uiapp.Application.VersionNumber), instances=count,
+            extra_paths=[_THIS_DIR])
+    except Exception as e:
+        results.append((False, "-", "-", u"Could not start the background Revits: {0}".format(e)))
+        return results
+
+    output.print_md(u"**DeeNWCs** - {0} model(s) in {1} background Revit(s). Each one opens its "
+                    u"first model in about a minute. Logs: `{2}`".format(
+                        len(items), count, job.root))
+    stopped = False
+    with _SafeProgress(title="DeeNWCs - background Revits exporting...", cancellable=True,
+                       auto_stop=False) as pb:
+        while True:
+            if pb.cancelled and not stopped:
+                job.stop()
+                stopped = True
+                output.print_md(u"Stop requested - each Revit finishes its current model.")
+            done, _how = job.poll(lambda tag, line: output.print_md(u"`{0}` {1}".format(tag, line)))
+            pb.update_progress(len(job.results()), len(items))
+            if done:
+                break
+            time.sleep(2)
+
+    got = job.results()
+    for item in items:
+        res = got.get(item["key"])
+        if res is None:
+            results.append((None if stopped else False, item["name"], "-",
+                            u"Stopped before this model" if stopped else
+                            u"Not exported: the background Revit ended before reaching it"))
+            continue
+        for row in res.get("rows") or []:
+            results.append(tuple(row))
+        if uploader is not None:
+            for path, detail in res.get("failed_uploads") or []:
+                uploader.failed.append((path, detail))
+    return results
 
 
 def _retry_uploads(uploader, results):
@@ -1286,7 +1373,7 @@ def _run(uiapp, config, export_folder, acc_dest, uploader):
             return
         file_labels = [d.Title for d in docs]
     else:
-        acc_ctx = _pick_acc_files(uiapp)
+        acc_ctx = _pick_acc_files(uiapp, ask_close=config.get("run_by") != "background")
         if acc_ctx is None:
             return
         file_labels = acc_ctx["selected_names"]
@@ -1295,7 +1382,10 @@ def _run(uiapp, config, export_folder, acc_dest, uploader):
         return
 
     best_effort_skipped = set()
-    if config["source"] == "local":
+    if config.get("run_by") == "background":
+        results = _run_background(uiapp, config, export_folder, acc_dest, uploader,
+                                  docs, acc_ctx)
+    elif config["source"] == "local":
         results = _run_local(uiapp, docs, config, export_folder, best_effort_skipped, uploader)
     else:
         results = _run_acc(uiapp, acc_ctx, config, export_folder, best_effort_skipped, uploader)

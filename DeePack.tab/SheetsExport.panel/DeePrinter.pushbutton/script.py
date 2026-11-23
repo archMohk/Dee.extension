@@ -67,9 +67,13 @@ as separate per-view DWGs xref'd into it.
 """
 import os
 import json
+import shutil
+import tempfile
 import datetime
 from pyrevit import forms, script, framework
 import dee_branding
+import acc_upload
+import acc_file_browser as afb
 import dee_rename_pipeline_dialog as rp_dialog
 from dee_rename_pipeline import apply_methods, DEFAULT_METHODS
 from pyrevit.framework import Controls
@@ -384,6 +388,7 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
         self._context = context
         self.doc = doc
         self.response = None
+        self.want_schedule = False
 
         self.list_lb.SelectionMode = Controls.SelectionMode.Extended
         self.list_lb.ItemsSource = self._context
@@ -532,6 +537,11 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
         self.tb_suffix.Text = self.dicprj.get("suffix", "")
 
         self.lb_printfilepath.Content = self.dicdlg.get("printfilepath", "")
+        if self.dicdlg.get("output_acc"):
+            self.out_acc_rb.IsChecked = True
+        else:
+            self.out_local_rb.IsChecked = True
+        self._sync_output_ui()
         self.chbox_pdfexport.IsChecked = self.dicdlg.get("pdfexport", True)
         self.chbox_combinedpdf.IsChecked = self.dicdlg.get("combinedpdf", False)
         self.chbox_dwgexport.IsChecked = self.dicdlg.get("dwgexport", False)
@@ -571,6 +581,7 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
             {"name": h.name, "enabled": bool(h.enabled)}
             for h in self._hierarchy_items]
         self.dicdlg["printfilepath"] = self.lb_printfilepath.Content
+        self.dicdlg["output_acc"] = bool(self.out_acc_rb.IsChecked)
         self.dicdlg["pdfexport"] = bool(self.chbox_pdfexport.IsChecked)
         self.dicdlg["combinedpdf"] = bool(self.chbox_combinedpdf.IsChecked)
         self.dicdlg["dwgexport"] = bool(self.chbox_dwgexport.IsChecked)
@@ -828,6 +839,21 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
     def naming_text_changed(self, sender, args):
         self._refresh_naming_preview()
 
+    def _sync_output_ui(self):
+        acc = bool(self.out_acc_rb.IsChecked)
+        self.out_local_panel.Visibility = Visibility.Collapsed if acc else Visibility.Visible
+        last = self.dicdlg.get("acc_output")
+        self.out_acc_tb.Visibility = Visibility.Visible if acc else Visibility.Collapsed
+        self.out_acc_tb.Text = (
+            u"Last folder: {0}. After EXPORT SELECTED you can use it, add a new folder in it, "
+            u"or pick another.".format(acc_upload.dest_label(last)) if last else
+            u"You pick the hub, project and folder after EXPORT SELECTED, and can add a new "
+            u"folder there.")
+
+    def outdest_changed(self, sender, args):
+        if getattr(self, "dicdlg", None) is not None and hasattr(self, "out_local_panel"):
+            self._sync_output_ui()
+
     def selectprintfilepath_click(self, sender, args):
         dlg = FolderBrowserDialog()
         dlg.Description = "Select output folder for DeePrinter exports"
@@ -1001,9 +1027,30 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
             MessageBox.Show("Dialog settings saved!", "DeePrinter")
 
     def schedule_click(self, sender, args):
-        """Same settings as Export, run later by DeeSchedule."""
-        import dee_schedule_ui
+        """Same settings as Export, run later by DeeSchedule. With ACC output
+        the window closes first, so the ACC folder is picked with no window
+        open (main() calls schedule_now())."""
         self._collect_settings()
+        if self.dicdlg.get("output_acc"):
+            if not self._schedule_checks():
+                return
+            self.want_schedule = True
+            self.Close()
+            return
+        self.schedule_now()
+
+    def _schedule_checks(self):
+        sheets = [c.item for c in self._context if c.state]
+        if not sheets:
+            forms.alert("Check the sheets to export first.")
+            return False
+        if not _format_names(self.dicdlg):
+            forms.alert("Nothing to export - check Export PDF, Combined PDF, DWG, and/or DXF.")
+            return False
+        return True
+
+    def schedule_now(self):
+        import dee_schedule_ui
         sheets = [c.item for c in self._context if c.state]
         if not sheets:
             forms.alert("Check the sheets to export first.")
@@ -1027,9 +1074,15 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
             output=self.dicdlg.get("printfilepath") or "",
             extras=[("all_sheets", "Export every sheet in the model, including sheets added later",
                      False, "Off: only the sheets that are checked now.")],
-            note=("This task prints through '{0}'. If that printer asks for a file name, the run "
-                  "waits for someone to answer.".format(self.dicdlg.get("printername"))
-                  if uses_printer else ""))
+            note=u" ".join(filter(None, [
+                (u"Every run saves the files in the output folder below and uploads them to ACC: "
+                 u"{0}. It uses your saved Autodesk sign-in; open any ACC tool now and then to "
+                 u"keep it alive. Pick a folder on this PC for the output.".format(
+                     acc_upload.dest_label(self.dicdlg["acc_output"]))
+                 if self.dicdlg.get("output_acc") else ""),
+                (u"This task prints through '{0}'. If that printer asks for a file name, the "
+                 u"run waits for someone to answer.".format(self.dicdlg.get("printername"))
+                 if uses_printer else "")])))
 
     def button_select(self, sender, args):
         self._collect_settings()
@@ -1201,6 +1254,70 @@ def _format_names(dicdlg):
     return [label for key, label in (
         ("pdfexport", "PDF"), ("combinedpdf", "Combined PDF"),
         ("dwgexport", "DWG"), ("dxfexport", "DXF")) if dicdlg.get(key)]
+
+
+def _snapshot_files(folder):
+    """{path: (modified, size)} of every file under a folder."""
+    found = {}
+    for root, _dirs, names in os.walk(folder):
+        for name in names:
+            path = os.path.join(root, name)
+            try:
+                found[path] = (os.path.getmtime(path), os.path.getsize(path))
+            except OSError:
+                pass
+    return found
+
+
+def _upload_new(uploader, folder, before, all_results, pb=None):
+    """Uploads every file under `folder` that is new or changed since the
+    `before` snapshot, adding one result row per file. Exports are written
+    to disk first because Revit can only export there."""
+    after = _snapshot_files(folder)
+    paths = sorted(p for p in after if after[p] != before.get(p))
+    if not paths:
+        return
+    uploader.progress_bar = pb
+    try:
+        for i, path in enumerate(paths):
+            if pb is not None:
+                try:
+                    pb.update_progress(i, len(paths))
+                except Exception:
+                    pass
+            ok, detail = uploader.upload(path)
+            all_results.append((os.path.relpath(path, folder), [(detail, ok)]))
+    finally:
+        uploader.progress_bar = None
+
+
+def _save_dlg(dicdlg):
+    try:
+        with open(_DLGVAL_FILE, "w") as f:
+            json.dump(dicdlg, f, indent=4)
+    except Exception:
+        pass
+
+
+def _retry_uploads(uploader, all_results):
+    """Offers to upload again what could not be saved on ACC."""
+    import acc_auth
+    while uploader.failed:
+        if not forms.alert(
+                u"{0} file(s) were exported but could not be saved on ACC:\n\n{1}\n\n"
+                u"Try again now?".format(len(uploader.failed), uploader.failed[0][1]),
+                title="DeePrinter", yes=True, no=True):
+            return
+        try:
+            acc_auth.get_access_token(account=uploader.dest.get("account") or None,
+                                      scope=acc_auth.SCOPE_CREATE)
+        except Exception as e:
+            forms.alert(u"Authentication failed:\n{0}".format(e), title="DeePrinter")
+            continue
+        for old_detail, ok, detail in uploader.retry():
+            for i, (label, steps) in enumerate(all_results):
+                all_results[i] = (label, [(detail, ok) if d == old_detail else (d, o)
+                                          for d, o in steps])
 
 
 def _run_export(doc, title, sheets_to_export, dicprj, dicdlg, hierarchy_items,
@@ -1383,8 +1500,15 @@ def scheduled_run(ctx, task):
     hierarchy = [HierarchyLevelItem(h.get("name"), h.get("enabled", True))
                  for h in dicprj.get("folder_hierarchy") or []]
     results = []
+    folder = ctx.folder()
+    uploader = None
+    if dicdlg.get("output_acc") and dicdlg.get("acc_output"):
+        uploader = acc_upload.Uploader(dicdlg["acc_output"], folder)
+    before = _snapshot_files(folder)
     _run_export(doc, src.get("label") or doc.Title, sheets, dicprj, dicdlg, hierarchy,
-                ctx.folder(), dwg_options, _ScheduledProgress(ctx), results)
+                folder, dwg_options, _ScheduledProgress(ctx), results)
+    if uploader is not None:
+        _upload_new(uploader, folder, before, results)
     for label, steps in results:
         for detail, ok in steps:
             ctx.add(ok, label, detail)
@@ -1402,6 +1526,15 @@ def main():
     window = DeePrinterWindow(_XAML_FILE, sortlist, doc)
     window.ShowDialog()
 
+    if window.want_schedule:
+        # ACC output: the folder is picked now that no window is open.
+        dest = afb.pick_save_destination(window.dicdlg.get("acc_output"))
+        if dest is not None:
+            window.dicdlg["acc_output"] = dest
+            _save_dlg(window.dicdlg)
+            window.schedule_now()
+        return
+
     if not window.response:
         return
     sheets_to_export = window.response
@@ -1418,6 +1551,7 @@ def main():
     show_output = bool(dicdlg.get("output"))
     show_messageboxes = bool(dicdlg.get("messageboxes"))
     base_folder = dicdlg.get("printfilepath")
+    to_acc = bool(dicdlg.get("output_acc"))
 
     if not do_pdf and not combined_pdf and not do_dwg and not do_dxf:
         forms.alert("Nothing to export - check Export PDF, Combined PDF, DWG, and/or DXF.")
@@ -1425,7 +1559,7 @@ def main():
     if not sheets_to_export:
         forms.alert("No sheets were checked.")
         return
-    if not base_folder or not os.path.isdir(base_folder):
+    if not to_acc and (not base_folder or not os.path.isdir(base_folder)):
         forms.alert("Pick a valid output folder first.")
         return
     if (do_pdf or combined_pdf) and pdf_engine == _ENGINE_PRINTER and not printer_name:
@@ -1441,11 +1575,34 @@ def main():
                 "No DWG Export Setting found in this project - DWG "
                 "export will be skipped for all sheets.")
 
+    uploader = None
+    if to_acc:
+        dest = afb.pick_save_destination(dicdlg.get("acc_output"))
+        if dest is None:
+            return
+        dicdlg["acc_output"] = dest
+        _save_dlg(dicdlg)
+        # Revit can only export to disk: export here, then upload.
+        local_folder = os.path.join(
+            os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "DeePack", "DeePrinter")
+        if not os.path.isdir(local_folder):
+            os.makedirs(local_folder)
+        base_folder = tempfile.mkdtemp(prefix="acc_", dir=local_folder)
+        uploader = acc_upload.Uploader(dest, base_folder, delete_after=True)
+
     with _SafeProgress(title="DeePrinter — exporting...", cancellable=True) as pb:
         all_results = []
         _run_export(doc, doc.Title, sheets_to_export, dicprj, dicdlg, hierarchy_items,
                     base_folder, dwg_options, pb, all_results,
                     output.print_md if show_output else None)
+        if uploader is not None:
+            pb.title = "DeePrinter — saving on ACC..."
+            _upload_new(uploader, base_folder, {}, all_results, pb)
+    if uploader is not None:
+        _retry_uploads(uploader, all_results)
+        # Files that never reached ACC are kept: the results name them.
+        if not uploader.failed:
+            shutil.rmtree(base_folder, ignore_errors=True)
 
     if show_messageboxes:
         ok_count = sum(1 for _label, steps in all_results for _d, ok in steps if ok)

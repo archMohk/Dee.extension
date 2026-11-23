@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="DeeNWCs — Export Options"
         ShowInTaskbar="False"
-        MinHeight="560" MinWidth="620" Height="700" Width="640"
+        MinHeight="560" MinWidth="700" Height="700" Width="720"
         WindowStartupLocation="CenterScreen">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="12">
@@ -27,6 +27,24 @@
                                  ToolTip="You pick the ACC folder after CONTINUE, and can add a new folder there. A file that is already in the folder gets a new version."/>
                     <TextBlock x:Name="output_acc_tb" FontSize="11" Foreground="#555" Margin="20,0,0,2"
                                TextWrapping="Wrap" Text="You pick the folder after CONTINUE, and can add a new folder there."/>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Run by" Margin="0,0,0,10">
+                <StackPanel Margin="5">
+                    <RadioButton x:Name="run_session_rb" Content="This Revit session - the models are opened here, one after the other"
+                                 GroupName="runby" Margin="0,2,0,4"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                        <RadioButton x:Name="run_bg_rb" Content="More than one Revit - export in background Revits, at the same time:"
+                                     GroupName="runby" VerticalAlignment="Center"
+                                     ToolTip="Second Revits are started for you and close themselves when done. Each opens its models detached (nothing is synchronized or saved) and answers Revit's open dialogs itself. Each needs its own memory - 2 or 3 is usual."/>
+                        <ComboBox x:Name="run_instances_cb" Width="50" Height="24" Margin="8,0,0,0" SelectedIndex="0">
+                            <ComboBoxItem Content="2"/><ComboBoxItem Content="3"/><ComboBoxItem Content="4"/>
+                            <ComboBoxItem Content="6"/><ComboBoxItem Content="8"/>
+                        </ComboBox>
+                    </StackPanel>
+                    <TextBlock FontSize="11" Foreground="#555" Margin="20,2,0,0" TextWrapping="Wrap"
+                               Text="A model that is open here is exported from its saved/cloud version, not as it is on screen. Not used by Schedule."/>
                 </StackPanel>
             </GroupBox>
 
