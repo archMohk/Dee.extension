@@ -61,7 +61,11 @@ import deew_settings
 
 APS_AUTH_URL = "https://developer.api.autodesk.com/authentication/v2/authorize"
 APS_TOKEN_URL = "https://developer.api.autodesk.com/authentication/v2/token"
-SCOPES = "data:read data:write account:read"
+# data:create is what uploading a file or making a folder on ACC needs
+# (lib/acc_upload.py). A login cached before it was added simply lacks it:
+# reading keeps working, the first upload asks to sign in once more.
+SCOPE_CREATE = "data:create"
+SCOPES = "data:read data:write data:create account:read"
 
 _THIS_DIR = os.path.dirname(__file__)
 _EXTENSION_DIR = os.path.dirname(_THIS_DIR)
@@ -122,20 +126,113 @@ def is_configured():
         return False
 
 
-def _load_cached_token(account):
+def _read_cache(account):
     path = _token_cache_path(account)
-    if os.path.exists(path):
-        with open(path, "r") as f:
-            data = json.load(f)
-        if data.get("expires_at", 0) > time.time() + 60:
-            return data.get("access_token")
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r") as f:
+        return json.load(f)
+
+
+def _has_scope(data, scope):
+    return not scope or scope in (data.get("scopes") or "").split()
+
+
+def _load_cached_token(account, scope=None):
+    data = _read_cache(account)
+    if data.get("expires_at", 0) > time.time() + 60 and _has_scope(data, scope):
+        return data.get("access_token")
     return None
 
 
-def _save_token(token, expires_in, account):
-    data = {"access_token": token, "expires_at": time.time() + int(expires_in)}
+def _save_token(answer, account, scopes=SCOPES):
+    """`answer` is what the token endpoint returned."""
+    data = {"access_token": answer["access_token"],
+            "expires_at": time.time() + int(answer.get("expires_in", 3600)),
+            "scopes": scopes}
+    refresh = _protect(answer.get("refresh_token"))
+    if refresh:
+        data["refresh"] = refresh
     with open(_token_cache_path(account), "w") as f:
         json.dump(data, f)
+
+
+# --------------------------------------------------------------------------
+# Silent refresh
+# --------------------------------------------------------------------------
+# An access token lives about an hour; a batch export or a scheduled run
+# outlasts that. APS also hands a PKCE client a refresh token, which gets
+# a new access token without a browser. It is worth more than an access
+# token, so it is only ever stored encrypted for this Windows user (DPAPI):
+# the cache file is useless on another PC or to another user.
+def _dpapi():
+    for assembly in ("System.Security", "System.Security.Cryptography.ProtectedData"):
+        try:
+            clr.AddReference(assembly)
+            from System.Security.Cryptography import ProtectedData, DataProtectionScope
+            return ProtectedData, DataProtectionScope.CurrentUser
+        except Exception:
+            continue
+    return None, None
+
+
+def _protect(text):
+    """None (nothing gets stored) when there is no text or no DPAPI."""
+    if not text:
+        return None
+    try:
+        dpapi, user = _dpapi()
+        raw = dpapi.Protect(System.Text.Encoding.UTF8.GetBytes(text), None, user)
+        return System.Convert.ToBase64String(raw)
+    except Exception:
+        return None
+
+
+def _unprotect(text):
+    if not text:
+        return None
+    try:
+        dpapi, user = _dpapi()
+        raw = dpapi.Unprotect(System.Convert.FromBase64String(text), None, user)
+        return System.Text.Encoding.UTF8.GetString(raw)
+    except Exception:
+        return None
+
+
+def _request_token(fields):
+    client = HttpClient()
+    try:
+        pairs = Dictionary[str, str]()
+        for key, value in fields.items():
+            pairs[key] = value
+        response = client.PostAsync(APS_TOKEN_URL, FormUrlEncodedContent(pairs)).Result
+        body = response.Content.ReadAsStringAsync().Result
+        if not response.IsSuccessStatusCode:
+            raise Exception("Token exchange failed: {0}".format(body))
+        return json.loads(body)
+    finally:
+        client.Dispose()
+
+
+def _refresh(account, scope=None):
+    """A new access token from the stored refresh token, or None."""
+    try:
+        data = _read_cache(account)
+        refresh = _unprotect(data.get("refresh"))
+        if not refresh or not _has_scope(data, scope):
+            return None
+        answer = _request_token({"grant_type": "refresh_token",
+                                 "refresh_token": refresh,
+                                 "client_id": _load_config()["client_id"]})
+        _save_token(answer, account, data.get("scopes") or SCOPES)
+        return answer["access_token"]
+    except Exception:
+        # A refresh token works once: another Revit may just have used
+        # this one, and then its new access token is in the cache.
+        try:
+            return _load_cached_token(account, scope)
+        except Exception:
+            return None
 
 
 def account_status(account):
@@ -209,18 +306,24 @@ def _listen_for_code(redirect_uri):
     return code
 
 
-def get_access_token(force_login=False, account=None):
+def get_access_token(force_login=False, account=None, scope=None, interactive=True):
     """account=None (every existing call site) resolves to whichever
     slot is currently active (get_active_account()) - see the module
     docstring's "Named account slots" section. Passing an explicit
     account lets DeeAccount.pushbutton (re)authenticate one specific
-    slot regardless of which one is active."""
+    slot regardless of which one is active.
+
+    scope: a cached login that was not granted it is not good enough
+    (SCOPE_CREATE for uploads). interactive=False never opens a browser -
+    for unattended runs - and raises instead."""
     if account is None:
         account = get_active_account()
     if not force_login:
-        cached = _load_cached_token(account)
-        if cached:
-            return cached
+        token = _load_cached_token(account, scope) or _refresh(account, scope)
+        if token:
+            return token
+    if not interactive:
+        raise Exception("not signed in to Autodesk (ACC) on this PC")
 
     config = _load_config()
     client_id = config["client_id"]
@@ -240,21 +343,10 @@ def get_access_token(force_login=False, account=None):
     if not code:
         raise Exception("Did not receive an authorization code from APS login.")
 
-    client = HttpClient()
-    pairs = Dictionary[str, str]()
-    pairs["grant_type"] = "authorization_code"
-    pairs["code"] = code
-    pairs["client_id"] = client_id
-    pairs["redirect_uri"] = redirect_uri
-    pairs["code_verifier"] = code_verifier
-    content = FormUrlEncodedContent(pairs)
-
-    response = client.PostAsync(APS_TOKEN_URL, content).Result
-    body = response.Content.ReadAsStringAsync().Result
-    if not response.IsSuccessStatusCode:
-        raise Exception("Token exchange failed: {0}".format(body))
-
-    data = json.loads(body)
-    token = data["access_token"]
-    _save_token(token, data.get("expires_in", 3600), account)
-    return token
+    answer = _request_token({"grant_type": "authorization_code",
+                             "code": code,
+                             "client_id": client_id,
+                             "redirect_uri": redirect_uri,
+                             "code_verifier": code_verifier})
+    _save_token(answer, account)
+    return answer["access_token"]

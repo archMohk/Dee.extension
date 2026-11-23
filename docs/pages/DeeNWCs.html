@@ -11,9 +11,9 @@
   <div class="crumb"><a href="../index.html">DeePack tab</a> &rsaquo; ExporterPack panel</div>
   <span class="panel-chip">ExporterPack</span>
   <h1 class="tool-title">DeeNWCs</h1>
-  <p class="tagline">Browse your ACC/BIM360 project, batch-open selected Revit files, and export every view with 'NAVIS' in its name to NWC.</p>
+  <p class="tagline">Browse your ACC/BIM360 project, batch-open selected Revit files, and export every view with 'NAVIS' in its name to NWC &mdash; to a local folder or straight to an ACC folder.</p>
 
-  <div class="callout ok"><strong>Risk level: Low</strong> Read-only against the model (just exports NWC files to disk) &mdash; no sync or publish happens.</div>
+  <div class="callout ok"><strong>Risk level: Low</strong> Read-only against the model (just exports NWC files) &mdash; no sync or publish happens. With ACC output it adds files, new versions and folders to the ACC folder you pick; it never deletes anything there.</div>
 
   <div class="card">
     <h2>What it does</h2>
@@ -29,6 +29,19 @@
       <li>Check which files to process.</li>
       <li>Run &mdash; review the colored results report at the end.</li>
     </ol>
+  </div>
+
+  <div class="card">
+    <h2>Saving on ACC</h2>
+    <ul>
+      <li>Under <strong>Output</strong> choose <em>ACC / BIM360</em>, then CONTINUE.</li>
+      <li>The first time, pick Hub, Project and folder. In any folder use <em>[+ Add a new folder here...]</em> to create one, <em>[Save in this folder]</em> to take it, <em>[.. Back]</em> to go up. ACC does not allow new folders at the project's own root, only inside Project Files and below.</li>
+      <li>Next time, the last folder is offered as it is, or with a new folder inside it.</li>
+      <li>A file that is already in the folder gets a new version. The <em>Folder structure</em> subfolders are created on ACC when missing.</li>
+      <li>Every file is uploaded right after its export. If an upload fails you can try again at the end; the file stays on this PC and the report shows where.</li>
+      <li>Scheduled exports save to the task's output folder and upload from there.</li>
+      <li>You need Create (upload) permission on the ACC folder. The first use asks you to sign in to Autodesk once more, to allow creating files.</li>
+    </ul>
   </div>
 
   <div class="card">

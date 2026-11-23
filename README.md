@@ -39,6 +39,12 @@ python tools/checks/check_self_calls.py
 python tools/checks/test_schedule_core.py
 ```
 
+After touching `lib/acc_upload.py`, `lib/acc_auth.py` or the ACC folder picker (no Revit, no Autodesk sign-in needed):
+
+```
+powershell -ExecutionPolicy Bypass -File tools/checks/run_ironpython.ps1 tools/checks/test_acc_upload.py
+```
+
 After touching DeeSchedule or a tool's `scheduled_run()`, also run the live probe (builds its own model):
 
 ```

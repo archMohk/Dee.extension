@@ -130,6 +130,20 @@ precisely (already fully knowable from the file name alone) and shows
 the naming PATTERN rather than every exact final name.
 
 --------------------------------------------------------------------
+Output - a local folder, or a folder on ACC
+--------------------------------------------------------------------
+Revit can only export to disk, so ACC output exports into a staging folder
+(_staging_folder) and lib/acc_upload.py uploads every file right after its own
+export (new file, or a new version of the file already there), recreating
+the Folder structure subfolders on ACC. A staged file is deleted once it
+is on ACC; one that could not be uploaded stays, its path is in the
+results, and the run offers to try again at the end.
+
+A scheduled run never opens a browser: it uses the saved sign-in
+(acc_auth's silent refresh), keeps the files in the task's own output
+folder, and uploads them from there.
+
+--------------------------------------------------------------------
 NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
 --------------------------------------------------------------------
 1. NavisworksExportOptions / NavisworksExportScope / NavisworksCoordinates
@@ -162,6 +176,8 @@ NEEDS LIVE-REVIT VERIFICATION (per this codebase's convention)
 import os
 import re
 import json
+import shutil
+import tempfile
 
 from pyrevit import forms, script
 from Autodesk.Revit.DB import (
@@ -173,6 +189,7 @@ from Autodesk.Revit.DB import (
 
 import acc_auth
 import acc_file_browser as afb
+import acc_upload
 import dee_branding
 
 import clr
@@ -229,6 +246,8 @@ _BEST_EFFORT_PROPS = {
 
 _DEFAULT_SETTINGS = {
     "source": "local",
+    "output": "local",          # "local" or "acc"
+    "acc_output": None,         # last ACC destination (acc_upload's dict)
     "view_contains": "NAVIS",
     "opts": {
         "convert_element_properties": False,
@@ -588,16 +607,44 @@ def _resolve_output(doc_label, view_name, config, export_folder):
     return out_folder, _sanitize_filename(out_name)
 
 
-def _export_view_to_nwc(doc, view, output_folder, output_name, config, best_effort_skipped):
+def _nwc_snapshot(folder):
+    """{path: (modified, size)} of the .nwc files in a folder."""
+    found = {}
+    for name in os.listdir(folder):
+        if name.lower().endswith(".nwc"):
+            path = os.path.join(folder, name)
+            found[path] = (os.path.getmtime(path), os.path.getsize(path))
+    return found
+
+
+def _exported_file(folder, file_name, before):
+    """The file an export just wrote, or None. Looked for under its
+    expected name, then as whatever .nwc is new or changed."""
+    path = os.path.join(folder, file_name + ".nwc")
+    after = _nwc_snapshot(folder)
+    changed = [p for p in after if after[p] != before.get(p)]
+    if path in changed:
+        return path
+    return changed[0] if len(changed) == 1 else None
+
+
+def _export_view_to_nwc(doc, view, output_folder, output_name, config, best_effort_skipped,
+                        uploader=None):
     file_name = _sanitize_filename(output_name)
     try:
         if not os.path.isdir(output_folder):
             os.makedirs(output_folder)
+        before = _nwc_snapshot(output_folder) if uploader is not None else None
         opts = _build_nwc_options(config, view.Id, best_effort_skipped)
         doc.Export(output_folder, file_name, opts)
+        if uploader is not None:
+            path = _exported_file(output_folder, file_name, before)
+            if path is None:
+                return False, "FAILED: Revit did not write an NWC file for this view"
+            return uploader.upload(path)
         return True, u"Exported '{0}.nwc' to {1}".format(file_name, output_folder)
     except Exception as e:
-        return False, "FAILED: {0}".format(e)
+        return False, u"FAILED: {0}".format(e)
 
 
 from dee_ui import SafeProgress as _SafeProgress
@@ -623,6 +670,14 @@ class DeeNWCsOptionsWindow(dee_branding.DeeBrandedWindow):
             self.source_acc_rb.IsChecked = True
         else:
             self.source_local_rb.IsChecked = True
+        if s.get("output") == "acc":
+            self.output_acc_rb.IsChecked = True
+        else:
+            self.output_local_rb.IsChecked = True
+        self._acc_output = s.get("acc_output")
+        if self._acc_output:
+            self.output_acc_tb.Text = u"Last folder: {0}. After CONTINUE you can use it, add a " \
+                u"new folder in it, or pick another.".format(acc_upload.dest_label(self._acc_output))
         self.view_contains_tb.Text = s.get("view_contains", "NAVIS")
         o = s.get("opts", {})
         self.opt_convert_element_properties.IsChecked = bool(o.get("convert_element_properties", False))
@@ -725,7 +780,10 @@ class DeeNWCsOptionsWindow(dee_branding.DeeBrandedWindow):
             "output_template": (self.name_output_template_tb.Text or "").strip()
                                 or "{RevitFileName}_{ViewName}",
         }
-        return {"source": source, "view_contains": view_contains, "opts": opts,
+        return {"source": source,
+                "output": "acc" if self.output_acc_rb.IsChecked is True else "local",
+                "acc_output": self._acc_output,
+                "view_contains": view_contains, "opts": opts,
                 "super_config": super_config, "naming": naming}
 
     def continue_click(self, sender, args):
@@ -792,7 +850,8 @@ def _pick_local_documents(uiapp):
     return [by_title[name] for name in selected]
 
 
-def _export_for_document(doc, doc_label, config, export_folder, best_effort_skipped):
+def _export_for_document(doc, doc_label, config, export_folder, best_effort_skipped,
+                         uploader=None):
     """One document's worth of export results (list of (ok, doc_label,
     view_name, detail) tuples) - shared by both _run_local and _run_acc
     so the Super Config vs plain-filter branch only needs writing once.
@@ -819,7 +878,8 @@ def _export_for_document(doc, doc_label, config, export_folder, best_effort_skip
                     "This document has no 3D view type available - can't create the export view.")]
 
         out_folder, out_name = _resolve_output(doc_label, view.Name, config, export_folder)
-        ok, msg = _export_view_to_nwc(doc, view, out_folder, out_name, config, best_effort_skipped)
+        ok, msg = _export_view_to_nwc(doc, view, out_folder, out_name, config,
+                                      best_effort_skipped, uploader)
         results = [(ok, doc_label, view.Name, msg)]
 
         if sc.get("view_mode") == "delete":
@@ -841,12 +901,13 @@ def _export_for_document(doc, doc_label, config, export_folder, best_effort_skip
     results = []
     for view in matching_views:
         out_folder, out_name = _resolve_output(doc_label, view.Name, config, export_folder)
-        ok, msg = _export_view_to_nwc(doc, view, out_folder, out_name, config, best_effort_skipped)
+        ok, msg = _export_view_to_nwc(doc, view, out_folder, out_name, config,
+                                      best_effort_skipped, uploader)
         results.append((ok, doc_label, view.Name, msg))
     return results
 
 
-def _run_local(uiapp, docs, config, export_folder, best_effort_skipped):
+def _run_local(uiapp, docs, config, export_folder, best_effort_skipped, uploader=None):
     results = []
     dismissed_log = []
     dialog_handler = afb.make_dialog_handler(dismissed_log)
@@ -855,6 +916,8 @@ def _run_local(uiapp, docs, config, export_folder, best_effort_skipped):
     try:
         total = len(docs)
         with _SafeProgress(title="DeeNWCs — exporting NWC...", cancellable=True) as pb:
+            if uploader is not None:
+                uploader.progress_bar = pb
             for i, doc in enumerate(docs):
                 if pb.cancelled:
                     results.append((None, doc.Title, "-", "Cancelled"))
@@ -862,7 +925,7 @@ def _run_local(uiapp, docs, config, export_folder, best_effort_skipped):
                 pb.update_progress(i, total)
                 before_count = len(dismissed_log)
                 doc_results = _export_for_document(
-                    doc, doc.Title, config, export_folder, best_effort_skipped)
+                    doc, doc.Title, config, export_folder, best_effort_skipped, uploader)
                 for msg, _sev in dismissed_log[before_count:]:
                     results.append((_INFO, doc.Title, "-", msg))
                 results.extend(doc_results)
@@ -915,7 +978,7 @@ def _pick_acc_files(uiapp, ask_close=True):
     }
 
 
-def _run_acc(uiapp, acc_ctx, config, export_folder, best_effort_skipped):
+def _run_acc(uiapp, acc_ctx, config, export_folder, best_effort_skipped, uploader=None):
     region = acc_ctx["region"]
     project_id = acc_ctx["project_id"]
     all_items = acc_ctx["all_items"]
@@ -931,6 +994,8 @@ def _run_acc(uiapp, acc_ctx, config, export_folder, best_effort_skipped):
     try:
         total = len(selected_names)
         with _SafeProgress(title="DeeNWCs — batch exporting NWC...", cancellable=True) as pb:
+            if uploader is not None:
+                uploader.progress_bar = pb
             for i, name in enumerate(selected_names):
                 if pb.cancelled:
                     results.append((None, name, "-", "Cancelled"))
@@ -938,6 +1003,11 @@ def _run_acc(uiapp, acc_ctx, config, export_folder, best_effort_skipped):
                 pb.update_progress(i, total)
 
                 item_id = all_items[name]
+                try:
+                    # A long batch outlives one token; renewed without a prompt.
+                    token = acc_auth.get_access_token(interactive=False)
+                except Exception:
+                    pass
                 before_count = len(dismissed_log)
                 ui_doc, detail = afb.open_cloud_file(
                     uiapp, region, project_id, item_id, token, close_worksets=False)
@@ -950,7 +1020,7 @@ def _run_acc(uiapp, acc_ctx, config, export_folder, best_effort_skipped):
 
                 doc = ui_doc.Document
                 results.extend(_export_for_document(
-                    doc, name, config, export_folder, best_effort_skipped))
+                    doc, name, config, export_folder, best_effort_skipped, uploader))
 
                 if close_after:
                     try:
@@ -963,7 +1033,7 @@ def _run_acc(uiapp, acc_ctx, config, export_folder, best_effort_skipped):
     return results
 
 
-def _show_preview_and_confirm(file_labels, config, export_folder):
+def _show_preview_and_confirm(file_labels, config, export_folder, acc_dest=None):
     """Prints a per-file preview (destination folder + parsed naming
     segments) to the output window, then asks to proceed. The exported
     file's VIEW NAME isn't known yet for ACC sources (the file isn't
@@ -974,8 +1044,19 @@ def _show_preview_and_confirm(file_labels, config, export_folder):
     name is confirmed in the results afterward instead."""
     nm = config.get("naming", {})
     labels = _split_template(nm.get("template", ""), nm.get("delimiter", "-"))
+
+    def shown(folder):
+        if acc_dest is None:
+            return folder
+        sub = os.path.relpath(folder, export_folder)
+        parts = [] if sub == "." else sub.split(os.sep)
+        return u" / ".join([u"ACC: " + acc_upload.dest_label(acc_dest)] + parts)
+
     lines = [u"**DeeNWCs — Preview**", u"",
-             u"- Destination base folder: `{0}`".format(export_folder)]
+             u"- Destination base folder: `{0}`".format(shown(export_folder))]
+    if acc_dest is not None:
+        lines.append(u"- Missing subfolders are created on ACC; a file already there gets "
+                     u"a new version.")
     if labels:
         lines.append(u"- Naming template labels: {0}".format(", ".join(labels)))
     else:
@@ -989,7 +1070,7 @@ def _show_preview_and_confirm(file_labels, config, export_folder):
         seg_note = (u", ".join(u"{0}={1}".format(k, v or "(missing)") for k, v in segments.items())
                     if segments else u"(none)")
         lines.append(u"- **{0}**".format(name))
-        lines.append(u"  - folder: `{0}`".format(out_folder))
+        lines.append(u"  - folder: `{0}`".format(shown(out_folder)))
         lines.append(u"  - file name pattern: `{0}`".format(out_name))
         lines.append(u"  - segments: {0}".format(seg_note))
     output.print_md(u"\n".join(lines))
@@ -1024,12 +1105,65 @@ def _exporter_available(uiapp):
     return False
 
 
+def _pick_acc_output(config):
+    """The ACC folder to save in (remembered for next time), or None."""
+    dest = afb.pick_save_destination(config.get("acc_output"))
+    if dest is not None:
+        config["acc_output"] = dest
+        _save_settings(config)
+    return dest
+
+
+def _staging_folder():
+    """A new folder for files on their way to ACC. Not under %TEMP%: inside
+    Revit that is a per-session folder, deleted when Revit closes - together
+    with any file that could not be uploaded."""
+    base = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
+                        "DeePack", "DeeNWCs")
+    if not os.path.isdir(base):
+        os.makedirs(base)
+    return tempfile.mkdtemp(prefix="acc_", dir=base)
+
+
+def _retry_uploads(uploader, results):
+    """Offers to upload again what could not be saved on ACC."""
+    while uploader.failed:
+        if not forms.alert(
+                u"{0} NWC file(s) were exported but could not be saved on ACC:\n\n{1}\n\n"
+                u"Try again now?".format(len(uploader.failed), uploader.failed[0][1]),
+                title="DeeNWCs", yes=True, no=True):
+            return results
+        try:
+            # Here somebody is at the screen, so signing in again is fine.
+            acc_auth.get_access_token(account=uploader.dest.get("account") or None,
+                                      scope=acc_auth.SCOPE_CREATE)
+        except Exception as e:
+            forms.alert(u"Authentication failed:\n{0}".format(e), title="DeeNWCs")
+            continue
+        with _SafeProgress(title="DeeNWCs - saving on ACC...", cancellable=True) as pb:
+            uploader.progress_bar = pb
+            for old_detail, ok, detail in uploader.retry():
+                results = [(ok, r[1], r[2], detail) if r[3] == old_detail else r
+                           for r in results]
+        uploader.progress_bar = None
+    return results
+
+
 def _schedule(uiapp, config):
     """Picks the models exactly as a normal run would, then hands them to
     the Schedule dialog instead of exporting."""
     import dee_schedule_core
     import dee_schedule_engine
     import dee_schedule_ui
+
+    note = ""
+    if config["output"] == "acc":
+        dest = _pick_acc_output(config)
+        if dest is None:
+            return
+        note = (u"Every run saves the files in the output folder below and uploads them to "
+                u"ACC: {0}. It uses your saved Autodesk sign-in; open any ACC tool now and "
+                u"then to keep it alive.".format(acc_upload.dest_label(dest)))
 
     sources = []
     if config["source"] == "local":
@@ -1070,7 +1204,11 @@ def _schedule(uiapp, config):
         {"config": config, "delete_errors": dee_known_dialogs.delete_errors_enabled()},
         name=u"NWC - {0}".format(sources[0]["label"] if len(sources) == 1
                                  else "{0} models".format(len(sources))),
-        summary=u"NWC of {0}, {1} model(s)".format(what, len(sources)))
+        summary=u"NWC of {0}, {1} model(s){2}".format(
+            what, len(sources),
+            u", saved on ACC: {0}".format(acc_upload.dest_label(config["acc_output"]))
+            if config["output"] == "acc" else u""),
+        note=note)
 
 
 def scheduled_run(ctx, task):
@@ -1080,6 +1218,9 @@ def scheduled_run(ctx, task):
     config = task["payload"]["config"]
     folder = ctx.folder()
     sources = task["sources"]
+    uploader = None
+    if config.get("output") == "acc":
+        uploader = acc_upload.Uploader(config["acc_output"], folder)
     skipped = set()
     for i, src in enumerate(sources):
         if not ctx.progress(i, len(sources), src["label"]):
@@ -1090,7 +1231,7 @@ def scheduled_run(ctx, task):
             ctx.add(False, src["label"], u"could not open: {0}".format(e))
             continue
         for ok, label, view_name, detail in _export_for_document(
-                doc, src["label"], config, folder, skipped):
+                doc, src["label"], config, folder, skipped, uploader):
             ctx.add(ok, u"{0} [{1}]".format(label, view_name), detail)
         ctx.close_model(doc)
     if skipped:
@@ -1113,12 +1254,30 @@ def main():
         _schedule(uiapp, config)
         return
 
-    folder_dlg = FolderBrowserDialog()
-    folder_dlg.Description = "Choose a folder to save the exported NWC files"
-    if folder_dlg.ShowDialog() != DialogResult.OK:
-        return
-    export_folder = folder_dlg.SelectedPath
+    acc_dest = None
+    uploader = None
+    if config["output"] == "acc":
+        acc_dest = _pick_acc_output(config)
+        if acc_dest is None:
+            return
+        export_folder = _staging_folder()
+        uploader = acc_upload.Uploader(acc_dest, export_folder, delete_after=True)
+    else:
+        folder_dlg = FolderBrowserDialog()
+        folder_dlg.Description = "Choose a folder to save the exported NWC files"
+        if folder_dlg.ShowDialog() != DialogResult.OK:
+            return
+        export_folder = folder_dlg.SelectedPath
 
+    try:
+        _run(uiapp, config, export_folder, acc_dest, uploader)
+    finally:
+        # Files that never reached ACC are kept: the results name them.
+        if uploader is not None and not uploader.failed:
+            shutil.rmtree(export_folder, ignore_errors=True)
+
+
+def _run(uiapp, config, export_folder, acc_dest, uploader):
     docs = None
     acc_ctx = None
     if config["source"] == "local":
@@ -1132,14 +1291,17 @@ def main():
             return
         file_labels = acc_ctx["selected_names"]
 
-    if not _show_preview_and_confirm(file_labels, config, export_folder):
+    if not _show_preview_and_confirm(file_labels, config, export_folder, acc_dest):
         return
 
     best_effort_skipped = set()
     if config["source"] == "local":
-        results = _run_local(uiapp, docs, config, export_folder, best_effort_skipped)
+        results = _run_local(uiapp, docs, config, export_folder, best_effort_skipped, uploader)
     else:
-        results = _run_acc(uiapp, acc_ctx, config, export_folder, best_effort_skipped)
+        results = _run_acc(uiapp, acc_ctx, config, export_folder, best_effort_skipped, uploader)
+    if uploader is not None:
+        uploader.progress_bar = None
+        results = _retry_uploads(uploader, results)
 
     if not results:
         return
@@ -1155,7 +1317,7 @@ def main():
         else:
             bg, icon = "#c62828", "&#10007;"
         html += (
-            '<div style="padding:6px 12px;margin:2px 0;background:{0};color:#fff;'
+            u'<div style="padding:6px 12px;margin:2px 0;background:{0};color:#fff;'
             'border-radius:4px;font-family:monospace;font-size:12px;">'
             '<b>{1}</b> [{2}] &nbsp;{3}&nbsp; {4}'
             '</div>'.format(bg, name, view_name, icon, detail))

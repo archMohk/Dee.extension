@@ -18,6 +18,18 @@
                 </StackPanel>
             </GroupBox>
 
+            <GroupBox Header="Output" Margin="0,0,0,10">
+                <StackPanel Margin="5">
+                    <RadioButton x:Name="output_local_rb" Content="Local folder - save the NWC files on this PC or the network"
+                                 GroupName="output" Margin="0,2,0,4"/>
+                    <RadioButton x:Name="output_acc_rb" Content="ACC / BIM360 - save the NWC files in a cloud project folder"
+                                 GroupName="output" Margin="0,2,0,2"
+                                 ToolTip="You pick the ACC folder after CONTINUE, and can add a new folder there. A file that is already in the folder gets a new version."/>
+                    <TextBlock x:Name="output_acc_tb" FontSize="11" Foreground="#555" Margin="20,0,0,2"
+                               TextWrapping="Wrap" Text="You pick the folder after CONTINUE, and can add a new folder there."/>
+                </StackPanel>
+            </GroupBox>
+
             <GroupBox Header="View Selection" Margin="0,0,0,10">
                 <StackPanel Margin="5">
                     <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#555" Margin="0,0,0,6"

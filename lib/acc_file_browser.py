@@ -528,6 +528,125 @@ def pick_folder(hub_id, project_id, token):
             return folder_id, " / ".join(breadcrumb)
 
 
+def ask_new_folder(project_id, parent_id, parent_path, token):
+    """Asks for a name and creates that folder on ACC (an existing one of
+    that name is simply used). Returns (folder_id, name), or None."""
+    import acc_upload
+    name = acc_upload.clean_name(forms.ask_for_string(
+        prompt=u"Name of the new folder inside:  {0}".format(parent_path),
+        title="New ACC folder"))
+    if not name:
+        return None
+    try:
+        return acc_upload.create_folder(project_id, parent_id, name, token), name
+    except Exception as e:
+        forms.alert(u"The folder '{0}' could not be created:\n\n{1}".format(
+            name, acc_upload.explain(e)), title="New ACC folder")
+        return None
+
+
+def pick_save_folder(hub_id, project_id, token):
+    """Folder-tree drill-down to SAVE into: every folder can be used as it
+    is, gone back from, or given a new subfolder. (ACC takes files and new
+    folders only inside "Project Files" and the like, never at the
+    project's own root.) Needs a token with acc_auth.SCOPE_CREATE.
+
+    Returns (folder_id, "breadcrumb / path"), or None if cancelled."""
+    import acc_upload
+    try:
+        top = acc_api.get_top_folders(hub_id, project_id, token)
+    except Exception as e:
+        forms.alert(u"Could not list the project's folders:\n\n{0}".format(
+            acc_upload.explain(e)))
+        return None
+    if not top:
+        forms.alert("No folders found in that project (or none you can see).")
+        return None
+
+    new_option = "[+ Add a new folder here...]"
+    up_option = "[.. Back]"
+    trail = []              # [(folder_id, name)] from the top down
+    while True:
+        path = u" / ".join(name for _fid, name in trail)
+        use_option = u"[Save in this folder: {0}]".format(path)
+        subfolders = top
+        if trail:
+            try:
+                subfolders = acc_upload.list_subfolders(project_id, trail[-1][0], token)
+            except Exception as e:
+                forms.alert(u"Could not open '{0}':\n\n{1}".format(
+                    path, acc_upload.explain(e)))
+                trail.pop()
+                continue
+        by_name = dict((name, fid) for fid, name in subfolders)
+        options = [use_option, new_option, up_option] if trail else []
+        picked = forms.SelectFromList.show(
+            options + sorted(by_name.keys(), key=lambda n: n.lower()),
+            title=u"Save on ACC  -  {0}".format(path or "pick a folder"),
+            button_name="Open / Select")
+        if not picked:
+            return None
+        if trail and picked == use_option:
+            return trail[-1][0], path
+        if trail and picked == up_option:
+            trail.pop()
+        elif trail and picked == new_option:
+            made = ask_new_folder(project_id, trail[-1][0], path, token)
+            if made is not None:
+                trail.append(made)
+        else:
+            trail.append((by_name[picked], picked))
+
+
+def pick_save_destination(last=None):
+    """Where on ACC to save: sign-in, then the folder used last time (as it
+    is, or with a new folder inside it), or hub -> project -> folder.
+    Returns the destination dict acc_upload.Uploader takes, or None."""
+    import acc_auth
+    import acc_upload
+    account = acc_auth.get_active_account()
+    try:
+        token = acc_auth.get_access_token(account=account, scope=acc_auth.SCOPE_CREATE)
+    except Exception as e:
+        forms.alert(u"Authentication failed:\n{0}".format(e))
+        return None
+
+    if last and last.get("folder_id") and last.get("account") == account:
+        use_last = "Save in this folder"
+        add_new = "Add a new folder inside it"
+        choice = forms.CommandSwitchWindow.show(
+            [use_last, add_new, "Pick another ACC folder"],
+            message=u"Last ACC folder:  {0}".format(acc_upload.dest_label(last)))
+        if not choice:
+            return None
+        if choice == use_last:
+            return dict(last)
+        if choice == add_new:
+            made = ask_new_folder(last["project_id"], last["folder_id"],
+                                  acc_upload.dest_label(last), token)
+            if made is None:
+                return None
+            dest = dict(last)
+            dest["folder_id"] = made[0]
+            dest["folder_path"] = u"{0} / {1}".format(last["folder_path"], made[1])
+            return dest
+
+    hub = pick_hub(token)
+    if hub is None:
+        return None
+    hub_id, _region, hub_name = hub
+    project = pick_project(hub_id, token)
+    if project is None:
+        return None
+    project_id, project_name = project
+    folder = pick_save_folder(hub_id, project_id, token)
+    if folder is None:
+        return None
+    return {"account": account, "hub_id": hub_id, "hub_name": hub_name,
+            "project_id": project_id, "project_name": project_name,
+            "folder_id": folder[0], "folder_path": folder[1]}
+
+
 def browse_and_pick_cloud_file(hub_id, project_id, token, cache_file):
     """Folder-by-folder navigation (reusing the exact same drill-down
     primitives as pick_folder() above - acc_api.get_top_folders/
