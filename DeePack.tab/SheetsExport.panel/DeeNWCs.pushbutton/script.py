@@ -124,7 +124,7 @@ resolved folder + naming pattern to the output window and asks to
 proceed BEFORE any file is opened or any export runs, so a wrong
 delimiter/template mapping is caught before wasting a whole batch on it
 - the real per-view file name (using the view's actual Name, not the
-preview's "<view>" placeholder) can only be confirmed once each
+preview's "{ViewName}" placeholder) can only be confirmed once each
 document is actually open, so the preview covers the FOLDER mapping
 precisely (already fully knowable from the file name alone) and shows
 the naming PATTERN rather than every exact final name.
@@ -168,7 +168,7 @@ from Autodesk.Revit.DB import (
     FilteredElementCollector, View, View3D, ViewType, ViewFamilyType, ViewFamily,
     ViewDiscipline, Category, BuiltInCategory, BuiltInParameter, Phase,
     Transaction, NavisworksExportOptions, NavisworksExportScope,
-    NavisworksCoordinates, NavisworksParameters,
+    NavisworksCoordinates, NavisworksParameters, OptionalFunctionalityUtils,
 )
 
 import acc_auth
@@ -191,6 +191,13 @@ _CACHE_FILE = os.path.join(_THIS_DIR, ".acc_file_cache.json")
 _SETTINGS_FILE = os.path.join(_THIS_DIR, ".dee_nwc_settings.json")
 
 _INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
+
+_RVT_EXTENSION = re.compile(r"\.rvt$", re.IGNORECASE)
+
+# Status of a result row that is only a note (e.g. an auto-dismissed
+# dialog) - shown in the results, but never counted as an exported view.
+# The other statuses are True (exported), False (failed), None (skipped).
+_INFO = "info"
 
 _NON_GRAPHICAL_VIEW_TYPE_NAMES = (
     "Schedule", "Legend", "DrawingSheet", "ProjectBrowser", "SystemBrowser",
@@ -559,10 +566,12 @@ def _build_export_folder(base_folder, folder_structure, segments):
 
 def _resolve_output(doc_label, view_name, config, export_folder):
     """(output_folder, output_file_name) for one view of one document -
-    shared by the preview (view_name="<view>" as a placeholder, since
+    shared by the preview (view_name="{ViewName}" as a placeholder, since
     the real view names aren't known until the document is open - see
     module docstring) and the real export (the view's actual Name)."""
     nm = config.get("naming", {})
+    # ACC labels are file names - "X.rvt" must not become "X.rvt_View.nwc"
+    doc_label = _RVT_EXTENSION.sub("", doc_label)
     labels = _split_template(nm.get("template", ""), nm.get("delimiter", "-"))
     segments = _parse_segments(doc_label, nm.get("delimiter", "-"), labels)
     tokens = dict(segments)
@@ -845,7 +854,7 @@ def _run_local(uiapp, docs, config, export_folder, best_effort_skipped):
                 doc_results = _export_for_document(
                     doc, doc.Title, config, export_folder, best_effort_skipped)
                 for msg, _sev in dismissed_log[before_count:]:
-                    results.append((True, doc.Title, "-", msg))
+                    results.append((_INFO, doc.Title, "-", msg))
                 results.extend(doc_results)
     finally:
         dee_known_dialogs.detach_failures(uiapp)
@@ -922,7 +931,7 @@ def _run_acc(uiapp, acc_ctx, config, export_folder, best_effort_skipped):
                 ui_doc, detail = afb.open_cloud_file(
                     uiapp, region, project_id, item_id, token, close_worksets=False)
                 for msg, _sev in dismissed_log[before_count:]:
-                    results.append((True, name, "-", msg))
+                    results.append((_INFO, name, "-", msg))
 
                 if ui_doc is None:
                     results.append((False, name, "-", "Could not open: {0}".format(detail)))
@@ -948,7 +957,7 @@ def _show_preview_and_confirm(file_labels, config, export_folder):
     segments) to the output window, then asks to proceed. The exported
     file's VIEW NAME isn't known yet for ACC sources (the file isn't
     open until the real export loop runs) - shown as the literal
-    placeholder "<view>" here, since only the FOLDER/segment mapping
+    placeholder "{ViewName}" here, since only the FOLDER/segment mapping
     (the thing a naming-convention mistake would get wrong) needs to be
     accurate before committing to a whole batch; the exact per-view file
     name is confirmed in the results afterward instead."""
@@ -963,8 +972,9 @@ def _show_preview_and_confirm(file_labels, config, export_folder):
                      u"base folder with the default `{RevitFileName}_{ViewName}` naming.")
     lines.append(u"")
     for name in file_labels:
-        segments = _parse_segments(name, nm.get("delimiter", "-"), labels)
-        out_folder, out_name = _resolve_output(name, u"<view>", config, export_folder)
+        segments = _parse_segments(
+            _RVT_EXTENSION.sub("", name), nm.get("delimiter", "-"), labels)
+        out_folder, out_name = _resolve_output(name, u"{ViewName}", config, export_folder)
         seg_note = (u", ".join(u"{0}={1}".format(k, v or "(missing)") for k, v in segments.items())
                     if segments else u"(none)")
         lines.append(u"- **{0}**".format(name))
@@ -977,8 +987,32 @@ def _show_preview_and_confirm(file_labels, config, export_folder):
         .format(len(file_labels)), title="DeeNWCs - Preview", yes=True, no=True)
 
 
+def _exporter_available(uiapp):
+    """False (after telling the user why) when this Revit has no Navisworks
+    exporter. Checked before anything else, so a batch never opens cloud
+    models just to fail on every one. If the check itself can't run, the
+    export goes ahead and reports its own error."""
+    try:
+        if OptionalFunctionalityUtils.IsNavisworksExporterAvailable():
+            return True
+    except Exception:
+        return True
+    version = uiapp.Application.VersionNumber
+    forms.alert(
+        u"Revit {0} has no Navisworks exporter, so it can't create NWC files."
+        .format(version),
+        sub_msg=u"Install Autodesk's Navisworks NWC Export Utility for Revit {0}, "
+                u"restart Revit and run DeeNWCs again. An exporter installed for "
+                u"another Revit version does not work here.".format(version),
+        title="DeeNWCs")
+    return False
+
+
 def main():
     uiapp = __revit__
+
+    if not _exporter_available(uiapp):
+        return
 
     window = DeeNWCsOptionsWindow(_XAML_FILE)
     window.ShowDialog()
@@ -1019,8 +1053,14 @@ def main():
 
     html = '<h2 style="font-family:sans-serif;color:#ddd;">DeeNWCs Results</h2>'
     for ok, name, view_name, detail in results:
-        bg = "#2e7d32" if ok else ("#455a64" if ok is None else "#c62828")
-        icon = "&#10003;" if ok else ("&#9888;" if ok is None else "&#10007;")
+        if ok == _INFO:
+            bg, icon = "#37474f", "&#8505;"
+        elif ok is None:
+            bg, icon = "#455a64", "&#9888;"
+        elif ok:
+            bg, icon = "#2e7d32", "&#10003;"
+        else:
+            bg, icon = "#c62828", "&#10007;"
         html += (
             '<div style="padding:6px 12px;margin:2px 0;background:{0};color:#fff;'
             'border-radius:4px;font-family:monospace;font-size:12px;">'
