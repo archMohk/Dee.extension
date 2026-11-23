@@ -45,7 +45,13 @@ After touching `lib/acc_upload.py`, `lib/acc_auth.py` or the ACC folder picker (
 powershell -ExecutionPolicy Bypass -File tools/checks/run_ironpython.ps1 tools/checks/test_acc_upload.py
 ```
 
-After touching DeeNWCs' background export (`nwc_worker.py`, `lib/dee_background.py`), run it for real with two Revits (needs `pyrevit` on the PATH; opens two background Revits):
+After touching `lib/dee_native_dialogs.py` (same IronPython runner, real message boxes):
+
+```
+powershell -ExecutionPolicy Bypass -File tools/checks/run_ironpython.ps1 tools/checks/test_native_dialogs.py
+```
+
+After touching DeeNWCs' background export (`nwc_worker.py`, `lib/dee_background.py`), run it for real with two Revits (needs `pyrevit` on the PATH and the Navisworks exporter for that Revit year; opens two background Revits and really exports):
 
 ```
 pyrevit run "D:\<path to>\Dee.extension\tools\checks\nwc_background_probe.py" --revit=2024

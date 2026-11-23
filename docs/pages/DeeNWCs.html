@@ -57,7 +57,9 @@
     <ul>
       <li>Under <strong>Run by</strong> choose <em>More than one Revit</em> and how many (2 or 3 is usual; each needs its own memory).</li>
       <li>Background Revits are started for you, split the models between them and close themselves when done. This Revit shows their progress and the combined results.</li>
+      <li>The background Revits are started with the Navisworks exporter loaded (a plain background Revit has none of your add-ins).</li>
       <li>Each model is opened detached and never saved or synchronized. Revit's open dialogs are answered automatically, and a model that fails to open (&ldquo;The host model failed to open&rdquo;) is tried again, then skipped and reported.</li>
+      <li>The exporter&rsquo;s own message boxes (for example &ldquo;No suitable geometry found&rdquo;) are answered automatically, here and in the background Revits. The view then shows as skipped with the exporter&rsquo;s sentence in the results.</li>
       <li>A model that is open in your own Revit is exported from its saved or cloud version, not as it is on screen.</li>
       <li>Works with local and ACC output.</li>
     </ul>

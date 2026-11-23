@@ -25,6 +25,15 @@ never touches their work, and several Revits can chew through a long
 list at once. The Autodesk sign-in is machine-wide, so cloud models open
 in the workers without another login.
 
+Add-ins in the background Revits
+    `pyrevit run` starts Revit with ONLY the pyRevit runner loaded - none of
+    the add-ins installed on the PC (Navisworks exporter, ...) are there, so
+    e.g. NavisworksExportOptions fails with "A Navisworks Exporter is not
+    available". start(addins=["nwexportrevit"]) hands the named manifests
+    (<name>.addin from the Revit year's Addins folders) to the runner
+    (`pyrevit run --import`), with their relative Assembly paths made
+    absolute; Revit then loads those add-ins in the background session.
+
 Worker functions must be importable from a plain module on sys.path
 (lib/ and the tool's own folder are put there by the stub). They must
 not touch the host window - only ctx.log(). Anything a second Revit
@@ -33,12 +42,14 @@ selection) must be handled by the tool in-session instead.
 """
 import os
 import io
+import re
 import sys
 import json
 import time
 import datetime
 import traceback
 
+_EXIT_WHEN_DONE = [False]
 LOG_DONE_MARKER = "=== DONE ==="
 LOG_FAIL_MARKER = "=== FAILED ==="
 _JOBS_ROOT = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "DeeLazy", "background")
@@ -97,6 +108,46 @@ def _read_json(path, default=None):
         return default
 
 
+def _addin_dirs(revit_year):
+    year = str(revit_year)
+    return [os.path.join(os.environ.get("ProgramData") or r"C:\ProgramData",
+                         "Autodesk", "Revit", "Addins", year),
+            os.path.join(os.environ.get("APPDATA") or "", "Autodesk", "Revit", "Addins", year)]
+
+
+def prepare_addins(names, revit_year, target_folder):
+    """Copies <name>.addin for the Revit year into target_folder with every
+    <Assembly> path made absolute (the manifest's own folder is no longer
+    the base). Returns ([copied names], [names not found])."""
+    copied, missing = [], []
+    for name in names or []:
+        found = None
+        for folder in _addin_dirs(revit_year):
+            path = os.path.join(folder, name + ".addin")
+            if os.path.isfile(path):
+                found = path
+                break
+        if found is None:
+            missing.append(name)
+            continue
+        base = os.path.dirname(found)
+
+        def absolute(match, _base=base):
+            rel = match.group(1).strip().strip('"').strip()
+            if not os.path.isabs(rel):
+                rel = os.path.normpath(os.path.join(_base, rel.replace("/", os.sep)))
+            return u"<Assembly>{0}</Assembly>".format(rel)
+        with io.open(found, "r", encoding="utf-8-sig") as f:
+            text = f.read()
+        text = re.sub(r"<Assembly>(.*?)</Assembly>", absolute, text, flags=re.S)
+        if not os.path.isdir(target_folder):
+            os.makedirs(target_folder)
+        with io.open(os.path.join(target_folder, name + ".addin"), "w", encoding="utf-8") as f:
+            f.write(text)
+        copied.append(name)
+    return copied, missing
+
+
 def pyrevitlib_dir():
     try:
         import pyrevit
@@ -126,9 +177,11 @@ class BackgroundJob(object):
     # ----- start
     @classmethod
     def start(cls, tool, worker_module, worker_func, items, options, revit_year,
-              instances=1, extra_paths=None, log=None, key_field="key"):
+              instances=1, extra_paths=None, log=None, key_field="key", addins=None):
         """Writes the job folders and starts the Revits. Returns the job,
-        or raises with a readable message (pyRevit CLI missing...)."""
+        or raises with a readable message (pyRevit CLI missing...).
+        addins: names of installed add-in manifests (without .addin) the
+        background Revits must load too - see the module docstring."""
         from System.Diagnostics import Process, ProcessStartInfo
         job = cls()
         job.tool = tool
@@ -164,6 +217,14 @@ class BackgroundJob(object):
                 # completion". With it, dialogs are allowed and the
                 # DialogBoxShowing handler answers the known ones.
                 psi.Arguments = u'run "{0}" --revit={1} --allowdialogs'.format(stub_file, revit_year)
+                if addins:
+                    import_folder = os.path.join(folder, "addins")
+                    copied, missing = prepare_addins(addins, revit_year, import_folder)
+                    if copied:
+                        psi.Arguments += u' --import "{0}"'.format(import_folder)
+                    if missing and log:
+                        log("Add-in(s) not installed for Revit {0}: {1}".format(
+                            revit_year, ", ".join(missing)))
                 psi.UseShellExecute = False
                 psi.CreateNoWindow = True
                 psi.WorkingDirectory = folder
@@ -292,6 +353,30 @@ class Context(object):
         self.options = options
         self.folder = folder
         self.dialogs = []      # (text, ok) auto-answered dialogs, cleared per item
+
+
+def exit_when_done():
+    """Call when this background Revit's journal can no longer close it (a
+    native box made playback fail - see lib/dee_native_dialogs): once the
+    job has written its results, run_job ends the process itself."""
+    _EXIT_WHEN_DONE[0] = True
+
+
+def _exit_now_if_asked(log):
+    if not _EXIT_WHEN_DONE[0]:
+        return
+    log("(the journal could not close this Revit - ending it)")
+
+    def kill():
+        try:
+            from System.Diagnostics import Process
+            Process.GetCurrentProcess().Kill()
+        except Exception:
+            os._exit(0)
+    import threading
+    timer = threading.Timer(3.0, kill)
+    timer.daemon = True
+    timer.start()
 
 
 def _uiapp_of(handle):
@@ -466,6 +551,7 @@ def run_job(revit_handle, job_file):
             log("  (the last model stays open in this Revit until it exits)")
         _write_json(results_file, results)
         log(LOG_DONE_MARKER)
+        _exit_now_if_asked(log)
     except Exception:
         try:
             _write_json(results_file, results)
@@ -473,3 +559,4 @@ def run_job(revit_handle, job_file):
             pass
         log("Worker crashed:\n" + traceback.format_exc())
         log(LOG_FAIL_MARKER)
+        _exit_now_if_asked(log)

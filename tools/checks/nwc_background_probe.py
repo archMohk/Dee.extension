@@ -7,13 +7,13 @@ started). Run it after touching DeeNWCs' nwc_worker.py or lib/dee_background.py:
 
 Checks: the options window's Run by controls, the error tick box is not cut
 off, ACC output settings, and that both background Revits start, take one
-model each and report back. Without a Navisworks exporter in that Revit the
-only failure expected per model is "no Navisworks exporter" - the result
-rows then prove the plumbing; with one installed they are real exports.
+model each, load the Navisworks exporter and write an NWC file each (needs
+the Navisworks exporter installed for that Revit year).
 
 Result: nwc_background_probe_<year>.log next to this file; last line PASS/FAIL.
 """
 import io
+import json
 import os
 import shutil
 import sys
@@ -51,10 +51,13 @@ def check(what, ok, detail=""):
 
 def main():
     import dee_schedule_engine as engine
-    from Autodesk.Revit.DB import UnitSystem, SaveAsOptions
+    from Autodesk.Revit.DB import (UnitSystem, SaveAsOptions, Transaction, FilteredElementCollector,
+                                   Level, Wall, Line, XYZ)
 
     sp = engine.load_runner(uiapp, "DeeNWCs")
     sp["_save_settings"] = lambda s: None
+    # Not this user's saved settings: the defaults.
+    sp["_load_settings"] = lambda: json.loads(json.dumps(sp["_DEFAULT_SETTINGS"]))
     win = sp["DeeNWCsOptionsWindow"](sp["_XAML_FILE"])
     check("Run by defaults to this session", win.run_session_rb.IsChecked is True)
     win.run_bg_rb.IsChecked = True
@@ -73,6 +76,13 @@ def main():
     docs = []
     for n in (1, 2):
         doc = app.NewProjectDocument(UnitSystem.Metric)
+        if n == 1:      # model 1 has something to export, model 2 stays empty
+            t = Transaction(doc, "probe")
+            t.Start()
+            level = FilteredElementCollector(doc).OfClass(Level).FirstElement()
+            for i in range(3):
+                Wall.Create(doc, Line.CreateBound(XYZ(0, i * 10, 0), XYZ(20, i * 10, 0)), level.Id, False)
+            t.Commit()
         doc.SaveAs(os.path.join(WORK, "Model {0}.rvt".format(n)), SaveAsOptions())
         docs.append(doc)
     printed = []
@@ -94,12 +104,15 @@ def main():
     check("both Revits started and reported",
           not any("ended before" in (r[3] or "") or "Could not start" in (r[3] or "")
                   for r in rows), rows)
-    if sp["_has_exporter"]():
-        check("files written", len([f for f in os.listdir(folder) if f.endswith(".nwc")]) == 2,
-              os.listdir(folder))
-    else:
-        check("only failure is the missing exporter",
-              all("exporter" in (r[3] or "") for r in rows), rows)
+    # This probe's own Revit is a `pyrevit run` session (no exporter), the
+    # workers get the exporter handed over - so a real NWC file must appear.
+    # The empty model makes the exporter show its native "No suitable
+    # geometry found" box: it must be answered (no hang) and reported.
+    check("model with walls exported", rows[0][0] is True, rows[0])
+    check("empty model: exported, or skipped with Navisworks' own words",
+          rows[1][0] is True or (rows[1][0] is None and "Navisworks said" in (rows[1][3] or "")),
+          rows[1])
+    check("NWC file written", any(f.endswith(".nwc") for f in os.listdir(folder)), os.listdir(folder))
     for doc in docs:
         doc.Close(False)
 

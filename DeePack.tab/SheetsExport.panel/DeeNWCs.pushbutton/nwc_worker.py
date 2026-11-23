@@ -13,6 +13,11 @@ item    = {"key": ..., "name": "A.rvt", "source": <dee_schedule_engine source>}
 options = {"config": <DeeNWCs settings>, "export_folder": folder,
            "acc_dest": ACC destination or None, "delete_errors": bool}
 
+A background Revit (`pyrevit run`) loads no installed add-ins by itself, so
+lib/dee_background starts it with the Navisworks exporter's manifest handed
+over (addins=["nwexportrevit"]) - without it every model failed with "this
+Revit has no Navisworks exporter installed".
+
 The export itself is DeeNWCs' own _export_for_document (script.py is
 loaded the way DeeSchedule loads it), so a background run produces exactly
 what the button produces. Models are opened DETACHED and closed without
@@ -45,6 +50,20 @@ def _setup(ctx):
     import dee_schedule_engine
     import dee_known_dialogs
     _STATE["space"] = dee_schedule_engine.load_runner(ctx.uiapp, "DeeNWCs")
+    # For the whole life of this Revit, not just during an export: the
+    # exporter's boxes can also come while a model closes or Revit quits,
+    # and a box nobody answers keeps this Revit (and the batch) alive.
+    import dee_native_dialogs
+
+    def answered(title, text):
+        ctx.log(u"  (answered '{0}') {1}".format(title, text))
+        if "journal" in title.lower():
+            # playback of the journal's Quit line failed behind the exporter's
+            # box: nothing will close this Revit but us, once the job is done.
+            bg.exit_when_done()
+    _STATE["dialogs"] = dee_native_dialogs.Watcher(
+        rules=dee_native_dialogs.NWC_RULES + dee_native_dialogs.JOURNAL_RULES,
+        on_caught=answered).start()
     try:
         dee_known_dialogs.attach_failures(
             ctx.uiapp or ctx.app, delete_errors=bool(ctx.options.get("delete_errors")))

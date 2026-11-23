@@ -130,6 +130,17 @@ precisely (already fully knowable from the file name alone) and shows
 the naming PATTERN rather than every exact final name.
 
 --------------------------------------------------------------------
+Navisworks' own message boxes
+--------------------------------------------------------------------
+The exporter shows native Windows boxes of its own (title "Navisworks NWC
+Exporter", e.g. "No suitable geometry found. Please check what part you
+want to export in the "Navisworks settings" menu."). Revit never reports
+them to DialogBoxShowing, so lib/dee_native_dialogs.Watcher presses OK on
+them during every export, here and in the background Revits, and the
+sentence goes into the result row: the view is shown as skipped ("Nothing
+exported - Navisworks said: ...") when no file was written.
+
+--------------------------------------------------------------------
 Output - a local folder, or a folder on ACC
 --------------------------------------------------------------------
 Revit can only export to disk, so ACC output exports into a staging folder
@@ -192,6 +203,7 @@ import acc_auth
 import acc_file_browser as afb
 import acc_upload
 import dee_background as bg
+import dee_native_dialogs
 import dee_branding
 
 import clr
@@ -621,15 +633,11 @@ def _nwc_snapshot(folder):
     return found
 
 
-def _exported_file(folder, file_name, before):
-    """The file an export just wrote, or None. Looked for under its
-    expected name, then as whatever .nwc is new or changed."""
-    path = os.path.join(folder, file_name + ".nwc")
+def _changed_nwc(folder, before):
+    """The .nwc files an export just wrote or changed, main file first
+    (Divide File into Levels adds more than one)."""
     after = _nwc_snapshot(folder)
-    changed = [p for p in after if after[p] != before.get(p)]
-    if path in changed:
-        return path
-    return changed[0] if len(changed) == 1 else None
+    return sorted(p for p in after if after[p] != before.get(p))
 
 
 def _export_view_to_nwc(doc, view, output_folder, output_name, config, best_effort_skipped,
@@ -638,15 +646,36 @@ def _export_view_to_nwc(doc, view, output_folder, output_name, config, best_effo
     try:
         if not os.path.isdir(output_folder):
             os.makedirs(output_folder)
-        before = _nwc_snapshot(output_folder) if uploader is not None else None
+        before = _nwc_snapshot(output_folder)
         opts = _build_nwc_options(config, view.Id, best_effort_skipped)
-        doc.Export(output_folder, file_name, opts)
-        if uploader is not None:
-            path = _exported_file(output_folder, file_name, before)
-            if path is None:
-                return False, "FAILED: Revit did not write an NWC file for this view"
-            return uploader.upload(path)
-        return True, u"Exported '{0}.nwc' to {1}".format(file_name, output_folder)
+        # The exporter has its own native message boxes ("No suitable
+        # geometry found", ...) that nothing else answers - the export, and
+        # in a background Revit the whole batch, would wait for ever.
+        with dee_native_dialogs.Watcher() as watcher:
+            doc.Export(output_folder, file_name, opts)
+        said = u" ".join(watcher.messages())
+        changed = _changed_nwc(output_folder, before)
+        if not changed:
+            if said:
+                return None, u"Nothing exported - Navisworks said: {0}".format(said)
+            return False, u"FAILED: Revit did not write an NWC file for this view"
+        main = os.path.join(output_folder, file_name + ".nwc")
+        main = main if main in changed else changed[0]
+        if uploader is None:
+            detail = u"Exported '{0}.nwc' to {1}".format(file_name, output_folder)
+            ok = True
+        else:
+            # main file first; the rest are the level files of a divided export
+            ordered = [main] + [p for p in changed if p != main]
+            outcomes = [uploader.upload(p) for p in ordered]
+            failed = [d for o, d in outcomes if not o]
+            ok = not failed
+            detail = failed[0] if failed else outcomes[0][1]
+            if ok and len(outcomes) > 1:
+                detail += u" (+{0} more file(s))".format(len(outcomes) - 1)
+        if said:
+            detail += u" - Navisworks said: {0}".format(said)
+        return ok, detail
     except Exception as e:
         return False, u"FAILED: {0}".format(e)
 
@@ -1174,7 +1203,8 @@ def _run_background(uiapp, config, export_folder, acc_dest, uploader, docs, acc_
         job = bg.BackgroundJob.start(
             "DeeNWCs", "nwc_worker", "process_model", items, options,
             str(uiapp.Application.VersionNumber), instances=count,
-            extra_paths=[_THIS_DIR])
+            extra_paths=[_THIS_DIR], addins=["nwexportrevit"],
+            log=lambda text: output.print_md(u"{0}".format(text)))
     except Exception as e:
         results.append((False, "-", "-", u"Could not start the background Revits: {0}".format(e)))
         return results
