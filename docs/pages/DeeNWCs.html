@@ -48,7 +48,8 @@
     <h2>Before you run it</h2>
     <ul>
       <li>Requires <code>acc_config.json</code> (ask your administrator if you see a message that it's missing) and valid ACC/BIM360 access to the target hub/project.</li>
-      <li>Each processed file needs at least one view with "NAVIS" in its name, or nothing will export for it.</li>
+      <li>Each processed file needs at least one view whose name contains the text in <strong>View name contains</strong> (NAVIS by default), or nothing will export for it.</li>
+      <li>That box takes <strong>several texts</strong>: put each on its own line or separate them with <code>;</code> (a comma or <code>|</code> also works), for example <code>NAVIS; COORDINATION; NWC</code>. A view is exported when its name contains <em>any</em> of them (case-insensitive); a view that matches two texts is exported once.</li>
     </ul>
   </div>
 

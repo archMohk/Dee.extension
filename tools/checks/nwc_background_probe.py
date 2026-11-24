@@ -73,6 +73,20 @@ def main():
     check("error tick box wraps (is not cut off)",
           box is not None and box.Content.__class__.__name__ == "TextBlock")
 
+    win = sp["DeeNWCsOptionsWindow"](sp["_XAML_FILE"])
+    win.view_contains_tb.Text = u"NAVIS; COORDINATION"
+    win.output_acc_rb.IsChecked = True
+    check("View name contains box takes several lines", win.view_contains_tb.AcceptsReturn is True)
+    win._finish("run")
+    check("window keeps several texts", win.config.get("view_contains") == u"NAVIS; COORDINATION",
+          win.config.get("view_contains") if win.config else win.status_tb.Text)
+    win = sp["DeeNWCsOptionsWindow"](sp["_XAML_FILE"])
+    win.view_contains_tb.Text = u" ; , "
+    win.output_acc_rb.IsChecked = True
+    win._finish("run")
+    check("a box with only separators is refused", not win.config and "at least one text" in win.status_tb.Text,
+          win.status_tb.Text)
+
     docs = []
     for n in (1, 2):
         doc = app.NewProjectDocument(UnitSystem.Metric)
@@ -82,9 +96,29 @@ def main():
             level = FilteredElementCollector(doc).OfClass(Level).FirstElement()
             for i in range(3):
                 Wall.Create(doc, Line.CreateBound(XYZ(0, i * 10, 0), XYZ(20, i * 10, 0)), level.Id, False)
+            from Autodesk.Revit.DB import ViewFamilyType, ViewFamily, View3D
+            vft = [x for x in FilteredElementCollector(doc).OfClass(ViewFamilyType)
+                   if x.ViewFamily == ViewFamily.ThreeDimensional][0]
+            for view_name in (u"Navis Test", u"Coord Test"):     # for the "View name contains" checks
+                View3D.CreateIsometric(doc, vft.Id).Name = view_name
             t.Commit()
         doc.SaveAs(os.path.join(WORK, "Model {0}.rvt".format(n)), SaveAsOptions())
         docs.append(doc)
+    # several texts in "View name contains": any of them matches
+    check("view texts are split on ; , | and new lines",
+          sp["_view_terms"](u"Navis; coord,NWC|x\r\ny;; navis ") == [u"Navis", u"coord", u"NWC", u"x", u"y"],
+          sp["_view_terms"](u"Navis; coord,NWC|x\r\ny;; navis "))
+    names = lambda text: sorted(v.Name for v in sp["_find_matching_views"](docs[0], text))
+    check("one text matches its views", names(u"navis") == [u"Navis Test"], names(u"navis"))
+    check("another text matches other views", names(u"COORD") == [u"Coord Test"], names(u"COORD"))
+    # any of the texts matches, and a view matched by two of them is not doubled
+    check("several texts match any of them",
+          names(u"zzz; navis\nCOORD") == [u"Coord Test", u"Navis Test"], names(u"zzz; navis\nCOORD"))
+    check("a view matched by two texts is listed once",
+          names(u"navis; test; Navis Test") == [u"Coord Test", u"Navis Test"],
+          names(u"navis; test; Navis Test"))
+    check("no text matches nothing", names(u"zzz; yyy") == [] and names(u" ; ") == [], names(u"zzz; yyy"))
+    check("the label lists every text", sp["_terms_label"](u"A; b") == u"'A' or 'b'", sp["_terms_label"](u"A; b"))
     printed = []
 
     class Out(object):

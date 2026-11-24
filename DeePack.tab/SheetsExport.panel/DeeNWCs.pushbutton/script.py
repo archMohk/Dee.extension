@@ -374,14 +374,29 @@ def _view_names_hint(doc, limit=6):
     return u" - 3D views in this model: {0}{1}".format(shown, more)
 
 
+def _view_terms(text):
+    """The texts in the View name contains box: one or several, separated by
+    ; , | or a new line. Empty ones and repeats are dropped."""
+    terms = []
+    for part in re.split(r"[;,|\r\n]+", text or ""):
+        part = part.strip()
+        if part and part.lower() not in [t.lower() for t in terms]:
+            terms.append(part)
+    return terms
+
+
+def _terms_label(text):
+    """'NAVIS' or 'NAVIS' or 'COORD' - for messages."""
+    return u" or ".join(u"'{0}'".format(t) for t in _view_terms(text))
+
+
 def _find_matching_views(doc, contains_text):
-    """Every non-template, graphical view whose Name contains
-    `contains_text` (case-insensitive) - generalized from the original
-    hardcoded "NAVIS" substring; now set via the options window's View
-    Selection field and saved between runs."""
+    """Every non-template, graphical view whose Name contains ANY of the
+    texts in `contains_text` (case-insensitive, see _view_terms) - set via
+    the options window's View Selection box and saved between runs."""
     views = []
-    needle = (contains_text or "").strip().lower()
-    if not needle:
+    needles = [t.lower() for t in _view_terms(contains_text)]
+    if not needles:
         return views
     excluded_types = _non_graphical_view_types()
     try:
@@ -395,7 +410,7 @@ def _find_matching_views(doc, contains_text):
             if v.ViewType in excluded_types:
                 continue
             name = v.Name
-            if name and needle in name.lower():
+            if name and any(n in name.lower() for n in needles):
                 views.append(v)
         except Exception:
             continue
@@ -868,8 +883,8 @@ class DeeNWCsOptionsWindow(dee_branding.DeeBrandedWindow):
             if not config["super_config"]["view_name"]:
                 self.status_tb.Text = "Enter a name for the Super Config created view."
                 return
-        elif not config["view_contains"]:
-            self.status_tb.Text = "Enter text the view name should contain."
+        elif not _view_terms(config["view_contains"]):
+            self.status_tb.Text = "Enter at least one text the view name should contain."
             return
         _save_settings(config)
         self.config = config
@@ -964,8 +979,8 @@ def _export_for_document(doc, doc_label, config, export_folder, best_effort_skip
     matching_views = _find_matching_views(doc, config["view_contains"])
     if not matching_views:
         return [(None, doc_label, "-",
-                u"No view containing '{0}' - skipped{1}".format(
-                    config["view_contains"], _view_names_hint(doc)))]
+                u"No view containing {0} - skipped{1}".format(
+                    _terms_label(config["view_contains"]), _view_names_hint(doc)))]
     results = []
     for view in matching_views:
         out_folder, out_name = _resolve_output(doc_label, view.Name, config, export_folder)
@@ -1343,7 +1358,7 @@ def _schedule(uiapp, config):
 
     sc = config["super_config"]
     what = (u"export view '{0}'".format(sc["view_name"]) if sc.get("enabled")
-            else u"views containing '{0}'".format(config["view_contains"]))
+            else u"views containing {0}".format(_terms_label(config["view_contains"])))
     dee_schedule_ui.schedule(
         "DeeNWCs", uiapp, sources,
         {"config": config, "delete_errors": dee_known_dialogs.delete_errors_enabled()},

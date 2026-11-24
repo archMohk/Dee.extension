@@ -51,10 +51,12 @@
             <GroupBox Header="View Selection" Margin="0,0,0,10">
                 <StackPanel Margin="5">
                     <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#555" Margin="0,0,0,6"
-                               Text="Every non-template, graphical view whose name contains this text (case-insensitive) gets its own NWC file."/>
+                               Text="Every non-template, graphical view whose name contains ANY of these texts (case-insensitive) gets its own NWC file. Put several texts one per line, or separated by ; (a comma or | also works) - for example NAVIS; COORDINATION; NWC."/>
                     <DockPanel>
-                        <TextBlock Text="View name contains:" VerticalAlignment="Center" Margin="0,0,8,0" DockPanel.Dock="Left"/>
-                        <TextBox x:Name="view_contains_tb" Height="24" Text="NAVIS"/>
+                        <TextBlock Text="View name contains:" VerticalAlignment="Top" Margin="0,4,8,0" DockPanel.Dock="Left"/>
+                        <TextBox x:Name="view_contains_tb" MinHeight="24" MaxHeight="96" Text="NAVIS"
+                                 AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                 ToolTip="One or more texts. A view is exported when its name contains any of them. Separate them with ; or put each on its own line."/>
                     </DockPanel>
                 </StackPanel>
             </GroupBox>
