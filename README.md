@@ -51,6 +51,18 @@ After touching `lib/dee_native_dialogs.py` (same IronPython runner, real message
 powershell -ExecutionPolicy Bypass -File tools/checks/run_ironpython.ps1 tools/checks/test_native_dialogs.py
 ```
 
+After touching `lib/dee_background.py`'s crash handling (same runner; no Revit needed):
+
+```
+powershell -ExecutionPolicy Bypass -File tools/checks/run_ironpython.ps1 tools/checks/test_background_crash.py
+```
+
+and, for the real thing, the crash probe (opens a few background Revits that misbehave on purpose; an "Error Report" window may flash for a moment):
+
+```
+pyrevit run "D:\<path to>\Dee.extension\tools\checks\crash_recovery_probe.py" --revit=2024
+```
+
 After touching DeeNWCs' background export (`nwc_worker.py`, `lib/dee_background.py`), run it for real with two Revits (needs `pyrevit` on the PATH and the Navisworks exporter for that Revit year; opens two background Revits and really exports):
 
 ```

@@ -34,6 +34,20 @@ Add-ins in the background Revits
     (`pyrevit run --import`), with their relative Assembly paths made
     absolute; Revit then loads those add-ins in the background session.
 
+A Revit that crashes
+    Revit keeps a crashed process - and with it the whole batch, which waits
+    for every Revit - alive until somebody closes Autodesk's "Revit 2024.3
+    Error Report" box. poll() looks for that box in every worker Revit, ends
+    the Revit, reports the model it died on ({"ok": False, "detail": ...}) and
+    starts a new Revit for the models not reached yet (twice at most).
+
+Opening models
+    open_cloud_model / open_local_model try Application.OpenDocumentFile and,
+    when that is refused, UIApplication.OpenAndActivateDocument. The second
+    one builds a full UI view in a Revit that has none - it crashed a
+    background Revit when the model's starting view was a sheet - so a tool
+    that can live without it passes activate=False and retries instead.
+
 Worker functions must be importable from a plain module on sys.path
 (lib/ and the tool's own folder are put there by the stub). They must
 not touch the host window - only ctx.log(). Anything a second Revit
@@ -159,13 +173,68 @@ def pyrevitlib_dir():
 # ==========================================================================
 # host side
 # ==========================================================================
+CRASH_TITLES = ("error report",)    # Autodesk's "Revit 2024.3 Error Report" box
+_MAX_RESTARTS = 2
+
+
+def remaining_after_crash(chunk, key_field, done_keys):
+    """(item the worker died on, items it had not started) for a Revit that
+    crashed. Items go through in order, so the first one without a stored
+    result is the one it died on."""
+    for i, item in enumerate(chunk):
+        if item.get(key_field) not in done_keys:
+            return item, list(chunk[i + 1:])
+    return None, []
+
+
+def crash_window(pid):
+    """Title of the crash box ("Revit 2024.3 Error Report") a Revit process
+    is showing, else None. A crashed Revit keeps its process - and the whole
+    batch waiting for it - until somebody closes that box."""
+    try:
+        import dee_native_dialogs
+        for title in dee_native_dialogs.visible_titles(pid):
+            low = title.lower()
+            if any(t in low for t in CRASH_TITLES):
+                return title
+    except Exception:
+        pass
+    return None
+
+
+def _kill_revit(pid):
+    """Ends a background Revit and its helper processes. Only ever given the
+    pid a worker reported for itself; anything that is not a Revit is left."""
+    from System.Diagnostics import Process, ProcessStartInfo
+    try:
+        proc = Process.GetProcessById(int(pid))
+        if proc.ProcessName.lower() != "revit":
+            return
+    except Exception:
+        return
+    try:
+        psi = ProcessStartInfo("taskkill", "/PID {0} /T /F".format(int(pid)))
+        psi.UseShellExecute = False
+        psi.CreateNoWindow = True
+        Process.Start(psi).WaitForExit(15000)
+    except Exception:
+        try:
+            proc.Kill()
+        except Exception:
+            pass
+
+
 class BackgroundJob(object):
     """One batch spread over N background Revits. Create it with
     start(); then call poll() from a timer (DispatcherTimer, 1 s) until
     it returns done=True; then results() gives {item_key: result}.
 
     on_line(tag, text) receives every worker log line; tag is "bg" or
-    "bgN" when several Revits run."""
+    "bgN" when several Revits run.
+
+    A Revit that crashes (its "Error Report" box appears) is ended by
+    poll(); the model it died on gets {"ok": False, "detail": ...} and the
+    models it had not started go to a new Revit (twice at most per Revit)."""
 
     def __init__(self):
         self.workers = []
@@ -173,6 +242,8 @@ class BackgroundJob(object):
         self.root = None
         self.tool = ""
         self._noted = 0
+        self._spec = {}
+        self._made_up = {}       # results for the models a crashed Revit died on
 
     # ----- start
     @classmethod
@@ -182,7 +253,6 @@ class BackgroundJob(object):
         or raises with a readable message (pyRevit CLI missing...).
         addins: names of installed add-in manifests (without .addin) the
         background Revits must load too - see the module docstring."""
-        from System.Diagnostics import Process, ProcessStartInfo
         job = cls()
         job.tool = tool
         items = list(items or [])
@@ -192,53 +262,20 @@ class BackgroundJob(object):
         chunks = [items[i::count] for i in range(count)]
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         job.root = os.path.join(_JOBS_ROOT, tool, stamp)
-        paths = [p for p in [pyrevitlib_dir(), _LIB_DIR] + list(extra_paths or []) if p]
+        paths = [str(p) for p in [pyrevitlib_dir(), _LIB_DIR] + list(extra_paths or []) if p]
         job.started = time.time()
+        job._spec = {"worker_module": worker_module, "worker_func": worker_func,
+                     "key_field": key_field, "options": options or {}, "paths": paths,
+                     "revit_year": revit_year, "addins": addins, "log": log}
         for idx, chunk in enumerate(chunks, 1):
-            folder = os.path.join(job.root, "revit_{0}".format(idx))
             try:
-                os.makedirs(folder)
+                worker = job._spawn(idx, os.path.join(job.root, "revit_{0}".format(idx)), chunk)
             except Exception:
-                pass
-            job_file = os.path.join(folder, "job.json")
-            stub_file = os.path.join(folder, "run_{0}.py".format(tool))
-            _write_json(job_file, {"tool": tool, "worker_module": worker_module, "worker_func": worker_func,
-                                   "key_field": key_field, "options": options or {}, "items": chunk,
-                                   "paths": [str(p) for p in paths]})
-            with io.open(stub_file, "w", encoding="utf-8") as f:
-                f.write(_STUB.format(paths=[str(p) for p in paths], job=str(job_file)))
-            try:
-                psi = ProcessStartInfo()
-                psi.FileName = "pyrevit"
-                # --allowdialogs: without it Revit runs the journal in strict
-                # playback and ANY dialog the journal did not script (e.g.
-                # "The host model failed to open") ends the run with
-                # "Journal Error - the journal file could not be run to
-                # completion". With it, dialogs are allowed and the
-                # DialogBoxShowing handler answers the known ones.
-                psi.Arguments = u'run "{0}" --revit={1} --allowdialogs'.format(stub_file, revit_year)
-                if addins:
-                    import_folder = os.path.join(folder, "addins")
-                    copied, missing = prepare_addins(addins, revit_year, import_folder)
-                    if copied:
-                        psi.Arguments += u' --import "{0}"'.format(import_folder)
-                    if missing and log:
-                        log("Add-in(s) not installed for Revit {0}: {1}".format(
-                            revit_year, ", ".join(missing)))
-                psi.UseShellExecute = False
-                psi.CreateNoWindow = True
-                psi.WorkingDirectory = folder
-                process = Process.Start(psi)
-            except Exception as e:
                 job.stop()
-                raise Exception("Could not start the pyRevit CLI (`pyrevit run`) - is it installed and on the "
-                                "PATH? {0}".format(e))
-            job.workers.append({"idx": idx, "folder": folder, "process": process, "offset": 0, "finished": None,
-                                "log": os.path.join(folder, "log.txt"),
-                                "results": os.path.join(folder, "results.json"),
-                                "keys": [it.get(key_field) for it in chunk]})
+                raise
             if log:
-                log("Background Revit {0}/{1} starting with {2} model(s) - {3}".format(idx, count, len(chunk), folder))
+                log("Background Revit {0}/{1} starting with {2} model(s) - {3}".format(
+                    idx, count, len(chunk), worker["folder"]))
             if idx < count:
                 time.sleep(3)      # stagger the launches
         try:
@@ -249,12 +286,60 @@ class BackgroundJob(object):
             pass
         return job
 
+    def _spawn(self, idx, folder, chunk, restarts=0):
+        """Writes one job folder and starts `pyrevit run` for it."""
+        from System.Diagnostics import Process, ProcessStartInfo
+        spec = self._spec
+        try:
+            os.makedirs(folder)
+        except Exception:
+            pass
+        job_file = os.path.join(folder, "job.json")
+        stub_file = os.path.join(folder, "run_{0}.py".format(self.tool))
+        _write_json(job_file, {"tool": self.tool, "worker_module": spec["worker_module"],
+                               "worker_func": spec["worker_func"], "key_field": spec["key_field"],
+                               "options": spec["options"], "items": chunk, "paths": spec["paths"]})
+        with io.open(stub_file, "w", encoding="utf-8") as f:
+            f.write(_STUB.format(paths=spec["paths"], job=str(job_file)))
+        try:
+            psi = ProcessStartInfo()
+            psi.FileName = "pyrevit"
+            # --allowdialogs: without it Revit runs the journal in strict
+            # playback and ANY dialog the journal did not script (e.g.
+            # "The host model failed to open") ends the run with
+            # "Journal Error - the journal file could not be run to
+            # completion". With it, dialogs are allowed and the
+            # DialogBoxShowing handler answers the known ones.
+            psi.Arguments = u'run "{0}" --revit={1} --allowdialogs'.format(stub_file, spec["revit_year"])
+            if spec["addins"]:
+                import_folder = os.path.join(folder, "addins")
+                copied, missing = prepare_addins(spec["addins"], spec["revit_year"], import_folder)
+                if copied:
+                    psi.Arguments += u' --import "{0}"'.format(import_folder)
+                if missing and spec["log"]:
+                    spec["log"]("Add-in(s) not installed for Revit {0}: {1}".format(
+                        spec["revit_year"], ", ".join(missing)))
+            psi.UseShellExecute = False
+            psi.CreateNoWindow = True
+            psi.WorkingDirectory = folder
+            process = Process.Start(psi)
+        except Exception as e:
+            raise Exception("Could not start the pyRevit CLI (`pyrevit run`) - is it installed and on the "
+                            "PATH? {0}".format(e))
+        worker = {"idx": idx, "folder": folder, "process": process, "offset": 0, "finished": None,
+                  "pid": None, "restarts": restarts, "chunk": chunk,
+                  "log": os.path.join(folder, "log.txt"),
+                  "results": os.path.join(folder, "results.json"),
+                  "keys": [it.get(spec["key_field"]) for it in chunk]}
+        self.workers.append(worker)
+        return worker
+
     # ----- while running
     def poll(self, on_line=None):
         """Reads new log lines from every worker. Returns (done, how)
         where how is "done" / "failed" / "exited" once done."""
-        many = len(self.workers) > 1
-        for w in self.workers:
+        many = len(set(w["idx"] for w in self.workers)) > 1
+        for w in list(self.workers):
             if w["finished"]:
                 continue
             tag = "bg{0}".format(w["idx"]) if many else "bg"
@@ -271,16 +356,32 @@ class BackgroundJob(object):
                             w["finished"] = "done"
                         elif LOG_FAIL_MARKER in line:
                             w["finished"] = "failed"
-                        elif on_line:
-                            on_line(tag, line)
+                        else:
+                            if "Worker started:" in line:
+                                found = re.search(r"\(pid (\d+)\)", line)
+                                if found:
+                                    w["pid"] = int(found.group(1))
+                            if on_line:
+                                on_line(tag, line)
             except Exception:
                 pass
             if w["finished"] is None:
+                self._look_for_crash(w, tag, on_line)
+            if w["finished"] is None:
                 try:
-                    if w["process"].HasExited:
-                        w["finished"] = "exited"
+                    exited = w["process"].HasExited
                 except Exception:
-                    w["finished"] = "exited"
+                    exited = True
+                if exited:
+                    if w.get("exit_seen") or w["pid"] is None:
+                        w["finished"] = "exited"
+                        if w["pid"] is not None:
+                            (on_line or (lambda _t, _x: None))(
+                                tag, u"This Revit ended without finishing (crashed or was closed).")
+                            self._recover(w, tag, on_line or (lambda _t, _x: None))
+                    else:
+                        # its last log lines (DONE) may not have been read yet
+                        w["exit_seen"] = True
             if w["finished"] and many and on_line:
                 on_line(tag, "finished ({0}).".format(w["finished"]))
         if any(w["finished"] is None for w in self.workers):
@@ -292,6 +393,54 @@ class BackgroundJob(object):
         hows = set(w["finished"] for w in self.workers)
         return True, ("failed" if "failed" in hows else ("exited" if "exited" in hows else "done"))
 
+    def _look_for_crash(self, w, tag, on_line):
+        pid = w.get("pid")
+        now = time.time()
+        if not pid or now - w.get("looked", 0) < 3:
+            return
+        w["looked"] = now
+        title = crash_window(pid)
+        if not title:
+            return
+        say = on_line or (lambda _tag, _text: None)
+        say(tag, u"This Revit crashed ('{0}') - closing it.".format(title))
+        _kill_revit(pid)
+        try:
+            w["process"].Kill()
+        except Exception:
+            pass
+        w["finished"] = "exited"
+        w["crashed"] = True
+        self._recover(w, tag, say)
+
+    def _recover(self, w, tag, say):
+        """The model a crashed Revit died on is reported; the ones it had
+        not started go to a new Revit."""
+        key_field = self._spec["key_field"]
+        done = set((_read_json(w["results"], {}) or {}).keys())
+        died_on, rest = remaining_after_crash(w["chunk"], key_field, done)
+        if died_on is not None:
+            key = died_on.get(key_field)
+            self._made_up[key] = {
+                "ok": False, "crashed": True,
+                "detail": u"Revit crashed while working on this model, so it was skipped. "
+                          u"Run it again on its own."}
+            say(tag, u"The crash happened on: {0}".format(died_on.get("name") or key))
+        stopped = os.path.exists(os.path.join(w["folder"], "stop.txt"))
+        if not rest or stopped or w["restarts"] >= _MAX_RESTARTS:
+            if rest and not stopped:
+                say(tag, u"This Revit crashed {0} times - {1} model(s) were not processed.".format(
+                    w["restarts"] + 1, len(rest)))
+            return
+        number = w["restarts"] + 1
+        folder = os.path.join(self.root, "revit_{0}_again{1}".format(w["idx"], number))
+        say(tag, u"Starting a new Revit for the {0} model(s) it had not reached.".format(len(rest)))
+        try:
+            self._spawn(w["idx"], folder, rest, restarts=number)
+            w["replaced"] = True
+        except Exception as e:
+            say(tag, u"Could not start a new Revit: {0}".format(e))
+
     def stop(self):
         """Each Revit finishes its current model, then skips the rest."""
         request_stop([w["folder"] for w in self.workers])
@@ -300,10 +449,17 @@ class BackgroundJob(object):
         merged = {}
         for w in self.workers:
             merged.update(_read_json(w["results"], {}) or {})
+        for key, res in self._made_up.items():
+            merged.setdefault(key, res)
         return merged
 
     def keys(self):
-        return [k for w in self.workers for k in w["keys"]]
+        out = []
+        for w in self.workers:
+            for k in w["keys"]:
+                if k not in out:
+                    out.append(k)
+        return out
 
 
 def request_stop(folders):
@@ -392,11 +548,12 @@ def _uiapp_of(handle):
     return None, app
 
 
-def open_cloud_model(ctx, region, project_guid, model_guid, detach=False, audit=False):
+def open_cloud_model(ctx, region, project_guid, model_guid, detach=False, audit=False,
+                     activate=True):
     """Opens a cloud model in the worker. Headless Application.OpenDocumentFile
     first; Revit's own OpenAndActivateDocument when that is refused (the
     document then stays open until the next one is activated - see
-    close_model). Returns (doc_or_None, detail)."""
+    close_model) unless activate=False. Returns (doc_or_None, detail)."""
     import System
     from Autodesk.Revit.DB import ModelPathUtils
     try:
@@ -404,19 +561,19 @@ def open_cloud_model(ctx, region, project_guid, model_guid, detach=False, audit=
             region, System.Guid(str(project_guid)), System.Guid(str(model_guid)))
     except Exception as e:
         return None, "cloud path: {0}".format(e)
-    return open_model_path(ctx, model_path, detach=detach, audit=audit)
+    return open_model_path(ctx, model_path, detach=detach, audit=audit, activate=activate)
 
 
-def open_local_model(ctx, file_path, detach=False, audit=False):
+def open_local_model(ctx, file_path, detach=False, audit=False, activate=True):
     from Autodesk.Revit.DB import ModelPathUtils
     try:
         model_path = ModelPathUtils.ConvertUserVisiblePathToModelPath(file_path)
     except Exception as e:
         return None, "path: {0}".format(e)
-    return open_model_path(ctx, model_path, detach=detach, audit=audit)
+    return open_model_path(ctx, model_path, detach=detach, audit=audit, activate=activate)
 
 
-def open_model_path(ctx, model_path, detach=False, audit=False):
+def open_model_path(ctx, model_path, detach=False, audit=False, activate=True):
     from Autodesk.Revit.DB import (OpenOptions, DetachFromCentralOption, WorksetConfiguration,
                                    WorksetConfigurationOption)
     if detach:
@@ -426,7 +583,7 @@ def open_model_path(ctx, model_path, detach=False, audit=False):
     else:
         detach_options = [DetachFromCentralOption.DoNotDetach]
     errors = []
-    for route in ("headless", "activate"):
+    for route in (("headless", "activate") if activate else ("headless",)):
         for d in detach_options:
             try:
                 oo = OpenOptions()

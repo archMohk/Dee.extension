@@ -349,6 +349,31 @@ def _non_graphical_view_types():
     return excluded
 
 
+def _view_names_hint(doc, limit=6):
+    """' - 3D views in this model: A; B; ...' for the skipped row, so a
+    'View contains' text that matches nothing is easy to correct."""
+    names = []
+    try:
+        for v in FilteredElementCollector(doc).OfClass(View):
+            try:
+                if v.IsTemplate or v.ViewType != ViewType.ThreeD:
+                    continue
+                name = v.Name
+                if name and not name.startswith("{3D"):
+                    names.append(name)
+            except Exception:
+                continue
+    except Exception:
+        return u""
+    if not names:
+        return u""
+    names.sort(key=lambda n: n.lower())
+    shown = u"; ".join(n.replace(u"&", u"&amp;").replace(u"<", u"&lt;").replace(u">", u"&gt;")
+                       for n in names[:limit])
+    more = u" (+{0} more)".format(len(names) - limit) if len(names) > limit else u""
+    return u" - 3D views in this model: {0}{1}".format(shown, more)
+
+
 def _find_matching_views(doc, contains_text):
     """Every non-template, graphical view whose Name contains
     `contains_text` (case-insensitive) - generalized from the original
@@ -939,7 +964,8 @@ def _export_for_document(doc, doc_label, config, export_folder, best_effort_skip
     matching_views = _find_matching_views(doc, config["view_contains"])
     if not matching_views:
         return [(None, doc_label, "-",
-                u"No view containing '{0}' - skipped".format(config["view_contains"]))]
+                u"No view containing '{0}' - skipped{1}".format(
+                    config["view_contains"], _view_names_hint(doc)))]
     results = []
     for view in matching_views:
         out_folder, out_name = _resolve_output(doc_label, view.Name, config, export_folder)
@@ -1234,7 +1260,9 @@ def _run_background(uiapp, config, export_folder, acc_dest, uploader, docs, acc_
                             u"Stopped before this model" if stopped else
                             u"Not exported: the background Revit ended before reaching it"))
             continue
-        for row in res.get("rows") or []:
+        rows = res.get("rows") or [[False, item["name"], "-", res.get("detail") or
+                                    u"Not exported: the background Revit gave no result for this model"]]
+        for row in rows:
             results.append(tuple(row))
         if uploader is not None:
             for path, detail in res.get("failed_uploads") or []:

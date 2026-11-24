@@ -109,6 +109,32 @@ def _my_dialogs(rules):
     return found
 
 
+def visible_titles(pid):
+    """Titles of the visible top-level windows of ANY process `pid` - how
+    lib/dee_background sees that a background Revit is showing its crash
+    box. Never raises."""
+    found = []
+    if _user32 is None:
+        return found
+
+    def visit(hwnd, _l):
+        try:
+            owner = c_uint(0)
+            _user32.GetWindowThreadProcessId(hwnd, byref(owner))
+            if owner.value == pid and _user32.IsWindowVisible(hwnd):
+                title = _text(hwnd, 512)
+                if title:
+                    found.append(title)
+        except Exception:
+            pass
+        return 1
+    try:
+        _user32.EnumWindows(_ENUM(visit), None)
+    except Exception:
+        pass
+    return found
+
+
 def _answer(hwnd, preferred):
     """Presses the preferred button; returns the dialog's message text."""
     kids = _children(hwnd)

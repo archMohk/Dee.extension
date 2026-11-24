@@ -23,6 +23,11 @@ loaded the way DeeSchedule loads it), so a background run produces exactly
 what the button produces. Models are opened DETACHED and closed without
 saving: nothing is ever synchronized or changed on the server.
 
+Revit's own "open and activate" route is never used here (activate=False):
+it builds a full UI view in this UI-less Revit and crashed one on a model
+whose starting view is a sheet. A model that fails to open headless is
+simply tried again.
+
 A model that fails to open is tried again (Revit's "The host model failed
 to open. Please try again." is very often a one-off); the dialog itself is
 closed by dee_known_dialogs. A model that still cannot be opened is
@@ -82,9 +87,10 @@ def _open(ctx, src):
     for attempt in range(_OPEN_TRIES):
         if src.get("kind") == "cloud":
             doc, detail = bg.open_cloud_model(
-                ctx, src.get("region") or "US", src["project"], src["model"], detach=True)
+                ctx, src.get("region") or "US", src["project"], src["model"], detach=True,
+                activate=False)
         else:
-            doc, detail = bg.open_local_model(ctx, src["path"], detach=True)
+            doc, detail = bg.open_local_model(ctx, src["path"], detach=True, activate=False)
         if doc is not None:
             return doc, detail
         ctx.log("  open failed ({0}): {1}".format(attempt + 1, detail))

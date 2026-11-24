@@ -60,6 +60,8 @@
       <li>The background Revits are started with the Navisworks exporter loaded (a plain background Revit has none of your add-ins).</li>
       <li>Each model is opened detached and never saved or synchronized. Revit's open dialogs are answered automatically, and a model that fails to open (&ldquo;The host model failed to open&rdquo;) is tried again, then skipped and reported.</li>
       <li>The exporter&rsquo;s own message boxes (for example &ldquo;No suitable geometry found&rdquo;) are answered automatically, here and in the background Revits. The view then shows as skipped with the exporter&rsquo;s sentence in the results.</li>
+      <li>If a background Revit crashes (Autodesk&rsquo;s &ldquo;Error Report&rdquo; box) or dies, it is ended automatically instead of holding the whole batch. The model it died on is reported as failed, and a new Revit takes the models it had not reached (at most twice per Revit).</li>
+      <li>A model whose <strong>View contains</strong> text matches no view is shown as skipped, with the model&rsquo;s own 3D view names beside it so the text is easy to correct.</li>
       <li>A model that is open in your own Revit is exported from its saved or cloud version, not as it is on screen.</li>
       <li>Works with local and ACC output.</li>
     </ul>
