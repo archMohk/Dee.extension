@@ -265,6 +265,7 @@ _DEFAULT_SETTINGS = {
     "run_by": "session",        # "session" or "background" (several Revits)
     "instances": 2,
     "view_contains": "NAVIS",
+    "view_all": True,           # several views match: export all of them (False = only the first)
     "opts": {
         "convert_element_properties": False,
         "convert_lights": False,
@@ -394,15 +395,15 @@ def _find_matching_views(doc, contains_text):
     """Every non-template, graphical view whose Name contains ANY of the
     texts in `contains_text` (case-insensitive, see _view_terms) - set via
     the options window's View Selection box and saved between runs."""
-    views = []
     needles = [t.lower() for t in _view_terms(contains_text)]
     if not needles:
-        return views
+        return []
     excluded_types = _non_graphical_view_types()
     try:
         collector = FilteredElementCollector(doc).OfClass(View)
     except Exception:
-        return views
+        return []
+    found = []
     for v in collector:
         try:
             if v.IsTemplate:
@@ -410,11 +411,43 @@ def _find_matching_views(doc, contains_text):
             if v.ViewType in excluded_types:
                 continue
             name = v.Name
-            if name and any(n in name.lower() for n in needles):
-                views.append(v)
+            low = name.lower() if name else u""
+            hits = [i for i, n in enumerate(needles) if n in low]
+            if hits:
+                found.append((hits[0], low, v))
         except Exception:
             continue
-    return views
+    # A steady order: the text typed first comes first, then by view name.
+    found.sort(key=lambda f: (f[0], f[1]))
+    return [f[2] for f in found]
+
+
+def _pick_views(views, export_all):
+    """(views to export, views left out). All of them - or, with the option
+    "If several views match, export all of them" off, only the first one
+    (_find_matching_views has already put them in order)."""
+    if export_all or len(views) <= 1:
+        return list(views), []
+    return list(views[:1]), list(views[1:])
+
+
+def _free_output_name(out_folder, out_name, kind, used):
+    """`out_name`, unless this folder already has a file by that name in
+    `used` (lower-case (folder, name) pairs, filled in here) - a floor plan
+    and a ceiling plan can both be called 'Level 1', and a naming template
+    without {ViewName} gives every view the same name. Then 'name (kind)',
+    'name (kind) 2', ... so no export overwrites another."""
+    def key(n):
+        return (out_folder.lower(), n.lower())
+    name = out_name
+    if key(name) in used:
+        name = u"{0} ({1})".format(out_name, kind)
+        count = 1
+        while key(name) in used:
+            count += 1
+            name = u"{0} ({1}) {2}".format(out_name, kind, count)
+    used.add(key(name))
+    return name
 
 
 # ==========================================================================
@@ -759,6 +792,7 @@ class DeeNWCsOptionsWindow(dee_branding.DeeBrandedWindow):
             self.output_acc_tb.Text = u"Last folder: {0}. After CONTINUE you can use it, add a " \
                 u"new folder in it, or pick another.".format(acc_upload.dest_label(self._acc_output))
         self.view_contains_tb.Text = s.get("view_contains", "NAVIS")
+        self.view_all_cb.IsChecked = bool(s.get("view_all", True))
         o = s.get("opts", {})
         self.opt_convert_element_properties.IsChecked = bool(o.get("convert_element_properties", False))
         self.opt_convert_lights.IsChecked = bool(o.get("convert_lights", False))
@@ -865,7 +899,8 @@ class DeeNWCsOptionsWindow(dee_branding.DeeBrandedWindow):
                 "acc_output": self._acc_output,
                 "run_by": "background" if self.run_bg_rb.IsChecked is True else "session",
                 "instances": [2, 3, 4, 6, 8][max(0, self.run_instances_cb.SelectedIndex)],
-                "view_contains": view_contains, "opts": opts,
+                "view_contains": view_contains,
+                "view_all": self.view_all_cb.IsChecked is True, "opts": opts,
                 "super_config": super_config, "naming": naming}
 
     def continue_click(self, sender, args):
@@ -981,12 +1016,23 @@ def _export_for_document(doc, doc_label, config, export_folder, best_effort_skip
         return [(None, doc_label, "-",
                 u"No view containing {0} - skipped{1}".format(
                     _terms_label(config["view_contains"]), _view_names_hint(doc)))]
+    to_export, left_out = _pick_views(matching_views, config.get("view_all", True))
     results = []
-    for view in matching_views:
+    used = set()
+    for view in to_export:
         out_folder, out_name = _resolve_output(doc_label, view.Name, config, export_folder)
+        out_name = _free_output_name(out_folder, out_name, view.ViewType, used)
         ok, msg = _export_view_to_nwc(doc, view, out_folder, out_name, config,
                                       best_effort_skipped, uploader)
         results.append((ok, doc_label, view.Name, msg))
+    if left_out and results:
+        shown = u"; ".join(v.Name.replace(u"&", u"&amp;").replace(u"<", u"&lt;").replace(u">", u"&gt;")
+                           for v in left_out[:6])
+        more = u" (+{0} more)".format(len(left_out) - 6) if len(left_out) > 6 else u""
+        first = results[0]
+        results[0] = (first[0], first[1], first[2],
+                      u"{0} - {1} other matching view(s) not exported, because 'If several views "
+                      u"match, export all of them' is off: {2}{3}".format(first[3], len(left_out), shown, more))
     return results
 
 

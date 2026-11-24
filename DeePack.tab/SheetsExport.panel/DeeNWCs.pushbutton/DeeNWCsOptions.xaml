@@ -58,6 +58,11 @@
                                  AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                                  ToolTip="One or more texts. A view is exported when its name contains any of them. Separate them with ; or put each on its own line."/>
                     </DockPanel>
+                    <CheckBox x:Name="view_all_cb" Margin="0,8,0,0" IsChecked="True"
+                              ToolTip="On: every view that matches is exported, one NWC file each. Off: only one view per model - the one matching the first text you typed (then by view name) - and the others are listed in the result.">
+                        <TextBlock TextWrapping="Wrap"
+                                   Text="If several views match, export all of them (one NWC file each). Untick to export only the first match in each model."/>
+                    </CheckBox>
                 </StackPanel>
             </GroupBox>
 

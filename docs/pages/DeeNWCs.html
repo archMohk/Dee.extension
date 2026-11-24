@@ -50,6 +50,7 @@
       <li>Requires <code>acc_config.json</code> (ask your administrator if you see a message that it's missing) and valid ACC/BIM360 access to the target hub/project.</li>
       <li>Each processed file needs at least one view whose name contains the text in <strong>View name contains</strong> (NAVIS by default), or nothing will export for it.</li>
       <li>That box takes <strong>several texts</strong>: put each on its own line or separate them with <code>;</code> (a comma or <code>|</code> also works), for example <code>NAVIS; COORDINATION; NWC</code>. A view is exported when its name contains <em>any</em> of them (case-insensitive); a view that matches two texts is exported once.</li>
+      <li><strong>If several views match, export all of them</strong> (ticked by default): every matching view gets its own NWC file. Untick it to export only <em>one</em> view per model &mdash; the one that matches the text you typed first (then by view name) &mdash; and the result row names the other matching views that were left out. Two views that would get the same file name (a floor plan and a ceiling plan both called &ldquo;Level 1&rdquo;, or a file-name template without the view name) never overwrite each other: the second one gets its view type added, for example <code>Model_Level 1 (CeilingPlan).nwc</code>.</li>
     </ul>
   </div>
 

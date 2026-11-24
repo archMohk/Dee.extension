@@ -87,6 +87,14 @@ def main():
     check("a box with only separators is refused", not win.config and "at least one text" in win.status_tb.Text,
           win.status_tb.Text)
 
+    win = sp["DeeNWCsOptionsWindow"](sp["_XAML_FILE"])
+    check("'export all matching views' is ticked by default", win.view_all_cb.IsChecked is True)
+    win.view_all_cb.IsChecked = False
+    win.output_acc_rb.IsChecked = True
+    win._finish("run")
+    check("window keeps the option off", bool(win.config) and win.config.get("view_all") is False,
+          win.config.get("view_all") if win.config else win.status_tb.Text)
+
     docs = []
     for n in (1, 2):
         doc = app.NewProjectDocument(UnitSystem.Metric)
@@ -119,6 +127,43 @@ def main():
           names(u"navis; test; Navis Test"))
     check("no text matches nothing", names(u"zzz; yyy") == [] and names(u" ; ") == [], names(u"zzz; yyy"))
     check("the label lists every text", sp["_terms_label"](u"A; b") == u"'A' or 'b'", sp["_terms_label"](u"A; b"))
+    # the "export all matching views" option and same-name files, with a stand-in exporter
+    check("_pick_views: all of them", [v for v in sp["_pick_views"]([1, 2, 3], True)[0]] == [1, 2, 3])
+    check("_pick_views: only the first", sp["_pick_views"]([1, 2, 3], False) == ([1], [2, 3]))
+    used = set()
+    first = sp["_free_output_name"](u"F", u"Level 1", u"CeilingPlan", used)
+    same = sp["_free_output_name"](u"F", u"level 1", u"CeilingPlan", used)
+    third = sp["_free_output_name"](u"F", u"Level 1", u"CeilingPlan", used)
+    other = sp["_free_output_name"](u"G", u"Level 1", u"CeilingPlan", used)
+    check("same file name twice gets the view type, then a number",
+          (first, same, third, other) == (u"Level 1", u"level 1 (CeilingPlan)", u"Level 1 (CeilingPlan) 2", u"Level 1"),
+          (first, same, third, other))
+    sent = []
+    real_export = sp["_export_view_to_nwc"]
+
+    def fake_export(doc, view, folder, name, cfg, skipped, uploader=None):
+        sent.append((view.Name, name))
+        return True, u"fake"
+    sp["_export_view_to_nwc"] = fake_export
+    cfg = json.loads(json.dumps(sp["_DEFAULT_SETTINGS"]))
+    cfg["view_contains"] = u"coord; navis"
+    rows = sp["_export_for_document"](docs[0], u"Model 1", cfg, WORK, set(), None)
+    check("all matching views are exported, first-typed text first",
+          sent == [(u"Coord Test", u"Model 1_Coord Test"), (u"Navis Test", u"Model 1_Navis Test")]
+          and len(rows) == 2 and "not exported" not in rows[0][3], (sent, rows))
+    del sent[:]
+    cfg["view_all"] = False
+    rows = sp["_export_for_document"](docs[0], u"Model 1", cfg, WORK, set(), None)
+    check("option off: only the first one, the rest named in the result",
+          sent == [(u"Coord Test", u"Model 1_Coord Test")] and len(rows) == 1
+          and u"1 other matching view(s) not exported" in rows[0][3] and u"Navis Test" in rows[0][3], (sent, rows))
+    del sent[:]
+    cfg["view_all"] = True
+    cfg["naming"]["output_template"] = u"{RevitFileName}"
+    sp["_export_for_document"](docs[0], u"Model 1", cfg, WORK, set(), None)
+    check("a naming template without the view name does not overwrite",
+          sent == [(u"Coord Test", u"Model 1"), (u"Navis Test", u"Model 1 (ThreeD)")], sent)
+    sp["_export_view_to_nwc"] = real_export
     printed = []
 
     class Out(object):
