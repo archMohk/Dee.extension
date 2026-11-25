@@ -855,6 +855,15 @@ GLYPHS = {
         pf([(24, 54), (38, 52), (46, 66), (36, 76), (22, 72)]),
         pf([(54, 50), (72, 48), (74, 64), (62, 74), (52, 66)]),
     ],
+    # Side view of a flight of stairs: the steps in ink, a sloping rail on
+    # posts in the accent - "make the stairs" (the rail is what is new).
+    "DeeStairs": lambda: [
+        pl([(12, 86), (12, 70), (30, 70), (30, 54), (48, 54), (48, 38), (66, 38), (66, 22),
+            (86, 22), (86, 86)], "ink", 1.0, True),
+        ln(12, 50, 66, 4, "accent", 1.3),
+        ln(12, 50, 12, 70, "accent", 1.0), ln(39, 27, 39, 54, "accent", 1.0),
+        ln(66, 4, 66, 22, "accent", 1.0),
+    ],
     "DeeMCP": lambda: [
         rc(16, 12, 80, 36, "ink", 1.0, 4), rc(16, 44, 80, 68, "ink", 1.0, 4),
         ln(26, 24, 48, 24, "ink", 0.9), ln(26, 56, 48, 56, "ink", 0.9),

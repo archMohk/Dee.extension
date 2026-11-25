@@ -188,6 +188,7 @@ TOOL_CATEGORIES = {
     "DeeBlocktoFamily": "productivity",
     "DeeFacade": "productivity",
     "DeeFamily": "productivity",
+    "DeeStairs": "productivity",
     "DeeLazy": "productivity",
     "DeeTransmit": "productivity",
     "DeeCtotopo": "productivity",

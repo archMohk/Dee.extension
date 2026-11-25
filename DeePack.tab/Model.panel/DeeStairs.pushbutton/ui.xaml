@@ -1,0 +1,320 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Dee.extension — DeeStairs"
+        ShowInTaskbar="False"
+        MinHeight="640" MinWidth="1000" Height="800" Width="1180"
+        WindowStartupLocation="CenterScreen">
+    <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" x:Name="head_tb" TextWrapping="Wrap" Margin="0,0,0,8" FontWeight="Bold"/>
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="status_tb" Text="Ready." TextWrapping="Wrap"/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <!-- ================= PLACEMENT + BUTTONS ================= -->
+        <Border DockPanel.Dock="Bottom" BorderBrush="#F2994D" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,8">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="place_b" Content="Place stairs..." Width="170" Height="32" FontWeight="Bold" Click="place_click"
+                            ToolTip="Closes this window and asks you to click in the plan view: first the start of the stairs, then a point showing the direction. Esc brings the window back."/>
+                    <Button x:Name="close_b" Content="Close" Width="100" Height="32" Margin="10,0,0,0" Click="close_click"/>
+                </StackPanel>
+                <StackPanel>
+                    <TextBlock Text="Placement" FontWeight="Bold"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <CheckBox x:Name="dir_chk" Content="Click a second point for the direction" IsChecked="True"
+                                  Checked="option_changed" Unchecked="option_changed" VerticalAlignment="Center"
+                                  ToolTip="On: you click the start, then a point the stairs head towards. Off: the stairs head along the angle below."/>
+                        <TextBlock Text="Angle:" Margin="14,0,4,0" VerticalAlignment="Center"/>
+                        <TextBox x:Name="angle_tb" Text="0" Width="55" Height="22" VerticalContentAlignment="Center"
+                                 ToolTip="Direction in degrees, 0 = along the X axis (to the right in a north-up plan), counter-clockwise."/>
+                        <TextBlock Text="deg" Margin="4,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <CheckBox x:Name="multi_chk" Content="Place several stairs with these settings (Esc to stop)" Margin="0,6,0,0"
+                              ToolTip="After each stairs you can click the next start point straight away. Esc ends and brings this window back."/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="480"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <TabControl Grid.Column="0" Margin="0,0,12,0">
+
+                <!-- ============ 1  LEVELS AND SHAPE ============ -->
+                <TabItem Header="1  Levels and shape">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8">
+                        <StackPanel>
+                            <TextBlock Text="Levels" FontWeight="Bold" FontSize="13"/>
+                            <Grid Margin="0,6,0,0">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Base level:" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" x:Name="base_level_cb" Height="24" SelectionChanged="levels_changed"/>
+                                <TextBlock Grid.Row="1" Text="Base offset (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                <TextBox Grid.Row="1" Grid.Column="1" x:Name="base_off_tb" Text="0" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"
+                                         TextChanged="option_changed" ToolTip="Distance of the first riser above (+) or below (-) the base level."/>
+                                <TextBlock Grid.Row="2" Text="Top level:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                <ComboBox Grid.Row="2" Grid.Column="1" x:Name="top_level_cb" Height="24" Margin="0,6,0,0" SelectionChanged="levels_changed"/>
+                                <TextBlock Grid.Row="3" Text="Top offset (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                <TextBox Grid.Row="3" Grid.Column="1" x:Name="top_off_tb" Text="0" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"
+                                         TextChanged="option_changed" ToolTip="Where the stairs reach, above (+) or below (-) the top level."/>
+                                <TextBlock Grid.Row="4" Text="Height to climb:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                <TextBlock Grid.Row="4" Grid.Column="1" x:Name="height_tb" FontWeight="Bold" Margin="0,6,0,0"/>
+                            </Grid>
+
+                            <TextBlock Text="Shape" FontWeight="Bold" FontSize="13" Margin="0,16,0,0"/>
+                            <ComboBox x:Name="shape_cb" Height="26" Margin="0,6,0,0" SelectedIndex="0" SelectionChanged="shape_changed">
+                                <ComboBoxItem Content="Straight (one run)"/>
+                                <ComboBoxItem Content="Straight with a landing (two runs in line)"/>
+                                <ComboBoxItem Content="L-shape - quarter turn on a landing"/>
+                                <ComboBoxItem Content="U-shape - half turn on a landing"/>
+                                <ComboBoxItem Content="L-shape with winders"/>
+                                <ComboBoxItem Content="U-shape with winders"/>
+                                <ComboBoxItem Content="Spiral (curved run)"/>
+                            </ComboBox>
+
+                            <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                                <StackPanel>
+                                    <Grid x:Name="turn_panel">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Turns:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1" x:Name="turn_cb" Height="24" SelectedIndex="0" SelectionChanged="option_changed"
+                                                  ToolTip="Seen walking up the stairs.">
+                                            <ComboBoxItem Content="Left"/>
+                                            <ComboBoxItem Content="Right"/>
+                                        </ComboBox>
+                                    </Grid>
+                                    <Grid x:Name="flight_panel" Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="flight_lbl" Text="Risers, first flight:" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" x:Name="flight1_tb" Height="24" VerticalContentAlignment="Center" TextChanged="option_changed"
+                                                 ToolTip="Leave empty to split the risers evenly. The other flight gets the rest."/>
+                                    </Grid>
+                                    <Grid x:Name="landing_panel" Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Landing depth (mm):" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" x:Name="landing_tb" Height="24" VerticalContentAlignment="Center" TextChanged="option_changed"
+                                                 ToolTip="Length of the landing in the direction of the first flight. Empty = as deep as the run is wide."/>
+                                    </Grid>
+                                    <Grid x:Name="gap_panel" Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Gap between flights (mm):" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" x:Name="gap_tb" Text="150" Height="24" VerticalContentAlignment="Center" TextChanged="option_changed"
+                                                 ToolTip="Clear space between the two flights. With winders it is rounded to whole treads."/>
+                                    </Grid>
+                                    <Grid x:Name="winder_panel" Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Winder treads per turn:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1" x:Name="winders_cb" Height="24" SelectedIndex="1" SelectionChanged="option_changed"
+                                                  ToolTip="How many fanned treads turn each corner. 3 treads = 30 degrees each.">
+                                            <ComboBoxItem Content="2"/>
+                                            <ComboBoxItem Content="3"/>
+                                            <ComboBoxItem Content="4"/>
+                                            <ComboBoxItem Content="5"/>
+                                            <ComboBoxItem Content="6"/>
+                                        </ComboBox>
+                                    </Grid>
+                                    <Grid x:Name="spiral_panel" Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                        <TextBlock Text="Radius (mm):" VerticalAlignment="Center"/>
+                                        <TextBox Grid.Column="1" x:Name="radius_tb" Text="1500" Height="24" VerticalContentAlignment="Center" TextChanged="option_changed"
+                                                 ToolTip="Radius of the location line (the line you click along - see Location line on the next tab)."/>
+                                        <TextBlock Grid.Row="1" Text="Sweep:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                        <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,6,0,0">
+                                            <TextBox DockPanel.Dock="Right" x:Name="sweep_tb" Text="270" Width="60" Height="24" Margin="6,0,0,0"
+                                                     VerticalContentAlignment="Center" TextChanged="option_changed" ToolTip="Degrees (fixed sweep only)."/>
+                                            <ComboBox x:Name="sweep_cb" Height="24" SelectedIndex="0" SelectionChanged="option_changed">
+                                                <ComboBoxItem Content="Automatic - from risers and tread"/>
+                                                <ComboBoxItem Content="Fixed angle - tread depth follows"/>
+                                            </ComboBox>
+                                        </DockPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- ============ 2  STEPS AND SIZE ============ -->
+                <TabItem Header="2  Steps and size">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8">
+                        <StackPanel>
+                            <TextBlock TextWrapping="Wrap" Opacity="0.75"
+                                       Text="Leave a box empty to take the value from the stair type (shown to its right)."/>
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="150"/><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Number of risers:" VerticalAlignment="Center"/>
+                                <TextBox Grid.Column="1" x:Name="risers_tb" Height="24" VerticalContentAlignment="Center" TextChanged="option_changed"
+                                         ToolTip="Total risers. Empty = the fewest that keep every riser within the type's maximum riser height."/>
+                                <TextBlock Grid.Column="2" x:Name="risers_info_tb" Margin="8,0,0,0" VerticalAlignment="Center" Opacity="0.75"/>
+                                <TextBlock Grid.Row="1" Text="Tread depth (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                <TextBox Grid.Row="1" Grid.Column="1" x:Name="tread_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"
+                                         TextChanged="option_changed" ToolTip="Going of each tread (measured on the walking line). Not below the type's minimum."/>
+                                <TextBlock Grid.Row="1" Grid.Column="2" x:Name="tread_info_tb" Margin="8,6,0,0" VerticalAlignment="Center" Opacity="0.75"/>
+                                <TextBlock Grid.Row="2" Text="Run width (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                <TextBox Grid.Row="2" Grid.Column="1" x:Name="width_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"
+                                         TextChanged="option_changed" ToolTip="Width of the treads, between the side supports."/>
+                                <TextBlock Grid.Row="2" Grid.Column="2" x:Name="width_info_tb" Margin="8,6,0,0" VerticalAlignment="Center" Opacity="0.75"/>
+                                <TextBlock Grid.Row="3" Text="Location line:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                <ComboBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="just_cb" Height="24" Margin="0,6,0,0" SelectedIndex="1"
+                                          SelectionChanged="option_changed"
+                                          ToolTip="Which line of the first run is on the point you click - its left edge, its centre or its right edge (seen walking up). Same as Revit's Location Line.">
+                                    <ComboBoxItem Content="Left edge"/>
+                                    <ComboBoxItem Content="Centre"/>
+                                    <ComboBoxItem Content="Right edge"/>
+                                </ComboBox>
+                                <TextBlock Grid.Row="4" Text="Extend below base (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                <TextBox Grid.Row="4" Grid.Column="1" x:Name="ext_tb" Text="0" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"
+                                         TextChanged="option_changed"
+                                         ToolTip="Extends the first step below the base elevation - for stairs that meet the face of a floor opening instead of resting on the floor."/>
+                            </Grid>
+                            <CheckBox x:Name="begin_chk" Content="Begin with a riser" IsChecked="True" Margin="0,12,0,0"
+                                      Checked="option_changed" Unchecked="option_changed"
+                                      ToolTip="Off: the first step is a tread at the base elevation (the stairs start one step shorter)."/>
+                            <CheckBox x:Name="end_chk" Content="End with a riser" IsChecked="True" Margin="0,6,0,0"
+                                      Checked="option_changed" Unchecked="option_changed"
+                                      ToolTip="Off: the last step is a tread at the top elevation. Winder runs always begin and end with a riser."/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- ============ 3  STAIR TYPE ============ -->
+                <TabItem Header="3  Stair type">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8">
+                        <StackPanel>
+                            <TextBlock Text="Stair type" FontWeight="Bold" FontSize="13"/>
+                            <ComboBox x:Name="type_cb" Height="26" Margin="0,6,0,0" SelectionChanged="type_changed"/>
+                            <TextBlock x:Name="type_info_tb" TextWrapping="Wrap" Margin="0,6,0,0" Opacity="0.8"/>
+
+                            <CheckBox x:Name="custom_chk" Margin="0,14,0,0" Checked="custom_changed" Unchecked="custom_changed"
+                                      Content="Customise - make a copy of this type with the values below"
+                                      ToolTip="Nothing is changed on the original type. Values you leave as they are are not touched."/>
+
+                            <Border x:Name="custom_panel" BorderBrush="#F2994D" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="170"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="New type name:" VerticalAlignment="Center"/>
+                                    <TextBox Grid.Column="1" x:Name="newname_tb" Height="24" VerticalContentAlignment="Center"/>
+
+                                    <TextBlock Grid.Row="1" Text="Maximum riser height (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                    <TextBox Grid.Row="1" Grid.Column="1" x:Name="t_maxriser_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center" TextChanged="option_changed"/>
+                                    <TextBlock Grid.Row="2" Text="Minimum tread depth (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                    <TextBox Grid.Row="2" Grid.Column="1" x:Name="t_mintread_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center" TextChanged="option_changed"/>
+                                    <TextBlock Grid.Row="3" Text="Minimum run width (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                    <TextBox Grid.Row="3" Grid.Column="1" x:Name="t_minwidth_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center" TextChanged="option_changed"/>
+
+                                    <CheckBox Grid.Row="4" Grid.ColumnSpan="2" x:Name="t_open_chk" Margin="0,10,0,0" Content="Open risers (no riser boards)"
+                                              Checked="option_changed" Unchecked="option_changed"/>
+                                    <TextBlock Grid.Row="5" Text="Tread thickness (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                    <TextBox Grid.Row="5" Grid.Column="1" x:Name="t_treadthk_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"/>
+                                    <TextBlock Grid.Row="6" Text="Riser thickness (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                    <TextBox Grid.Row="6" Grid.Column="1" x:Name="t_riserthk_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"/>
+                                    <TextBlock Grid.Row="7" Text="Nosing length (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                    <TextBox Grid.Row="7" Grid.Column="1" x:Name="t_nosing_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"/>
+                                    <TextBlock Grid.Row="8" Text="Landing thickness (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                    <TextBox Grid.Row="8" Grid.Column="1" x:Name="t_landthk_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"/>
+
+                                    <TextBlock Grid.Row="9" Text="Left support:" VerticalAlignment="Center" Margin="0,10,0,0"/>
+                                    <ComboBox Grid.Row="9" Grid.Column="1" x:Name="t_left_cb" Height="24" Margin="0,10,0,0"/>
+                                    <TextBlock Grid.Row="10" Text="Right support:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                    <ComboBox Grid.Row="10" Grid.Column="1" x:Name="t_right_cb" Height="24" Margin="0,6,0,0"/>
+                                    <TextBlock Grid.Row="11" Text="Middle support:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                    <ComboBox Grid.Row="11" Grid.Column="1" x:Name="t_mid_cb" Height="24" Margin="0,6,0,0"/>
+                                    <TextBlock Grid.Row="12" Text="Middle supports (number):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                    <TextBox Grid.Row="12" Grid.Column="1" x:Name="t_midn_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"/>
+                                    <TextBlock Grid.Row="13" Text="Side support offsets (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                    <StackPanel Grid.Row="13" Grid.Column="1" Orientation="Horizontal" Margin="0,6,0,0">
+                                        <TextBlock Text="left" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="t_leftoff_tb" Width="70" Height="24" Margin="4,0,12,0" VerticalContentAlignment="Center"/>
+                                        <TextBlock Text="right" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="t_rightoff_tb" Width="70" Height="24" Margin="4,0,0,0" VerticalContentAlignment="Center"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- ============ 4  RAILINGS AND STOREYS ============ -->
+                <TabItem Header="4  Railings and storeys">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8">
+                        <StackPanel>
+                            <TextBlock Text="Railings" FontWeight="Bold" FontSize="13"/>
+                            <Grid Margin="0,6,0,0">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <TextBlock Text="Railing type:" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" x:Name="rail_cb" Height="24" SelectionChanged="option_changed"/>
+                                <TextBlock Grid.Row="1" Text="Placed on:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                <ComboBox Grid.Row="1" Grid.Column="1" x:Name="rail_pos_cb" Height="24" Margin="0,6,0,0" SelectedIndex="0">
+                                    <ComboBoxItem Content="Treads"/>
+                                    <ComboBoxItem Content="Stringer (side of the run)"/>
+                                </ComboBox>
+                                <TextBlock Grid.Row="2" Text="Sides:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                <ComboBox Grid.Row="2" Grid.Column="1" x:Name="rail_side_cb" Height="24" Margin="0,6,0,0" SelectedIndex="0"
+                                          ToolTip="Left and right as seen walking up the stairs.">
+                                    <ComboBoxItem Content="Both sides"/>
+                                    <ComboBoxItem Content="Left side only"/>
+                                    <ComboBoxItem Content="Right side only"/>
+                                </ComboBox>
+                            </Grid>
+
+                            <TextBlock Text="Storeys" FontWeight="Bold" FontSize="13" Margin="0,18,0,0"/>
+                            <TextBlock TextWrapping="Wrap" Opacity="0.75" Margin="0,4,0,0"
+                                       Text="Repeat the same stairs on the levels above the top level (a Revit multistory stair, edited together)."/>
+                            <Grid Margin="0,6,0,0">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Repeat up to level:" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" x:Name="multi_cb" Height="24"
+                                          ToolTip="The levels above must have the same floor-to-floor height to be grouped; others become their own stairs."/>
+                            </Grid>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+            </TabControl>
+
+            <!-- ================= PREVIEW ================= -->
+            <DockPanel Grid.Column="1">
+                <TextBlock DockPanel.Dock="Top" Margin="0,0,0,4" TextWrapping="Wrap"
+                           Text="Plan preview - green square = start, red dot = top, blue = runs, orange = landings. The stairs go up from the green square."/>
+                <TextBlock DockPanel.Dock="Bottom" x:Name="warn_tb" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="#FFC0392B"/>
+                <TextBlock DockPanel.Dock="Bottom" x:Name="info_tb" Margin="0,6,0,0" TextWrapping="Wrap" FontWeight="Bold"/>
+                <Border BorderBrush="Gray" BorderThickness="1" Background="White" ClipToBounds="True">
+                    <Viewbox Stretch="Uniform" Margin="16">
+                        <Grid x:Name="canvas_grid" Width="100" Height="100">
+                            <Path x:Name="landing_path" Fill="#FFFFD6AA" Stroke="#FFB4641E" StrokeThickness="0.05"/>
+                            <Path x:Name="run_path" Fill="#FFD2DCEB" Stroke="#FF283C5A" StrokeThickness="0.05"/>
+                            <Path x:Name="tread_path" Stroke="#FF3C5A82" StrokeThickness="0.03"/>
+                            <Path x:Name="walk_path" Stroke="#FFDC285A" StrokeThickness="0.08"/>
+                            <Path x:Name="start_path" Fill="#FF148C3C"/>
+                            <Path x:Name="end_path" Fill="#FFDC285A"/>
+                        </Grid>
+                    </Viewbox>
+                </Border>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</Window>
