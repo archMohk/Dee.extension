@@ -202,8 +202,15 @@
                             <ComboBox x:Name="type_cb" Height="26" Margin="0,6,0,0" SelectionChanged="type_changed"/>
                             <TextBlock x:Name="type_info_tb" TextWrapping="Wrap" Margin="0,6,0,0" Opacity="0.8"/>
 
+                            <Grid Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Name for a copy:" VerticalAlignment="Center"
+                                           ToolTip="Used when you customise the rules below or choose a finish on the Finishes tab - the original type is never changed."/>
+                                <TextBox Grid.Column="1" x:Name="newname_tb" Height="24" VerticalContentAlignment="Center"/>
+                            </Grid>
+
                             <CheckBox x:Name="custom_chk" Margin="0,14,0,0" Checked="custom_changed" Unchecked="custom_changed"
-                                      Content="Customise - make a copy of this type with the values below"
+                                      Content="Customise the rules - make a copy of this type with the values below"
                                       ToolTip="Nothing is changed on the original type. Values you leave as they are are not touched."/>
 
                             <Border x:Name="custom_panel" BorderBrush="#F2994D" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
@@ -211,55 +218,110 @@
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="170"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
-                                    <TextBlock Text="New type name:" VerticalAlignment="Center"/>
-                                    <TextBox Grid.Column="1" x:Name="newname_tb" Height="24" VerticalContentAlignment="Center"/>
-
-                                    <TextBlock Grid.Row="1" Text="Maximum riser height (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
-                                    <TextBox Grid.Row="1" Grid.Column="1" x:Name="t_maxriser_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center" TextChanged="option_changed"/>
-                                    <TextBlock Grid.Row="2" Text="Minimum tread depth (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
-                                    <TextBox Grid.Row="2" Grid.Column="1" x:Name="t_mintread_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center" TextChanged="option_changed"/>
-                                    <TextBlock Grid.Row="3" Text="Minimum run width (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
-                                    <TextBox Grid.Row="3" Grid.Column="1" x:Name="t_minwidth_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center" TextChanged="option_changed"/>
-
-                                    <CheckBox Grid.Row="4" Grid.ColumnSpan="2" x:Name="t_open_chk" Margin="0,10,0,0" Content="Open risers (no riser boards)"
-                                              Checked="option_changed" Unchecked="option_changed"/>
-                                    <TextBlock Grid.Row="5" Text="Tread thickness (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
-                                    <TextBox Grid.Row="5" Grid.Column="1" x:Name="t_treadthk_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"/>
-                                    <TextBlock Grid.Row="6" Text="Riser thickness (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
-                                    <TextBox Grid.Row="6" Grid.Column="1" x:Name="t_riserthk_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"/>
-                                    <TextBlock Grid.Row="7" Text="Nosing length (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
-                                    <TextBox Grid.Row="7" Grid.Column="1" x:Name="t_nosing_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"/>
-                                    <TextBlock Grid.Row="8" Text="Landing thickness (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
-                                    <TextBox Grid.Row="8" Grid.Column="1" x:Name="t_landthk_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"/>
-
-                                    <TextBlock Grid.Row="9" Text="Left support:" VerticalAlignment="Center" Margin="0,10,0,0"/>
-                                    <ComboBox Grid.Row="9" Grid.Column="1" x:Name="t_left_cb" Height="24" Margin="0,10,0,0"/>
-                                    <TextBlock Grid.Row="10" Text="Right support:" VerticalAlignment="Center" Margin="0,6,0,0"/>
-                                    <ComboBox Grid.Row="10" Grid.Column="1" x:Name="t_right_cb" Height="24" Margin="0,6,0,0"/>
-                                    <TextBlock Grid.Row="11" Text="Middle support:" VerticalAlignment="Center" Margin="0,6,0,0"/>
-                                    <ComboBox Grid.Row="11" Grid.Column="1" x:Name="t_mid_cb" Height="24" Margin="0,6,0,0"/>
-                                    <TextBlock Grid.Row="12" Text="Middle supports (number):" VerticalAlignment="Center" Margin="0,6,0,0"/>
-                                    <TextBox Grid.Row="12" Grid.Column="1" x:Name="t_midn_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"/>
-                                    <TextBlock Grid.Row="13" Text="Side support offsets (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
-                                    <StackPanel Grid.Row="13" Grid.Column="1" Orientation="Horizontal" Margin="0,6,0,0">
-                                        <TextBlock Text="left" VerticalAlignment="Center"/>
-                                        <TextBox x:Name="t_leftoff_tb" Width="70" Height="24" Margin="4,0,12,0" VerticalContentAlignment="Center"/>
-                                        <TextBlock Text="right" VerticalAlignment="Center"/>
-                                        <TextBox x:Name="t_rightoff_tb" Width="70" Height="24" Margin="4,0,0,0" VerticalContentAlignment="Center"/>
-                                    </StackPanel>
+                                    <TextBlock Text="Maximum riser height (mm):" VerticalAlignment="Center"/>
+                                    <TextBox Grid.Column="1" x:Name="t_maxriser_tb" Height="24" VerticalContentAlignment="Center" TextChanged="option_changed"/>
+                                    <TextBlock Grid.Row="1" Text="Minimum tread depth (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                    <TextBox Grid.Row="1" Grid.Column="1" x:Name="t_mintread_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center" TextChanged="option_changed"/>
+                                    <TextBlock Grid.Row="2" Text="Minimum run width (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                    <TextBox Grid.Row="2" Grid.Column="1" x:Name="t_minwidth_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center" TextChanged="option_changed"/>
                                 </Grid>
+                            </Border>
+
+                            <TextBlock TextWrapping="Wrap" Opacity="0.75" Margin="0,14,0,0"
+                                       Text="Materials, finished thicknesses, nosing, open risers and the stringers are on the Finishes tab."/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- ============ 4  FINISHES ============ -->
+                <TabItem Header="4  Finishes">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8">
+                        <StackPanel>
+                            <TextBlock Text="Finish" FontWeight="Bold" FontSize="13"/>
+                            <ComboBox x:Name="preset_cb" Height="26" Margin="0,6,0,0" SelectionChanged="preset_changed"
+                                      ToolTip="A complete build-up - materials, finished thicknesses, nosing, risers and stringers. Choosing one makes a copy of the stair type; the original is never changed."/>
+                            <TextBlock x:Name="preset_info_tb" TextWrapping="Wrap" Margin="0,6,0,0" Opacity="0.85"/>
+
+                            <Border x:Name="finish_panel" BorderBrush="#F2994D" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,10,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Materials" FontWeight="Bold"/>
+                                    <Grid Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="90"/><ColumnDefinition Width="*"/><ColumnDefinition Width="28"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Text="Treads:" VerticalAlignment="Center"/>
+                                        <ComboBox Grid.Column="1" x:Name="mat_tread_cb" Height="24" SelectionChanged="mat_changed"
+                                                  ToolTip="The finish of the treads (of the whole run when the type is monolithic)."/>
+                                        <Border Grid.Column="2" x:Name="tread_sw" Width="18" Height="18" Margin="6,0,0,0" BorderBrush="Gray" BorderThickness="1"/>
+                                        <TextBlock Grid.Row="1" Text="Risers:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                        <ComboBox Grid.Row="1" Grid.Column="1" x:Name="mat_riser_cb" Height="24" Margin="0,6,0,0" SelectionChanged="mat_changed"/>
+                                        <Border Grid.Row="1" Grid.Column="2" x:Name="riser_sw" Width="18" Height="18" Margin="6,6,0,0" BorderBrush="Gray" BorderThickness="1"/>
+                                        <TextBlock Grid.Row="2" Text="Stringers:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                        <ComboBox Grid.Row="2" Grid.Column="1" x:Name="mat_str_cb" Height="24" Margin="0,6,0,0" SelectionChanged="mat_changed"
+                                                  ToolTip="Every stringer / carriage the stairs have (they are copied, so other stairs keep theirs)."/>
+                                        <Border Grid.Row="2" Grid.Column="2" x:Name="str_sw" Width="18" Height="18" Margin="6,6,0,0" BorderBrush="Gray" BorderThickness="1"/>
+                                        <TextBlock Grid.Row="3" Text="Landings:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                        <ComboBox Grid.Row="3" Grid.Column="1" x:Name="mat_land_cb" Height="24" Margin="0,6,0,0" SelectionChanged="mat_changed"
+                                                  ToolTip="Used by monolithic landings. A landing built from treads and risers follows the run."/>
+                                        <Border Grid.Row="3" Grid.Column="2" x:Name="land_sw" Width="18" Height="18" Margin="6,6,0,0" BorderBrush="Gray" BorderThickness="1"/>
+                                    </Grid>
+                                    <TextBlock TextWrapping="Wrap" Opacity="0.7" Margin="0,6,0,0"
+                                               Text="'(new material)' entries are made once in the project as 'Dee - name' (shading colour, and the look of a similar material the project already has) and reused after that. Any material of the project can be chosen instead."/>
+
+                                    <TextBlock Text="Build-up" FontWeight="Bold" Margin="0,14,0,0"/>
+                                    <Grid Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="170"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <CheckBox Grid.ColumnSpan="2" x:Name="t_open_chk" Content="Open risers (no riser boards)"
+                                                  Checked="option_changed" Unchecked="option_changed"/>
+                                        <TextBlock Grid.Row="1" Text="Tread thickness (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1" x:Name="t_treadthk_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"
+                                                 TextChanged="option_changed" ToolTip="The finished thickness of the tread, finish included."/>
+                                        <TextBlock Grid.Row="2" Text="Riser thickness (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1" x:Name="t_riserthk_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center" TextChanged="option_changed"/>
+                                        <TextBlock Grid.Row="3" Text="Nosing length (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                        <TextBox Grid.Row="3" Grid.Column="1" x:Name="t_nosing_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"
+                                                 TextChanged="option_changed" ToolTip="How far the tread overhangs the riser below it."/>
+                                        <TextBlock Grid.Row="4" Text="Landing thickness (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                        <TextBox Grid.Row="4" Grid.Column="1" x:Name="t_landthk_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"/>
+
+                                        <TextBlock Grid.Row="5" Text="Left support:" VerticalAlignment="Center" Margin="0,10,0,0"/>
+                                        <ComboBox Grid.Row="5" Grid.Column="1" x:Name="t_left_cb" Height="24" Margin="0,10,0,0" SelectionChanged="option_changed"/>
+                                        <TextBlock Grid.Row="6" Text="Right support:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                        <ComboBox Grid.Row="6" Grid.Column="1" x:Name="t_right_cb" Height="24" Margin="0,6,0,0" SelectionChanged="option_changed"/>
+                                        <TextBlock Grid.Row="7" Text="Middle support:" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                        <ComboBox Grid.Row="7" Grid.Column="1" x:Name="t_mid_cb" Height="24" Margin="0,6,0,0" SelectionChanged="option_changed"/>
+                                        <TextBlock Grid.Row="8" Text="Middle supports (number):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                        <TextBox Grid.Row="8" Grid.Column="1" x:Name="t_midn_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"/>
+                                        <TextBlock Grid.Row="9" Text="Support width (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                        <TextBox Grid.Row="9" Grid.Column="1" x:Name="t_stringw_tb" Height="24" Margin="0,6,0,0" VerticalContentAlignment="Center"
+                                                 ToolTip="Thickness of the stringers / carriage (in plan). Empty = as the support type has it."/>
+                                        <TextBlock Grid.Row="10" Text="Side support offsets (mm):" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                        <StackPanel Grid.Row="10" Grid.Column="1" Orientation="Horizontal" Margin="0,6,0,0">
+                                            <TextBlock Text="left" VerticalAlignment="Center"/>
+                                            <TextBox x:Name="t_leftoff_tb" Width="70" Height="24" Margin="4,0,12,0" VerticalContentAlignment="Center"/>
+                                            <TextBlock Text="right" VerticalAlignment="Center"/>
+                                            <TextBox x:Name="t_rightoff_tb" Width="70" Height="24" Margin="4,0,0,0" VerticalContentAlignment="Center"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
                             </Border>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
 
-                <!-- ============ 4  RAILINGS AND STOREYS ============ -->
-                <TabItem Header="4  Railings and storeys">
+                <!-- ============ 5  RAILINGS AND STOREYS ============ -->
+                <TabItem Header="5  Railings and storeys">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8">
                         <StackPanel>
                             <TextBlock Text="Railings" FontWeight="Bold" FontSize="13"/>
@@ -302,6 +364,18 @@
                            Text="Plan preview - green square = start, red dot = top, blue = runs, orange = landings. The stairs go up from the green square."/>
                 <TextBlock DockPanel.Dock="Bottom" x:Name="warn_tb" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="#FFC0392B"/>
                 <TextBlock DockPanel.Dock="Bottom" x:Name="info_tb" Margin="0,6,0,0" TextWrapping="Wrap" FontWeight="Bold"/>
+                <TextBlock DockPanel.Dock="Bottom" x:Name="sec_tb" Margin="0,4,0,0" TextWrapping="Wrap" Opacity="0.8"/>
+                <Border DockPanel.Dock="Bottom" BorderBrush="Gray" BorderThickness="1" Background="White" Height="240"
+                        Margin="0,8,0,0" ClipToBounds="True">
+                    <Viewbox Stretch="Uniform" Margin="10">
+                        <Grid x:Name="sec_grid" Width="100" Height="100">
+                            <Path x:Name="sec_floor_path" Stroke="#FF555555"/>
+                            <Path x:Name="sec_stringer_path" Stroke="#FF333333"/>
+                            <Path x:Name="sec_riser_path" Stroke="#FF333333"/>
+                            <Path x:Name="sec_tread_path" Stroke="#FF222222"/>
+                        </Grid>
+                    </Viewbox>
+                </Border>
                 <Border BorderBrush="Gray" BorderThickness="1" Background="White" ClipToBounds="True">
                     <Viewbox Stretch="Uniform" Margin="16">
                         <Grid x:Name="canvas_grid" Width="100" Height="100">

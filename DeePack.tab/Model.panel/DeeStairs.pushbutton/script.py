@@ -13,13 +13,19 @@ Options: base / top level and offsets, number of risers, tread depth, run width,
 location line (left edge / centre / right edge), begin / end with a riser,
 extension below the base, first-flight split, landing depth, gap between flights,
 winder treads, spiral radius; the stair type - or a customised COPY of it (max
-riser, min tread, min width, open risers, tread / riser / nosing / landing
-thickness, left / right / middle supports); railings (type, on treads or on the
-stringer, both / left / right); and a multistory repeat up to a higher level.
+riser, min tread, min width); FINISHES (stair_finishes.py): a preset such as cherry,
+oak with white risers, timber on folded steel, steel carriage, floating timber,
+marble, granite, concrete, glass and steel - or any mix - with a material for the
+tread, riser, stringers and landing, the finished tread / riser thickness, nosing,
+open or closed risers and the left / right / middle supports, shown in a live
+section sketch; railings (type, on treads or on the stringer, both / left / right);
+and a multistory repeat up to a higher level.
 
 How it is built
 ---------------
-One TransactionGroup (a single Undo step) holds: the type copy (if any), a
+One TransactionGroup (a single Undo step) holds: the type copy (if any - with
+its run / landing / support types copied too, and the finish materials created
+once as "Dee - <name>" and reused afterwards), a
 StairsEditScope with the runs and landings, then the multistory and railing
 steps. Each run is created at its own elevation (CreateStraightRun takes the
 elevation from the line's Z), then Run.ActualRisersNumber is read back: if Revit
@@ -39,13 +45,14 @@ clr.AddReference("PresentationFramework")
 clr.AddReference("WindowsBase")
 from System.Collections.Generic import List, HashSet
 from System.Windows import Visibility, Point
-from System.Windows.Media import Geometry, GeometryGroup, EllipseGeometry
+from System.Windows.Media import (Geometry, GeometryGroup, EllipseGeometry, SolidColorBrush,
+                                  Color as MediaColor)
 
 from Autodesk.Revit.DB import (
-    Arc, BuiltInCategory, BuiltInParameter, Curve, CurveLoop, ElementId, ElementTypeGroup,
-    FailureProcessingResult, FailureSeverity, FilteredElementCollector,
-    IFailuresPreprocessor, Level, Line, StairsEditScope, Transaction,
-    TransactionGroup, TransactionStatus, ViewType, XYZ,
+    AppearanceAssetElement, Arc, BuiltInCategory, BuiltInParameter, Color as RevitColor, Curve,
+    CurveLoop, ElementId, ElementTypeGroup, FailureProcessingResult, FailureSeverity,
+    FilteredElementCollector, IFailuresPreprocessor, Level, Line, Material, StairsEditScope,
+    Transaction, TransactionGroup, TransactionStatus, ViewType, XYZ,
 )
 from Autodesk.Revit.DB.Architecture import (
     MultistoryStairs, Railing, RailingPlacementPosition, RailingType, StairsLanding,
@@ -65,6 +72,7 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
 import stairs_layout as SL
+import stair_finishes as SF
 
 _XAML = os.path.join(_THIS_DIR, "ui.xaml")
 _TITLE = "DeeStairs"
@@ -79,8 +87,12 @@ _PLAN_VIEWS = (ViewType.FloorPlan, ViewType.CeilingPlan, ViewType.EngineeringPla
 
 _TEXTS = ["base_off_tb", "top_off_tb", "flight1_tb", "landing_tb", "gap_tb", "radius_tb",
           "sweep_tb", "tread_tb", "width_tb", "ext_tb", "angle_tb"]
+# the four material combos of the Finishes tab: role -> (combo, swatch)
+_MAT_ROLES = [("tread", "mat_tread_cb", "tread_sw"), ("riser", "mat_riser_cb", "riser_sw"),
+              ("stringer", "mat_str_cb", "str_sw"), ("landing", "mat_land_cb", "land_sw")]
 _CHECKS = ["begin_chk", "end_chk", "dir_chk", "multi_chk"]
-_COMBOS = ["shape_cb", "turn_cb", "winders_cb", "sweep_cb", "just_cb", "rail_pos_cb", "rail_side_cb"]
+_COMBOS = ["shape_cb", "turn_cb", "winders_cb", "sweep_cb", "just_cb", "rail_pos_cb", "rail_side_cb",
+           "preset_cb"]
 
 
 # --------------------------------------------------------------------------
@@ -268,11 +280,216 @@ def _unique_name(doc, cls, base):
     return u"{0} {1}".format(base, i)
 
 
+def _unique_like(doc, el, base):
+    """A name no other type of the same kind has; by the element's own class, and
+    by its id when Revit will not filter on that class."""
+    try:
+        return _unique_name(doc, el.__class__, base)
+    except Exception:
+        return u"{0} {1}".format(base, eid_int(el.Id))
+
+
+# -- materials ---------------------------------------------------------------
+# A material "reference" is None (keep the type's), ("cat", key) - a finish of the
+# catalogue, made once as "Dee - <name>" - or ("id", ElementId) - a material that
+# is already in the project.
+_P_TREAD = "STAIRS_TRISERTYPE_TREAD_MATERIAL"
+_P_RISER = "STAIRS_TRISERTYPE_RISER_MATERIAL"
+_P_RUN_MONO = "STAIRS_RUNTYPE_RUN_MATERIAL"
+_P_LANDING_MONO = "STAIRS_LANDINGTYPE_LANDING_MATERIAL"
+_P_SUPPORT = "STAIRS_SUPPORTTYPE_MATERIAL"
+_P_SUPPORT_W = "STAIRS_SUPPORTTYPE_WIDTH"
+_SUPPORT_ATTRS = ("LeftSideSupportType", "RightSideSupportType", "MiddleSupportType")
+
+
+def _param(el, name):
+    """The built-in parameter `name` of an element, or None (not in this Revit
+    version, or not on this element)."""
+    bip = getattr(BuiltInParameter, name, None)
+    if bip is None or el is None:
+        return None
+    try:
+        return el.get_Parameter(bip)
+    except Exception:
+        return None
+
+
+def _param_eid(el, name):
+    p = _param(el, name)
+    if p is None:
+        return None
+    try:
+        return p.AsElementId()
+    except Exception:
+        return None
+
+
+def _param_double(el, name):
+    p = _param(el, name)
+    if p is None:
+        return None
+    try:
+        return p.AsDouble()
+    except Exception:
+        return None
+
+
+def _set_eid(el, name, eid, notes, label):
+    p = _param(el, name)
+    if p is None or p.IsReadOnly:
+        notes.append(u"{0}: this type has no such setting.".format(label))
+        return False
+    try:
+        cur = p.AsElementId()
+        if cur is not None and eid_int(cur) == eid_int(eid):
+            return True
+        p.Set(eid)
+        return True
+    except Exception as e:
+        notes.append(u"{0}: {1}".format(label, e))
+        return False
+
+
+def _material_rgb(m):
+    try:
+        c = m.Color
+        if c is not None and c.IsValid:
+            return (int(c.Red), int(c.Green), int(c.Blue))
+    except Exception:
+        pass
+    return None
+
+
+def _project_materials(doc):
+    """[(name, id, rgb or None)] of the project's materials, by name."""
+    out = []
+    for m in FilteredElementCollector(doc).OfClass(Material):
+        out.append((_ename(m), m.Id, _material_rgb(m)))
+    out.sort(key=lambda t: t[0].lower())
+    return out
+
+
+def _find_material(doc, name):
+    for m in FilteredElementCollector(doc).OfClass(Material):
+        if _ename(m) == name:
+            return m
+    return None
+
+
+def _ref_key(ref):
+    return (ref[0], ref[1] if ref[0] == "cat" else eid_int(ref[1]))
+
+
+def _existing_material_id(doc, ref):
+    """The project's material for a reference, None when it is a catalogue
+    finish that has not been made yet."""
+    if ref[0] == "id":
+        return ref[1]
+    m = _find_material(doc, SF.material_name(SF.MATERIAL_BY_KEY[ref[1]]))
+    return m.Id if m is not None else None
+
+
+def _ref_differs(doc, ref, current):
+    """Would applying `ref` change a parameter that now holds `current`?"""
+    if ref is None or current is None:
+        return False
+    want = _existing_material_id(doc, ref)
+    return want is None or eid_int(want) != eid_int(current)
+
+
+def _borrow_appearance(doc, material, spec):
+    """Give a new material the render appearance of a similar material the
+    project already has (a copy of it, so editing one never changes the other)."""
+    try:
+        assets = {}
+        for a in FilteredElementCollector(doc).OfClass(AppearanceAssetElement):
+            assets[_ename(a)] = a
+        best = SF.best_asset_name(list(assets.keys()), spec["find"], spec.get("avoid", ()))
+        if best is None:
+            return
+        dup = assets[best].Duplicate(_unique_name(doc, AppearanceAssetElement,
+                                                  SF.material_name(spec) + u" appearance"))
+        material.AppearanceAssetId = dup.Id
+        material.UseRenderAppearanceForShading = True
+    except Exception:
+        pass
+
+
+def _make_material(doc, key, info):
+    spec = SF.MATERIAL_BY_KEY[key]
+    name = SF.material_name(spec)
+    mid = Material.Create(doc, name)
+    m = doc.GetElement(mid)
+    r, g, b = spec["rgb"]
+    for attr, value in (("Color", RevitColor(r, g, b)), ("MaterialClass", spec["cls"]),
+                        ("Transparency", int(spec.get("transparency", 0)))):
+        try:
+            setattr(m, attr, value)
+        except Exception:
+            pass
+    _borrow_appearance(doc, m, spec)
+    info.append(u"new material '{0}'".format(name))
+    return mid
+
+
+def _resolve_materials(doc, refs, info):
+    """{ref key: ElementId} for every reference, making the missing finishes."""
+    out = {}
+    for ref in refs:
+        if ref is None:
+            continue
+        k = _ref_key(ref)
+        if k in out:
+            continue
+        mid = _existing_material_id(doc, ref)
+        out[k] = mid if mid is not None else _make_material(doc, ref[1], info)
+    return out
+
+
 # -- the stair type (a copy, only when something was changed) --------------
+def _type_parts(doc, base):
+    """The elements a stair type is built from, and which material setting each
+    of them has."""
+    parts = {"run": None, "landing": None, "mono_run": False, "mono_landing": False,
+             "tread_param": _P_TREAD}
+    try:
+        parts["run"] = doc.GetElement(base.RunType)
+    except Exception:
+        pass
+    try:
+        parts["landing"] = doc.GetElement(base.LandingType)
+    except Exception:
+        pass
+    if parts["run"] is not None and _attr(parts["run"], "IsMonolithic"):
+        parts["mono_run"] = True
+        parts["tread_param"] = _P_RUN_MONO
+    if parts["landing"] is not None and _attr(parts["landing"], "IsMonolithic"):
+        parts["mono_landing"] = True
+    return parts
+
+
+def _supports_in_use(doc, base, type_changes):
+    """[(attribute, support type element)] of the supports the (changed) stair
+    type will have."""
+    out = []
+    has_mid = type_changes.get("HasMiddleSupports", _attr(base, "HasMiddleSupports"))
+    for attr in _SUPPORT_ATTRS:
+        if attr == "MiddleSupportType" and not has_mid:
+            continue
+        eid = type_changes.get(attr, _attr(base, attr))
+        el = doc.GetElement(eid) if _valid_id(eid) else None
+        if el is not None:
+            out.append((attr, el))
+    return out
+
+
 def _type_changes(doc, base, spec):
     """What differs between the dialog and the original type, grouped by the
-    element it lives on: the stairs type, its run type, its landing type."""
-    ch = {"type": {}, "run": {}, "landing": {}, "run_el": None, "landing_el": None}
+    element it lives on: the stairs type, its run type, its landing type and its
+    support types; plus the materials to apply."""
+    ch = {"type": {}, "run": {}, "landing": {}, "run_el": None, "landing_el": None,
+          "run_mats": [], "landing_mats": [], "support_edits": [], "support_attrs": [],
+          "notes": []}
     for key, attr in (("max_riser", "MaxRiserHeight"), ("min_tread", "MinTreadDepth"),
                       ("min_width", "MinRunWidth"), ("left_off", "LeftLateralOffset"),
                       ("right_off", "RightLateralOffset")):
@@ -304,10 +521,9 @@ def _type_changes(doc, base, spec):
         except Exception:
             pass
 
-    try:
-        rt = doc.GetElement(base.RunType)
-    except Exception:
-        rt = None
+    mat = spec.get("mat") or {}
+    parts = _type_parts(doc, base)
+    rt = parts["run"]
     if rt is not None:
         ch["run_el"] = rt
         try:
@@ -325,18 +541,55 @@ def _type_changes(doc, base, spec):
                     ch["run"][attr] = v
             except Exception:
                 pass
-    try:
-        lt = doc.GetElement(base.LandingType)
-    except Exception:
-        lt = None
-    if lt is not None and spec.get("land_thk") is not None:
+        roles = [("tread", parts["tread_param"])]
+        if not parts["mono_run"]:
+            roles.append(("riser", _P_RISER))
+        for role, pname in roles:
+            ref = mat.get(role)
+            if ref is not None and _ref_differs(doc, ref, _param_eid(rt, pname)):
+                ch["run_mats"].append((pname, ref))
+
+    lt = parts["landing"]
+    if lt is not None:
         ch["landing_el"] = lt
-        try:
-            if abs(lt.Thickness - spec["land_thk"]) > _EPS:
-                ch["landing"]["Thickness"] = spec["land_thk"]
-        except Exception:
-            pass
+        if spec.get("land_thk") is not None:
+            try:
+                if abs(lt.Thickness - spec["land_thk"]) > _EPS:
+                    ch["landing"]["Thickness"] = spec["land_thk"]
+            except Exception:
+                pass
+        ref = mat.get("landing")
+        if ref is not None:
+            if parts["mono_landing"]:
+                if _ref_differs(doc, ref, _param_eid(lt, _P_LANDING_MONO)):
+                    ch["landing_mats"].append((_P_LANDING_MONO, ref))
+            else:
+                ch["notes"].append(u"The landing is built from treads and risers, so it follows the run's "
+                                   u"materials - the landing material was not set separately.")
+
+    # the support types the stairs will end up with: a copy of each, changed
+    sref = mat.get("stringer")
+    want_w = spec.get("stringer_w")
+    seen = set()
+    for attr, el in _supports_in_use(doc, base, ch["type"]):
+        ch["support_attrs"].append((attr, el))
+        if eid_int(el.Id) in seen:
+            continue
+        seen.add(eid_int(el.Id))
+        edit = {"el": el, "mat": None, "w": None}
+        if sref is not None and _ref_differs(doc, sref, _param_eid(el, _P_SUPPORT)):
+            edit["mat"] = sref
+        cur_w = _param_double(el, _P_SUPPORT_W)
+        if want_w is not None and cur_w is not None and abs(cur_w - want_w) > _EPS:
+            edit["w"] = want_w
+        if edit["mat"] is not None or edit["w"] is not None:
+            ch["support_edits"].append(edit)
     return ch
+
+
+def _needs_copy(ch):
+    return bool(ch["type"] or ch["run"] or ch["landing"] or ch["run_mats"] or ch["landing_mats"]
+                or ch["support_edits"])
 
 
 def _prepare_type(doc, o, notes, info):
@@ -347,27 +600,63 @@ def _prepare_type(doc, o, notes, info):
     if not spec:
         return base.Id
     ch = _type_changes(doc, base, spec)
-    if not (ch["type"] or ch["run"] or ch["landing"]):
+    if not _needs_copy(ch):
         return base.Id                    # nothing differs: use the original
+    notes.extend(ch["notes"])
     t = Transaction(doc, u"DeeStairs - stair type")
     t.Start()
     try:
         name = _unique_name(doc, StairsType, spec.get("name") or u"{0} - DeeStairs".format(_ename(base)))
         new = base.Duplicate(name)
-        if ch["run"]:
+        refs = [r for _, r in ch["run_mats"]] + [r for _, r in ch["landing_mats"]]
+        refs += [e["mat"] for e in ch["support_edits"]]
+        mats = _resolve_materials(doc, refs, info)
+
+        if ch["run"] or ch["run_mats"]:
             rt2 = ch["run_el"].Duplicate(_unique_name(
                 doc, StairsRunType, u"{0} - DeeStairs".format(_ename(ch["run_el"]))))
             for attr, v in ch["run"].items():
                 _setp(rt2, attr, v, notes, u"Run type " + attr)
+            for pname, ref in ch["run_mats"]:
+                _set_eid(rt2, pname, mats[_ref_key(ref)], notes, u"Run material")
             new.RunType = rt2.Id
-        if ch["landing"]:
+        if ch["landing"] or ch["landing_mats"]:
             lt2 = ch["landing_el"].Duplicate(_unique_name(
                 doc, StairsLandingType, u"{0} - DeeStairs".format(_ename(ch["landing_el"]))))
             for attr, v in ch["landing"].items():
                 _setp(lt2, attr, v, notes, u"Landing type " + attr)
+            for pname, ref in ch["landing_mats"]:
+                _set_eid(lt2, pname, mats[_ref_key(ref)], notes, u"Landing material")
             new.LandingType = lt2.Id
         for attr, v in ch["type"].items():
             _setp(new, attr, v, notes, u"Stair type " + attr)
+
+        # support types: one changed copy per distinct support in use
+        copies = {}
+        for edit in ch["support_edits"]:
+            el = edit["el"]
+            dup = el.Duplicate(_unique_like(doc, el, u"{0} - {1}".format(
+                _ename(el), spec.get("finish") or u"DeeStairs")))
+            if edit["mat"] is not None:
+                _set_eid(dup, _P_SUPPORT, mats[_ref_key(edit["mat"])], notes, u"Stringer material")
+            if edit["w"] is not None:
+                p = _param(dup, _P_SUPPORT_W)
+                try:
+                    p.Set(edit["w"])
+                except Exception as e:
+                    notes.append(u"Stringer width: {0}".format(e))
+            copies[eid_int(el.Id)] = dup.Id
+        for attr, el in ch["support_attrs"]:
+            if eid_int(el.Id) in copies:
+                _setp(new, attr, copies[eid_int(el.Id)], notes, u"Stair type " + attr)
+
+        if spec.get("finish"):
+            p = _param(new, "ALL_MODEL_TYPE_COMMENTS")
+            try:
+                if p is not None and not p.IsReadOnly:
+                    p.Set(u"DeeStairs finish: {0}".format(spec["finish"]))
+            except Exception:
+                pass
         t.Commit()
     except Exception:
         _rollback(t)
@@ -779,7 +1068,11 @@ class StairsWindow(dee_branding.DeeBrandedWindow):
         self._types = _stairs_types(doc)
         self._rails = _railing_types(doc)
         self._supports = _support_types(doc)
+        self._project_mats = _project_materials(doc)
         self._multi_ids = [[]]
+        self._cur = {"rgb": {}, "styles": {}}          # what the chosen stair type has now
+        self._auto_name = u""
+        self._preset_note = u""
         self.Closed += self._on_closed
 
         try:
@@ -792,9 +1085,11 @@ class StairsWindow(dee_branding.DeeBrandedWindow):
         self._fill_types()
         self._fill_rails()
         self._fill_supports()
+        self._fill_finishes()
         self._restore()
         self._fill_multi()
         self._prefill_custom()
+        self._restore_finish()
         self._ready = True
         self._sync_panels()
         self._recompute()
@@ -836,6 +1131,32 @@ class StairsWindow(dee_branding.DeeBrandedWindow):
         items = [u"(unchanged)", u"(none)"] + [s[0] for s in self._supports]
         for cb in (self.t_left_cb, self.t_right_cb, self.t_mid_cb):
             cb.ItemsSource = items
+            cb.SelectedIndex = 0
+
+    def _fill_finishes(self):
+        """The preset list and the four material lists of the Finishes tab."""
+        self.preset_cb.ItemsSource = ([u"(none - keep the stair type as it is)",
+                                       u"Custom - choose the materials and build-up below"]
+                                      + [p["name"] for p in SF.PRESETS])
+        self.preset_cb.SelectedIndex = 0
+        labels = [u"(keep the type's material)"]
+        refs = [None]
+        rgbs = [None]
+        for m in SF.MATERIALS:
+            labels.append(u"{0}   (new material)".format(m["name"]))
+            refs.append(("cat", m["key"]))
+            rgbs.append(m["rgb"])
+        catalog_names = set(SF.material_name(m) for m in SF.MATERIALS)
+        for name, eid, rgb in self._project_mats:
+            if name in catalog_names:
+                continue
+            labels.append(name)
+            refs.append(("id", eid))
+            rgbs.append(rgb)
+        self._mat_labels, self._mat_refs, self._mat_rgbs = labels, refs, rgbs
+        for role, cb_name, _sw in _MAT_ROLES:
+            cb = getattr(self, cb_name)
+            cb.ItemsSource = labels
             cb.SelectedIndex = 0
 
     def _fill_multi(self):
@@ -880,6 +1201,7 @@ class StairsWindow(dee_branding.DeeBrandedWindow):
         def pick(cb, names, key):
             if s.get(key) in names:
                 cb.SelectedIndex = names.index(s[key])
+        self._saved_mats = dict((r, s.get("mat_" + r)) for r, _c, _w in _MAT_ROLES)
         pick(self.type_cb, [t["name"] for t in self._types], "type_name")
         pick(self.rail_cb, [u"<No railings>"] + [r[0] for r in self._rails], "rail_name")
         lnames = [l[1] for l in self._levels]
@@ -908,6 +1230,10 @@ class StairsWindow(dee_branding.DeeBrandedWindow):
         bi, ti = self.base_level_cb.SelectedIndex, self.top_level_cb.SelectedIndex
         if bi >= 0 and ti >= 0:
             s["base_level"], s["top_level"] = self._levels[bi][1], self._levels[ti][1]
+        for role, cb_name, _sw in _MAT_ROLES:
+            i = getattr(self, cb_name).SelectedIndex
+            if i >= 0:
+                s["mat_" + role] = self._mat_labels[i]
         deew_settings.save(_TITLE, s)
 
     # -- events
@@ -928,11 +1254,24 @@ class StairsWindow(dee_branding.DeeBrandedWindow):
     def type_changed(self, sender, args):
         if getattr(self, "_ready", False):
             self._prefill_custom()
+            self._pick_preset(self.preset_cb.SelectedIndex)
+            self._sync_panels()
             self._recompute()
 
     def custom_changed(self, sender, args):
         if getattr(self, "_ready", False):
             self._sync_panels()
+            self._recompute()
+
+    def preset_changed(self, sender, args):
+        if not getattr(self, "_ready", False):
+            return
+        self._pick_preset(self.preset_cb.SelectedIndex)
+        self._sync_panels()
+        self._recompute()
+
+    def mat_changed(self, sender, args):
+        if getattr(self, "_ready", False):
             self._recompute()
 
     def place_click(self, sender, args):
@@ -972,6 +1311,8 @@ class StairsWindow(dee_branding.DeeBrandedWindow):
         self.end_chk.IsEnabled = not winder
         self.angle_tb.IsEnabled = not bool(self.dir_chk.IsChecked)
         show(self.custom_panel, bool(self.custom_chk.IsChecked))
+        self.finish_panel.IsEnabled = self.preset_cb.SelectedIndex >= 1
+        self.preset_info_tb.Text = self._preset_text()
 
     # -- the stair type
     def _type_info(self, tinfo):
@@ -993,37 +1334,206 @@ class StairsWindow(dee_branding.DeeBrandedWindow):
                 bits.append(u"{0}: {1}".format(label, _ename(el)))
         return u"   |   ".join(bits)
 
-    def _prefill_custom(self):
+    def _current_type(self):
         yi = self.type_cb.SelectedIndex
-        if yi < 0:
+        return self._types[yi] if yi >= 0 else None
+
+    def _prefill_custom(self):
+        """Every field that shows the chosen type's own values."""
+        tinfo = self._current_type()
+        if tinfo is None:
             return
         was = getattr(self, "_ready", False)
         self._ready = False
         try:
-            tinfo = self._types[yi]
-            t = tinfo["el"]
             self.type_info_tb.Text = self._type_info(tinfo)
-            self.newname_tb.Text = u"{0} - DeeStairs".format(tinfo["name"])
+            auto = u"{0} - DeeStairs".format(tinfo["name"])
+            self.newname_tb.Text = auto
+            self._auto_name = auto
             self.t_maxriser_tb.Text = _fmt_mm(tinfo["max_riser"])
             self.t_mintread_tb.Text = _fmt_mm(tinfo["min_tread"])
             self.t_minwidth_tb.Text = _fmt_mm(tinfo["min_width"])
+            self._prefill_build(tinfo)
+        finally:
+            self._ready = was
+
+    def _prefill_build(self, tinfo=None):
+        """The Finishes tab's fields from the chosen type: thicknesses, risers,
+        supports, and the materials it has now (shown on the swatches)."""
+        tinfo = tinfo or self._current_type()
+        if tinfo is None:
+            return
+        was = getattr(self, "_ready", False)
+        self._ready = False
+        try:
+            t = tinfo["el"]
             self.t_leftoff_tb.Text = _fmt_mm(_attr(t, "LeftLateralOffset"))
             self.t_rightoff_tb.Text = _fmt_mm(_attr(t, "RightLateralOffset"))
             n = _attr(t, "MiddleSupportsNumber")
             self.t_midn_tb.Text = u"" if n is None else u"{0}".format(int(n))
-            rt_id = _attr(t, "RunType")
-            rt = self.doc.GetElement(rt_id) if _valid_id(rt_id) else None
+            parts = _type_parts(self.doc, t)
+            rt, lt = parts["run"], parts["landing"]
             self.t_open_chk.IsChecked = (rt is not None and _attr(rt, "HasRisers") is False)
             self.t_treadthk_tb.Text = _fmt_mm(_attr(rt, "TreadThickness")) if rt is not None else u""
             self.t_riserthk_tb.Text = _fmt_mm(_attr(rt, "RiserThickness")) if rt is not None else u""
             self.t_nosing_tb.Text = _fmt_mm(_attr(rt, "NosingLength")) if rt is not None else u""
-            lt_id = _attr(t, "LandingType")
-            lt = self.doc.GetElement(lt_id) if _valid_id(lt_id) else None
             self.t_landthk_tb.Text = _fmt_mm(_attr(lt, "Thickness")) if lt is not None else u""
             for cb in (self.t_left_cb, self.t_right_cb, self.t_mid_cb):
                 cb.SelectedIndex = 0
+            for role, cb_name, _sw in _MAT_ROLES:
+                getattr(self, cb_name).SelectedIndex = 0
+            self.preset_note_clear()
+
+            # what the type has now: material colours and support styles
+            rgb = {}
+
+            def mat_rgb(el, pname):
+                eid = _param_eid(el, pname)
+                m = self.doc.GetElement(eid) if _valid_id(eid) else None
+                return _material_rgb(m) if m is not None else None
+            if rt is not None:
+                rgb["tread"] = mat_rgb(rt, parts["tread_param"])
+                rgb["riser"] = None if parts["mono_run"] else mat_rgb(rt, _P_RISER)
+                if parts["mono_run"]:
+                    rgb["riser"] = rgb["tread"]
+            if lt is not None:
+                rgb["landing"] = (mat_rgb(lt, _P_LANDING_MONO) if parts["mono_landing"] else rgb.get("tread"))
+            styles = {}
+            widths = []
+            for key, attr in (("left", "LeftSideSupportType"), ("right", "RightSideSupportType"),
+                              ("mid", "MiddleSupportType")):
+                eid = _attr(t, attr)
+                el = self.doc.GetElement(eid) if _valid_id(eid) else None
+                if key == "mid" and not _attr(t, "HasMiddleSupports"):
+                    el = None
+                styles[key] = (SF.support_style(_ename(el)) or "closed") if el is not None else "none"
+                if el is not None:
+                    if "stringer" not in rgb:
+                        rgb["stringer"] = mat_rgb(el, _P_SUPPORT)
+                    w = _param_double(el, _P_SUPPORT_W)
+                    if w is not None:
+                        widths.append(w)
+            self.t_stringw_tb.Text = _fmt_mm(widths[0]) if widths else u""
+            self._cur = {"rgb": rgb, "styles": styles}
         finally:
             self._ready = was
+
+    def preset_note_clear(self):
+        self._preset_note = u""
+
+    # -- finishes
+    def _preset_text(self):
+        i = self.preset_cb.SelectedIndex
+        if i <= 0:
+            return (u"The stair keeps the materials and build-up of its type. Pick a finish to make a copy of "
+                    u"the type with that finish.")
+        if i == 1:
+            return (u"Choose a material for each part and set the build-up below. The materials stay as they "
+                    u"are in the type where you leave '(keep the type's material)'.")
+        text = SF.PRESETS[i - 2]["info"]
+        return text + (u"\n" + self._preset_note if self._preset_note else u"")
+
+    def _mat_index(self, key):
+        """Combo index of a catalogue material (0 = keep the type's)."""
+        if key is None:
+            return 0
+        for i, ref in enumerate(self._mat_refs):
+            if ref is not None and ref[0] == "cat" and ref[1] == key:
+                return i
+        return 0
+
+    def _support_index(self, style):
+        """Support combo index for a style word: (none) / the matching type /
+        (unchanged) when the project has no such type."""
+        if style == "none":
+            return 1, None
+        names = [x[0] for x in self._supports]
+        i = SF.match_support(names, style)
+        if i is None:
+            return 0, style
+        return i + 2, None
+
+    def _pick_preset(self, idx):
+        """A new entry in the preset combo: start again from the type's own values
+        and lay the preset over them."""
+        if idx == 1:
+            return
+        was = getattr(self, "_ready", False)
+        self._ready = False
+        try:
+            tinfo = self._current_type()
+            if tinfo is not None:
+                self._prefill_build(tinfo)
+            if idx >= 2:
+                self._apply_preset(SF.PRESETS[idx - 2])
+            elif idx <= 0 and tinfo is not None:
+                self.newname_tb.Text = self._auto_name or u"{0} - DeeStairs".format(tinfo["name"])
+        finally:
+            self._ready = was
+
+    def _apply_preset(self, p):
+        tinfo = self._current_type()
+        if tinfo is not None and (self.newname_tb.Text or u"").strip() in (u"", self._auto_name):
+            auto = u"{0} - {1}".format(tinfo["name"], p["short"])
+            self.newname_tb.Text = auto
+            self._auto_name = auto
+        for role, cb_name, _sw in _MAT_ROLES:
+            getattr(self, cb_name).SelectedIndex = self._mat_index(p.get(role))
+        self.t_treadthk_tb.Text = u"{0}".format(p["tread_thk"])
+        if p["riser_thk"] is not None:
+            self.t_riserthk_tb.Text = u"{0}".format(p["riser_thk"])
+        self.t_nosing_tb.Text = u"{0}".format(p["nosing"])
+        self.t_open_chk.IsChecked = bool(p["open"])
+        missing = []
+        for cb, style in ((self.t_left_cb, p["left"]), (self.t_right_cb, p["right"]),
+                          (self.t_mid_cb, p["mid"])):
+            i, lost = self._support_index(style)
+            cb.SelectedIndex = i
+            if lost and lost not in missing:
+                missing.append(lost)
+        if p.get("midn") and p["mid"] != "none":
+            self.t_midn_tb.Text = u"{0}".format(p["midn"])
+        if p.get("stringer_w") is not None:
+            self.t_stringw_tb.Text = u"{0}".format(p["stringer_w"])
+        self._preset_note = u""
+        if missing:
+            self._preset_note = (u"This project has no {0} stair support type, so that support is left as the "
+                                 u"type has it - pick one in the lists below if you have it.".format(
+                                     u" / ".join(missing)))
+
+    def _restore_finish(self):
+        """After the type's own values are in: the preset chosen last time, then
+        the materials chosen last time."""
+        was = getattr(self, "_ready", False)
+        self._ready = False
+        try:
+            idx = self.preset_cb.SelectedIndex
+            if idx >= 2:
+                self._apply_preset(SF.PRESETS[idx - 2])
+            for role, cb_name, _sw in _MAT_ROLES:
+                label = (self._saved_mats or {}).get(role)
+                if idx >= 1 and label in self._mat_labels:
+                    getattr(self, cb_name).SelectedIndex = self._mat_labels.index(label)
+        finally:
+            self._ready = was
+
+    def _mat_ref(self, role):
+        cb = getattr(self, dict((r, c) for r, c, _w in _MAT_ROLES)[role])
+        i = cb.SelectedIndex
+        return self._mat_refs[i] if 0 < i < len(self._mat_refs) else None
+
+    def _mat_color(self, role):
+        """(r, g, b) of what a part is made of: the chosen material, else the type's."""
+        cb = getattr(self, dict((r, c) for r, c, _w in _MAT_ROLES)[role])
+        i = cb.SelectedIndex
+        if i > 0 and self._mat_rgbs[i] is not None:
+            return self._mat_rgbs[i]
+        return self._cur["rgb"].get(role) or SF.NEUTRAL_RGB
+
+    def _paint_swatches(self):
+        for role, _cb, sw_name in _MAT_ROLES:
+            r, g, b = self._mat_color(role)
+            getattr(self, sw_name).Background = SolidColorBrush(MediaColor.FromRgb(r, g, b))
 
     def _support_choice(self, cb):
         i = cb.SelectedIndex
@@ -1033,8 +1543,25 @@ class StairsWindow(dee_branding.DeeBrandedWindow):
             return "none"
         return self._supports[i - 2][1]
 
-    def _custom_spec(self, err):
-        s = {"name": (self.newname_tb.Text or u"").strip()}
+    def _style_of(self, cb, key):
+        """'closed' / 'open' / 'carriage' / 'none' of one support combo."""
+        i = cb.SelectedIndex
+        if i == 1:
+            return "none"
+        if i >= 2:
+            return SF.support_style(self._supports[i - 2][0]) or "closed"
+        return self._cur["styles"].get(key, "none")
+
+    def _type_spec(self, err):
+        """The changes to make on a COPY of the stair type: the rules of the
+        Stair type tab (when Customise is ticked) and the finish and build-up of
+        the Finishes tab (when a finish is chosen). None = use the type as it is."""
+        custom_on = bool(self.custom_chk.IsChecked)
+        i = self.preset_cb.SelectedIndex
+        finish_on = i >= 1
+        if not (custom_on or finish_on):
+            return None
+        s = {"name": (self.newname_tb.Text or u"").strip(), "finish": None}
 
         def mm(tb, key, label):
             try:
@@ -1043,24 +1570,29 @@ class StairsWindow(dee_branding.DeeBrandedWindow):
                 err.append(u"{0}: type a number.".format(label))
                 return
             s[key] = None if v is None else v / _MM
-        mm(self.t_maxriser_tb, "max_riser", u"Maximum riser height")
-        mm(self.t_mintread_tb, "min_tread", u"Minimum tread depth")
-        mm(self.t_minwidth_tb, "min_width", u"Minimum run width")
-        mm(self.t_treadthk_tb, "tread_thk", u"Tread thickness")
-        mm(self.t_riserthk_tb, "riser_thk", u"Riser thickness")
-        mm(self.t_nosing_tb, "nosing", u"Nosing length")
-        mm(self.t_landthk_tb, "land_thk", u"Landing thickness")
-        mm(self.t_leftoff_tb, "left_off", u"Left support offset")
-        mm(self.t_rightoff_tb, "right_off", u"Right support offset")
-        s["open"] = bool(self.t_open_chk.IsChecked)
-        s["left"] = self._support_choice(self.t_left_cb)
-        s["right"] = self._support_choice(self.t_right_cb)
-        s["mid"] = self._support_choice(self.t_mid_cb)
-        try:
-            n = _pf(self.t_midn_tb.Text)
-            s["midn"] = None if n is None else int(round(n))
-        except ValueError:
-            err.append(u"Middle supports: type a whole number.")
+        if custom_on:
+            mm(self.t_maxriser_tb, "max_riser", u"Maximum riser height")
+            mm(self.t_mintread_tb, "min_tread", u"Minimum tread depth")
+            mm(self.t_minwidth_tb, "min_width", u"Minimum run width")
+        if finish_on:
+            s["finish"] = SF.PRESETS[i - 2]["short"] if i >= 2 else u"Custom finish"
+            mm(self.t_treadthk_tb, "tread_thk", u"Tread thickness")
+            mm(self.t_riserthk_tb, "riser_thk", u"Riser thickness")
+            mm(self.t_nosing_tb, "nosing", u"Nosing length")
+            mm(self.t_landthk_tb, "land_thk", u"Landing thickness")
+            mm(self.t_leftoff_tb, "left_off", u"Left support offset")
+            mm(self.t_rightoff_tb, "right_off", u"Right support offset")
+            mm(self.t_stringw_tb, "stringer_w", u"Support width")
+            s["open"] = bool(self.t_open_chk.IsChecked)
+            s["left"] = self._support_choice(self.t_left_cb)
+            s["right"] = self._support_choice(self.t_right_cb)
+            s["mid"] = self._support_choice(self.t_mid_cb)
+            try:
+                n = _pf(self.t_midn_tb.Text)
+                s["midn"] = None if n is None else int(round(n))
+            except ValueError:
+                err.append(u"Middle supports: type a whole number.")
+            s["mat"] = dict((role, self._mat_ref(role)) for role, _c, _w in _MAT_ROLES)
         return s
 
     # -- the options
@@ -1097,9 +1629,8 @@ class StairsWindow(dee_branding.DeeBrandedWindow):
         max_riser = tinfo["max_riser"] or (190.0 / _MM)
         min_tread = tinfo["min_tread"] or (250.0 / _MM)
         min_width = tinfo["min_width"] or (900.0 / _MM)
-        custom = None
-        if self.custom_chk.IsChecked:
-            custom = self._custom_spec(err)
+        custom = self._type_spec(err)
+        if custom is not None:
             max_riser = custom.get("max_riser") or max_riser
             min_tread = custom.get("min_tread") or min_tread
             min_width = custom.get("min_width") or min_width
@@ -1201,10 +1732,71 @@ class StairsWindow(dee_branding.DeeBrandedWindow):
     def _recompute(self):
         o = self._read()
         self._draw(o.get("plan"))
+        self._paint_swatches()
+        self._draw_section(o)
         self.info_tb.Text = o.get("info", u"")
         self.warn_tb.Text = u"\n".join(o["errors"] + o["warnings"])
         self.place_b.IsEnabled = not o["errors"]
         return o
+
+    # -- section sketch of the build-up
+    def _mm_field(self, tb):
+        try:
+            return _pf(tb.Text)
+        except ValueError:
+            return None
+
+    def _clear_section(self):
+        for p in (self.sec_floor_path, self.sec_stringer_path, self.sec_riser_path, self.sec_tread_path):
+            p.Data = None
+        self.sec_tb.Text = u""
+
+    def _draw_section(self, o):
+        """Three steps in side view: tread (finished thickness, nosing), riser board,
+        stringer and floor, filled with the colour of their material."""
+        plan = o.get("plan")
+        if not o.get("R") or plan is None or not plan.ok:
+            self._clear_section()
+            return
+        R, T = o["R"] * _MM, plan.tread * _MM
+        tt = self._mm_field(self.t_treadthk_tb) or 0.0
+        rt = self._mm_field(self.t_riserthk_tb) or 0.0
+        ns = self._mm_field(self.t_nosing_tb) or 0.0
+        has_riser = not bool(self.t_open_chk.IsChecked)
+        style = SF.section_stringer(self._style_of(self.t_left_cb, "left"),
+                                    self._style_of(self.t_right_cb, "right"),
+                                    self._style_of(self.t_mid_cb, "mid"))
+        try:
+            sec = SF.section(R, T, tt, rt, ns, has_riser, style, steps=3)
+        except Exception:
+            self._clear_section()
+            return
+        x0, z0, x1, z1 = sec["bbox"]
+        pad = max(x1 - x0, z1 - z0) * 0.05 + 10.0
+        x0, z0, x1, z1 = x0 - pad, z0 - pad, x1 + pad, z1 + pad
+
+        def ring(poly):
+            pts = [u"{0:.2f},{1:.2f}".format(x - x0, z1 - z) for (x, z) in poly]
+            return u"M " + u" L ".join(pts) + u" Z"
+        self.sec_grid.Width = x1 - x0
+        self.sec_grid.Height = z1 - z0
+        lw = max(x1 - x0, z1 - z0) / 420.0
+        fills = (("floor", self.sec_floor_path, (205, 205, 200)),
+                 ("stringer", self.sec_stringer_path, self._mat_color("stringer")),
+                 ("risers", self.sec_riser_path, self._mat_color("riser")),
+                 ("treads", self.sec_tread_path, self._mat_color("tread")))
+        try:
+            for key, path, rgb in fills:
+                path.StrokeThickness = lw
+                path.Fill = SolidColorBrush(MediaColor.FromRgb(rgb[0], rgb[1], rgb[2]))
+                polys = sec[key]
+                path.Data = Geometry.Parse(u" ".join(ring(q) for q in polys)) if polys else None
+        except Exception:
+            self._clear_section()
+            return
+        self.sec_tb.Text = (u"Section sketch (3 steps) - riser {0:.0f} mm, going {1:.0f} mm  |  tread {2:.0f}, "
+                            u"riser board {3}, nosing {4:.0f} mm  |  stringer: {5}".format(
+                                R, T, tt, u"none (open)" if not has_riser else u"{0:.0f}".format(rt), ns, style))
 
     # -- preview
     def _clear_preview(self):
