@@ -123,6 +123,11 @@ _DRAG_THRESHOLD = 4.0
 _ENGINE_NATIVE = u"Native (Revit's own PDF export) - recommended"
 _ENGINE_PRINTER = u"An installed printer on this PC (Windows Print)"
 
+# First entry of the DWG Export Setup picker: no explicit pick, follow the
+# setup Revit has active in this project (what DeePrinter always did before
+# the picker existed). Stored as-is in dlgval.json under "dwgsetup".
+_DWG_SETUP_ACTIVE = u"(Project's active setup)"
+
 _SEPARATOR_TOKENS = [
     ("_ (underscore)", "_"),
     ("- (dash)", "-"),
@@ -411,8 +416,24 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
         self.dicprj = {}
         self.dicdlg = {}
         self._load_pdf_engine_ui()
+        self._load_dwg_setup_ui()
         self._load_settings()
         self._load_sheet_sets()
+
+    def _load_dwg_setup_ui(self):
+        """Fills the DWG Export Setup picker with every export setup saved
+        in this project, after the "project's active setup" default."""
+        names = _list_dwg_setup_names(self.doc)
+        self.dwgsetup_cb.Items.Clear()
+        self.dwgsetup_cb.Items.Add(_DWG_SETUP_ACTIVE)
+        for n in names:
+            self.dwgsetup_cb.Items.Add(n)
+        self.dwgsetup_cb.SelectedItem = _DWG_SETUP_ACTIVE
+        self.dwgsetup_status_tb.Text = (
+            u"" if names else
+            u"This project has no saved DWG export setups - create one in "
+            u"Manage > Additional Settings > Export Setups DWG/DXF. "
+            u"Without one, DWG export is skipped.")
 
     def _load_pdf_engine_ui(self):
         self.pdfengine_cb.Items.Clear()
@@ -560,7 +581,15 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
             self.printer_cb.SelectedItem = saved_printer
         self._sync_printer_row_visibility()
 
-        saved_hierarchy = self.dicprj.get("folder_hierarchy", [])
+        # dlgval.json is shared across projects, so a saved setup name may
+        # not exist in this model - fall back to the active-setup default.
+        saved_setup = self.dicdlg.get("dwgsetup", _DWG_SETUP_ACTIVE)
+        if saved_setup in list(self.dwgsetup_cb.Items):
+            self.dwgsetup_cb.SelectedItem = saved_setup
+        else:
+            self.dwgsetup_cb.SelectedItem = _DWG_SETUP_ACTIVE
+
+        saved_hierarchy =self.dicprj.get("folder_hierarchy", [])
         saved_names = set()
         for h in saved_hierarchy:
             nm = h.get("name")
@@ -591,6 +620,7 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
         self.dicdlg["messageboxes"] = bool(self.chbox_messageboxes.IsChecked)
         self.dicdlg["pdfengine"] = self.pdfengine_cb.SelectedItem or _ENGINE_NATIVE
         self.dicdlg["printername"] = self.printer_cb.SelectedItem or ""
+        self.dicdlg["dwgsetup"] = self.dwgsetup_cb.SelectedItem or _DWG_SETUP_ACTIVE
 
     # -- list filter/check helpers (ported) ----------------------------------
     def _update_sheet_count(self):
@@ -1107,7 +1137,47 @@ def _force_merged_views(options):
     return options
 
 
-def _get_dwg_options(doc):
+def _list_dwg_setup_names(doc):
+    """Names of every DWG/DXF export setup saved in this project (Manage >
+    Additional Settings > Export Setups DWG/DXF), sorted for the picker."""
+    names = []
+    try:
+        for s in FilteredElementCollector(doc).OfClass(ExportDWGSettings):
+            try:
+                if s.Name:
+                    names.append(s.Name)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return sorted(set(names), key=lambda n: n.lower())
+
+
+def _find_dwg_setup(doc, name):
+    """The saved export setup called `name`, or None when `name` is empty,
+    the "project's active setup" choice, or no longer exists."""
+    if not name or name == _DWG_SETUP_ACTIVE:
+        return None
+    try:
+        for s in FilteredElementCollector(doc).OfClass(ExportDWGSettings):
+            try:
+                if s.Name == name:
+                    return s
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return None
+
+
+def _get_dwg_options(doc, setup_name=None):
+    """DWGExportOptions for the export setup picked in the window. With no
+    pick (or "project's active setup") it follows the setup Revit itself
+    has active, as before; a picked name that is missing from this model
+    falls back to that too - the caller can tell via _find_dwg_setup."""
+    chosen = _find_dwg_setup(doc, setup_name)
+    if chosen is not None:
+        return _force_merged_views(chosen.GetDWGExportOptions())
     first_setting = FilteredElementCollector(doc).OfClass(ExportDWGSettings).FirstElement()
     if not first_setting:
         return None
@@ -1494,9 +1564,14 @@ def scheduled_run(ctx, task):
     dicprj, dicdlg = payload["dicprj"], payload["dicdlg"]
     dwg_options = None
     if dicdlg.get("dwgexport"):
-        dwg_options = _get_dwg_options(doc)
+        setup_name = dicdlg.get("dwgsetup")
+        dwg_options = _get_dwg_options(doc, setup_name)
         if dwg_options is None:
             ctx.add(False, "DWG", "no DWG Export Setting in this project")
+        elif (setup_name and setup_name != _DWG_SETUP_ACTIVE
+              and _find_dwg_setup(doc, setup_name) is None):
+            ctx.add(None, "DWG", "export setup '{0}' is not in this model - "
+                    "used the project's active setup instead".format(setup_name))
     hierarchy = [HierarchyLevelItem(h.get("name"), h.get("enabled", True))
                  for h in dicprj.get("folder_hierarchy") or []]
     results = []
@@ -1569,7 +1644,7 @@ def main():
 
     dwg_options = None
     if do_dwg:
-        dwg_options = _get_dwg_options(doc)
+        dwg_options = _get_dwg_options(doc, dicdlg.get("dwgsetup"))
         if dwg_options is None:
             forms.alert(
                 "No DWG Export Setting found in this project - DWG "

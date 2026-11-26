@@ -317,6 +317,16 @@
                         </StackPanel>
                     </GroupBox>
 
+                    <GroupBox Margin="0,10,0,0" Header="DWG Export Setup">
+                        <StackPanel Margin="5">
+                            <TextBlock Text="Export setup:" Margin="0,0,0,4"/>
+                            <ComboBox x:Name="dwgsetup_cb" Height="24"
+                                      ToolTip="Which of this project's saved DWG export setups (Manage &gt; Additional Settings &gt; Export Setups DWG/DXF) drives Export DWG - layers, line scale, units, colors, text, etc. '(Project's active setup)' follows whichever setup Revit currently has active. Only used when Export DWG is ticked. Views on sheets are always exported merged into one file per sheet, whatever the setup says."/>
+                            <TextBlock x:Name="dwgsetup_status_tb" TextWrapping="Wrap" FontSize="11"
+                                       Foreground="#B26A00" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </GroupBox>
+
                     <GroupBox Margin="0,10,0,0" Header="PDF Engine">
                         <StackPanel Margin="5">
                             <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#555" Margin="0,0,0,6"
