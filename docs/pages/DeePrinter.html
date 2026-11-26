@@ -28,6 +28,7 @@
       <li>Optionally build a folder hierarchy from sheet parameters the same way, and Preview Path.</li>
       <li>Pick an Output Folder.</li>
       <li>Check Export PDF/DWG/DXF as needed. For DWG and DXF, pick which of the project's saved export setups to use in the DWG / DXF Export Setup box (the default follows the project's active setup). DWG is always exported merged into one file per sheet; DXF follows the setup's own "Export views on sheets and links as external references" checkbox, so untick it in the setup if DXF comes out as separate xref files.</li>
+      <li>Optional: tick "Keep each sheet's images with its DWG/DXF in its own folder". A DWG cannot hold images, so Revit writes logos and pictures as loose files next to it; with this on, a sheet that has images is exported into its own folder (<code>name\name.dwg</code> plus its images) and the image links keep working. Sheets without images export as before.</li>
       <li>Run Export Selected.</li>
     </ol>
   </div>

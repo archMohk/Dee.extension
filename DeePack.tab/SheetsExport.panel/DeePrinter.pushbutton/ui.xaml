@@ -322,6 +322,11 @@
                             <TextBlock Text="Export setup:" Margin="0,0,0,4"/>
                             <ComboBox x:Name="dwgsetup_cb" Height="24"
                                       ToolTip="Which of this project's saved export setups (Manage &gt; Additional Settings &gt; Export Setups DWG/DXF) drives Export DWG and Export DXF - layers, line scale, units, colors, text, etc. '(Project's active setup)' follows whichever setup Revit currently has active. DWG is always exported merged into one file per sheet, whatever the setup says. DXF cannot be forced the same way (the Revit API has no such option for DXF), so it follows the setup's own 'Export views on sheets and links as external references' checkbox - untick it in the setup if DXF comes out as separate xref files."/>
+                            <CheckBox x:Name="chbox_dwgpackage" Margin="0,10,0,0" IsChecked="False"
+                                      ToolTip="A DWG/DXF cannot contain images: Revit writes each image in the exported views (title block logos, pasted pictures) as a separate file next to the DWG, and the DWG only links to it. With this on, a sheet that has images is exported into its own folder (&lt;sheet name&gt;\&lt;sheet name&gt;.dwg plus its images), so the output folder is not filled with loose image files and the links keep working. Sheets with no images export exactly as before.">
+                                <TextBlock Text="Keep each sheet's images with its DWG/DXF in its own folder"
+                                           TextWrapping="Wrap" MaxWidth="260"/>
+                            </CheckBox>
                             <TextBlock x:Name="dwgsetup_status_tb" TextWrapping="Wrap" FontSize="11"
                                        Foreground="#B26A00" Margin="0,6,0,0"/>
                         </StackPanel>

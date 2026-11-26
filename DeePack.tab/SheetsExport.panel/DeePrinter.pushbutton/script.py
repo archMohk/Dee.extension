@@ -73,6 +73,7 @@ import datetime
 from pyrevit import forms, script, framework
 import dee_branding
 import acc_upload
+import dee_export_package
 import acc_file_browser as afb
 import dee_rename_pipeline_dialog as rp_dialog
 from dee_rename_pipeline import apply_methods, DEFAULT_METHODS
@@ -569,6 +570,7 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
         self.chbox_dwgexport.IsChecked = self.dicdlg.get("dwgexport", False)
         self.chbox_dxfexport.IsChecked = self.dicdlg.get("dxfexport", False)
         self.chbox_splitbyext.IsChecked = self.dicdlg.get("splitbyext", False)
+        self.chbox_dwgpackage.IsChecked = self.dicdlg.get("dwgpackage", False)
         self.chbox_output.IsChecked = self.dicdlg.get("output", True)
         self.chbox_messageboxes.IsChecked = self.dicdlg.get("messageboxes", False)
 
@@ -617,6 +619,7 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
         self.dicdlg["dwgexport"] = bool(self.chbox_dwgexport.IsChecked)
         self.dicdlg["dxfexport"] = bool(self.chbox_dxfexport.IsChecked)
         self.dicdlg["splitbyext"] = bool(self.chbox_splitbyext.IsChecked)
+        self.dicdlg["dwgpackage"] = bool(self.chbox_dwgpackage.IsChecked)
         self.dicdlg["output"] = bool(self.chbox_output.IsChecked)
         self.dicdlg["messageboxes"] = bool(self.chbox_messageboxes.IsChecked)
         self.dicdlg["pdfengine"] = self.pdfengine_cb.SelectedItem or _ENGINE_NATIVE
@@ -1190,11 +1193,16 @@ def _get_dwg_options(doc, setup_name=None):
     return _force_merged_views(options)
 
 
-def _export_dwg(doc, sheet, filename, folder, dwg_options):
+def _export_dwg(doc, sheet, filename, folder, dwg_options, package=False):
+    """Returns (images, note) from dee_export_package: with `package` on, a
+    sheet that has images is kept together with them in its own folder."""
     ids = List[ElementId]()
     ids.Add(sheet.Id)
-    if not doc.Export(folder, filename, ids, dwg_options):
-        raise Exception("Document.Export (DWG) returned False")
+
+    def _do(target):
+        if not doc.Export(target, filename, ids, dwg_options):
+            raise Exception("Document.Export (DWG) returned False")
+    return dee_export_package.export_with_images(_do, folder, filename, package)
 
 
 def _get_dxf_options(doc, setup_name=None):
@@ -1231,11 +1239,15 @@ def _get_dxf_options(doc, setup_name=None):
     return _force_merged_views(DXFExportOptions())
 
 
-def _export_dxf(doc, sheet, filename, folder, dxf_options):
+def _export_dxf(doc, sheet, filename, folder, dxf_options, package=False):
+    """Same as _export_dwg, for DXF."""
     ids = List[ElementId]()
     ids.Add(sheet.Id)
-    if not doc.Export(folder, filename, ids, dxf_options):
-        raise Exception("Document.Export (DXF) returned False")
+
+    def _do(target):
+        if not doc.Export(target, filename, ids, dxf_options):
+            raise Exception("Document.Export (DXF) returned False")
+    return dee_export_package.export_with_images(_do, folder, filename, package)
 
 
 def _export_pdf(doc, sheet, filename, folder):
@@ -1404,6 +1416,16 @@ def _retry_uploads(uploader, all_results):
                                           for d, o in steps])
 
 
+def _exported_detail(fmt, filename, images):
+    """Result line for one exported CAD file; names the images that were
+    kept with it when the sheet was packaged."""
+    ext = fmt.lower()
+    if images:
+        return u"{0} exported as '{1}.{2}', packaged with {3} image file(s) in its own folder '{1}'".format(
+            fmt, filename, ext, len(images))
+    return u"{0} exported as '{1}.{2}'".format(fmt, filename, ext)
+
+
 def _run_export(doc, title, sheets_to_export, dicprj, dicdlg, hierarchy_items,
                 base_folder, dwg_options, pb, all_results, note=None):
     """The export itself - the same code behind the EXPORT button and a
@@ -1414,6 +1436,7 @@ def _run_export(doc, title, sheets_to_export, dicprj, dicdlg, hierarchy_items,
     do_dwg = bool(dicdlg.get("dwgexport")) and dwg_options is not None
     do_dxf = bool(dicdlg.get("dxfexport"))
     split_by_ext = bool(dicdlg.get("splitbyext"))
+    package_images = bool(dicdlg.get("dwgpackage"))
     pdf_engine = dicdlg.get("pdfengine", _ENGINE_NATIVE)
     printer_name = dicdlg.get("printername", "")
     raw_paranames = dicprj.get("paranames", DEFAULT_PARANAMES)
@@ -1527,8 +1550,11 @@ def _run_export(doc, title, sheets_to_export, dicprj, dicdlg, hierarchy_items,
             dwg_folder = _target_folder("DWG")
             if dwg_folder:
                 try:
-                    _export_dwg(doc, sheet, filename, dwg_folder, dwg_options)
-                    steps.append(("DWG exported as '{0}.dwg'".format(filename), True))
+                    images, pkg_note = _export_dwg(
+                        doc, sheet, filename, dwg_folder, dwg_options, package_images)
+                    steps.append((_exported_detail("DWG", filename, images), True))
+                    if pkg_note:
+                        steps.append((pkg_note, None))
                 except Exception as e:
                     steps.append(("DWG FAILED: {0}".format(e), False))
 
@@ -1536,8 +1562,11 @@ def _run_export(doc, title, sheets_to_export, dicprj, dicdlg, hierarchy_items,
             dxf_folder = _target_folder("DXF")
             if dxf_folder:
                 try:
-                    _export_dxf(doc, sheet, filename, dxf_folder, dxf_options)
-                    steps.append(("DXF exported as '{0}.dxf'".format(filename), True))
+                    images, pkg_note = _export_dxf(
+                        doc, sheet, filename, dxf_folder, dxf_options, package_images)
+                    steps.append((_exported_detail("DXF", filename, images), True))
+                    if pkg_note:
+                        steps.append((pkg_note, None))
                 except Exception as e:
                     steps.append(("DXF FAILED: {0}".format(e), False))
 
