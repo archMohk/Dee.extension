@@ -317,11 +317,11 @@
                         </StackPanel>
                     </GroupBox>
 
-                    <GroupBox Margin="0,10,0,0" Header="DWG Export Setup">
+                    <GroupBox Margin="0,10,0,0" Header="DWG / DXF Export Setup">
                         <StackPanel Margin="5">
                             <TextBlock Text="Export setup:" Margin="0,0,0,4"/>
                             <ComboBox x:Name="dwgsetup_cb" Height="24"
-                                      ToolTip="Which of this project's saved DWG export setups (Manage &gt; Additional Settings &gt; Export Setups DWG/DXF) drives Export DWG - layers, line scale, units, colors, text, etc. '(Project's active setup)' follows whichever setup Revit currently has active. Only used when Export DWG is ticked. Views on sheets are always exported merged into one file per sheet, whatever the setup says."/>
+                                      ToolTip="Which of this project's saved export setups (Manage &gt; Additional Settings &gt; Export Setups DWG/DXF) drives Export DWG and Export DXF - layers, line scale, units, colors, text, etc. '(Project's active setup)' follows whichever setup Revit currently has active. DWG is always exported merged into one file per sheet, whatever the setup says. DXF cannot be forced the same way (the Revit API has no such option for DXF), so it follows the setup's own 'Export views on sheets and links as external references' checkbox - untick it in the setup if DXF comes out as separate xref files."/>
                             <TextBlock x:Name="dwgsetup_status_tb" TextWrapping="Wrap" FontSize="11"
                                        Foreground="#B26A00" Margin="0,6,0,0"/>
                         </StackPanel>

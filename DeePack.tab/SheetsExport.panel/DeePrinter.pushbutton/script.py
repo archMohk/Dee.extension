@@ -431,9 +431,10 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
         self.dwgsetup_cb.SelectedItem = _DWG_SETUP_ACTIVE
         self.dwgsetup_status_tb.Text = (
             u"" if names else
-            u"This project has no saved DWG export setups - create one in "
+            u"This project has no saved DWG/DXF export setups - create one in "
             u"Manage > Additional Settings > Export Setups DWG/DXF. "
-            u"Without one, DWG export is skipped.")
+            u"Without one, DWG export is skipped and DXF uses Revit's "
+            u"default options.")
 
     def _load_pdf_engine_ui(self):
         self.pdfengine_cb.Items.Clear()
@@ -1196,13 +1197,26 @@ def _export_dwg(doc, sheet, filename, folder, dwg_options):
         raise Exception("Document.Export (DWG) returned False")
 
 
-def _get_dxf_options(doc):
+def _get_dxf_options(doc, setup_name=None):
     """Revit's UI groups DWG and DXF setups together under one dialog
-    (Manage > Additional Settings > Export Setups DWG/DXF), so the same
-    ExportDWGSettings element is expected to expose GetDXFExportOptions()
-    alongside GetDWGExportOptions() - unverified against a live project,
-    first run will confirm. Falls back to a bare DXFExportOptions() if
-    that method isn't there."""
+    (Manage > Additional Settings > Export Setups DWG/DXF), and the same
+    ExportDWGSettings element exposes GetDXFExportOptions() alongside
+    GetDWGExportOptions() (checked against RevitAPI 2021/2024/2026). So DXF
+    follows the same export setup picked for DWG: `setup_name` is that
+    pick, and "project's active setup" / a name missing from this model
+    falls back to the active setup. Falls back to a bare DXFExportOptions()
+    only if the project has no export setups at all.
+
+    DXFExportOptions has no MergedViews property (DWGExportOptions does),
+    so _force_merged_views cannot apply here: whether DXF sheets come out
+    as one file or as xref'd per-view fragments is the setup's own
+    "Export views on sheets and links as external references" checkbox."""
+    chosen = _find_dwg_setup(doc, setup_name)
+    if chosen is not None:
+        try:
+            return _force_merged_views(chosen.GetDXFExportOptions())
+        except Exception:
+            pass
     first_setting = FilteredElementCollector(doc).OfClass(ExportDWGSettings).FirstElement()
     if first_setting is not None:
         try:
@@ -1415,7 +1429,7 @@ def _run_export(doc, title, sheets_to_export, dicprj, dicdlg, hierarchy_items,
     # _get_dxf_options always returns a usable DXFExportOptions - falling
     # back to bare defaults if this project has no explicit DXF export
     # setup, rather than blocking the export entirely.
-    dxf_options = _get_dxf_options(doc) if do_dxf else None
+    dxf_options = _get_dxf_options(doc, dicdlg.get("dwgsetup")) if do_dxf else None
 
     total = len(sheets_to_export)
 
@@ -1563,15 +1577,16 @@ def scheduled_run(ctx, task):
         return
     dicprj, dicdlg = payload["dicprj"], payload["dicdlg"]
     dwg_options = None
+    setup_name = dicdlg.get("dwgsetup")
+    if ((dicdlg.get("dwgexport") or dicdlg.get("dxfexport"))
+            and setup_name and setup_name != _DWG_SETUP_ACTIVE
+            and _find_dwg_setup(doc, setup_name) is None):
+        ctx.add(None, "DWG/DXF", "export setup '{0}' is not in this model - "
+                "used the project's active setup instead".format(setup_name))
     if dicdlg.get("dwgexport"):
-        setup_name = dicdlg.get("dwgsetup")
         dwg_options = _get_dwg_options(doc, setup_name)
         if dwg_options is None:
             ctx.add(False, "DWG", "no DWG Export Setting in this project")
-        elif (setup_name and setup_name != _DWG_SETUP_ACTIVE
-              and _find_dwg_setup(doc, setup_name) is None):
-            ctx.add(None, "DWG", "export setup '{0}' is not in this model - "
-                    "used the project's active setup instead".format(setup_name))
     hierarchy = [HierarchyLevelItem(h.get("name"), h.get("enabled", True))
                  for h in dicprj.get("folder_hierarchy") or []]
     results = []
