@@ -74,6 +74,7 @@ from pyrevit import forms, script, framework
 import dee_branding
 import acc_upload
 import dee_export_package
+import dee_super_dwg
 import acc_file_browser as afb
 import dee_rename_pipeline_dialog as rp_dialog
 from dee_rename_pipeline import apply_methods, DEFAULT_METHODS
@@ -568,6 +569,16 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
         self.chbox_pdfexport.IsChecked = self.dicdlg.get("pdfexport", True)
         self.chbox_combinedpdf.IsChecked = self.dicdlg.get("combinedpdf", False)
         self.chbox_dwgexport.IsChecked = self.dicdlg.get("dwgexport", False)
+        # Super DWG drives AutoCAD, so without it the box is greyed out
+        # (and says why) instead of silently doing nothing.
+        if dee_super_dwg.find_autocad():
+            self.chbox_superdwg.IsChecked = self.dicdlg.get("superdwg", False)
+        else:
+            self.chbox_superdwg.IsChecked = False
+            self.chbox_superdwg.IsEnabled = False
+            self.chbox_superdwg.ToolTip = (
+                u"Super DWG needs full AutoCAD (not AutoCAD LT) installed on "
+                u"this PC to embed the images into the drawing - none was found.")
         self.chbox_dxfexport.IsChecked = self.dicdlg.get("dxfexport", False)
         self.chbox_splitbyext.IsChecked = self.dicdlg.get("splitbyext", False)
         self.chbox_dwgpackage.IsChecked = self.dicdlg.get("dwgpackage", False)
@@ -617,6 +628,7 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
         self.dicdlg["pdfexport"] = bool(self.chbox_pdfexport.IsChecked)
         self.dicdlg["combinedpdf"] = bool(self.chbox_combinedpdf.IsChecked)
         self.dicdlg["dwgexport"] = bool(self.chbox_dwgexport.IsChecked)
+        self.dicdlg["superdwg"] = bool(self.chbox_superdwg.IsChecked)
         self.dicdlg["dxfexport"] = bool(self.chbox_dxfexport.IsChecked)
         self.dicdlg["splitbyext"] = bool(self.chbox_splitbyext.IsChecked)
         self.dicdlg["dwgpackage"] = bool(self.chbox_dwgpackage.IsChecked)
@@ -1079,7 +1091,7 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
             forms.alert("Check the sheets to export first.")
             return False
         if not _format_names(self.dicdlg):
-            forms.alert("Nothing to export - check Export PDF, Combined PDF, DWG, and/or DXF.")
+            forms.alert("Nothing to export - check Export PDF, Combined PDF, DWG, Super DWG, and/or DXF.")
             return False
         return True
 
@@ -1091,7 +1103,7 @@ class DeePrinterWindow(dee_branding.DeeBrandedWindow):
             return
         formats = _format_names(self.dicdlg)
         if not formats:
-            forms.alert("Nothing to export - check Export PDF, Combined PDF, DWG, and/or DXF.")
+            forms.alert("Nothing to export - check Export PDF, Combined PDF, DWG, Super DWG, and/or DXF.")
             return
         uses_printer = (self.dicdlg.get("pdfengine") == _ENGINE_PRINTER
                         and ("PDF" in formats or "Combined PDF" in formats))
@@ -1349,7 +1361,8 @@ from dee_ui import SafeProgress as _SafeProgress
 def _format_names(dicdlg):
     return [label for key, label in (
         ("pdfexport", "PDF"), ("combinedpdf", "Combined PDF"),
-        ("dwgexport", "DWG"), ("dxfexport", "DXF")) if dicdlg.get(key)]
+        ("dwgexport", "DWG"), ("superdwg", "Super DWG"),
+        ("dxfexport", "DXF")) if dicdlg.get(key)]
 
 
 def _snapshot_files(folder):
@@ -1426,14 +1439,69 @@ def _exported_detail(fmt, filename, images):
     return u"{0} exported as '{1}.{2}'".format(fmt, filename, ext)
 
 
+def _replace_file(src, dst):
+    if os.path.exists(dst):
+        os.remove(dst)
+    shutil.move(src, dst)
+
+
+def _unique_dir(folder, name):
+    path = os.path.join(folder, name)
+    n = 2
+    while os.path.exists(path):
+        path = os.path.join(folder, u"{0} ({1})".format(name, n))
+        n += 1
+    return path
+
+
+def _finish_super(entry, res):
+    """Settles one Super DWG once AutoCAD has been through it. Fully
+    embedded: the single file goes to its final place and the staging
+    folder (the plain DWG and Revit's loose image files) is deleted.
+    Anything less - AutoCAD failed, or an image could not be embedded -
+    keeps the plain DWG together with its images in a folder named after
+    the sheet, so the export is never lost and its image links still work."""
+    steps, stage, out = entry["steps"], entry["stage"], entry["out"]
+    if res.get("ok") and not res.get("left_linked") and os.path.isfile(out):
+        try:
+            _replace_file(out, entry["final"])
+            shutil.rmtree(stage, ignore_errors=True)
+            detail = u"Super DWG exported as '{0}.dwg' - {1} image(s) embedded".format(
+                entry["name"], res.get("embedded", 0))
+            if res.get("xrefs_bound"):
+                detail += u", {0} xref(s) bound".format(res["xrefs_bound"])
+            steps.append((detail, True))
+            return
+        except Exception as e:
+            res = {"message": u"could not save the final file: {0}".format(e)}
+    why = res.get("message") or u"unknown reason"
+    try:
+        if os.path.isfile(out):
+            os.remove(out)
+        keep = _unique_dir(entry["folder"], entry["name"])
+        os.rename(stage, keep)
+        steps.append((u"Super DWG FAILED: {0}. The normal DWG and its images were "
+                      u"kept together in folder '{1}'".format(why, os.path.basename(keep)), False))
+    except Exception as e:
+        steps.append((u"Super DWG FAILED: {0} (files left in '{1}': {2})".format(
+            why, stage, e), False))
+
+
 def _run_export(doc, title, sheets_to_export, dicprj, dicdlg, hierarchy_items,
                 base_folder, dwg_options, pb, all_results, note=None):
     """The export itself - the same code behind the EXPORT button and a
     scheduled run. Appends (label, [(detail, ok), ...]) to all_results.
-    dwg_options None skips DWG; `title` names the combined PDF."""
+    dwg_options None skips DWG and Super DWG; `title` names the combined
+    PDF."""
     do_pdf = bool(dicdlg.get("pdfexport"))
     combined_pdf = bool(dicdlg.get("combinedpdf"))
     do_dwg = bool(dicdlg.get("dwgexport")) and dwg_options is not None
+    do_super = bool(dicdlg.get("superdwg")) and dwg_options is not None
+    super_jobs = []
+    if do_super and not dee_super_dwg.find_autocad():
+        all_results.append(("Super DWG", [(
+            u"Skipped: full AutoCAD (not AutoCAD LT) is not installed on this PC", False)]))
+        do_super = False
     do_dxf = bool(dicdlg.get("dxfexport"))
     split_by_ext = bool(dicdlg.get("splitbyext"))
     package_images = bool(dicdlg.get("dwgpackage"))
@@ -1488,7 +1556,7 @@ def _run_export(doc, title, sheets_to_export, dicprj, dicdlg, hierarchy_items,
         except Exception as e:
             steps.append(("Combined PDF FAILED: {0}".format(e), False))
 
-    if not (per_sheet_pdf or do_dwg or do_dxf):
+    if not (per_sheet_pdf or do_dwg or do_super or do_dxf):
         sheets_to_export = []
 
     for i, sheet in enumerate(sheets_to_export):
@@ -1558,6 +1626,38 @@ def _run_export(doc, title, sheets_to_export, dicprj, dicdlg, hierarchy_items,
                 except Exception as e:
                     steps.append(("DWG FAILED: {0}".format(e), False))
 
+        if do_super:
+            # Exported into a throwaway folder first: Revit drops the
+            # sheet's image files beside the DWG, and AutoCAD needs both
+            # together to embed them. A sheet with no images is done here;
+            # the rest go to AutoCAD in one batch after the loop.
+            super_folder = _target_folder("Super DWG")
+            if super_folder:
+                stage = None
+                try:
+                    super_name = filename + (u"_Super" if (do_dwg and not split_by_ext) else u"")
+                    stage = tempfile.mkdtemp(prefix="_super_", dir=super_folder)
+                    _export_dwg(doc, sheet, filename, stage, dwg_options, False)
+                    staged = os.path.join(stage, filename + ".dwg")
+                    if not os.path.isfile(staged):
+                        raise Exception("the export produced no DWG file")
+                    final = os.path.join(super_folder, super_name + ".dwg")
+                    if any(dee_export_package.is_image(n) for n in os.listdir(stage)):
+                        out = os.path.join(stage, filename + ".super.dwg")
+                        super_jobs.append({
+                            "steps": steps, "stage": stage, "folder": super_folder,
+                            "name": super_name, "final": final, "out": out,
+                            "job": {"dwg": staged, "out": out}})
+                    else:
+                        _replace_file(staged, final)
+                        shutil.rmtree(stage, ignore_errors=True)
+                        steps.append((u"Super DWG exported as '{0}.dwg' (no images to embed)".format(
+                            super_name), True))
+                except Exception as e:
+                    steps.append((u"Super DWG FAILED: {0}".format(e), False))
+                    if stage:
+                        shutil.rmtree(stage, ignore_errors=True)
+
         if do_dxf:
             dxf_folder = _target_folder("DXF")
             if dxf_folder:
@@ -1569,6 +1669,16 @@ def _run_export(doc, title, sheets_to_export, dicprj, dicdlg, hierarchy_items,
                         steps.append((pkg_note, None))
                 except Exception as e:
                     steps.append(("DXF FAILED: {0}".format(e), False))
+
+    if super_jobs:
+        pb.title = "Super DWG: embedding images with AutoCAD ({0} drawing(s))...".format(
+            len(super_jobs))
+        if note is not None:
+            note("**Super DWG: embedding images with AutoCAD ({0} drawing(s))...**".format(
+                len(super_jobs)))
+        results = dee_super_dwg.run_batch([e["job"] for e in super_jobs])
+        for entry, res in zip(super_jobs, results):
+            _finish_super(entry, res)
 
 
 class _ScheduledProgress(object):
@@ -1607,12 +1717,12 @@ def scheduled_run(ctx, task):
     dicprj, dicdlg = payload["dicprj"], payload["dicdlg"]
     dwg_options = None
     setup_name = dicdlg.get("dwgsetup")
-    if ((dicdlg.get("dwgexport") or dicdlg.get("dxfexport"))
+    if ((dicdlg.get("dwgexport") or dicdlg.get("superdwg") or dicdlg.get("dxfexport"))
             and setup_name and setup_name != _DWG_SETUP_ACTIVE
             and _find_dwg_setup(doc, setup_name) is None):
         ctx.add(None, "DWG/DXF", "export setup '{0}' is not in this model - "
                 "used the project's active setup instead".format(setup_name))
-    if dicdlg.get("dwgexport"):
+    if dicdlg.get("dwgexport") or dicdlg.get("superdwg"):
         dwg_options = _get_dwg_options(doc, setup_name)
         if dwg_options is None:
             ctx.add(False, "DWG", "no DWG Export Setting in this project")
@@ -1664,6 +1774,7 @@ def main():
     do_pdf = bool(dicdlg.get("pdfexport"))
     combined_pdf = bool(dicdlg.get("combinedpdf"))
     do_dwg = bool(dicdlg.get("dwgexport"))
+    do_super = bool(dicdlg.get("superdwg"))
     do_dxf = bool(dicdlg.get("dxfexport"))
     pdf_engine = dicdlg.get("pdfengine", _ENGINE_NATIVE)
     printer_name = dicdlg.get("printername", "")
@@ -1672,8 +1783,8 @@ def main():
     base_folder = dicdlg.get("printfilepath")
     to_acc = bool(dicdlg.get("output_acc"))
 
-    if not do_pdf and not combined_pdf and not do_dwg and not do_dxf:
-        forms.alert("Nothing to export - check Export PDF, Combined PDF, DWG, and/or DXF.")
+    if not do_pdf and not combined_pdf and not do_dwg and not do_super and not do_dxf:
+        forms.alert("Nothing to export - check Export PDF, Combined PDF, DWG, Super DWG, and/or DXF.")
         return
     if not sheets_to_export:
         forms.alert("No sheets were checked.")
@@ -1687,12 +1798,12 @@ def main():
         return
 
     dwg_options = None
-    if do_dwg:
+    if do_dwg or do_super:
         dwg_options = _get_dwg_options(doc, dicdlg.get("dwgsetup"))
         if dwg_options is None:
             forms.alert(
                 "No DWG Export Setting found in this project - DWG "
-                "export will be skipped for all sheets.")
+                "and Super DWG export will be skipped for all sheets.")
 
     uploader = None
     if to_acc:

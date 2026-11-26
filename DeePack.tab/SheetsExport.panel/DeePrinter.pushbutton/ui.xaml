@@ -299,6 +299,16 @@
                                         <TextBlock Text="Export DWG" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </CheckBox>
+                                <CheckBox x:Name="chbox_superdwg" Margin="0,5,12,5" IsChecked="False" VerticalContentAlignment="Center"
+                                          ToolTip="ONE self-contained DWG per sheet. A normal DWG only links to images (title block logo, pictures) and leaves them as loose files beside it. Super DWG opens the exported drawing in AutoCAD's background engine (no window) and redraws each image as solid colour fills inside the drawing - same place, size, rotation and layer - then binds any external references and saves one .dwg that carries everything. The picture becomes drawing geometry, not an editable picture: transparent areas stay transparent, a big photograph is simplified, and the file grows with the picture's detail. Needs full AutoCAD (not AutoCAD LT) installed on this PC. Uses the DWG / DXF Export Setup below. Written to the 'Super DWG' folder when Split by file type is on; if Export DWG is also ticked and the folders are shared, the Super file gets a _Super suffix.">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Background="#6A1B9A" CornerRadius="3" Width="44" Height="16" Margin="0,0,5,0">
+                                            <TextBlock Text="SUPER" Foreground="White" FontSize="9" FontWeight="Bold"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock Text="Super DWG" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </CheckBox>
                                 <CheckBox x:Name="chbox_dxfexport" Margin="0,5,10,5" IsChecked="False" VerticalContentAlignment="Center">
                                     <StackPanel Orientation="Horizontal">
                                         <Border Background="#2E7D32" CornerRadius="3" Width="32" Height="16" Margin="0,0,5,0">
@@ -311,7 +321,7 @@
                             </WrapPanel>
                             <CheckBox x:Name="chbox_splitbyext" Margin="0,6,0,0" IsChecked="False"
                                       ToolTip="Each format gets its own folder directly under the Output Folder (e.g. ...\PDF\... and ...\DWG\...). The Folder Structure hierarchy is repeated inside each format folder.">
-                                <TextBlock Text="Split by file type (PDF / DWG / DXF top-level folders)"
+                                <TextBlock Text="Split by file type (PDF / DWG / Super DWG / DXF top-level folders)"
                                            TextWrapping="Wrap" MaxWidth="260"/>
                             </CheckBox>
                         </StackPanel>

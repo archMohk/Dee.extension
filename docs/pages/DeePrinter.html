@@ -29,6 +29,7 @@
       <li>Pick an Output Folder.</li>
       <li>Check Export PDF/DWG/DXF as needed. For DWG and DXF, pick which of the project's saved export setups to use in the DWG / DXF Export Setup box (the default follows the project's active setup). DWG is always exported merged into one file per sheet; DXF follows the setup's own "Export views on sheets and links as external references" checkbox, so untick it in the setup if DXF comes out as separate xref files.</li>
       <li>Optional: tick "Keep each sheet's images with its DWG/DXF in its own folder". A DWG cannot hold images, so Revit writes logos and pictures as loose files next to it; with this on, a sheet that has images is exported into its own folder (<code>name\name.dwg</code> plus its images) and the image links keep working. Sheets without images export as before.</li>
+      <li>Optional: tick <b>Super DWG</b> (beside Export DWG) to get ONE self-contained .dwg per sheet. A normal DWG only links to images, so Revit leaves them as loose files beside it. Super DWG opens the exported drawing in AutoCAD's background engine (no window), redraws each image as solid-colour fills inside the drawing &ndash; same place, size, rotation and layer &ndash; removes the link, binds any external references and saves a single file. It can be ticked together with Export DWG; the normal DWG is unchanged.</li>
       <li>Run Export Selected.</li>
     </ol>
   </div>
@@ -37,6 +38,8 @@
     <h2>Before you run it</h2>
     <ul>
       <li>Characters not allowed in filenames are stripped automatically, so previewing the name/path first is the fastest way to confirm it'll look right.</li>
+      <li>Super DWG needs full AutoCAD (not AutoCAD LT) installed on the PC doing the export; without it the box is greyed out. AutoCAD runs in the background (no window), once per run for a handful of sheets at a time. A picture becomes drawing geometry (coloured fills), not an editable picture: it travels with the file and prints the same, transparent areas stay transparent, and the file grows with the picture's detail &ndash; a large photograph is simplified to keep the file light. A sheet with no images skips AutoCAD entirely. If an image cannot be embedded (its file is missing, it is cropped to part of the picture, or it sits inside a block), that sheet's normal DWG and its images are kept together in a folder named after the sheet, and the result says why.</li>
+      <li>With Split by file type on, Super DWG files go to a <code>Super DWG</code> folder. If Export DWG is also ticked and the folders are shared, the Super file gets a <code>_Super</code> suffix so it never overwrites the normal DWG.</li>
     </ul>
   </div>
 
